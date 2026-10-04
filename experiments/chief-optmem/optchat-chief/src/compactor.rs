@@ -12,10 +12,15 @@
 //! agent's), turns off auto-memory, CLAUDE.md files, bundled skills and
 //! Claude Code's own refusal fallback. The session's cwd is a slot
 //! directory under the system temporary directory, outside any directory
-//! with instruction files. The request maps onto the session's prompts: the
-//! system text, the context pieces and the step as one prompt, each size
-//! loop retry as the next prompt in the same session, the reply text as the
-//! line. `end` (after the node is built or failed) kills the session with
+//! with instruction files. The request maps onto the session's prompts.
+//! When acpmux installed the preset with its args (a Claude harness, an
+//! acpmux with preset `args`), the cached layout: the system text plus the
+//! context up to the first cache mark is the session's system prompt file,
+//! and the first prompt is the rest of the context with one `cache_control`
+//! marker at the last mark, then the step (`cached_prompt`). Otherwise the
+//! old layout: the system text, the context pieces and the step as one
+//! prompt. Each size loop retry is the next prompt in the same session, the
+//! reply text the line. `end` (after the node is built or failed) kills the session with
 //! purge, deletes its Claude Code transcript and logs its seconds and token
 //! use. At most JOBS sessions live at once across the main and fallback
 //! compactors (one `Slots` gate).
@@ -23,7 +28,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -190,6 +195,9 @@ pub struct AcpmuxCompactor {
     prompts: AtomicU64,
     /// Makes prompt ids unique across host starts (acpmux runs an id once).
     stamp: u64,
+    /// Claude Code refused the node's cache marker (it placed a fourth
+    /// breakpoint of its own): later nodes go without it.
+    marker_refused: AtomicBool,
     log: Option<Log>,
 }
 
@@ -208,6 +216,7 @@ impl AcpmuxCompactor {
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
+            marker_refused: AtomicBool::new(false),
             log: None,
         }
     }
@@ -246,10 +255,14 @@ impl AcpmuxCompactor {
         std::fs::canonicalize(&dir)
     }
 
-    /// Opens the node's session (a slot first, so at most JOBS live).
-    fn open(&self, node: NodeId) -> Result<String, ModelError> {
+    /// Opens the node's session (a slot first, so at most JOBS live), with
+    /// `system` as its system prompt file in the cached layout.
+    fn open(&self, node: NodeId, system: Option<&str>) -> Result<String, ModelError> {
         let slot = self.slots.take();
-        let cwd = match self.slot_dir(slot) {
+        let cwd = match self
+            .slot_dir(slot)
+            .and_then(|cwd| write_system(&cwd, system).map(|()| cwd))
+        {
             Ok(cwd) => cwd,
             Err(e) => {
                 self.slots.give(slot);
@@ -414,6 +427,38 @@ impl AcpmuxCompactor {
     }
 }
 
+impl AcpmuxCompactor {
+    /// A node's first prompt in the cached layout (when the preset carries
+    /// its args): the system prompt file, one marker, and one retry without
+    /// the marker when Claude Code's own breakpoints leave no room for it.
+    fn first_cached(&self, request: &CompactRequest) -> Result<Reply, ModelError> {
+        let node = request.node;
+        let marker = !self.marker_refused.load(Ordering::SeqCst);
+        let layout = cached_prompt(request, marker);
+        let session = self.open(node, Some(&layout.system))?;
+        let has_marker = layout
+            .blocks
+            .iter()
+            .any(|b| b.get("cache_control").is_some());
+        match self.prompt(node, &session, layout.blocks) {
+            Err(e) if has_marker && is_marker_limit_error(&e.message) => {
+                self.marker_refused.store(true, Ordering::SeqCst);
+                self.say(&format!(
+                    "compactor node {}: Claude Code refused the cache_control marker ({}); retrying without it, and later nodes go without it",
+                    node.name(),
+                    e.message
+                ));
+                // A fresh session: the refused prompt may sit in the old one's history.
+                self.end(request);
+                let layout = cached_prompt(request, false);
+                let session = self.open(node, Some(&layout.system))?;
+                self.prompt(node, &session, layout.blocks)
+            }
+            other => other,
+        }
+    }
+}
+
 impl CompactModel for AcpmuxCompactor {
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
         let node = request.node;
@@ -421,7 +466,10 @@ impl CompactModel for AcpmuxCompactor {
             None => {
                 // A fresh conversation: whatever an earlier try left is gone.
                 self.end(request);
-                (self.open(node)?, request_blocks(request))
+                if self.port.preset_args(&self.spec.preset) {
+                    return self.first_cached(request);
+                }
+                (self.open(node, None)?, request_blocks(request))
             }
             Some(last) => {
                 let session = self
@@ -443,8 +491,10 @@ impl CompactModel for AcpmuxCompactor {
         };
         // Purged: a node's session holds the chat's text, and nothing reads it again.
         let _ = self.port.end_session(&live.id);
-        // So is Claude Code's own transcript of it (the whole view, each time).
+        // So is Claude Code's own transcript of it (the whole view, each time),
+        // and the system prompt file (the view's first piece).
         self.delete_transcript(&live.cwd);
+        let _ = write_system(&live.cwd, None);
         self.slots.give(live.slot);
         let tokens = match live.usage {
             Some(u) => format!(
@@ -473,6 +523,26 @@ fn private_dir(dir: &Path) -> io::Result<()> {
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
 
+/// Writes the slot's system prompt file (0600), or removes it for None.
+fn write_system(cwd: &Path, system: Option<&str>) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = cwd.join(SYSTEM_FILE);
+    let Some(text) = system else {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)?;
+    file.write_all(text.as_bytes())
+}
+
 fn text_block(text: &str) -> Value {
     json!({"type": "text", "text": text})
 }
@@ -492,23 +562,75 @@ pub fn request_blocks(request: &CompactRequest) -> Vec<Value> {
     blocks
 }
 
+/// The compactor session's system prompt file in its slot directory, which
+/// the preset's `--system-prompt-file ${cwd}/system.md` names.
 pub const SYSTEM_FILE: &str = "system.md";
-pub const COMPACTOR_ARGS: [&str; 6] = ["", "", "", "", "", ""];
 
+/// The compactor preset's harness arguments on a Claude harness (acpmux
+/// preset `args`, one argv word each, no shell; acpmux expands `${cwd}` to
+/// the session's absolute cwd, the slot directory). The system prompt file
+/// replaces Claude Code's default prompt, whose cwd and date lines kept one
+/// node's cache from the next; no tools, no MCP servers, no transcript.
+/// Claude Code resolves a relative `--system-prompt-file` against its cwd
+/// (checked live, 2.1.287); the expanded path is absolute anyway.
+pub const COMPACTOR_ARGS: [&str; 6] = [
+    "--system-prompt-file",
+    "${cwd}/system.md",
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+];
+
+/// A node's first prompt in the cached layout: the session's system prompt
+/// (the file's text) and the user blocks.
+#[derive(Clone, Debug, PartialEq)]
 pub struct CachedPrompt {
     pub system: String,
     pub blocks: Vec<Value>,
 }
 
-pub fn cached_prompt(request: &CompactRequest, _marker: bool) -> CachedPrompt {
+/// The cached layout (README, Compactor cache): the system text plus the
+/// context up to its first cache mark (50k) as the system prompt; the rest
+/// of the context as one block per piece, the piece that ends at the last
+/// mark (100k, else the last that exists past the first) carrying the one
+/// `cache_control` marker when `marker`; then the step. Claude Code puts its
+/// own breakpoints on the system prompt and the last block (three of the
+/// API's four), so one marker is all a node may add.
+pub fn cached_prompt(request: &CompactRequest, marker: bool) -> CachedPrompt {
+    let context = request.context.as_str();
+    let marks = optchat_core::cache_marks(context);
+    let Some(&first) = marks.first() else {
+        return CachedPrompt {
+            system: request.system.clone(),
+            blocks: vec![text_block(context), text_block(&request.step)],
+        };
+    };
+    let mut cuts = marks.clone();
+    cuts.push(context.len());
+    let mut blocks: Vec<Value> = cuts
+        .windows(2)
+        .map(|w| text_block(&context[w[0]..w[1]]))
+        .collect();
+    // The pieces after the first mark: the one ending at the last mark is
+    // the second to last block (the last piece runs to the end).
+    if marker && marks.len() >= 2 {
+        let at = blocks.len() - 2;
+        blocks[at]["cache_control"] = json!({"type": "ephemeral"});
+    }
+    blocks.push(text_block(&request.step));
     CachedPrompt {
-        system: request.system.clone(),
-        blocks: request_blocks(request)[1..].to_vec(),
+        system: format!("{}\n\n{}", request.system, &context[..first]),
+        blocks,
     }
 }
 
-pub fn is_marker_limit_error(_message: &str) -> bool {
-    false
+/// Whether a failed turn's error is the API's limit of four cache
+/// breakpoints ("A maximum of 4 blocks with cache_control may be provided.
+/// Found 5."): a Claude Code that places a fourth one of its own.
+pub fn is_marker_limit_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("cache_control") && (lower.contains("maximum") || lower.contains("too many"))
 }
 
 /// Whether a failed Claude turn's error text is a refusal: Claude Code's
@@ -674,11 +796,18 @@ pub fn compactor_preset(paths: &Paths, home: &Path, harness: &str) -> Preset {
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
+    // The cached layout's arguments are Claude Code flags: a Claude harness
+    // only (claude, claude-sr, ...); another harness keeps the old layout.
+    let args = if harness.starts_with("claude") {
+        COMPACTOR_ARGS.iter().map(|a| (*a).to_owned()).collect()
+    } else {
+        Vec::new()
+    };
     Preset {
         name: format!("optchat-compact-{}", home_id(home)),
         harness: harness.to_owned(),
         env,
-        args: Vec::new(),
+        args,
     }
 }
 

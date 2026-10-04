@@ -13,9 +13,9 @@ use std::time::Duration;
 use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::compactor::{
-    AcpmuxCompactor, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY, Slots, compact_route,
-    compactor_preset, compactor_settings, compactor_spec, is_refusal_error, probe_models,
-    COMPACTOR_ARGS, SYSTEM_FILE, cached_prompt, is_marker_limit_error, project_dir_name,
+    AcpmuxCompactor, COMPACTOR_ARGS, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY,
+    SYSTEM_FILE, Slots, cached_prompt, compact_route, compactor_preset, compactor_settings,
+    compactor_spec, is_marker_limit_error, is_refusal_error, probe_models, project_dir_name,
     request_blocks, strip_preamble,
 };
 use optchat_chief::paths::Paths;
@@ -688,7 +688,9 @@ fn with_preset_args_the_view_head_is_the_system_prompt_and_one_marker_sits_at_10
     assert_eq!(run_node(&compactor, &r).unwrap(), "user: a line");
     let inner = agents.inner.lock().unwrap();
     // The session's system prompt file: system text, then view[..50k].
-    let system = inner.systems[0].clone().expect("system.md written before the session");
+    let system = inner.systems[0]
+        .clone()
+        .expect("system.md written before the session");
     assert_eq!(system, format!("SYS\n\n{}", &context[..marks[0]]));
     let blocks = &inner.prompts[0];
     let t = texts(blocks);
@@ -696,12 +698,19 @@ fn with_preset_args_the_view_head_is_the_system_prompt_and_one_marker_sits_at_10
     assert_eq!(t[..3].concat(), context[marks[0]..]);
     assert_eq!(t[1].len() + t[0].len(), marks[2] - marks[0]);
     assert_eq!(t[3], "STEP 0");
-    assert_eq!(markers(blocks), vec![1], "one marker, on the piece that ends at 100k");
+    assert_eq!(
+        markers(blocks),
+        vec![1],
+        "one marker, on the piece that ends at 100k"
+    );
     assert_eq!(blocks[1]["cache_control"], json!({"type": "ephemeral"}));
     // The file holds the chat's text: gone with the node.
     let slot = inner.specs[0].cwd.clone();
     drop(inner);
-    assert!(!slot.join(SYSTEM_FILE).exists(), "system.md removed when the node ends");
+    assert!(
+        !slot.join(SYSTEM_FILE).exists(),
+        "system.md removed when the node ends"
+    );
 }
 
 #[test]
@@ -728,7 +737,10 @@ fn the_marker_sits_at_the_last_mark_that_exists() {
     // No mark: the system prompt is the system text alone.
     let p = cached_prompt(&request(0), true);
     assert_eq!(p.system, "SYS");
-    assert_eq!(texts(&p.blocks), vec!["<chat>\nuser: hi\n</chat>", "STEP 0"]);
+    assert_eq!(
+        texts(&p.blocks),
+        vec!["<chat>\nuser: hi\n</chat>", "STEP 0"]
+    );
     // Without the marker the blocks are the same text.
     let r = CompactRequest {
         context: chat_of(1_100),
@@ -753,8 +765,9 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
     }
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = lines.clone();
-    let compactor = compactor(&agents, dir.path())
-        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
+    let compactor = compactor(&agents, dir.path()).with_log(Arc::new(move |l: &str| {
+        sink.lock().unwrap().push(l.to_owned())
+    }));
     let r = CompactRequest {
         context: chat_of(1_100),
         ..request(0)
@@ -772,7 +785,11 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
     }
     compactor.end(&r);
     assert!(
-        lines.lock().unwrap().iter().any(|l| l.contains("cache_control") && l.contains("without")),
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("cache_control") && l.contains("without")),
         "{:?}",
         lines.lock().unwrap()
     );

@@ -125,6 +125,8 @@ pub struct Acpmux {
     required: Vec<Preset>,
     /// Presets installed in the connected daemon.
     ready: Mutex<HashSet<String>>,
+    /// Presets installed with their `args` (the daemon knows the key).
+    with_args: Mutex<HashSet<String>>,
 }
 
 impl Acpmux {
@@ -136,22 +138,48 @@ impl Acpmux {
             preset,
             required,
             ready: Mutex::new(HashSet::new()),
+            with_args: Mutex::new(HashSet::new()),
         })
     }
 
     /// Installs (or refreshes) every preset; acpmux saves them in its config.
     fn install_presets(&self, client: &RpcClient, log: &dyn Fn(&str)) {
         let mut ready = HashSet::new();
+        let mut with_args = HashSet::new();
         let all = self.preset.iter().map(|p| (p, false));
         for (preset, required) in all.chain(self.required.iter().map(|p| (p, true))) {
-            let set = json!({
+            let mut set = json!({
                 "harness": preset.harness,
                 "env": preset.env,
                 "description": "optchat-chief: an isolated Claude Code configuration",
             });
-            match client.request("_acpmux/presets", json!({"name": preset.name, "set": set})) {
+            if !preset.args.is_empty() {
+                set["args"] = json!(preset.args);
+            }
+            let mut result =
+                client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
+            let mut args = !preset.args.is_empty();
+            // An acpmux from before preset args refuses the key: install the
+            // preset without them, and its users keep their layout without.
+            if args
+                && let Err(e) = &result
+                && e.to_string().contains("args")
+            {
+                log(&format!(
+                    "acpmux refused the args of preset {} ({e}); installed without them",
+                    preset.name
+                ));
+                set.as_object_mut().expect("object").remove("args");
+                result =
+                    client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
+                args = false;
+            }
+            match result {
                 Ok(_) => {
                     ready.insert(preset.name.clone());
+                    if args {
+                        with_args.insert(preset.name.clone());
+                    }
                 }
                 Err(e) if required => log(&format!(
                     "acpmux preset {} not installed ({e}); sessions that require it do not start",
@@ -164,6 +192,7 @@ impl Acpmux {
             }
         }
         *self.ready.lock().expect("ready") = ready;
+        *self.with_args.lock().expect("with_args") = with_args;
     }
 
     fn client(&self) -> Result<Arc<RpcClient>, String> {
@@ -449,5 +478,9 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn preset_args(&self, preset: &str) -> bool {
+        self.with_args.lock().expect("with_args").contains(preset)
     }
 }
