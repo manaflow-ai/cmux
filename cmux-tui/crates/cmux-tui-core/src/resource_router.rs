@@ -8,11 +8,14 @@ mod content;
 mod effects;
 mod mouse;
 mod owner;
+mod revision_conflict;
 mod session;
 mod topology;
 
 pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};
+pub(crate) use revision_conflict::is_revision_conflict;
+use revision_conflict::revision_conflict_values;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -1430,13 +1433,8 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
             return ResourceError::idempotency_conflict(key, operation);
         }
     }
-    if let Some(conflict) = message.strip_prefix("resource revision conflict: expected ") {
-        let mut values = conflict.split(", current ");
-        if let (Some(expected), Some(actual)) = (values.next(), values.next())
-            && let (Ok(expected), Ok(actual)) = (expected.parse(), actual.parse())
-        {
-            return ResourceError::revision_conflict(expected, actual);
-        }
+    if let Some((expected, actual)) = revision_conflict_values(&message) {
+        return ResourceError::revision_conflict(expected, actual);
     }
     ResourceError::operation_failed("resource.runtime", message, json!({}))
 }

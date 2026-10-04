@@ -38,11 +38,8 @@ impl Mux {
                 expected_resource_revision,
                 &WorkspaceMutation::local("cmux-tui-layout-undo"),
             );
-            let conflict = result.as_ref().err().is_some_and(|error| {
-                error
-                    .downcast_ref::<ResourceError>()
-                    .is_some_and(|error| error.code == "revision.conflict")
-            });
+            let conflict =
+                result.as_ref().err().is_some_and(crate::resource_router::is_revision_conflict);
             if conflict && attempts < LAYOUT_UNDO_COMMIT_ATTEMPTS {
                 continue;
             }
