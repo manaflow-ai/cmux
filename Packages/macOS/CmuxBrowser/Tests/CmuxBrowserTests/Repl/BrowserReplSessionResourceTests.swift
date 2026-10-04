@@ -278,6 +278,39 @@ struct BrowserReplSessionResourceTests {
         #expect(lines.contains { $0.text.contains("dropped") }, "\(lines.suffix(3).map(\.text))")
     }
 
+    /// A page controls its events (console messages, errors, requests),
+    /// and they queue for the session's thread while it is busy. They are
+    /// bounded where they arrive, by count and bytes, not only once they
+    /// wait for the callback budget, so a page cannot fill memory with them.
+    @Test("Page events queued for a busy session are bounded by bytes where they arrive")
+    func queuedPageEventsAreBounded() async throws {
+        let driver = RecordingReplDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.__cmuxHostOnEvent = (name, payload) => { globalThis.eventCount = (globalThis.eventCount || 0) + 1; };
+        """#
+        let session = BrowserReplSession(
+            id: "events-\(UUID().uuidString)",
+            cwd: FileManager.default.temporaryDirectory.path,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        // The first cell makes the context and attaches the driver's events.
+        #expect(await session.evaluate(code: "globalThis.eventCount = 0;").error == nil)
+
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        let payload = "\"" + String(repeating: "x", count: 1 << 20) + "\""
+        for _ in 0..<100 { driver.emit("console", payload) }
+        busy.signal()
+
+        let result = await session.evaluate(code: "console.log(globalThis.eventCount);")
+        let texts = result.lines.map(\.text)
+        let delivered = Int(texts.last ?? "") ?? -1
+        #expect(delivered >= 1 && delivered <= 64, "\(delivered) of 100 one-MiB events were queued: \(texts)")
+        #expect(texts.contains { $0.contains("page events were dropped") }, "\(texts)")
+    }
+
     @Test("A cell that times out cancels the fetches it started")
     func timeoutCancelsTheCellsFetches() async {
         let driver = HeldCookiesDriver()
