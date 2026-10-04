@@ -60,27 +60,59 @@ extension WindowOverlayHost {
     /// on to the parent window, and the panel lets go of the mouse.
     func panelMouseEvent(_ event: NSEvent) -> Bool {
         switch event.type {
-        case .mouseMoved, .mouseEntered, .mouseExited, .leftMouseDragged, .rightMouseDragged:
-            routeMouse(at: NSEvent.mouseLocation)
-            return false
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             let point = event.locationInWindow
             guard !isAppHost, !acceptsMouse(at: point), let window else { return false }
             panel.ignoresMouseEvents = true
-            // The window under the click: a page window there, else the parent.
-            let screen = panel.convertPoint(toScreen: point)
-            let target = (window.childWindows ?? []).reversed().first {
-                Self.isPageWindow($0) && $0.isVisible && $0.frame.contains(screen)
-            } ?? window
-            if let forwarded = NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
-                                                  modifierFlags: event.modifierFlags, timestamp: event.timestamp,
-                                                  windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
-                                                  clickCount: event.clickCount, pressure: event.pressure) {
-                target.sendEvent(forwarded)
-            }
+            // The rest of this click (drags and the up) still comes to the
+            // panel, which got the down: it goes to the same target.
+            forwardTarget = forwardingTarget(for: panel.convertPoint(toScreen: point), in: window)
+            forward(event)
             return true
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            guard forwardTarget != nil else {
+                routeMouse(at: NSEvent.mouseLocation)
+                return false
+            }
+            forward(event)
+            return true
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            guard forwardTarget != nil else { return false }
+            forward(event)
+            forwardTarget = nil
+            return true
+        case .mouseMoved, .mouseEntered, .mouseExited:
+            routeMouse(at: NSEvent.mouseLocation)
+            return false
         default:
             return false
+        }
+    }
+
+    /// The window under a click outside every interactive region: the
+    /// window itself over an occluder (the sidebar, where page frames run
+    /// under it), else the frontmost page window there, else the window.
+    func forwardingTarget(for screenPoint: NSPoint, in window: NSWindow) -> NSWindow {
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        if occluderRects.contains(where: { $0.contains(windowPoint) }) { return window }
+        let pages = (window.childWindows ?? []).filter { Self.isPageWindow($0) && $0.isVisible && $0.frame.contains(screenPoint) }
+        guard pages.count > 1 else { return pages.first ?? window }
+        // Front to back (child order is add order, not z-order).
+        let order = NSWindow.windowNumbers(options: []) ?? []
+        return pages.min { (order.firstIndex(of: $0.windowNumber) ?? .max) < (order.firstIndex(of: $1.windowNumber) ?? .max) } ?? window
+    }
+
+    /// Sends `event` to `forwardTarget` in that window's coordinates. It runs
+    /// inside the panel's sendEvent, so NSApp.currentEvent is still the
+    /// panel's event and local monitors do not see the forwarded copy.
+    func forward(_ event: NSEvent) {
+        guard let target = forwardTarget else { return }
+        let screen = panel.convertPoint(toScreen: event.locationInWindow)
+        if let forwarded = NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
+                                              modifierFlags: event.modifierFlags, timestamp: event.timestamp,
+                                              windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
+                                              clickCount: event.clickCount, pressure: event.pressure) {
+            target.sendEvent(forwarded)
         }
     }
 

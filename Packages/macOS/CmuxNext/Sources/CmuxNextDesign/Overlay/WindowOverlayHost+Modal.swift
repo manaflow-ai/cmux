@@ -9,7 +9,22 @@ extension WindowOverlayHost {
     func beginModal(_ handle: OverlayHandle) {
         if !handles.dropLast().contains(where: { $0.options.isModal }) {
             restoreWindow = NSApp.keyWindow ?? window
-            restoreResponder = (NSApp.keyWindow ?? window)?.firstResponder
+            // A field editor stands in for its text field: keep the field (the editor moves between fields).
+            let responder = (NSApp.keyWindow ?? window)?.firstResponder
+            if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSResponder {
+                restoreResponder = field
+            } else {
+                restoreResponder = responder
+            }
+            focusMoved = false
+            keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
+                                                                 queue: nil) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    // The overlay taking the keyboard back cancels a move; any other window is a move.
+                    self.focusMoved = (note.object as? NSWindow) !== self.panel
+                }
+            }
         }
         panel.acceptsKey = true
         // Tab and Shift-Tab cycle through this overlay's controls only.
@@ -29,11 +44,13 @@ extension WindowOverlayHost {
             }
             return
         }
-        let panelWasKey = panel.isKeyWindow
         panel.acceptsKey = false
-        // Give the keyboard back only when the overlay still had it: after
-        // the person clicked into the window and moved on, focus stays there.
-        guard !isTearingDown, panelWasKey else {
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = nil
+        // Give the keyboard back only when no other window took it while the
+        // overlay showed: after the person clicked into the window and moved
+        // on (or another app was used), focus stays where it went.
+        guard !isTearingDown, !focusMoved else {
             restoreWindow = nil
             restoreResponder = nil
             return

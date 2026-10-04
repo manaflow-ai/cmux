@@ -25,6 +25,16 @@ public extension WindowOverlayHost {
         }
         handles.append(handle)
         cachedRegions = nil
+        // A content that grows or shrinks on its own (a SwiftUI popover) changes the regions.
+        content.postsFrameChangedNotifications = true
+        handle.frameObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: content, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cachedRegions = nil
+                self?.updateMouseRouting()
+            }
+        }
         syncPanel()
         layout(handle)
         if options.isModal { beginModal(handle) }
@@ -107,6 +117,8 @@ extension WindowOverlayHost {
     func remove(_ handle: OverlayHandle) {
         handles.removeAll { $0 === handle }
         cachedRegions = nil
+        if let observer = handle.frameObserver { NotificationCenter.default.removeObserver(observer) }
+        handle.frameObserver = nil
         handle.content.removeFromSuperview()
         handle.clipView?.removeFromSuperview()
         handle.clipView = nil

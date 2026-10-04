@@ -52,8 +52,13 @@ public final class WindowOverlayHost {
     var escapeMonitor: Any?
     /// Rects in window coordinates that sit above `.pane` overlays and pages (the sidebar), by id.
     var occluders: [String: NSRect] = [:]
-    /// `interactiveRegions()`, rebuilt on present, layout, dismiss and occluder changes.
+    /// `interactiveRegions()`, rebuilt on present, layout, dismiss, occluder and content frame changes.
     var cachedRegions: [NSRect]?
+    /// The window that gets the rest of a click the panel passed on.
+    weak var forwardTarget: NSWindow?
+    /// Another window became key while a modal showed: dismissing it leaves the keyboard there.
+    var focusMoved = false
+    var keyObserver: (any NSObjectProtocol)?
     /// Called when an occluder changed (the window layer re-masks its pages).
     public var onOccludersChange: (() -> Void)?
 
@@ -150,6 +155,8 @@ public final class WindowOverlayHost {
         observers.removeAll()
         removeMouseMonitor()
         updateEscapeMonitor()
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = nil
         stopObservingWindow()
         if let window {
             if panel.parent === window { window.removeChildWindow(panel) }
