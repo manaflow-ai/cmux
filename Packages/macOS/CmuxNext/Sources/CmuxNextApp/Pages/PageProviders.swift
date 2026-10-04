@@ -6,9 +6,9 @@ import CmuxNextSettings
 import Foundation
 
 /// The app's native UI ops for React pages (plans/cmux-next/react-pages.md 1.3):
-/// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `user` (the
-/// page is a user surface; the action's own rules, such as destructive confirmation, still
-/// apply), and `cmux.app.clipboard.write` writes the pasteboard.
+/// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `page` (never
+/// `user` unless a native sheet confirmed it, so rules such as destructive confirmation still
+/// ask), and `cmux.app.clipboard.write` writes the pasteboard.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
     private unowned let services: AppServices
@@ -40,8 +40,10 @@ final class AppPageNativeProvider: PageProvider {
                 guard let parsed = ActionTargetRef(parsing: text) else { throw PageError.invalidParams("target must be kind:id") }
                 target = parsed
             }
+            // A page control is not the user's own gesture (origin `page`): rules that need the user
+            // (destructive confirmation) still ask. The click may change the view it was made in.
             let invocation = ActionInvocation(target: target, arguments: Self.arguments(params["args"], for: services.registry.descriptor(for: id)),
-                                              origin: .user)
+                                              origin: context.isConfirmedUser ? .user : .page, focusRequested: true)
             return ["ran": .bool(services.registry.perform(id, invocation: invocation))]
         case PageNativeOp.clipboardWrite:
             guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
@@ -98,14 +100,16 @@ final class DaemonPageRelay: PageProvider {
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op.hasPrefix("cmux.") else { throw PageError.unknownOp(op) }
-        guard let connection = services.machines.local.connection else {
+        guard services.machines.local.connection != nil else {
             throw PageError.closed
         }
         var members = params.objectValue ?? [:]
         let key = members.removeValue(forKey: "idempotency_key")?.stringValue
         do {
-            let result = try await ResourceRelayClient(connection: connection).send(
-                operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key)
+            // The page relay connection: origin `page`, or the user with a native-sheet token.
+            let result = try await PageRelayChannel.shared(for: services.machines.local).send(
+                operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
+                context: context)
             return try Self.pageValue(result)
         } catch let error as DaemonError {
             throw Self.pageError(error)

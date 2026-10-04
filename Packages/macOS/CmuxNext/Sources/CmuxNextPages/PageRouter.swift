@@ -8,7 +8,8 @@ public import Foundation
 ///
 /// Rules every page gets here, so no provider repeats them:
 /// - only ops and streams the descriptor admits reach a provider; the rest is `unknown_op`;
-/// - params must be an object; an `origin` the page sends is refused (the host stamps `user`);
+/// - params must be an object; an `origin` or a confirmation the page sends is refused (the host
+///   stamps `page`; only a native confirmation sheet makes a call the user's);
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
 @MainActor
 public final class PageRouter {
@@ -124,7 +125,9 @@ public final class PageRouter {
             throw PageError.unknownOp(op)
         }
         guard case .object(let members) = params else { throw PageError.invalidParams("params must be an object") }
-        guard members["origin"] == nil else { throw PageError.invalidParams("origin is set by the host") }
+        for reserved in ["origin", "confirmed", "confirmation"] where members[reserved] != nil {
+            throw PageError.invalidParams("\(reserved) is set by the host")
+        }
         return (route.provider, params)
     }
 
