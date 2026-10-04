@@ -109,7 +109,7 @@ function ProviderItem({
           <button
             type="button"
             className={`cr-button${linked ? "" : " primary"}`}
-            onClick={() => void store.connect(row.provider)}
+            onClick={() => void store.connect(row.provider, row.name)}
           >
             {t("action.connect")}
           </button>

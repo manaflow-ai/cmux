@@ -132,10 +132,11 @@ public extension PageDescriptor {
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
-    /// the page runs only the four account actions (each keeps its own native sheets and prompts).
+    /// the page runs only three account actions. Connect adds a credential, so it is the host op
+    /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
     static let coderouter = PageDescriptor(
         id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["palette.auth.signIn", "accounts.connect", "accounts.reauthenticate", "accounts.refresh"])
+        actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

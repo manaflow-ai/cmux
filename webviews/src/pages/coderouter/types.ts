@@ -48,6 +48,8 @@ export const CodeRouterOps = {
   status: "cmux.coderouter.status",
   detect: "cmux.coderouter.detect",
   keys: "cmux.coderouter.keys.list",
+  /** Sends a local sign-in to CodeRouter; the host shows its native sheet first. */
+  connect: "cmux.coderouter.accounts.connect",
   /** Native UI op: runs one of the page's allowed registry actions as the user. */
   actionRun: "cmux.app.action.run",
 } as const;
@@ -55,7 +57,6 @@ export const CodeRouterOps = {
 /** The registry actions the page runs (the host's allowlist for cmux.coderouter). */
 export const CodeRouterActions = {
   signIn: "palette.auth.signIn",
-  connect: "accounts.connect",
   reauthenticate: "accounts.reauthenticate",
   refresh: "accounts.refresh",
 } as const;

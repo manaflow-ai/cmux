@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -49,10 +50,17 @@ struct PageFactory {
             }
             return try await AppOperationRouter.control(router, method, params)
         })
+        let registry = services.registry
+        let provider = CodeRouterPageProvider(ops: ops, connect: { id in
+            registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
+        })
+        let confirming = ConfirmingPageProvider(inner: provider, presenter: AlertPageConfirmationPresenter()) { op, params in
+            CodeRouterPageConfirmations.confirmation(op: op, params: params)
+        }
         let native = AppPageNativeProvider(services: services, page: .coderouter)
-        let routes = [PageRoute(prefix: "cmux.coderouter.", provider: CodeRouterPageProvider(ops: ops)),
-                      PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.coderouter.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .coderouter, routes: routes) else { return nil }
+        confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         return page
     }

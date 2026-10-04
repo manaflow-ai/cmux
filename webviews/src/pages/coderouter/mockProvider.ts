@@ -34,6 +34,8 @@ export class MockCodeRouterProvider implements PageClient {
       }
       case CodeRouterOps.detect:
         return { providers: this.providers } as R;
+      case CodeRouterOps.connect:
+        return { connected: true } as R;
       case CodeRouterOps.actionRun: {
         const action = String(params.action ?? "");
         if (action === CodeRouterActions.signIn) {

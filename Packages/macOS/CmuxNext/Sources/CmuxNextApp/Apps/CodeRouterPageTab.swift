@@ -19,7 +19,7 @@ final class CodeRouterPageTab: InternalPageProvider {
     }
 
     var page: InternalPageID { .coderouter }
-    var title: String { "CodeRouter" }
+    var title: String { CodeRouterPageStrings.title }
     var symbol: String { "arrow.triangle.branch" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {

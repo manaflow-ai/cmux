@@ -115,8 +115,16 @@ export class CodeRouterStore {
     return this.run(CodeRouterActions.signIn, {});
   }
 
-  connect(provider: string): Promise<void> {
-    return this.run(CodeRouterActions.connect, { provider });
+  /** Connect adds a credential: the host op behind the host's native sheet, not a plain action. */
+  async connect(provider: string, name: string): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(CodeRouterOps.connect, { provider, name });
+    } catch (error) {
+      if (!(isPageError(error) && error.code === "cmux.page.cancelled")) this.set(failure(error));
+      return;
+    }
+    await this.reload();
   }
 
   reauthenticate(provider: string): Promise<void> {

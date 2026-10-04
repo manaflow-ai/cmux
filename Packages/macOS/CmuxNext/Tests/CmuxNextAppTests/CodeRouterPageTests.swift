@@ -16,7 +16,7 @@ struct CodeRouterPageTests {
         var origins: [String] = []
     }
 
-    private static let signedOutAccounts: JSONValue = [
+    nonisolated private static let signedOutAccounts: JSONValue = [
         "signed_in": false, "refreshing": false,
         "providers": [
             ["provider": "codex", "name": "ChatGPT / Codex", "status": "signed_in", "account": "acct_abc",
