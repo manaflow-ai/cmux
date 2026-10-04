@@ -124,6 +124,9 @@ public protocol HomeSource: Sendable {
     /// The conversation's transcript left the screen: the store shows it
     /// nowhere now. A source that subscribed it for the transcript may end
     /// that subscription; the inbox entry stays as its owner lists it.
+    /// The store calls it again for a conversation whose transcript closed
+    /// while a read of it ran (the read may have set up again what the
+    /// first close found nothing of), so a repeated close must be harmless.
     func close(_ conversation: ConversationID)
 }
 

@@ -27,7 +27,8 @@ import Testing
         source.release()
         for _ in 0..<500 { await Task.yield() }
         #expect(store.viewers[id] == nil)
-        #expect(source.closes == [id])
+        // The close, and again once the read returned.
+        #expect(source.closes == [id, id])
         #expect(store.mirror.windows[id] == nil)
         store.stop()
     }

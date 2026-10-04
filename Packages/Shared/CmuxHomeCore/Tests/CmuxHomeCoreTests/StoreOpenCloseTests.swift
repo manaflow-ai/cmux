@@ -32,7 +32,8 @@ import Testing
         source.release()
         await opening.value
         #expect(store.mirror.windows[id] == nil, "the page read before the close put the transcript back")
-        #expect(source.closes == [id])
+        // The close, and again once the read returned.
+        #expect(source.closes == [id, id])
 
         // Opened again, it reads again: the source subscribes again after the close ended it.
         await store.open(id)

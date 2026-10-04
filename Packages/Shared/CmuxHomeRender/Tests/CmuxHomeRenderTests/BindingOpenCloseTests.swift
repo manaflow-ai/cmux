@@ -54,7 +54,7 @@ import Testing
     }
 
     /// iOS back navigation while the first page loads.
-    @Test func aBindingStoppedDuringTheLoadClosesOnceAndDropsThePage() async throws {
+    @Test func aBindingStoppedDuringTheLoadStaysClosedAndDropsThePage() async throws {
         let (store, source, me) = try await started()
         source.hold()
         let early = binding(store, me: me)
@@ -63,7 +63,8 @@ import Testing
         source.release()
         for _ in 0..<500 { await Task.yield() }
         #expect(store.viewers[id] == nil)
-        #expect(source.closes == [id])
+        // The stop's close, and again once the read returned.
+        #expect(source.closes == [id, id])
         #expect(store.mirror.windows[id] == nil, "the page read before the stop put the transcript back")
         store.stop()
     }

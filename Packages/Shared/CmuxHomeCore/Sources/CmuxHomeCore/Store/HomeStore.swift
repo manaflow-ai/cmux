@@ -1187,7 +1187,8 @@ public final class HomeStore {
     /// is cleared. A page that comes back after its transcript closed is
     /// dropped (the close ended the window and told the source); one that
     /// comes back after a close and a new open is read again, so the source
-    /// sets up again what the close ended.
+    /// sets up again what the close ended. A read that returns after its
+    /// transcript closed closes the source again.
     private func readTranscript(_ id: ConversationID) async {
         let stream = HomeStream.conversation(id)
         var gaps = 0
@@ -1200,7 +1201,15 @@ public final class HomeStore {
             }
             let epoch = openEpochs[id]
             let page = try? await source.snapshot(of: id, tail: Self.tailSize)
-            guard !stopped, viewers[id] != nil else { return }
+            guard !stopped else { return }
+            guard viewers[id] != nil else {
+                // Closed while the read ran. The source reads off the main
+                // actor, so the close may have reached it before the read
+                // set anything up (a cloud subscription), which the read
+                // then did: close it again.
+                source.close(id)
+                return
+            }
             guard openEpochs[id] == epoch else { continue }
             guard let page else {
                 mirror.markStale(stream)
