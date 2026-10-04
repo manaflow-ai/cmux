@@ -9,10 +9,12 @@ public struct CloudMachinesUsage: Equatable, Sendable {
     ///   - activeCount: Number of machines currently counted against the plan.
     ///   - maxActiveVms: Maximum active machines, or nil for an uncapped plan.
     ///   - isPaidPlan: Whether limit help should omit the free-plan upgrade prompt.
-    public init(activeCount: Int, maxActiveVms: Int? = nil, isPaidPlan: Bool) {
+    ///   - resourcePool: The shared vCPU and memory pool, or nil when the plan has none.
+    public init(activeCount: Int, maxActiveVms: Int? = nil, isPaidPlan: Bool, resourcePool: CloudVMResourcePool? = nil) {
         self.activeCount = activeCount
         self.maxActiveVms = maxActiveVms
         self.isPaidPlan = isPaidPlan
+        self.resourcePool = resourcePool
     }
 
     /// Number of machines currently counted against the plan.
@@ -21,11 +23,19 @@ public struct CloudMachinesUsage: Equatable, Sendable {
     public let maxActiveVms: Int?
     /// Whether this usage belongs to a paid plan.
     public let isPaidPlan: Bool
+    /// The vCPU and memory pool the active machines share; nil without a pool.
+    public let resourcePool: CloudVMResourcePool?
 
     /// An uncapped plan is never at the limit.
     public var isAtLimit: Bool {
         guard let maxActiveVms else { return false }
         return activeCount >= maxActiveVms
+    }
+
+    /// The header tints its count when the plan cannot start another machine:
+    /// the machine ceiling is reached, or the pool cannot fit the smallest size.
+    public var isWarning: Bool {
+        isAtLimit || (resourcePool?.isExhausted ?? false)
     }
 
     /// The ceiling the header renders as a fraction. A cap of zero or less is
@@ -68,8 +78,14 @@ public struct CloudMachinesUsage: Equatable, Sendable {
         return String(format: format, activeCount, maxActiveVms)
     }
 
-    /// Explains the count; at a free plan's ceiling it names the way out.
+    /// Explains the count; at a free plan's ceiling it names the way out. A
+    /// plan with a shared pool adds its usage on a second line.
     public var help: String {
+        guard let resourcePool else { return countHelp }
+        return countHelp + "\n" + resourcePool.usageText
+    }
+
+    private var countHelp: String {
         if isAtLimit && !isPaidPlan, let maxActiveVms {
             if isSingleMachinePlan {
                 return String(

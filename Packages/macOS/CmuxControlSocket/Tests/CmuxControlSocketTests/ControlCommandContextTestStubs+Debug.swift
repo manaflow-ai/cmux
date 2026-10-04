@@ -27,6 +27,7 @@ extension ControlDebugContext {
     func controlDebugResetEmptyPanelCount() -> String { "ERROR: not implemented" }
     func controlDebugFocusNotification(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugFlashCount(surfaceArgument: String) -> String { "ERROR: not implemented" }
+    func controlDebugBrowserDiscard(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugResetFlashCounts() -> String { "ERROR: not implemented" }
     func controlDebugPanelSnapshot(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String { "ERROR: not implemented" }

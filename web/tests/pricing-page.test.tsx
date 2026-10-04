@@ -143,7 +143,7 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
-      expect(first.includes("Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM")).toBe(true);
+      expect(first.includes("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
@@ -185,10 +185,12 @@ describe("localized pricing page", () => {
 
   test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
+      "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
       "Centralized billing for your whole team",
       "Priority support",
     ]);
     expect(jaMessages.pricing.team.features).toEqual([
+      "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
       "チーム全体の一元請求",
       "優先サポート",
     ]);
@@ -215,7 +217,7 @@ describe("localized pricing page", () => {
       free: "false",
       pro: "5",
       max: "5",
-      team: "5 per user",
+      team: "5 per paid seat",
       enterprise: "Custom",
     });
     expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
@@ -315,7 +317,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM");
+    expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
@@ -444,7 +446,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
+      "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
