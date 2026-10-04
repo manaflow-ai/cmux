@@ -205,6 +205,65 @@ own overlay endpoint (T1: no iroh in cmux-next). We give the contract: `machine.
 `attach-endpoint` for an iOS install, and the connector semantics. The iOS app does not run the
 Cloud app server.
 
+#### 3.7.1 iOS contract (detail)
+
+Owner of this contract: the Cloud app lead. Owner of the iOS client: the iOS lead (lane 14). Status:
+proposal, 2026-10-04 (R71 C6).
+
+1. Catalog ops. iOS calls the ops of `catalog/cloud-catalog.json` through the generated Swift
+   client. Each op is an HTTP call to the Cloud API (L1) with the iOS install's own Stack
+   session; the binding is the route in the op's `docs` (the same route the Cloud app server
+   calls). Two exceptions: the `machine` filter of `publication.list` runs in the client, and
+   mutations send `Idempotency-Key = sha256(op, canonical args, key)` like the Mac server, so the
+   Cloud API dedup matches on both. iOS does not run the Cloud app server and does not keep a
+   machine projection; it reads on screen open and after its own change.
+
+   | Group | Ops for iOS v1 | Route |
+   | --- | --- | --- |
+   | auth | `auth.status` | the iOS session (no route) |
+   | machine | `machine.list`, `.get`, `.start`, `.pause`, `.stats` | `GET /api/vm`, `GET /api/vm/:id`, `POST /api/vm/:id/{resume,pause}`, `GET /api/vm/:id/stats` |
+   | attach | the attach endpoint (item 2) | `POST /api/vm/:id/attach-endpoint` |
+   | network | `network.list` | `GET /api/vm/network` |
+   | plan | `plan.get`, `usage.get` | `GET /api/vm` (`limits`) |
+
+   Not for iOS v1: create, resize, snapshots, domains, publications, firewall, the tunnel ops and
+   every delete. iOS calls L1 directly, so the server origin check (origin `user` for firewall,
+   publication, tunnel attach and rotate_key) does not run on the phone. These ops stay out of the
+   iOS build until L1 or `TeamDO` checks them itself.
+
+2. Attach endpoint for an iOS install. `POST /api/vm/:id/attach-endpoint` with
+   `{transport: "cmux-remote", deviceFingerprint: <iOS install id>}`. The answer gives the route
+   (the VM's VPC address and port), a short token and `networkAddresses`. The phone opens the
+   carrier, sends `hello {token}`, and speaks the session host protocol (the same protocol as the
+   `cmux.terminal.connector/1` host mode, section 5). The phone keeps at most one carrier per
+   machine. On carrier `down` the phone shows the disconnected state and queues no input.
+   A paused machine is started with `machine.start` before the attach call.
+
+3. Overlay transport (T1: no iroh in cmux-next). The iOS app runs its own WireGuard endpoint in the
+   app process (transport.md decision 8; no Network Extension, no VPN slot). The app makes its
+   WireGuard key on the device and keeps it in the Keychain (`ThisDeviceOnly`). Only the public key
+   leaves the phone. v1 enrolls one tunnel for the install with `POST /api/vm/tunnel`
+   (`clientPublicKey`, `deviceFingerprint`, `deviceId`, `tunnelPurpose: "terminal"`); enrollment
+   also attaches the owner's network. A new public key on the same route rotates the key in place.
+   A rotation also changes the server public key (the old one stops after about 2.8 s,
+   transport.md section 7), so the phone takes the new `[Peer]` key from the answer. The path is the
+   device's Freestyle tunnel into the VPC. Freestyle drops traffic that no rule allows: a rule
+   from the phone's tunnel to the VM (UDP 4101) must exist, and its owner is lane 12's reconciler
+   (transport.md section 7); v1 has no owner for it (gap). Direct IPv6 and the Durable Object
+   relay come with lane 12 (`TeamDO`, `network.device.join`), which then replaces the v1 tunnel
+   calls (DECISION 3). The same `POST /api/vm/tunnel` key change is open to any caller with the
+   user's session; only `TeamDO` with a device-signed request closes that.
+
+4. What the iOS lead owns: the generated Swift client in the iOS build, the in-process WireGuard
+   endpoint and its Keychain key, the session host client on the carrier, the screens, and the
+   iOS confirmation sheets. What we own: the catalog ops, their routes and errors
+   (`cmux.cloud.*`), this contract, and fixtures the iOS tests can reuse
+   (`first-party-apps/cloud/server/tests/fixtures/`).
+
+Gaps: the generated Swift client does not exist yet (IR owner). The attach-endpoint call is not a
+catalog op (it is `machine.connect` inside the app server, C2). An iOS-safe op for it
+(`machine.attach_endpoint`, read-only for the caller's own install) needs a decision.
+
 ## 4. Reuse, rewrite, delete
 
 | Thing | Decision | Why |

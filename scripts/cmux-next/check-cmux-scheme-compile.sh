@@ -7,7 +7,7 @@
 # once re-added files to CmuxControlSocket that extend types this branch had
 # deleted, and nothing failed until fleet dev builds did (exit 65).
 #
-# Needs GhosttyKit.xcframework (scripts/download-prebuilt-ghosttykit.sh) and
+# GhosttyNextKit comes from SwiftPM (Packages/Shared/CmuxGhosttyKit). Needs
 # the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch), which the
 # Bundle cmux-tui phase copies instead of building it from source.
 #
@@ -19,11 +19,6 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 derived_data="${1:-/tmp/cmux-scheme-compile}"
-
-if [[ ! -e "$repo_root/GhosttyKit.xcframework" ]]; then
-  echo "check-cmux-scheme-compile: $repo_root/GhosttyKit.xcframework is missing; run scripts/download-prebuilt-ghosttykit.sh" >&2
-  exit 2
-fi
 
 echo "check-cmux-scheme-compile: $(xcodebuild -version | tr '\n' ' ')"
 cd "$repo_root"

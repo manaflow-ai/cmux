@@ -19,15 +19,18 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Registry actions the page may run through `cmux.app.action.run` (`history.open`). A page
     /// runs nothing else, so a page bug cannot reach unrelated app actions.
     public let actions: Set<String>
+    /// The dispatcher commands this page takes on `cmux.page.command` (default: every page command).
+    public let commands: Set<String>
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
-                actions: Set<String> = []) {
+                actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
         self.nativeOps = nativeOps
         self.denied = denied
         self.actions = actions
+        self.commands = commands
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).

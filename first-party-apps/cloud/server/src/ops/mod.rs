@@ -1,9 +1,14 @@
 //! Op dispatch: name and alias lookup, origin rules, idempotency, then the
-//! op group (`machine`, `snapshot`, `plan`, `auth`).
+//! op group (`machine`, `snapshot`, `plan`, `auth`, `network`, `domain`).
 
 mod auth;
+mod domain;
 mod machine;
 mod machine_projection;
+mod network;
+mod network_args;
+mod network_firewall;
+mod network_models;
 mod plan;
 mod snapshot;
 
@@ -49,6 +54,25 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.connect", Kind::Mutation),
     ("cloud.machine.disconnect", Kind::Mutation),
     ("cloud.rescue.open", Kind::Mutation),
+    // Network, domains and publications (R71 C6). Firewall and publication
+    // changes decide what reaches a machine, so only a person makes them.
+    ("cloud.network.list", Kind::Read),
+    // Attach and a new key give a device a path into the network: a person
+    // only (any valid public key would let the caller join as that device).
+    ("cloud.tunnel.attach", Kind::UserOnly),
+    ("cloud.tunnel.detach", Kind::Mutation),
+    ("cloud.tunnel.rotate_key", Kind::UserOnly),
+    ("cloud.firewall.list", Kind::Read),
+    ("cloud.firewall.get", Kind::Read),
+    ("cloud.firewall.create", Kind::UserOnly),
+    ("cloud.firewall.delete", Kind::UserOnly),
+    ("cloud.domain.list", Kind::Read),
+    ("cloud.domain.verify", Kind::Mutation),
+    ("cloud.publication.list", Kind::Read),
+    ("cloud.publication.create", Kind::UserOnly),
+    ("cloud.publication.update", Kind::UserOnly),
+    ("cloud.publication.delete", Kind::UserOnly),
+    ("cloud.publication.verify", Kind::Mutation),
 ];
 
 /// Other names for ops: the `resume` verb and the old relay names
@@ -124,6 +148,17 @@ const REVISION_RESULTS: &[&str] = &[
     "cloud.snapshot.restore",
     "cloud.snapshot.fork",
 ];
+
+/// Verify ops read fresh DNS and certificate state (and may take a waiting
+/// publication live): a same-key replay of an old answer would be stale, so
+/// they run every time, like the live link ops.
+const RERUN_OPS: &[&str] = &["cloud.domain.verify", "cloud.publication.verify"];
+
+/// Creates the Cloud API does not dedup by key. After an attempt with no
+/// answer (the relay failed), a same-key retry is refused with
+/// `outcome_unknown`: the caller lists first. A 4xx answer made nothing, so
+/// it frees the key.
+const NO_UPSTREAM_DEDUP: &[&str] = &["cloud.firewall.create", "cloud.publication.create"];
 
 fn kind_of(name: &str) -> Kind {
     OPS.iter().find(|(n, _)| *n == name).map_or(Kind::Read, |(_, k)| *k)
@@ -213,12 +248,20 @@ impl<C: ControlPlane> Server<C> {
         if key.len() > 128 {
             return Err(CloudError::invalid("an idempotency key has at most 128 characters"));
         }
-        if crate::link::ops::live_state_op(name) {
-            // The answer is live link state: a replay of an old carrier would
-            // name a dead socket. These ops are idempotent by themselves
-            // (one carrier per machine), so they run every time.
+        if crate::link::ops::live_state_op(name) || RERUN_OPS.contains(&name) {
+            // The answer is live state (a carrier, or DNS and certificate
+            // state): a replay of an old answer would be stale. These ops are
+            // idempotent by themselves, so they run every time.
             let upstream = upstream_key(name, &args, key);
             return self.run(name, &args, request.origin, Some(&upstream));
+        }
+        if NO_UPSTREAM_DEDUP.contains(&name) && self.ledger.unfinished(key, name, &args) {
+            return Err(CloudError::new(
+                codes::OUTCOME_UNKNOWN,
+                format!(
+                    "an earlier {name} with this key got no answer: list first, then retry with a new key"
+                ),
+            ));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
             return Ok(done);
@@ -239,7 +282,9 @@ impl<C: ControlPlane> Server<C> {
             }
             Err(error) => {
                 // Bad args never changed anything: the key stays free for the fix.
-                if error.code == codes::INVALID_ARGS {
+                let refused = NO_UPSTREAM_DEDUP.contains(&name)
+                    && error.status.is_some_and(|s| (400..500).contains(&s));
+                if error.code == codes::INVALID_ARGS || refused {
                     self.ledger.forget(key);
                 }
                 Err(error)
@@ -264,6 +309,8 @@ impl<C: ControlPlane> Server<C> {
             "machine" => machine::run(&mut ctx, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "plan" | "usage" => plan::run(&mut ctx, name, args),
+            "network" | "tunnel" | "firewall" => network::run(&mut ctx, name, args),
+            "domain" | "publication" => domain::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }
     }

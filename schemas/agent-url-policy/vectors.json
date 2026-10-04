@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the agent URL rule: Swift AgentURLPolicy (CmuxNextBrowser/Core/AgentURLPolicy.swift) and Rust cmux-browser-host policy::is_browser_page both read this file. Change both implementations together.",
+  "description": "Shared test vectors for the agent URL rule: Swift AgentURLPolicy (CmuxNextBrowser/Core/AgentURLPolicy.swift, AgentURLPolicyVectorTests), C++ AgentRefusesURL (CEFShim/src/agent_url_policy.h, scripts/cmux-next/test-agent-url-policy-cpp.sh) and Rust cmux-browser-host policy::is_browser_page all read this file. Change all three implementations together.",
   "cases": [
     {
       "url": "chrome://password-manager/passwords",
@@ -74,6 +74,14 @@
       "refused": true
     },
     {
+      "url": "blob:blob:blob:https://a.test/x",
+      "refused": true
+    },
+    {
+      "url": "filesystem:blob:filesystem:https://a.test/",
+      "refused": true
+    },
+    {
       "url": "https://a.test/",
       "refused": false
     },
@@ -99,6 +107,10 @@
     },
     {
       "url": "blob:https://a.test/abc",
+      "refused": false
+    },
+    {
+      "url": "blob:blob:https://a.test/x",
       "refused": false
     },
     {

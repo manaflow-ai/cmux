@@ -5,8 +5,9 @@
 // every key; a missing value fails. Merged with the Settings lead's
 // webviews/scripts/settings/generate-strings.mjs (branch feat-cmux-next-settings-react): a page
 // lists catalogs and, per catalog, which keys it uses.
-//   node scripts/pages/gen-strings.mjs           # write
+//   node scripts/pages/gen-strings.mjs           # write every page
 //   node scripts/pages/gen-strings.mjs --check   # fail when a generated file is stale
+//   node scripts/pages/gen-strings.mjs settings  # only the named pages
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,9 +57,23 @@ export function schemaKeys(schemaFile) {
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 // The History table moves next to the page when the Swift page is deleted (react-pages.md H4).
-// The Settings page adds its entry here (schema keys from CmuxNextSettings + `settingsPage.` keys
-// from CmuxNextSettingsWindow).
 export const PAGES = {
+  // Every key the settings schema names (CmuxNextSettings catalog) and every `settingsPage.` key
+  // (CmuxNextSettingsWindow catalog); merged from the Settings lead's generate-strings.mjs with the
+  // same output.
+  settings: {
+    out: "webviews/src/pages/settings/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSettings/Localizable.xcstrings`,
+        keys: () => schemaKeys("schemas/settings/settings-schema.json"),
+      },
+      {
+        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("settingsPage.")),
+      },
+    ],
+  },
   history: {
     out: "webviews/src/pages/history/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextHistory/Resources/Localizable.xcstrings` }],
@@ -105,7 +120,9 @@ export function generate(page) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   let failed = false;
+  const only = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
   for (const [name, page] of Object.entries(PAGES)) {
+    if (only.length && !only.includes(name)) continue;
     const { json, errors } = generate(page);
     const target = path.join(repo, page.out);
     if (errors.length) {

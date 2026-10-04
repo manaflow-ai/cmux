@@ -126,6 +126,17 @@ import Testing
         #expect(daemon.filters.isEmpty, "built-in streams never reach a provider")
     }
 
+    @Test func aPageTakesOnlyItsOwnDispatcherCommands() async {
+        let page = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: ["cmux.agent."], commands: ["find"])
+        let router = PageRouter(descriptor: page, routes: [])
+        let sent = Box()
+        router.send = { sent.items.append($0) }
+        _ = await router.handle(["t": "sub", "id": 1, "stream": .string(PageNativeOp.pageCommand)])
+        #expect(router.publishCommand("find"))
+        #expect(!router.publishCommand("back"))
+        #expect(sent.items.count == 1)
+    }
+
     @Test func closeCancelsSubscriptionsAndRefusesLaterCalls() async {
         let (router, daemon, _, _) = router()
         _ = await router.handle(["t": "sub", "id": 8, "stream": "cmux.settings.changed"])

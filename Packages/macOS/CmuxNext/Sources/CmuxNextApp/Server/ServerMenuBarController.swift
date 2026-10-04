@@ -13,6 +13,14 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     private var item: NSStatusItem?
     private var popover: NSPopover?
     private var model: ServerModel?
+    /// Makes the model's source: the cloud pairing source in the App, the
+    /// mock alone in previews and tests.
+    private let makeSource: @MainActor () -> any ServerSource
+
+    init(makeSource: @escaping @MainActor () -> any ServerSource = { MockServerSource(scenario: .healthyMac) }) {
+        self.makeSource = makeSource
+        super.init()
+    }
 
     var isShown: Bool { item != nil }
 
@@ -74,7 +82,7 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
 
     private func currentModel() -> ServerModel {
         if let model { return model }
-        let next = ServerModel(source: MockServerSource(scenario: .healthyMac))
+        let next = ServerModel(source: makeSource())
         next.start()
         model = next
         return next

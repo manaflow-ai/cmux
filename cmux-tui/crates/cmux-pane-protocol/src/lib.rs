@@ -24,6 +24,7 @@ pub mod op;
 pub mod provider;
 pub mod router;
 pub mod rpc;
+pub mod scope_class;
 pub mod stream;
 pub mod token;
 pub mod transport;

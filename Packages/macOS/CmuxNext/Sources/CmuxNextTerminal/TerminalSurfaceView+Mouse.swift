@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // Mouse, scroll, pressure, and cursor shape. Ghostty turns these into
 // selection or, when the program enabled a mouse mode, into mouse reports

@@ -3,7 +3,7 @@
 // permissions with reasons (grant switches once installed), versions, repository.
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
-import { orderScopes, TierLabel } from "./model";
+import { orderScopes, RiskLabel, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 
@@ -82,6 +82,7 @@ export function AppDetailView({
               {orderScopes(detail.scopes).map((scope) => (
                 <li key={scope.scope} className="apps-scope">
                   <code>{scope.scope}</code>
+                  {scope.risk !== "standard" && <Badge text={t(RiskLabel[scope.risk])} />}
                   {scope.optional && <Badge text={t("store.detail.optional")} />}
                   <span className="apps-muted">{scope.reason}</span>
                 </li>
