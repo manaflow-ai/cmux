@@ -114,7 +114,7 @@ impl DaemonFiles for LinkDaemonFiles {
 /// One dial, one request line, one answer line (on the worker).
 fn exchange(target: &DialTarget, line: &str, children: &Children) -> Result<Vec<u8>, CloudError> {
     let Dialed { child, mut stdin, stdout } =
-        open_dial(&target.binary, &dial_args(&target.host), &target.env, children)
+        open_dial(&target.binary, &dial_args(&target.host, &target.socket), &target.env, children)
             .map_err(|code| unavailable(format!("cmux link refused: {}", code.as_str())))?;
     let sent = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
     drop(stdin);
@@ -187,14 +187,14 @@ pub(crate) fn target<C: ControlPlane>(
             "This Mac may not reach the machine's cmux daemon (team policy)",
         ));
     }
-    let binary = server.link_paths()?.binary;
+    let paths = server.link_paths()?;
+    let (binary, socket) = (paths.binary, paths.hub_socket);
     let env = server.attach().env().child_env().map_err(|e| {
         CloudError::new(
             crate::link::ops::LINK_UNAVAILABLE,
             format!("no private home for the link: {e}"),
         )
     })?;
-    let socket = PathBuf::new();
     Ok(DialTarget { binary, host: info.host, socket, env })
 }
 

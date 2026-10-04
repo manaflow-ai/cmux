@@ -2,8 +2,9 @@
 //! of one dial, and the reply line the dial writes on its stderr. Only
 //! this file knows that seam. Contract (lane 12, `cmux link dial`,
 //! cmux-tui/spec/cli.md, landed 227dd67c2fe): argv
-//! `link dial --host <host_…>` (service defaults to daemon; `--service`
-//! is not sent so older links that refuse it keep working), exactly one
+//! `link dial --host <host_…> --socket <hub_socket>` (service defaults to
+//! daemon; `--socket` from 70da4b7ef87: a missing socket = exit 6
+//! link_unavailable, a non-socket = 64 bad_request), exactly one
 //! JSON reply line on stderr first (any key order; `link_unavailable` when
 //! no link runs), then the stream on stdin/stdout. A missing or non-JSON
 //! line (an older link) is read as unavailable. Exit codes (0 ok, 2..6,
@@ -21,9 +22,20 @@ use serde_json::Value;
 /// The longest reply line the dial writes (`cmux_link::dial::MAX_LINE_BYTES`).
 pub const MAX_REPLY_BYTES: usize = 1024;
 
-/// The argv (after the binary) of one dial to the daemon service of `host`.
-pub fn dial_args(host: &str) -> Vec<String> {
-    vec!["link".into(), "dial".into(), "--host".into(), host.to_owned()]
+/// The argv (after the binary) of one dial to the daemon service of
+/// `host` through the link listening on `socket` (the host's `hub_socket`).
+/// The dial child has a private HOME, so it must be told the link's socket
+/// (`--socket`, lane 12 70da4b7ef87): a registration lookup would find
+/// nothing there, and a tagged or dev link is not at the default path.
+pub fn dial_args(host: &str, socket: &std::path::Path) -> Vec<String> {
+    vec![
+        "link".into(),
+        "dial".into(),
+        "--host".into(),
+        host.to_owned(),
+        "--socket".into(),
+        socket.to_string_lossy().into_owned(),
+    ]
 }
 
 /// Why `link.dial` refused (`DialError` of cmux-link, snake case).
@@ -130,6 +142,9 @@ mod tests {
             parse_reply("cmux link is not running: no such file"),
             DialReply::Refused(DialCode::Unavailable(_))
         ));
-        assert_eq!(dial_args("host_x"), ["link", "dial", "--host", "host_x"]);
+        assert_eq!(
+            dial_args("host_x", std::path::Path::new("/tmp/l.sock")),
+            ["link", "dial", "--host", "host_x", "--socket", "/tmp/l.sock"]
+        );
     }
 }
