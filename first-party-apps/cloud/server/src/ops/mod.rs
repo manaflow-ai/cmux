@@ -360,6 +360,12 @@ impl<C: ControlPlane> Server<C> {
         self.attach.take_host_link_events()
     }
 
+    /// RED scaffolding: a team wire event (`cloud.machine.upsert`,
+    /// `cloud.machine.removed`) is not applied yet.
+    pub fn team_event(&mut self, event: &str, _data: &Value) -> Result<(), CloudError> {
+        Err(CloudError::new(codes::UNSUPPORTED, format!("{event} is not applied yet")))
+    }
+
     /// Runs one request.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
         let Admitted { name, args, key } = admit(request)?;
