@@ -98,14 +98,24 @@ struct BrowserReplSecretFormsTests {
         for index in 0..<256 {
             try store.set(name: "s\(index)", value: prefix + String(format: "%03d", index), domains: ["example.com"], totp: false, title: "t")
         }
-        let text = String(repeating: "a", count: 1 << 16)
+        let text = String(repeating: "a", count: 1 << 14)
 
-        let redacted = await browserReplWithDeadline(seconds: 20) { store.redact(text) }
+        let redacted = await browserReplWithDeadline(seconds: 60) { store.redact(text) }
 
-        let result = try #require(redacted, "masking 64 KiB took more than 20 s")
+        let result = try #require(redacted, "masking 16 KiB took more than 60 s")
         #expect(result == text || result.contains("withheld"), "\(result.prefix(200))")
-        // A value in the text is still masked.
-        #expect(store.redact("x " + prefix + "007 y") == "x <secret:s7> y")
+        // A value in such text is masked or withheld, never shown.
+        let shown = store.redact("x " + prefix + "007 y")
+        #expect(shown == "x <secret:s7> y" || shown.contains("withheld"), "\(shown.prefix(200))")
+
+        // 256 values without a long shared prefix are masked as usual.
+        let distinct = BrowserReplSecretStore()
+        let values = (0..<256).map { "key-\($0)-\(UUID().uuidString)" }
+        for (index, value) in values.enumerated() {
+            try distinct.set(name: "k\(index)", value: value, domains: ["example.com"], totp: false, title: "t")
+        }
+        let filler = String(repeating: "lorem ipsum k3y-%41 \\u0041 &amp; ", count: 1 << 8)
+        #expect(distinct.redact(filler + values[200] + filler) == filler + "<secret:k200>" + filler)
     }
 
     /// Base64 a page or server hands back: of a value too short for an

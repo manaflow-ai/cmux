@@ -6,8 +6,16 @@ import Foundation
 /// The pass never rescans its own output and never builds an intermediate
 /// copy: at each position it checks, in order, a Base64 token that starts
 /// there, a valid TOTP code standing as a whole number, and each value in
-/// any of its encodings, copying unmatched bytes through. The cost is linear
-/// in the input for a fixed set of secrets.
+/// any of its encodings, copying unmatched bytes through. Only values whose
+/// first byte the position can start are tried: the byte itself, or the
+/// first byte of the character an escape there (`%41`, `\u0041`, `&#65;`,
+/// `+`) stands for.
+///
+/// Its work is bounded by the input's length: values that share a long
+/// prefix could make each position run a long way into every one of them
+/// before failing, so a pass that has compared more than ``workPerByte``
+/// bytes per input byte (and a fixed allowance) stops and reports
+/// ``Outcome/overLimit``, as for growth.
 ///
 /// A mask is longer than a short value, so masking can grow the input
 /// (a one-character value with a 64-character name grows 73 times). The
@@ -45,6 +53,15 @@ struct BrowserReplSecretScanner {
     private let codes: [(digits: [UInt8], mask: [UInt8])]
     /// Bytes at which some value's match can start.
     private let startBytes: [Bool]
+    /// The values (indices into `values`, longest first) whose UTF-8 starts
+    /// with each byte.
+    private let valuesByFirstByte: [[Int]]
+
+    /// Matching work (bytes and characters compared) a pass may do per
+    /// input byte, past ``workAllowance``.
+    static let workPerByte = 64
+    /// Matching work any pass may do, so short inputs never hit the limit.
+    static let workAllowance = 1 << 20
 
     /// - Parameters:
     ///   - values: The values to mask, longest first.
@@ -53,13 +70,16 @@ struct BrowserReplSecretScanner {
         self.values = values
         self.codes = codes
         var startBytes = [Bool](repeating: false, count: 256)
-        for value in values {
+        var valuesByFirstByte = [[Int]](repeating: [], count: 256)
+        for (index, value) in values.enumerated() {
             guard let first = value.utf8.first else { continue }
+            valuesByFirstByte[Int(first)].append(index)
             startBytes[Int(first)] = true
             for byte in "%\\&".utf8 { startBytes[Int(byte)] = true }
             if value.scalars.first == " " { startBytes[Int(UInt8(ascii: "+"))] = true }
         }
         self.startBytes = startBytes
+        self.valuesByFirstByte = valuesByFirstByte
     }
 
     var isEmpty: Bool { values.isEmpty && codes.isEmpty }
@@ -69,6 +89,8 @@ struct BrowserReplSecretScanner {
     func redact(_ input: UnsafeBufferPointer<UInt8>, budget: inout Int) -> Outcome {
         guard !isEmpty, !input.isEmpty else { return .unchanged }
         var pass = Pass(input: input, budget: budget)
+        var work = 0
+        let workLimit = Self.workAllowance + input.count.multipliedReportingOverflow(by: Self.workPerByte).partialValue
         var index = 0
         var tokenCheckedUntil = 0
         var decoded: [UInt8] = []
@@ -78,7 +100,9 @@ struct BrowserReplSecretScanner {
             if Self.isBase64[Int(byte)], startsRun, index >= tokenCheckedUntil {
                 var end = index
                 while end < input.count, Self.isBase64[Int(input[end])] { end += 1 }
-                if let mask = base64Mask(input, from: index, to: end, buffer: &decoded) {
+                let mask = base64Mask(input, from: index, to: end, buffer: &decoded, work: &work, workLimit: workLimit)
+                guard work <= workLimit else { return .overLimit }
+                if let mask {
                     var padded = end
                     while padded < input.count, padded - end < 2, input[padded] == UInt8(ascii: "=") { padded += 1 }
                     guard pass.emit(from: index, to: padded, mask: mask) else { return .overLimit }
@@ -99,9 +123,14 @@ struct BrowserReplSecretScanner {
             }
             if startBytes[Int(byte)] {
                 var best: (end: Int, mask: [UInt8])?
-                for value in values {
-                    if let end = match(value, in: input, at: index), end > (best?.end ?? index) {
-                        best = (end, value.mask)
+                let firsts = Self.firstBytes(in: input, at: index)
+                for slot in 0..<firsts.count {
+                    for valueIndex in valuesByFirstByte[Int(firsts[slot])] {
+                        let value = values[valueIndex]
+                        if let end = match(value, in: input, at: index, work: &work), end > (best?.end ?? index) {
+                            best = (end, value.mask)
+                        }
+                        guard work <= workLimit else { return .overLimit }
                     }
                 }
                 if let best {
@@ -159,22 +188,131 @@ struct BrowserReplSecretScanner {
     // MARK: Values
 
     /// The end of a match of `value` at `start`, in any of its encodings.
-    private func match(_ value: Value, in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Int? {
+    /// Adds the bytes and characters it compared to `work`.
+    private func match(_ value: Value, in input: UnsafeBufferPointer<UInt8>, at start: Int, work: inout Int) -> Int? {
         let count = value.utf8.count
-        if start + count <= input.count,
-           value.utf8.withUnsafeBufferPointer({ memcmp($0.baseAddress!, input.baseAddress! + start, count) == 0 }) {
-            return start + count
+        let length = Self.commonPrefixLength(value.utf8, input, at: start)
+        work += length + 1
+        if length == count { return start + count }
+        if let end = matchEncoded(value, in: input, at: start, preferEncoded: true, work: &work) { return end }
+        return value.ambiguous ? matchEncoded(value, in: input, at: start, preferEncoded: false, work: &work) : nil
+    }
+
+    /// How many bytes of `bytes` `input` holds from `start` on.
+    private static func commonPrefixLength(_ bytes: [UInt8], _ input: UnsafeBufferPointer<UInt8>, at start: Int) -> Int {
+        let limit = min(bytes.count, input.count - start)
+        var length = 0
+        while length < limit, bytes[length] == input[start + length] { length += 1 }
+        return length
+    }
+
+    /// The bytes a value that matches at `start` can start with: the byte
+    /// there, and the first byte of the character a percent-encoding
+    /// (once or twice), a `+` or an escape (`escaped`) there stands for.
+    private static func firstBytes(in input: UnsafeBufferPointer<UInt8>, at start: Int) -> FirstBytes {
+        var firsts = FirstBytes()
+        firsts.insert(input[start])
+        switch input[start] {
+        case UInt8(ascii: "%"):
+            if let byte = hexByte(input, at: start + 1) { firsts.insert(byte) }
+            if has(input, at: start, "%25"), let byte = hexByte(input, at: start + 3) { firsts.insert(byte) }
+        case UInt8(ascii: "+"):
+            firsts.insert(0x20)
+        default:
+            break
         }
-        if let end = matchEncoded(value, in: input, at: start, preferEncoded: true) { return end }
-        return value.ambiguous ? matchEncoded(value, in: input, at: start, preferEncoded: false) : nil
+        if let scalar = escapedScalar(in: input, at: start), let byte = String(scalar).utf8.first {
+            firsts.insert(byte)
+        }
+        return firsts
+    }
+
+    /// Up to four distinct bytes, kept without allocating.
+    private struct FirstBytes {
+        private var bytes: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0)
+        private(set) var count = 0
+
+        subscript(index: Int) -> UInt8 {
+            switch index {
+            case 0: return bytes.0
+            case 1: return bytes.1
+            case 2: return bytes.2
+            default: return bytes.3
+            }
+        }
+
+        mutating func insert(_ byte: UInt8) {
+            guard count < 4, !(0..<count).contains(where: { self[$0] == byte }) else { return }
+            switch count {
+            case 0: bytes.0 = byte
+            case 1: bytes.1 = byte
+            case 2: bytes.2 = byte
+            default: bytes.3 = byte
+            }
+            count += 1
+        }
+    }
+
+    /// The character an escape at `start` stands for, read as `escaped`
+    /// reads one (every form it accepts reads as its character here), or
+    /// nil when none starts there.
+    private static func escapedScalar(in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Unicode.Scalar? {
+        guard start + 1 < input.count else { return nil }
+        let kind = input[start + 1]
+        switch input[start] {
+        case UInt8(ascii: "\\"):
+            if let scalar = jsonShortEscapes.first(where: { $0.value == kind })?.key { return scalar }
+            if kind == UInt8(ascii: "x") { return hexValue(input, at: start + 2, digits: 2).flatMap(Unicode.Scalar.init) }
+            guard kind | 0x20 == UInt8(ascii: "u") else { return nil }
+            if start + 2 < input.count, input[start + 2] == UInt8(ascii: "{") {
+                return number(in: input, at: start + 3, hex: true, maximumDigits: 6).flatMap { Unicode.Scalar($0.0) }
+            }
+            return utf16Scalar(in: input, at: start)
+        case UInt8(ascii: "%"):
+            return kind | 0x20 == UInt8(ascii: "u") ? utf16Scalar(in: input, at: start) : nil
+        case UInt8(ascii: "&"):
+            if kind == UInt8(ascii: "#") {
+                let hex = start + 2 < input.count && (input[start + 2] | 0x20) == UInt8(ascii: "x")
+                return number(in: input, at: start + (hex ? 3 : 2), hex: hex, maximumDigits: hex ? 8 : 10)
+                    .flatMap { Unicode.Scalar($0.0) }
+            }
+            for (scalar, name) in htmlNames where Self.has(input, at: start + 1, caseInsensitive: name) {
+                return scalar
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    /// The character `\uXXXX` or `%uXXXX` (a surrogate pair as two of
+    /// them) at `start` stands for.
+    private static func utf16Scalar(in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Unicode.Scalar? {
+        guard let high = hexValue(input, at: start + 2, digits: 4) else { return nil }
+        if !(0xD800...0xDBFF).contains(high) { return Unicode.Scalar(high) }
+        let next = start + 6
+        guard next + 1 < input.count, input[next] == input[start], input[next + 1] | 0x20 == UInt8(ascii: "u"),
+              let low = hexValue(input, at: next + 2, digits: 4), (0xDC00...0xDFFF).contains(low) else { return nil }
+        return Unicode.Scalar(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+    }
+
+    /// Whether `input` holds `text` at `start`, ignoring ASCII case.
+    private static func has(_ input: UnsafeBufferPointer<UInt8>, at start: Int, caseInsensitive text: String) -> Bool {
+        var position = start
+        for byte in text.utf8 {
+            guard position < input.count, input[position] | 0x20 == byte else { return false }
+            position += 1
+        }
+        return true
     }
 
     /// Reads `value` character by character, each written literally or in
     /// one of its encoded forms. A character that starts an encoded form
     /// itself (a `%`) is read as that form first, or literally first.
-    private func matchEncoded(_ value: Value, in input: UnsafeBufferPointer<UInt8>, at start: Int, preferEncoded: Bool) -> Int? {
+    private func matchEncoded(_ value: Value, in input: UnsafeBufferPointer<UInt8>, at start: Int, preferEncoded: Bool, work: inout Int) -> Int? {
         var position = start
         for (scalar, bytes) in zip(value.scalars, value.scalarBytes) {
+            work += 1
             guard position < input.count else { return nil }
             if preferEncoded, let end = Self.escaped(scalar, in: input, at: position) {
                 position = end
@@ -338,19 +476,38 @@ struct BrowserReplSecretScanner {
     /// contain, read from each of its first four characters: a value's
     /// encoding can start at any character of a run (`"x" + btoa(value)`),
     /// and only a start in step with it decodes to the value's bytes.
-    private func base64Mask(_ input: UnsafeBufferPointer<UInt8>, from start: Int, to end: Int, buffer: inout [UInt8]) -> [UInt8]? {
+    /// Adds the bytes it decoded and compared to `work`, and stops (nil)
+    /// once that passes `workLimit`.
+    private func base64Mask(
+        _ input: UnsafeBufferPointer<UInt8>,
+        from start: Int,
+        to end: Int,
+        buffer: inout [UInt8],
+        work: inout Int,
+        workLimit: Int
+    ) -> [UInt8]? {
         let length = end - start
         guard length >= 2 else { return nil }
         for offset in 0..<min(4, length - 1) {
             Self.decodeBase64(input, from: start + offset, to: end, into: &buffer)
+            work += length
             guard !buffer.isEmpty else { continue }
-            let hit = buffer.withUnsafeBytes { decoded in
-                values.first { value in
-                    Self.looksFor(value, inRunOf: length, at: offset)
-                        && value.utf8.withUnsafeBytes { memmem(decoded.baseAddress, decoded.count, $0.baseAddress, $0.count) != nil }
+            let hit: Value? = buffer.withUnsafeBufferPointer { decoded in
+                // Each decoded position tries only the values that start with its byte.
+                for position in decoded.indices {
+                    for valueIndex in valuesByFirstByte[Int(decoded[position])] {
+                        let value = values[valueIndex]
+                        guard Self.looksFor(value, inRunOf: length, at: offset) else { continue }
+                        let matched = Self.commonPrefixLength(value.utf8, decoded, at: position)
+                        work += matched + 1
+                        if matched == value.utf8.count { return value }
+                        if work > workLimit { return nil }
+                    }
                 }
+                return nil
             }
             if let hit { return hit.mask }
+            if work > workLimit { return nil }
         }
         return nil
     }

@@ -18,8 +18,12 @@ public import Foundation
 /// values). A value transformed otherwise (compressed, hex, Base64 twice or
 /// broken across lines) is not found.
 /// Masking is one linear pass (``BrowserReplSecretScanner``) whose growth
-/// is bounded: text that masking would grow by more than
-/// ``maximumGrowth`` is withheld, and bytes are refused.
+/// and work are bounded: text that masking would grow by more than
+/// ``maximumGrowth``, or that would take more matching work than its length
+/// allows, is withheld, and bytes are refused. A session holds at most
+/// ``maximumSecrets`` secrets of at most ``maximumValueBytes`` bytes with at
+/// most ``maximumDomains`` domains each, and each value is compiled for
+/// matching once, when it is registered.
 ///
 /// A TOTP secret's value is its seed. The codes it generates are secrets too
 /// while a server can still accept them: the code of the current 30-second
@@ -36,6 +40,17 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         /// The name shown in its mask, `<secret:maskName>`: `name`, except
         /// for a typed value registered under an internal key.
         let maskName: String
+        /// The value compiled for matching, once, when it is registered.
+        let compiled: BrowserReplSecretScanner.Value
+
+        init(name: String, value: String, domains: [BrowserReplDomainPattern], totp: Bool, maskName: String) {
+            self.name = name
+            self.value = value
+            self.domains = domains
+            self.totp = totp
+            self.maskName = maskName
+            compiled = BrowserReplSecretScanner.Value(value: value, mask: "<secret:\(maskName)>")
+        }
     }
 
     private let lock = NSLock()
@@ -55,20 +70,43 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
 
     public var isEmpty: Bool { lock.withLock { entries.isEmpty } }
 
+    /// The most secrets a session registers (``set(name:value:domains:totp:title:)``).
+    /// Every redaction matches every value, so the store a script fills
+    /// stays bounded.
+    public static let maximumSecrets = 256
+    /// The longest value, in UTF-8 bytes.
+    public static let maximumValueBytes = 4096
+    /// The most domains one secret names.
+    public static let maximumDomains = 64
+
+    /// Secrets registered through `set`, not values other sessions typed.
+    private var registered: Set<String> = []
+
     /// Registers `name`. A secret needs at least one domain; a TOTP secret
-    /// must be base32.
+    /// must be base32. Past ``maximumSecrets`` secrets, a value past
+    /// ``maximumValueBytes`` or more than ``maximumDomains`` domains is refused.
     public func set(name: String, value: String, domains rawDomains: [String], totp: Bool, title: String) throws {
         guard name.range(of: "^[\\w.-]{1,64}$", options: .regularExpression) != nil else {
             throw invalid("\(title): name: expected letters, digits, _, . or - (at most 64), got \(Self.quote(name))")
         }
         guard !value.isEmpty else { throw invalid("\(title): \(name): value: expected a non-empty string") }
+        guard value.utf8.count <= Self.maximumValueBytes else {
+            throw invalid("\(title): \(name): value: at most \(Self.maximumValueBytes) bytes (UTF-8), got \(value.utf8.count)")
+        }
         guard !rawDomains.isEmpty else {
             throw invalid("\(title): \(name): domains: expected the domains it may be typed into, such as [\"example.com\"]; a secret without domains is not accepted")
+        }
+        guard rawDomains.count <= Self.maximumDomains else {
+            throw invalid("\(title): \(name): domains: at most \(Self.maximumDomains), got \(rawDomains.count)")
         }
         let domains = try rawDomains.map { try BrowserReplDomainPattern.parse($0, title: title, publicSuffixes: publicSuffixes) }
         let isTOTP = totp || name.hasSuffix("bu_2fa_code")
         if isTOTP, Self.base32Decode(value) == nil { throw invalid("secrets: a TOTP secret must be base32") }
-        lock.withLock {
+        try lock.withLock {
+            if !registered.contains(name), registered.count >= Self.maximumSecrets {
+                throw invalid("\(title): \(name): a session holds at most \(Self.maximumSecrets) secrets; delete one (secrets.delete) first")
+            }
+            registered.insert(name)
             if entries[name] == nil { order.append(name) }
             entries[name] = Entry(name: name, value: value, domains: domains, totp: isTOTP, maskName: name)
             rebuildLocked()
@@ -121,6 +159,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     public func delete(_ name: String) -> Bool {
         lock.withLock {
             guard entries.removeValue(forKey: name) != nil else { return false }
+            registered.remove(name)
             order.removeAll { $0 == name }
             rebuildLocked()
             return true
@@ -131,6 +170,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         lock.withLock {
             entries.removeAll()
             order.removeAll()
+            registered.removeAll()
             rebuildLocked()
         }
     }
@@ -209,9 +249,9 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         totpKeys = order.compactMap { entries[$0] }.filter(\.totp).compactMap { entry in
             Self.base32Decode(entry.value).map { (entry.maskName, $0, entry.domains) }
         }
-        values = order.compactMap { entries[$0] }
-            .sorted { $0.value.utf8.count > $1.value.utf8.count }
-            .map { BrowserReplSecretScanner.Value(value: $0.value, mask: "<secret:\($0.maskName)>") }
+        // Each value was compiled when it was registered; a change only reorders.
+        values = order.compactMap { entries[$0]?.compiled }
+            .sorted { $0.utf8.count > $1.utf8.count }
     }
 
     /// The scanner for the values registered now and the TOTP codes valid
@@ -227,7 +267,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
 
     /// Why masking withheld `count` bytes.
     static func limitMessage(_ count: Int) -> String {
-        "masking secrets would grow these \(count) bytes by more than the redaction limit of \(maximumGrowth >> 20) MiB, so they are withheld"
+        "masking secrets in these \(count) bytes would pass the redaction limit (growing them by more than \(maximumGrowth >> 20) MiB, or more matching work than the session's secrets allow for their length), so they are withheld"
     }
 
     /// `text` with every registered value and its encodings masked, and the
