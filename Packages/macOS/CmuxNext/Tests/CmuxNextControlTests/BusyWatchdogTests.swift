@@ -24,6 +24,16 @@ import Testing
         }.value
     }
 
+    @Test func helperSourceCanReplaceItselfOutsideTheLock() {
+        let watchdog = BusyWatchdog(log: HangLog(), ledger: WakeupLedger(), activity: ExpectedActivity())
+        watchdog.setHelperSource {
+            watchdog.setHelperSource { [.init(pid: 43, label: "Replacement")] }
+            return [.init(pid: 42, label: "Original")]
+        }
+        #expect(watchdog.helperSource()().first?.pid == 42)
+        #expect(watchdog.helperSource()().first?.pid == 43)
+    }
+
     final class Flag: Sendable {
         let value = Atomic(true)
     }
