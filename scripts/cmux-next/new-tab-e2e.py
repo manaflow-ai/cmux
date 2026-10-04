@@ -117,13 +117,13 @@ try:
     time.sleep(2)  # test harness: let the first workspace settle
     spare_ms, footprints = [], []
     for run in range(opts.runs):
-        spares = wait("a spare is parked", lambda: state().get("spares"), 20)
+        spares = wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
         footprints += [s["footprint_mb"] for s in spares if s.get("footprint_mb") is not None]
         shot = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-spare.png") if run == 0 else None
         spare_ms.append(open_and_check(True, shot))
     # Cold: two opens back to back, so the second finds the slot empty (the next spare waits
     # for quiet input); close both tabs.
-    wait("a spare is parked", lambda: state().get("spares"), 20)
+    wait("a loaded spare is parked", lambda: [s for s in state().get("spares", []) if s.get("ready")], 20)
     rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
     opening = (rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}).get("opening") or {}
     if opening.get("spare") is not False:

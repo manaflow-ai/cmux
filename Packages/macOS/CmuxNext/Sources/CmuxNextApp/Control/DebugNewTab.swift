@@ -35,7 +35,8 @@ enum DebugNewTab {
     private static func state(_ services: AppServices) -> JSONValue {
         let pool = services.newTabSpares
         let spares: [JSONValue] = pool.spares.map { spare in
-            var entry: [String: JSONValue] = ["window": .number(Double(spare.window))]
+            // Ready: the page asked for its handshake, so it is loaded and rendered.
+            var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake)]
             if let pid = webProcess(spare.view.webView) {
                 entry["pid"] = .number(Double(pid))
                 entry["footprint_mb"] = footprint(pid).map { .number($0) } ?? .null
