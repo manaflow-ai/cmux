@@ -12,11 +12,19 @@ nonisolated enum HomeChiefName {
 
     /// The create request of a new chief conversation.
     static func createRequest(user: ConversationParticipant, mux: ConversationParticipant) -> CreateConversationRequest {
-        CreateConversationRequest(idempotencyKey: createKey, title: HomeStrings.title, participants: [user, mux])
+        CreateConversationRequest(idempotencyKey: createKey, title: HomeStrings.chiefName, participants: [user, mux])
     }
 
     /// The rename of `summary` to the chief name, or nil when none is due.
+    /// Only the old default titles ("Home", localized or not, or none) are
+    /// renamed; a title the user chose stays.
     static func migration(for summary: CmuxNextDaemon.ConversationSummary) -> ConversationOpRequest? {
-        nil
+        let name = HomeStrings.chiefName
+        guard summary.participants.contains(where: { $0.id == muxID }), summary.title != name,
+              [HomeStrings.title, "Home", ""].contains(summary.title) else { return nil }
+        return ConversationOpRequest(conversation: summary.id, idempotencyKey: renameKey, transaction: nil, op: .setTitle(name))
     }
+
+    /// The local mux participant's id.
+    static let muxID = "agent_mux"
 }

@@ -3,6 +3,8 @@ import Foundation
 /// Home strings (Resources/Home.xcstrings).
 nonisolated enum HomeStrings {
     static var title: String { String(localized: "home.title", defaultValue: "Home", table: "Home", bundle: .module) }
+    /// The chief's name (N1): the chief conversation's title and the mux's name.
+    static var chiefName: String { String(localized: "home.chief.name", defaultValue: "Chief", table: "Home", bundle: .module) }
     static var unavailable: String {
         String(localized: "home.unavailable", defaultValue: "Conversations need a newer cmux daemon.", table: "Home", bundle: .module)
     }

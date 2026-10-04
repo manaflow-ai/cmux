@@ -50,6 +50,12 @@ extension HomeService {
         if let existing = try await client.list().first(where: { summary in
             summary.participants.contains { $0.id == Self.mux.id }
         }) {
+            // One-time rename to the chief's name (N1); a failure keeps the old title.
+            if let rename = HomeChiefName.migration(for: existing) {
+                do { _ = try await client.op(rename) } catch {
+                    logger.error("chief rename: \(String(describing: error), privacy: .public)")
+                }
+            }
             return existing.id
         }
         return try await client.create(HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)).conversation.id
