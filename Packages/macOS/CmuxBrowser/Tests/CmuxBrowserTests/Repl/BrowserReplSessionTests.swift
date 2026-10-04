@@ -376,6 +376,56 @@ struct BrowserReplSessionTests {
         }
     }
 
+    /// A cell that moves the session to another working directory is checked
+    /// when it is submitted and runs once the session's thread reaches it.
+    /// Another session sharing the parent can rename a link in for the
+    /// checked directory in between; the session must keep the directory it
+    /// checked, never adopt the link's target (here the home directory, which
+    /// it refuses as a root).
+    @Test("A link swapped in for a new cwd after its check never becomes the session's fs root")
+    func cwdChangeKeepsTheCheckedDirectory() async throws {
+        let fileManager = FileManager.default
+        let base = BrowserReplFileSandbox.canonicalize(
+            fileManager.temporaryDirectory.appendingPathComponent("cmux-repl-cwd-race-\(UUID().uuidString)").path
+        )
+        let home = base + "/home"
+        let next = base + "/next"
+        try fileManager.createDirectory(atPath: base + "/work", withIntermediateDirectories: true)
+        try fileManager.createDirectory(atPath: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(atPath: next, withIntermediateDirectories: true)
+        try Data("home secret".utf8).write(to: URL(fileURLWithPath: home + "/secret.txt"))
+        defer { try? fileManager.removeItem(atPath: base) }
+        let session = BrowserReplSession(
+            id: "cwd-race",
+            cwd: base + "/work",
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+            driver: RecordingReplDriver(),
+            temporaryDirectory: base + "/tmp",
+            homeDirectory: home
+        )
+        defer { session.close() }
+        #expect(await session.evaluate(code: "console.log('ready');").error == nil)
+
+        // Hold the session's thread so the next cell is checked but not begun.
+        let hold = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { hold.wait() })
+        let moved = Task {
+            await session.evaluate(code: "console.log(fs('readFile', { path: 'secret.txt' }));", cwd: next)
+        }
+        while session.cwd != next { await Task.yield() }
+
+        // Another session renames a link to the home directory over the checked cwd.
+        #expect(rename(next, base + "/next-moved") == 0)
+        try fileManager.createSymbolicLink(atPath: next, withDestinationPath: home)
+        hold.signal()
+        let result = await moved.value
+
+        let secret = Data("home secret".utf8).base64EncodedString()
+        #expect(!result.lines.contains { $0.text.contains(secret) }, "\(result.lines)")
+        let after = await session.evaluate(code: "console.log(fs('exists', { path: 'secret.txt' }));")
+        #expect(after.lines == [BrowserReplOutputLine(level: "log", text: "false")], "\(after)")
+    }
+
     /// A spill file is created in the temporary directory the session made
     /// and holds open, never through a path another process can change.
     @Test("Spilled output goes to the session's own temporary directory after another process swaps a link in for it")

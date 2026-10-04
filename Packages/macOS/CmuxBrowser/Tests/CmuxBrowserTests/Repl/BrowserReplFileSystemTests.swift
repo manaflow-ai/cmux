@@ -638,6 +638,31 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(fs.perform("readdir", arguments: ["path": "small"]).failureCode == "ok")
     }
 
+    /// `readdir` hands its whole list to the session's JavaScript thread;
+    /// a directory with more entries than the cap is refused once the read
+    /// passes it, never collected, sorted and serialized whole.
+    @Test("readdir lists up to 10,000 entries and refuses a larger directory")
+    func readdirRefusesAnOversizedDirectory() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let limit = 10_000
+        let big = scratch.root + "/big"
+        try FileManager.default.createDirectory(atPath: big, withIntermediateDirectories: true)
+        for index in 0..<limit {
+            #expect(FileManager.default.createFile(atPath: big + "/f\(index)", contents: nil))
+        }
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { false })
+        let listed = try fs.perform("readdir", arguments: ["path": "big"]).get() as? [[String: Any]]
+        #expect(listed?.count == limit)
+
+        #expect(FileManager.default.createFile(atPath: big + "/one-more", contents: nil))
+        let refused = fs.perform("readdir", arguments: ["path": "big"])
+        #expect(refused.failureCode == "ERR_FS_DIR_TOO_LARGE")
+        if case .failure(let error) = refused { #expect(error.message.contains("10000"), "\(error.message)") }
+        // rm -r still removes it whole.
+        #expect(fs.perform("rm", arguments: ["path": "big", "recursive": true]).failureCode == "ok")
+    }
+
     /// A root that does not exist yet is opened (and made, by `mkdir -p`)
     /// only when an operation first needs it. Another session whose root is
     /// above it can move a link it holds into the place of the root's

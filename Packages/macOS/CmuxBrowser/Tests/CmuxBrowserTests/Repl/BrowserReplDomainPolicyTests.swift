@@ -211,6 +211,40 @@ struct BrowserReplDomainPolicyTests {
         #expect(json.contains("<secret:pw>") && !json.contains("p@ss"))
     }
 
+    /// A retired value stays a capture mask on every domain any of its
+    /// registrations allowed: a page on any of them may still show it.
+    @Test("A value retired under several domain sets stays a capture mask on all of them")
+    func retiredValueKeepsEveryDomain() throws {
+        let store = BrowserReplSecretStore()
+        func maskedDomains() -> Set<String> {
+            Set(store.captureMasks.filter { $0.value == "hunter22" }.flatMap { $0.domains.map(\.raw) })
+        }
+        try store.set(name: "pw", value: "hunter22", domains: ["a.example"], totp: false, title: "t")
+        try store.set(name: "pw", value: "hunter22", domains: ["b.example"], totp: false, title: "t")
+        try store.set(name: "other", value: "hunter22", domains: ["c.example"], totp: false, title: "t")
+        #expect(store.delete("pw"))
+        #expect(store.delete("other"))
+        #expect(maskedDomains() == ["a.example", "b.example", "c.example"])
+        let typeable = store.typeableValues(from: Date(), to: Date()).filter { $0.value == "hunter22" }
+        #expect(Set(typeable.flatMap { $0.domains.map(\.raw) }) == ["a.example", "b.example", "c.example"])
+
+        // The domains one value is kept masked on stay bounded: a value
+        // registered over more than that many domains is refused, never
+        // dropped from a mask.
+        let limit = BrowserReplSecretStore.maximumDomainsPerValue
+        let perSet = BrowserReplSecretStore.maximumDomains
+        for round in 0..<(limit / perSet) {
+            let domains = (0..<perSet).map { "d\(round)-\($0).example" }
+            try store.set(name: "many", value: "spread", domains: domains, totp: false, title: "t")
+        }
+        #expect(throws: BrowserReplDriverError.self) {
+            try store.set(name: "many", value: "spread", domains: ["one-more.example"], totp: false, title: "t")
+        }
+        #expect(store.delete("many"))
+        let spread = Set(store.captureMasks.filter { $0.value == "spread" }.flatMap { $0.domains.map(\.raw) })
+        #expect(spread.count == limit)
+    }
+
     @Test("A TOTP secret types the RFC 6238 code and is never described with its value")
     func totp() throws {
         let store = BrowserReplSecretStore()

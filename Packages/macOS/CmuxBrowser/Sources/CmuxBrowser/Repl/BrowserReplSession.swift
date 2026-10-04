@@ -52,7 +52,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// JavaScript thread. Driver call results pass through it on their way
     /// to `thread` too, so an event the driver sent before a call returned
     /// still reaches the runtime before that call's result.
-    private let eventQueue: DispatchQueue
+    let eventQueue: DispatchQueue
     private let fetcher: BrowserReplFetcher
     /// Secrets, the domain policy and redaction (see BrowserReplBoundary).
     private let boundary: BrowserReplBoundary
@@ -88,6 +88,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var runningDriverCalls = 0
     /// Driver calls waiting for a slot, oldest first, at most `maxQueuedDriverCalls`.
     private var queuedDriverCalls: [PendingDriverCall] = []
+    /// Request bytes the queued and running driver calls and fetches hold,
+    /// at most `maxHeldRequestBytes`.
+    private var heldRequestBytes = 0
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
     /// The session's private temporary directory (mode 0700): `os.tmpdir()`
@@ -343,6 +346,21 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// The most driver calls one session queues; past it a call fails at once.
     static let maxQueuedDriverCalls = 10_000
 
+    /// The most UTF-8 bytes one driver call's parameters may have, 64 MiB
+    /// (the fetch and `readFile` limit); a larger call fails where it is
+    /// made, before anything holds it.
+    static let maxDriverCallParamsBytes = 64 << 20
+
+    /// A file chooser answer carries its files, Base64, up to
+    /// ``BrowserReplUploadStaging/maximumBytes`` decoded (1 MiB more for
+    /// names and the envelope).
+    static let maxFileChooserAnswerBytes = BrowserReplUploadStaging.maximumBytes / 3 * 4 + (1 << 20)
+
+    /// The most bytes of request data (driver call parameters, fetch
+    /// requests) one session's waiting and running calls hold at once,
+    /// 512 MiB; a call past it fails at once.
+    static let maxHeldRequestBytes = 512 << 20
+
     /// The most timers a session has scheduled, or fired with their callback
     /// not yet run, at once; `setTimer` returns false past it.
     public static let maxPendingTimers = 10_000
@@ -360,6 +378,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         let task: Task<Void, Never>
         let evalID: Int?
         let isFetch: Bool
+        /// The request bytes it holds (``maxHeldRequestBytes``).
+        let heldBytes: Int
     }
 
     /// A fetch the runtime asked for, waiting for a slot or running.
@@ -367,6 +387,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         let callID: Int
         let requestJSON: String
         let evalID: Int?
+        /// What it counts against ``maxHeldRequestBytes``.
+        var heldBytes: Int { requestJSON.utf8.count }
     }
 
     /// A driver call the runtime asked for, its params already prepared.
@@ -375,6 +397,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         let method: String
         let paramsJSON: String
         let evalID: Int?
+        /// What it counts against ``maxHeldRequestBytes``.
+        var heldBytes: Int { method.utf8.count + paramsJSON.utf8.count }
     }
 
     /// Creates a session. The context is created lazily on the first evaluation.
@@ -583,13 +607,19 @@ public final class BrowserReplSession: @unchecked Sendable {
         timeout: Duration,
         maxOutput: Int?
     ) async -> BrowserReplEvalResult {
-        await withCheckedContinuation { continuation in
+        // A new working directory is checked and opened here, once: the cell
+        // later moves to the directory held open now, never to whatever its
+        // path names by then.
+        let pinned: Result<PinnedRoot, PinRefusal>? = cwd.map(pinRoot)
+        return await withCheckedContinuation { continuation in
             stateLock.lock()
             lastUsedAt = .now
             var refusal: String?
             if closed {
                 refusal = "Error: REPL session '\(id)' is closed"
-            } else if let reason = rootRejection(cwd ?? workingDirectory) {
+            } else if case .failure(let reason) = pinned {
+                refusal = "Error: \(reason.message)"
+            } else if cwd == nil, let reason = rootRejection(workingDirectory) {
                 refusal = "Error: \(reason)"
             }
             if let refusal {
@@ -597,7 +627,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                 continuation.resume(returning: BrowserReplEvalResult(lines: [], error: refusal, durationMilliseconds: 0))
                 return
             }
+            let previousDirectory = workingDirectory
             if let cwd { workingDirectory = cwd }
+            let root = try? pinned?.get()
             nextEvalID += 1
             let state = EvalState(
                 id: nextEvalID,
@@ -608,7 +640,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             currentEval = state
             watchdog.setCurrentEval(state.id)
             let submitted = thread.perform { [self] in
-                self.beginEval(state, code: code, cwd: cwd, maxOutput: maxOutput)
+                self.beginEval(state, code: code, cwd: cwd, root: root, previousDirectory: previousDirectory, maxOutput: maxOutput)
             }
             stateLock.unlock()
             guard submitted else {
@@ -624,6 +656,52 @@ public final class BrowserReplSession: @unchecked Sendable {
                 }
                 self?.timeOut(state, after: timeout)
             })
+        }
+    }
+
+    /// A new working directory, checked and opened while no REPL `fs.rename`
+    /// can run: its canonical path and its directory, held open from then.
+    struct PinnedRoot: Sendable {
+        let path: String
+        /// Nil when the directory does not exist yet (`mkdir -p` makes it,
+        /// by a walk from `/` that follows no link).
+        let directory: BrowserReplDescriptor?
+
+        /// Whether `path` still names the held directory, with no link on
+        /// the way: the driver takes the identity of the directory at
+        /// `path` for file navigations, which must be this one.
+        var isStillInPlace: Bool {
+            guard let directory else { return true }
+            guard BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(path)) == path else { return false }
+            var held = stat()
+            var named = stat()
+            return fstat(directory.fd, &held) == 0 && lstat(path, &named) == 0
+                && named.st_mode & S_IFMT == S_IFDIR
+                && held.st_dev == named.st_dev && held.st_ino == named.st_ino
+        }
+    }
+
+    struct PinRefusal: Error {
+        let message: String
+    }
+
+    /// Checks `cwd` as a working directory and opens it, both while no REPL
+    /// session can rename an entry (``BrowserReplFileSandbox/pathChangeLock``):
+    /// its canonical path is checked (``rootRejection(_:)``) and opened by a
+    /// walk from `/` that follows no link, so a link another session renames
+    /// in for a checked directory is never adopted, and a link on the way is
+    /// refused.
+    private func pinRoot(_ cwd: String) -> Result<PinnedRoot, PinRefusal> {
+        if let reason = rootRejection(cwd) { return .failure(PinRefusal(message: reason)) }
+        return BrowserReplFileSandbox.pathChangeLock.withLock {
+            let path = BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(cwd))
+            if let reason = rootRejection(path) { return .failure(PinRefusal(message: reason)) }
+            let descriptor = BrowserReplRootDirectories.open(path)
+            if descriptor >= 0 { return .success(PinnedRoot(path: path, directory: BrowserReplDescriptor(descriptor))) }
+            if errno == ENOENT { return .success(PinnedRoot(path: path, directory: nil)) }
+            return .failure(PinRefusal(message: errno == ELOOP
+                ? "refusing to use '\(cwd)' as the REPL working directory: its path changed to a symbolic link while it was checked. Run the command again from the directory itself"
+                : "cannot use '\(cwd)' as the REPL working directory: \(String(cString: strerror(errno)))"))
         }
     }
 
@@ -668,6 +746,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         requestPhaseFetches.removeAll()
         queuedDriverCalls.removeAll()
         runningDriverCalls = 0
+        heldRequestBytes = 0
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -727,11 +806,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func cancelWork(ofEval evalID: Int) {
         let (tasks, droppedFetches, droppedCalls): ([Task<Void, Never>], [Int], [Int]) = stateLock.withLock {
             let tasks = inFlight.values.filter { $0.evalID == evalID }.map(\.task)
-            let fetches = queuedFetches.filter { $0.evalID == evalID }.map(\.callID)
+            let fetches = queuedFetches.filter { $0.evalID == evalID }
             queuedFetches.removeAll { $0.evalID == evalID }
-            let calls = queuedDriverCalls.filter { $0.evalID == evalID }.map(\.callID)
+            let calls = queuedDriverCalls.filter { $0.evalID == evalID }
             queuedDriverCalls.removeAll { $0.evalID == evalID }
-            return (tasks, fetches, calls)
+            heldRequestBytes -= fetches.reduce(0) { $0 + $1.heldBytes } + calls.reduce(0) { $0 + $1.heldBytes }
+            return (tasks, fetches.map(\.callID), calls.map(\.callID))
         }
         for task in tasks { task.cancel() }
         guard !droppedFetches.isEmpty || !droppedCalls.isEmpty else { return }
@@ -759,11 +839,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.withLock {
             guard !closed else { return Self.closedError }
             let call = PendingDriverCall(callID: callID, method: method, paramsJSON: paramsJSON, evalID: currentEval?.id)
+            if let refusal = admitRequestLocked(bytes: call.heldBytes, what: "browser calls and fetches") { return refusal }
             if queuedDriverCalls.isEmpty, runningDriverCalls < Self.maxConcurrentDriverCalls {
                 startDriverCallLocked(call)
             } else if queuedDriverCalls.count < Self.maxQueuedDriverCalls {
                 queuedDriverCalls.append(call)
             } else {
+                heldRequestBytes -= call.heldBytes
                 return BrowserReplDriverError(
                     code: "invalid",
                     message: "\(Self.maxQueuedDriverCalls) browser calls are already waiting for one of the session's \(Self.maxConcurrentDriverCalls) slots; await some before starting more"
@@ -793,14 +875,15 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             self.driverCallFinished(taskID)
         }
-        inFlight[taskID] = InFlightWork(task: task, evalID: call.evalID, isFetch: false)
+        inFlight[taskID] = InFlightWork(task: task, evalID: call.evalID, isFetch: false, heldBytes: call.heldBytes)
     }
 
     /// Frees the finished driver call's slot and starts queued ones.
     private func driverCallFinished(_ taskID: Int) {
         stateLock.withLock {
             // close() already dropped every entry and the queue.
-            guard inFlight.removeValue(forKey: taskID) != nil else { return }
+            guard let work = inFlight.removeValue(forKey: taskID) else { return }
+            heldRequestBytes -= work.heldBytes
             runningDriverCalls -= 1
             while !closed, !queuedDriverCalls.isEmpty, runningDriverCalls < Self.maxConcurrentDriverCalls {
                 startDriverCallLocked(queuedDriverCalls.removeFirst())
@@ -816,11 +899,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.withLock {
             guard !closed else { return Self.closedError }
             let fetch = PendingFetch(callID: callID, requestJSON: requestJSON, evalID: currentEval?.id)
+            if let refusal = admitRequestLocked(bytes: fetch.heldBytes, what: "fetch: browser calls and fetches") { return refusal }
             if queuedFetches.isEmpty, hasFetchSlotLocked {
                 startFetchLocked(fetch)
             } else if queuedFetches.count < Self.maxQueuedFetches {
                 queuedFetches.append(fetch)
             } else {
+                heldRequestBytes -= fetch.heldBytes
                 return BrowserReplDriverError(
                     code: "invalid",
                     message: "fetch: \(Self.maxQueuedFetches) fetches are already waiting for one of the session's \(Self.maxConcurrentFetches) fetch slots; await some before starting more"
@@ -828,6 +913,19 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             return nil
         }
+    }
+
+    /// Takes `bytes` of ``maxHeldRequestBytes`` for a call about to wait or
+    /// run, or says why it is refused. Call with `stateLock` held.
+    private func admitRequestLocked(bytes: Int, what: String) -> BrowserReplDriverError? {
+        guard heldRequestBytes + bytes > Self.maxHeldRequestBytes else {
+            heldRequestBytes += bytes
+            return nil
+        }
+        return BrowserReplDriverError(
+            code: "invalid",
+            message: "\(what) waiting or running in this session already hold \(heldRequestBytes >> 20) MiB of parameters, and this one (\(bytes >> 20) MiB) would pass the \(Self.maxHeldRequestBytes >> 20) MiB they may hold at once; await some before starting more"
+        )
     }
 
     /// Whether a fetch can start now. Call with `stateLock` held.
@@ -866,7 +964,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.fetchFinished(taskID)
             }
         }
-        inFlight[taskID] = InFlightWork(task: task, evalID: fetch.evalID, isFetch: true)
+        inFlight[taskID] = InFlightWork(task: task, evalID: fetch.evalID, isFetch: true, heldBytes: fetch.heldBytes)
     }
 
     /// The fetch's response headers arrived: it leaves its slot.
@@ -881,7 +979,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func fetchFinished(_ taskID: Int) {
         stateLock.withLock {
             // close() already dropped every entry and the queue.
-            guard inFlight.removeValue(forKey: taskID) != nil else { return }
+            guard let work = inFlight.removeValue(forKey: taskID) else { return }
+            heldRequestBytes -= work.heldBytes
             openFetches -= 1
             requestPhaseFetches.remove(taskID)
             startQueuedFetchesLocked()
@@ -1071,6 +1170,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         _ state: EvalState,
         code: String,
         cwd: String?,
+        root: PinnedRoot?,
+        previousDirectory: String,
         maxOutput: Int?
     ) {
         // A timeout or close() may have finished the evaluation before the
@@ -1080,20 +1181,33 @@ public final class BrowserReplSession: @unchecked Sendable {
         for line in takeCallbackNotices() { state.append(line) }
         // Callbacks held back between cells run during this cell, in order.
         queueHeldRelease()
-        if let cwd, cwd != fileSystem.sandbox.root {
-            var sandbox = BrowserReplFileSandbox(root: cwd)
-            sandbox.inheritReadableFiles(from: fileSystem.sandbox)
-            // The temporary root stays the directory held since the session began.
-            fileSystem = BrowserReplFileSystem(
-                sandbox: sandbox,
-                temporaryDirectory: fileSystem.temporaryRoot,
-                rootDescriptor: nil,
-                temporaryDescriptor: fileSystem.temporaryRoot.flatMap { fileSystem.rootDirectories.descriptor(at: 1, for: $0) },
-                writeBudget: fileSystem.writeBudget,
-                isCancelled: fileSystem.isCancelled
-            )
-            boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
-            driver.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
+        if let cwd, let root, root.path != fileSystem.sandbox.root {
+            // The fs moves to the directory checked and held when the cell
+            // was submitted. The browser's file roots are published by path
+            // with the identity of the directory there now, so that must
+            // still be the held one; nothing renames meanwhile.
+            let moved: Bool = BrowserReplFileSandbox.pathChangeLock.withLock {
+                guard root.isStillInPlace else { return false }
+                var sandbox = BrowserReplFileSandbox(root: root.path)
+                sandbox.inheritReadableFiles(from: fileSystem.sandbox)
+                // The temporary root stays the directory held since the session began.
+                fileSystem = BrowserReplFileSystem(
+                    sandbox: sandbox,
+                    temporaryDirectory: fileSystem.temporaryRoot,
+                    rootDescriptor: root.directory,
+                    temporaryDescriptor: fileSystem.temporaryRoot.flatMap { fileSystem.rootDirectories.descriptor(at: 1, for: $0) },
+                    writeBudget: fileSystem.writeBudget,
+                    isCancelled: fileSystem.isCancelled
+                )
+                boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
+                driver.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
+                return true
+            }
+            guard moved else {
+                stateLock.withLock { workingDirectory = previousDirectory }
+                finish(state, error: "Error: refusing to use '\(cwd)' as the REPL working directory: it was moved or replaced since the command was checked. Run the command again from the directory itself")
+                return
+            }
             // The runtime removes the `__cmuxNative` global before agent code
             // runs; the session keeps its own reference.
             nativeHost?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)
@@ -1288,6 +1402,15 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self, let callID = callID?.toInt32() else { return }
             let methodName = method?.toString() ?? ""
             let raw = params.flatMap { $0.isString ? $0.toString() : nil } ?? "{}"
+            // An oversized call is refused before it is parsed or waits.
+            let limit = methodName == "filechooser.respond" ? Self.maxFileChooserAnswerBytes : Self.maxDriverCallParamsBytes
+            guard raw.utf8.count <= limit else {
+                self.resolveCall(Int(callID), .failure(BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(methodName): its parameters are \(raw.utf8.count >> 20) MiB, past the \(limit >> 20) MiB one browser call may carry"
+                )))
+                return
+            }
             let boundary = self.boundary
             let paramsJSON: String
             switch boundary.prepare(method: methodName, paramsJSON: raw) {
@@ -1500,23 +1623,45 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         eventQueue.async { [weak self] in
             guard let self else { return }
-            let payload = self.eventPayloadForJavaScript(name: name, payloadJSON)
+            let (payload, charged) = self.chargeMaskedEvent(name: name, raw: payloadJSON, reserved: reserved)
             let queued = self.thread.perform { [weak self] in
                 guard let self else { return }
                 if let downloadPath { self.fileSystem.sandbox.allowReading(downloadPath) }
                 guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else {
-                    self.releaseEvent(reserved)
+                    self.releaseEvent(charged)
                     return
                 }
                 if self.mustHoldCallback {
-                    self.hold(.event(name: name, payload: payload, reserved: reserved))
+                    self.hold(.event(name: name, payload: payload, reserved: charged))
                     return
                 }
-                self.releaseEvent(reserved)
+                self.releaseEvent(charged)
                 self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
             }
-            if !queued { self.releaseEvent(reserved) }
+            if !queued { self.releaseEvent(charged) }
         }
+    }
+
+    /// The payload of an admitted event as JavaScript will see it, and the
+    /// bytes it now holds of `maxQueuedEventBytes`: masking can make it
+    /// longer than the raw bytes it was admitted with (`reserved`), and one
+    /// that would pass the budget masked arrives withheld instead.
+    private func chargeMaskedEvent(name: String, raw: String, reserved: Int) -> (payload: String, reserved: Int) {
+        let masked = eventPayloadForJavaScript(name: name, raw)
+        let size = name.utf8.count + masked.utf8.count
+        let fits: Bool = eventLock.withLock {
+            guard queuedEventBytes - reserved + size > Self.maxQueuedEventBytes else {
+                queuedEventBytes += size - reserved
+                return true
+            }
+            return false
+        }
+        if fits { return (masked, size) }
+        let reason = "this \(name) event is \(masked.utf8.count) bytes with secrets masked, and the page events waiting for the session's thread already hold close to \(Self.maxQueuedEventBytes >> 20) MiB, so its content was withheld"
+        let withheld = withheldEventPayload(raw, reason: reason)
+        let withheldSize = name.utf8.count + withheld.utf8.count
+        eventLock.withLock { queuedEventBytes += withheldSize - reserved }
+        return (withheld, withheldSize)
     }
 
     /// A page event's payload as JavaScript may see it, with secrets
@@ -1533,6 +1678,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         } else {
             reason = BrowserReplSecretStore.limitMessage(size)
         }
+        return withheldEventPayload(payloadJSON, reason: reason)
+    }
+
+    /// `{ targetId, withheld }`: the tab the event names (masked), and why
+    /// its content is not there.
+    private func withheldEventPayload(_ payloadJSON: String, reason: String) -> String {
         var withheld: [String: Any] = ["withheld": reason]
         if let targetId = JSONSerialization.browserReplObject(payloadJSON)["targetId"] as? String, targetId.utf8.count <= 256 {
             withheld["targetId"] = boundary.redact(targetId)

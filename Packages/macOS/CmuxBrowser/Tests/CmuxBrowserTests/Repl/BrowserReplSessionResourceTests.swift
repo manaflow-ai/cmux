@@ -439,6 +439,90 @@ struct BrowserReplSessionResourceTests {
         #expect(result.lines.map(\.text) == [#"["before the result"]"#])
     }
 
+    /// Masking secrets can grow an event many times over (a mask is longer
+    /// than a one-character value), so the bytes events hold while they wait
+    /// for the session's thread are counted as they will reach JavaScript:
+    /// an event whose masked payload would pass the budget arrives withheld.
+    @Test("Page events waiting for a busy session are bounded by their masked size")
+    func maskedPageEventsAreBounded() async throws {
+        let driver = RecordingReplDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.seen = { bytes: 0, withheld: 0 };
+        globalThis.__cmuxHostOnEvent = (name, payload) => {
+          globalThis.seen.bytes += payload.length;
+          if (JSON.parse(payload).withheld) globalThis.seen.withheld += 1;
+        };
+        """#
+        let session = BrowserReplSession(
+            id: "masked-events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        let armed = await session.evaluate(code: #"native.secrets("set", JSON.stringify({ name: "s", value: "q", domains: ["example.com"] }));"#)
+        #expect(armed.error == nil, "\(armed.error ?? "")")
+
+        // Each event is 800 KiB, the secret in every other byte, under the
+        // 1 MiB per-event limit; masked, each grows to about 4.4 MiB, twenty
+        // of them past 64 MiB.
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        let text = String(repeating: "q ", count: 400 << 10)
+        for _ in 0..<20 { driver.emit("console", #"{"targetId":"t1","type":"log","text":"\#(text)"}"#) }
+        // Every event is masked and waiting for the thread before it runs again.
+        session.eventQueue.sync {}
+        busy.signal()
+
+        let result = await session.evaluate(code: "await driverOnce('tabs.list'); console.log(JSON.stringify(globalThis.seen));")
+        let seen = JSONSerialization.browserReplObject(result.lines.last?.text ?? "{}")
+        let bytes = (seen["bytes"] as? NSNumber)?.intValue ?? -1
+        let withheld = (seen["withheld"] as? NSNumber)?.intValue ?? -1
+        #expect(bytes > 0 && bytes <= BrowserReplSession.maxQueuedEventBytes, "\(bytes) bytes of masked events waited at once")
+        #expect(withheld >= 1, "\(result.lines.map { $0.text.prefix(200) })")
+    }
+
+    /// A driver call's parameters wait in the session's queue, or with the
+    /// driver, until the call ends; one call's parameters are bounded where
+    /// it is made, and so are those all its waiting and running calls hold.
+    @Test("A driver call's parameters are bounded per call and across the calls a session holds")
+    func driverCallParametersAreBounded() async throws {
+        let driver = HeldCookiesDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.driverWith = (method, params) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.driverCall(id, method, params);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "params-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "params.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const big = JSON.stringify({ pad: "x".repeat(65 << 20) });
+            const oversized = await driverWith("tabs.list", big).then(() => "ran", (e) => e.message);
+            console.log(oversized);
+            // Held by the driver: 60 MiB each, past 512 MiB on the ninth.
+            const held = JSON.stringify({ pad: "x".repeat(60 << 20) });
+            const outcomes = [];
+            for (let i = 0; i < 9; i++) driverWith("cookies.get", held).then(() => {}, (e) => outcomes.push(e.message));
+            await Promise.resolve();
+            console.log(outcomes.length, outcomes[0]);
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.first?.contains("MiB") == true && lines.first?.contains("ran") == false, "\(lines)")
+        #expect(lines.last?.hasPrefix("1 ") == true && lines.last?.contains("MiB") == true, "\(lines)")
+    }
+
     /// An event larger than the per-event limit arrives without its
     /// content, as other outputs past their limits do, and still names its
     /// tab, so masking never has to read it.

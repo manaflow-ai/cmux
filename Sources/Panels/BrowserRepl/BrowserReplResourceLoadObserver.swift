@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -5,14 +6,16 @@ import WebKit
 /// load delegate SPI (`-[WKWebView _setResourceLoadDelegate:]`).
 ///
 /// The delegate methods are matched by selector, so this class needs no
-/// private headers. `install` returns `false` when the SPI is missing; the
+/// private headers. The requests of unfinished loads are held in a bounded
+/// table (``BrowserReplUnfinishedLoads``), so a page that leaves many
+/// requests open cannot grow it without limit. `install` returns `false` when the SPI is missing; the
 /// driver then reports no network events rather than injecting page hooks.
 @MainActor
 final class BrowserReplResourceLoadObserver: NSObject {
     typealias Emit = (_ event: String, _ payload: [String: Any]) -> Void
 
     private let emit: Emit
-    private var requests: [UInt64: [String: Any]] = [:]
+    private var requests = BrowserReplUnfinishedLoads<[String: Any]>()
     private weak var webView: WKWebView?
 
     /// Requests started and not yet finished or failed.
@@ -60,7 +63,7 @@ final class BrowserReplResourceLoadObserver: NSObject {
         if let headers = request.allHTTPHeaderFields {
             payload["headers"] = Dictionary(uniqueKeysWithValues: headers.map { ($0.key.lowercased(), $0.value) })
         }
-        requests[id] = payload
+        requests.start(id, payload, bytes: Self.size(of: payload))
         inflightCount += 1
         onInflightChange?(inflightCount)
         emit("request", payload)
@@ -69,14 +72,14 @@ final class BrowserReplResourceLoadObserver: NSObject {
     @objc(webView:resourceLoad:didReceiveResponse:)
     func webView(_ webView: WKWebView, resourceLoad: NSObject, didReceiveResponse response: URLResponse) {
         let id = Self.loadID(resourceLoad)
-        var payload = requests[id] ?? Self.fallbackPayload(id: id, resourceLoad: resourceLoad)
+        var payload = requests.value(for: id) ?? Self.fallbackPayload(id: id, resourceLoad: resourceLoad)
         if let http = response as? HTTPURLResponse {
             payload["status"] = http.statusCode
             payload["headers"] = http.allHeaderFields.reduce(into: [String: String]()) { result, entry in
                 if let key = entry.key as? String { result[key.lowercased()] = "\(entry.value)" }
             }
         }
-        requests[id] = payload
+        requests.update(id, payload, bytes: Self.size(of: payload))
         emit("response", payload)
     }
 
@@ -88,7 +91,13 @@ final class BrowserReplResourceLoadObserver: NSObject {
         response: URLResponse?
     ) {
         let id = Self.loadID(resourceLoad)
-        var payload = requests.removeValue(forKey: id) ?? Self.fallbackPayload(id: id, resourceLoad: resourceLoad)
+        let finished = requests.finish(id)
+        var payload = finished.value ?? Self.fallbackPayload(id: id, resourceLoad: resourceLoad)
+        if finished.dropped {
+            // The tab held more unfinished loads than the table keeps
+            // (BrowserReplUnfinishedLoads); this one's request headers went.
+            payload["note"] = "the request's headers were dropped while it ran: the tab had more than \(BrowserReplUnfinishedLoads<[String: Any]>.maximumLoads) unfinished requests or \(BrowserReplUnfinishedLoads<[String: Any]>.maximumBytes >> 20) MiB of them"
+        }
         if let http = response as? HTTPURLResponse, payload["status"] == nil {
             payload["status"] = http.statusCode
         }
@@ -99,6 +108,18 @@ final class BrowserReplResourceLoadObserver: NSObject {
             emit("requestfailed", payload)
         } else {
             emit("requestfinished", payload)
+        }
+    }
+
+    /// About how many bytes `payload` holds: its strings, and its headers'
+    /// names and values.
+    private static func size(of payload: [String: Any]) -> Int {
+        payload.values.reduce(0) { total, value in
+            if let text = value as? String { return total + text.utf8.count }
+            if let headers = value as? [String: String] {
+                return total + headers.reduce(0) { $0 + $1.key.utf8.count + $1.value.utf8.count }
+            }
+            return total + 8
         }
     }
 
