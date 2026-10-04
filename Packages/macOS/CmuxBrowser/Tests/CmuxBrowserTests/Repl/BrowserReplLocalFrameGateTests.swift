@@ -47,6 +47,41 @@ struct BrowserReplLocalFrameGateTests {
         }
     }
 
+    /// `work/index.html` with two child frames that each replace their file
+    /// with a `data:` document showing it: `work/pivot.html` and
+    /// `outside/pivot.html`. With `recording`, each navigation is recorded
+    /// as cmux's navigation delegate records it.
+    @MainActor
+    struct PivotPage {
+        let webView: WKWebView
+        let frames: [BrowserReplFrame]
+        let delegate: OpaquePage.Recorder
+
+        func frame(showing text: String) -> BrowserReplFrame? {
+            frames.dropFirst().first { ($0.url.removingPercentEncoding ?? $0.url).contains(text) }
+        }
+
+        static func load(_ scratch: Scratch, recording: Bool) async throws -> PivotPage {
+            let pivot = { (text: String) in #"<script>location.href = "data:text/html,<p>"# + text + #"</p>"</script>"# }
+            try Data(pivot("inside data").utf8).write(to: URL(fileURLWithPath: scratch.root + "/pivot.html"))
+            try Data(pivot("outside data secret").utf8).write(to: URL(fileURLWithPath: scratch.outside + "/pivot.html"))
+            let index = """
+            <p>index</p>
+            <iframe src="pivot.html"></iframe>
+            <iframe src="../outside/pivot.html"></iframe>
+            """
+            try Data(index.utf8).write(to: URL(fileURLWithPath: scratch.root + "/pivots.html"))
+            let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: WKWebViewConfiguration())
+            let delegate = OpaquePage.Recorder(recording: recording)
+            webView.navigationDelegate = delegate
+            webView.loadFileURL(URL(fileURLWithPath: scratch.root + "/pivots.html"), allowingReadAccessTo: URL(fileURLWithPath: scratch.base))
+            let frames = try await FramePage.settle(webView) { frames in
+                frames.count >= 3 && frames.dropFirst().allSatisfy { $0.url.hasPrefix("data:") }
+            }
+            return PivotPage(webView: webView, frames: frames, delegate: delegate)
+        }
+    }
+
     /// A gate with no domain policy that judges `webView` as a user's tab.
     static func gate(_ page: LocalPage) -> BrowserReplFrameGate {
         let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
@@ -115,5 +150,44 @@ struct BrowserReplLocalFrameGateTests {
         // leaves them alone without a policy.
         let own = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
         #expect(await BrowserReplFrameGateTests.error { try own.checkCapture(in: page.webView, frames: page.frames) } == nil)
+    }
+
+    /// A file outside the roots can replace itself with a `data:` document
+    /// that shows its content: an opaque origin with no file URL. It is
+    /// judged by the file that made it.
+    @Test func aDataDocumentAFileOutsideTheRootsMadeIsNotEvaluated() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let page = try await PivotPage.load(scratch, recording: true)
+        let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
+        let root = scratch.root
+        gate.localDocumentRoots = { _ in [root] }
+        let read = "return document.body.innerText"
+        let outside = try #require(page.frame(showing: "outside data secret"))
+        let error = await BrowserReplFrameGateTests.error {
+            try await gate.callAsyncJavaScript(read, arguments: [:], in: page.webView, frame: outside, contentWorld: .page)
+        }
+        #expect(error?.code == "blocked", "a data: document a file outside the roots made was read: \(String(describing: error))")
+        #expect(gate.blocked(page.frames, in: page.webView).contains { $0.frame.frameID == outside.frameID },
+                "input and captures would not treat the outside file's data: document as blocked")
+        let inside = try #require(page.frame(showing: "inside data"))
+        let text = try await gate.callAsyncJavaScript(read, arguments: [:], in: page.webView, frame: inside, contentWorld: .page)
+        #expect((text as? String)?.contains("inside data") == true)
+    }
+
+    /// With no record of who made an opaque document, it may be a local
+    /// file's outside the roots: refused, as a locked policy refuses one.
+    @Test func anOpaqueDocumentWhoseMakerIsUnknownIsRefusedInAUsersLocalTab() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let page = try await PivotPage.load(scratch, recording: false)
+        let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
+        let root = scratch.root
+        gate.localDocumentRoots = { _ in [root] }
+        let outside = try #require(page.frame(showing: "outside data secret"))
+        let error = await BrowserReplFrameGateTests.error {
+            try await gate.callAsyncJavaScript("return document.body.innerText", arguments: [:], in: page.webView, frame: outside, contentWorld: .page)
+        }
+        #expect(error?.code == "blocked", "an opaque document of unknown maker was read in a user's local tab: \(String(describing: error))")
     }
 }
