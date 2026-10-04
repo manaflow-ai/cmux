@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import CmuxNextDesign
 import Testing
 @testable import CmuxNextApp
@@ -27,6 +28,13 @@ import Testing
         await settle(harness)
         let hidden = try #require(root.sidebarToggleFrame)
         #expect(shown == midAnimation && shown == hidden)
+        // Snapshots of both states for review (cmux-lawrence-2 artifacts).
+        if let dir = ProcessInfo.processInfo.environment["NX_ARTIFACTS"], let window = root.window {
+            try window.renderSnapshot()?.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir + "/toggle-hidden.png"))
+            harness.window.sidebar.model.toggle()
+            await settle(harness)
+            try window.renderSnapshot()?.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir + "/toggle-shown.png"))
+        }
         // It is right of the traffic lights, in the top row.
         if let window = root.window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             #expect(shown.minX >= lights.maxX && shown.midY > window.contentLayoutRect.maxY - Metrics.tabStripHeight)
