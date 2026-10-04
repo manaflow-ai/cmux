@@ -1,6 +1,7 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 import { defineConfig } from "vitest/config"
+import { cloudAllowedTeams } from "./test/setup/cloud-teams.ts"
 
 // Test-only keys: a fake Stack signing key (its JWKS replaces Stack's published
 // keys only when ENVIRONMENT=test) and the API's token signing key.
@@ -64,6 +65,8 @@ export default defineConfig({
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
           CLOUD_NAME_PREFIX: "cmuxnp-test-",
+          // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
+          CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",
           GOOGLE_PUBSUB_AUDIENCE: "https://api.test/v1/hooks/google/pubsub",
           GOOGLE_PUBSUB_SERVICE_ACCOUNT: "gmail-push-invoker@cmux-integrations-dev.iam.gserviceaccount.com",
