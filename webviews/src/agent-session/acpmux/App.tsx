@@ -445,6 +445,19 @@ const defaultRegistry: NativeRegistry = {
 type DrawnHeight = { version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
+/// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
+/// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.
+function glide(node: HTMLElement | null, step: number): void {
+  if (!node || typeof node.animate !== "function") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
+    duration: GLIDE_MS,
+    easing: "cubic-bezier(0.2, 0, 0, 1)",
+    composite: "add",
+  });
+}
+const GLIDE_MS = 180;
+
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
   for (const [id, entry] of updates) {
@@ -664,6 +677,20 @@ export function VirtualTranscript({
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
+  const thread = useRef<HTMLDivElement>(null);
+  // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const endGlide = () => {
+      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+    };
+    const events = ["wheel", "touchstart", "keydown"] as const;
+    for (const name of events) node.addEventListener(name, endGlide, { passive: true });
+    return () => {
+      for (const name of events) node.removeEventListener(name, endGlide);
+    };
+  }, []);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
@@ -731,7 +758,10 @@ export function VirtualTranscript({
       if (top > 0 && didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        if (Math.abs(latest - node.scrollTop) > 0.5) node.scrollTop = latest;
+        const step = latest - node.scrollTop;
+        if (Math.abs(step) > 0.5) node.scrollTop = latest;
+        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll").
+        if (step > 0.5 && step < node.clientHeight) glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -773,7 +803,7 @@ export function VirtualTranscript({
   return (
     <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}>
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
-        <div className="acpmux-thread">
+        <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
             const absoluteIndex = range.first + index;
             const kind = rowKind(row);

@@ -701,7 +701,7 @@ describe("acpmux measured rows", () => {
       expect(glide.frames[1]!.transform).toBe("translateY(0px)");
       expect(glide.options.composite).toBe("add");
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
-      await act(async () => scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40 })));
+      await act(async () => scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true })));
       expect(glide.finished).toBe(true);
     } finally {
       delete prototype.animate;
