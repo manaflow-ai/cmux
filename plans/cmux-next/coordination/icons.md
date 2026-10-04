@@ -8,5 +8,7 @@
 - Every new icon field (for example the sidebar-layout store, PR 16842) must be added to the daemon's ICON_REFERENCE_FIELDS, or the blob sweep deletes its assets.
 - One icon rule: Swift `IconValue` (CmuxNextDesign), page `iconValue.ts`, daemon `validate_presentation_icon`. Do not add another "is this an emoji" check.
 
+- The picker is a floating ActiveAppKeyPanel (nxdog34: a transient NSPopover closed itself in socket runs). The panel closes on resignKey, so the asset slice must keep it open while the Image tab's "Choose File" (NSOpenPanel) or a drop source owns the keys. `debug.popups` lists the open picker as `icon_picker`.
+
 ## Landed
 - 2026-10-04 bd9745a8551 icon picker React page (stand-alone); 7e7e09a5533 vp check fix; 1c194a0f998 IconValue, icon with color, Settings icon kinds, Set Icon opens the picker (workspace, screen, space, browser profile).
