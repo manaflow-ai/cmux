@@ -415,4 +415,27 @@ describe("CloudStore against the landed catalog (C4i)", () => {
     expect(store.getSnapshot().rows.length).toBe(sampleMachines().length);
     expect(provider.watchers).toBe(1);
   });
+
+  test("every event of one projection change applies, even when they share its revision", async () => {
+    const { provider, store } = await started();
+    const [a, b] = sampleMachines();
+    const revision = provider.revision + 1;
+    provider.emitRaw({ type: "removed", revision, id: a.id });
+    provider.emitRaw({ type: "removed", revision, id: b.id });
+    await settle();
+    const ids = store.getSnapshot().rows.map((row) => row.id);
+    expect(ids).not.toContain(a.id);
+    expect(ids).not.toContain(b.id);
+    expect(store.getSnapshot().revision).toBe(revision);
+  });
+
+  test("events of the list's own revision that arrive after the list change nothing", async () => {
+    const provider = new MockCloudProvider();
+    const { store } = await started(provider);
+    const before = store.getSnapshot().machines;
+    // The server sends the list result, then the events of the same change.
+    provider.emitRaw({ type: "upsert", revision: provider.revision, machine: before[0] });
+    await settle();
+    expect(store.getSnapshot().machines).toEqual(before);
+  });
 });
