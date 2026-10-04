@@ -466,7 +466,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             onUseDefaultSidebar()
         } label: {
             Label(
-                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                String(localized: "sidebar.mode.classic", defaultValue: "Classic"),
                 systemImage: "sidebar.left"
             )
         }
@@ -583,7 +583,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         presentExtensionBrowser()
                     }
                     .controlSize(.small)
-                    Button(String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default")) {
+                    Button(String(localized: "sidebar.mode.classic", defaultValue: "Classic")) {
                         isShowingExtensionDetails = false
                         onUseDefaultSidebar()
                     }
@@ -640,7 +640,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             onUseDefaultSidebar()
         } label: {
             Label(
-                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                String(localized: "sidebar.mode.classic", defaultValue: "Classic"),
                 systemImage: "sidebar.left"
             )
         }
