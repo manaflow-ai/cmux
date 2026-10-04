@@ -1674,15 +1674,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             try refuseClipboardCommandInUserTab(command, panel: panel)
         }
         try await withWindow(panel) { [self] webView, _ in
-            let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down")
-            guard result == .delivered else {
-                throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
+            // Tab past the page's last control must not move the user's
+            // AppKit focus (WKWebView+AutomationFocusContainment). WebKit asks
+            // for that before it answers the round trip below.
+            try await webView.withAutomationFocusContainment {
+                let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down")
+                guard result == .delivered else {
+                    throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
+                }
+                self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down")
+                if type == "down", let command = stroke.editingCommand {
+                    try await self.performEditingCommand(command, panel: panel, webView: webView)
+                }
+                await BrowserReplNativeInput.roundTrip(webView)
             }
-            self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down")
-            if type == "down", let command = stroke.editingCommand {
-                try await self.performEditingCommand(command, panel: panel, webView: webView)
-            }
-            await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
     }
