@@ -1,17 +1,56 @@
+import AppKit
 import CmuxNextActions
+import CmuxNextControl
+import CmuxNextDaemon
+import Foundation
 import Testing
 @testable import CmuxNextApp
 
-/// Agent chat opens through the same active-workspace tab path as Cmd-T when
-/// no pane is focused yet (for example, while a seeded workspace is settling).
-@MainActor @Suite struct AgentHandlerTests {
-    @Test func newAgentChatEnsuresSameKindTabWhenNoPaneIsFocused() {
-        let services = ActionBindingCoverageTests.boundServices()
-        var ensured = false
-        AgentHandlers.bind(into: services.registry, context: AppActionContext(services: services))
-        services.registry.bind("newTab.sameKind") { ensured = true }
+/// Cmd-I must use the shared workspace creation path when the active
+/// workspace has not mounted a pane yet, then open a real agent tab in the
+/// pane that path creates.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct AgentHandlerTests {
+    private static func waitUntil(_ condition: () -> Bool) async throws {
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: .seconds(15))
+        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) }
+    }
 
-        #expect(services.registry.perform("palette.newAgentChat", invocation: ActionInvocation(origin: .user)))
-        #expect(ensured, "Cmd-I must use the Cmd-T tab path before opening an agent tab")
+    @Test func newAgentChatCreatesWorkspaceAndOpensChatWhenNoPaneIsMounted() async throws {
+        let daemon = try TopologyDaemon(emptyWorkspace: true)
+        let services = ActionBindingCoverageTests.boundServices()
+        // Leave the initial empty workspace alone so Cmd-I's own tracked
+        // `newTab` work is the path that creates the first usable pane.
+        services.emptyWorkspaces.canCreate = { false }
+        services.daemon.start(makeConnection: { daemon.connection() })
+        defer {
+            for controller in services.windows.controllers { controller.window?.close() }
+            services.daemon.shutdownConnection()
+            daemon.stop()
+        }
+
+        try await Self.waitUntil { services.daemon.store.isLoaded && services.daemon.store.workspaces.count == 1 }
+        let window = try #require(services.windows.openWindow(workspaces: [TopologyDaemon.firstKey]))
+        services.windows.didActivate(window)
+        services.windows.reconcileMembership()
+        try await Self.waitUntil { window.content != nil }
+        #expect(window.content?.panes.isEmpty == true)
+
+        let run = RegistryControlBridge(registry: services.registry).performActionTracked(ControlActionRequest(
+            actionID: "palette.newAgentChat", origin: "user", focus: true
+        ))
+        #expect(run.outcome == .ran, "Cmd-I: \(run.outcome)")
+        for task in run.work { #expect(await task.value == nil, "Cmd-I work") }
+
+        try await Self.waitUntil {
+            guard let pane = window.content?.panes.values.first else { return false }
+            let ids = services.agentTabs.tabIDs(in: pane.paneKey)
+            return ids.count == 1 && ids[0].hasPrefix(LocalAgentTab.prefix)
+        }
+        let pane = try #require(window.content?.panes.values.first)
+        let ids = services.agentTabs.tabIDs(in: pane.paneKey)
+        #expect(ids.count == 1)
+        #expect(ids[0].hasPrefix(LocalAgentTab.prefix))
+        #expect(pane.stripModel.selectedID?.rawValue == ids[0])
     }
 }
