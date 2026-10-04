@@ -26,6 +26,8 @@ pub(super) enum InboundRefused {
     BadHello,
     /// The daemon's remote entry is not listening.
     EntryUnavailable,
+    /// The socket at the entry path did not greet with the entry banner.
+    NotAnEntry,
 }
 
 /// The daemon entry a link stream may reach for the session listening on

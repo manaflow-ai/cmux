@@ -47,6 +47,15 @@ fn connect(entry: &Entry) -> (UnixStream, BufReader<UnixStream>) {
     (stream, reader)
 }
 
+/// A verified link: read the banner, then the caller sends the stamp.
+fn connect_as_link(entry: &Entry) -> (UnixStream, BufReader<UnixStream>) {
+    let (stream, mut reader) = connect(entry);
+    let mut banner = String::new();
+    reader.read_line(&mut banner).expect("the entry greets a verified link");
+    assert_eq!(banner.trim_end(), cmux_link::entry_path::ENTRY_BANNER);
+    (stream, reader)
+}
+
 fn send(stream: &mut UnixStream, line: &str) {
     stream.write_all(line.as_bytes()).unwrap();
     stream.write_all(b"\n").unwrap();
@@ -91,7 +100,7 @@ fn a_process_that_is_not_the_link_gets_nothing_and_registers_no_client() {
 #[test]
 fn every_daemon_command_is_refused_by_the_default_gate() {
     let entry = entry(true, Arc::new(DenyAllGate));
-    let (mut stream, mut reader) = connect(&entry);
+    let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, STAMP);
     let schema: Value =
         serde_json::from_str(include_str!("../../../../spec/sdk-schema.json")).unwrap();
@@ -127,7 +136,7 @@ fn every_daemon_command_is_refused_by_the_default_gate() {
 #[test]
 fn a_remote_client_acts_as_its_peer_user_never_the_local_user() {
     let entry = entry(true, Arc::new(DenyAllGate));
-    let (mut stream, mut reader) = connect(&entry);
+    let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, STAMP);
     send(&mut stream, r#"{"id":1,"cmd":"ping"}"#);
     let _ = response(&mut reader);
@@ -146,7 +155,7 @@ fn a_missing_or_malformed_stamp_closes_the_connection() {
     for first in
         [r#"{"id":1,"cmd":"ping"}"#, r#"{"link_peer":{"install":"../x","user":"u","team":"t"}}"#]
     {
-        let (mut stream, mut reader) = connect(&entry);
+        let (mut stream, mut reader) = connect_as_link(&entry);
         send(&mut stream, first);
         send(&mut stream, r#"{"id":2,"cmd":"ping"}"#);
         let mut line = String::new();
@@ -159,9 +168,10 @@ fn a_missing_or_malformed_stamp_closes_the_connection() {
 #[test]
 fn an_admitted_frame_reaches_dispatch() {
     let entry = entry(true, Arc::new(AdmitAll));
-    let (mut stream, mut reader) = connect(&entry);
-    send(&mut stream, STAMP);
-    send(&mut stream, r#"{"id":7,"cmd":"ping"}"#);
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    // The stamp and the first frame in one write: the stamp read leaves
+    // the frame for dispatch.
+    stream.write_all(format!("{STAMP}\n{{\"id\":7,\"cmd\":\"ping\"}}\n").as_bytes()).unwrap();
     let reply = response(&mut reader);
     assert_eq!(reply["id"], json!(7));
     assert_eq!(reply["ok"], json!(true), "{reply}");

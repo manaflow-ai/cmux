@@ -9,6 +9,12 @@ use sha2::{Digest, Sha256};
 /// The suffix that names a remote entry socket.
 pub const ENTRY_SUFFIX: &str = ".link.sock";
 
+/// The first line the remote entry writes to a verified link, before it
+/// reads the stamp. The link splices a peer stream only after it reads
+/// exactly this line, so a socket that is not a remote entry (a session's
+/// local admin socket) never receives a peer's bytes.
+pub const ENTRY_BANNER: &str = r#"{"remote_entry":1}"#;
+
 /// The remote entry socket for the session listening on `session_socket`:
 /// `<dir>/<stem>.link.sock`, or `<dir>/<hash>.link.sock` when that would not
 /// fit a Unix socket path. Never equal to `session_socket`.
@@ -43,6 +49,21 @@ mod tests {
         let entry = remote_entry_socket_path(session);
         assert_eq!(entry, Path::new("/tmp/cmux-501/main.link.sock"));
         assert_ne!(entry, session);
+    }
+
+    /// RED (security): no session name can produce the entry path. Session
+    /// sockets are `<dir>/<name>.sock` and names may contain `.`, so the
+    /// entry must not be a `.sock` file directly in the session directory.
+    #[test]
+    fn no_session_socket_can_be_the_entry_socket() {
+        for session in ["/tmp/cmux-501/main.sock", "/tmp/cmux-501/main.link.sock"] {
+            let session = Path::new(session);
+            let entry = remote_entry_socket_path(session);
+            assert_ne!(entry.parent(), session.parent(), "{}", entry.display());
+        }
+        let directory = format!("/tmp/{}", "d".repeat(70));
+        let long = PathBuf::from(format!("{directory}/{}.sock", "s".repeat(30)));
+        assert_ne!(remote_entry_socket_path(&long).parent(), long.parent());
     }
 
     #[test]

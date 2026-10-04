@@ -172,3 +172,33 @@ async fn a_dial_to_an_unknown_or_unreachable_host_says_so_and_names_no_relay() {
         "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\"}\n"
     );
 }
+
+/// RED (security): a socket at the entry path that does not greet with the
+/// entry banner (for example a session whose local admin socket happens to
+/// sit there) never receives the stamp or the peer's bytes.
+#[tokio::test]
+async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
+    let directory = cmux_unix_socket::short_test_dir("linknot");
+    let session = directory.path().join("s.sock");
+    let entry_path = cmux_link::entry_path::remote_entry_socket_path(&session);
+    std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
+    let impostor = tokio::net::UnixListener::bind(&entry_path).unwrap();
+    let (mut peer, link_side) = tokio::io::duplex(1024);
+    peer.write_all(b"{\"service\":\"daemon\"}\n{\"id\":1,\"cmd\":\"ping\"}\n").await.unwrap();
+    let pairings = pairings();
+    let task = tokio::spawn(async move {
+        serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session).await
+    });
+    let (impostor_side, _) = impostor.accept().await.unwrap();
+    let mut first = String::new();
+    let read = tokio::time::timeout(
+        super::lines::HANDSHAKE_TIMEOUT * 2,
+        BufReader::new(impostor_side).read_line(&mut first),
+    )
+    .await;
+    assert!(
+        matches!(read, Ok(Ok(0))),
+        "the link wrote {first:?} to a socket that never sent the entry banner"
+    );
+    assert_eq!(task.await.unwrap(), Err(InboundRefused::NotAnEntry));
+}
