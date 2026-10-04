@@ -11,6 +11,7 @@ mod adoption;
 mod handoff;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod lifecycle;
+mod model_availability;
 mod paging;
 mod stream;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
@@ -223,6 +224,8 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
+    pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
@@ -283,6 +286,7 @@ impl Hub {
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
+            refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
