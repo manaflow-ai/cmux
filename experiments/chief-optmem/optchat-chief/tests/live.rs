@@ -385,7 +385,15 @@ fn two_turns_and_two_nodes_through_local_acp() {
             p.env.insert("CODEX_PATH".into(), codex.clone());
         }
     }
+    // OPTCHAT_LIVE_COMPACTOR_USER_HOME=1: the codex nodes use the user's own
+    // CODEX_HOME instead of their slots' (a diagnosis of the slot config).
+    if std::env::var("OPTCHAT_LIVE_COMPACTOR_USER_HOME").as_deref() == Ok("1") {
+        for p in &mut presets {
+            p.env.remove("CODEX_HOME");
+        }
+    }
     println!("turn preset env {:?}", preset.env);
+    println!("compactor preset env {:?}", presets[0].env);
     let agents = Acpmux::new(socket.clone(), Some(preset), presets);
     let up = Arc::new((Mutex::new(None::<bool>), Condvar::new()));
     let signal = up.clone();

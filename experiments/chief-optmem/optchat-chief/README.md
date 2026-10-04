@@ -196,7 +196,7 @@ acpmux):
 | harness | turn layout | node layout | cache mechanism | measured (2026-10-04, cmux-lawrence-2) |
 | --- | --- | --- | --- | --- |
 | Claude family (claude, claude-sr) | turn preset `systemPrompt` = system text + view up to 50k; prompt = rest of the view, ONE `cache_control` marker on the piece ending at the last mark, then the new messages; no CLAUDE.md | slot preset `systemPrompt` = compactor system text + context up to 50k; rest of the context with one marker; then the step | Claude Code's own breakpoints (system prompt, last messages) plus ours; the replaced system prompt drops Claude Code's date and cwd lines | turns: 2nd turn read 64,893 / wrote 11,085 (85% read); nodes: 2nd node read 37,671 / wrote 10,442 (78%), $0.121 then $0.035 |
-| codex family | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key`: `optchat-<home id>-turn` for turns, `optchat-<home id>-compact` for nodes (needs the cmux codex fork) | turns: 2nd turn read 12,032 of 56,632 (21%); nodes: 2nd node read 12,032 of 48,653 (25%) |
+| codex family | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key`: `optchat-<home id>-turn` for turns, `optchat-<home id>-compact` for nodes (needs the cmux codex fork) | upstream key (thread id): 2nd turn read 12,032 of 56,632 (21%), 2nd node 12,032 of 48,653 (25%). Fork with the Chief's keys (2026-10-04, see Codex): 2nd turn read 56,064 of ~56,630 (99%) in 6 of 8 runs; 2nd node 44,800 of 45,662 (98%) in 3 of 5 |
 | any other acpmux harness | as codex | as codex | whatever the harness does with a byte-stable prefix | not measured |
 
 Every turn logs `turn <key> cache: first request read .. written ..
@@ -240,7 +240,19 @@ never read back. The cmux codex fork (manaflow-ai/codex
 `optchat-<home id>-turn` and every compactor slot preset
 `optchat-<home id>-compact` through env only (the preset args allowlist
 is unchanged). Upstream codex ignores the env, so the layout still works
-there, without the reads.
+there, without the reads. Measured on cmux-lawrence-2 (fork build
+d73c9c33c6, acpmux e2715f27657, subrouter, `OPTCHAT_LIVE_CODEX_PATH`;
+`OPTCHAT_LIVE_NO_CACHE_KEY=1` drops the keys): with keys the 2nd turn read
+56,064 tokens in 6 of 8 runs (the misses read 0 and 12,032), and the 2nd
+node read 44,800 in 3 of 5 (the misses read 9,984, codex's instructions
+only). Without keys, the 2nd turn read 56,064 in 1 of 6 runs (otherwise 0
+or 12,032), and the 2nd node never read more than 10,752 in 5 runs. The
+remaining misses are most likely the subrouter placing the request on
+another account (the cache is per account); that was not proven. The
+subrouter keeps a codex installation id on one account: two
+`CODEX_HOME`s with their own ids read 0 of a 31.5k-token prefix the other
+wrote, and with one shared id they read 30,464. So every compactor slot
+sends one stable Chief installation id.
 
 **Codex compactor isolation.** Each compactor slot's preset points
 `CODEX_HOME` at the slot's own directory, whose config.toml keeps only the
