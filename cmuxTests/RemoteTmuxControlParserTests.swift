@@ -496,6 +496,25 @@ import Testing
                 == "refresh-client -B \"cmux_cwd_7:%7:#{pane_current_path}\""
         )
     }
+
+    @Test @MainActor func allPaneTitleSubscribeCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.paneTitleSubscriptionCommand()
+                == "refresh-client -B \"cmux_title_all:%*:#{pane_title}\""
+        )
+    }
+
+    @Test func subscriptionChangedRetainsTmuxTargetPane() {
+        let parser = RemoteTmuxControlStreamParser()
+
+        let messages = parser.feed(Data(
+            "%subscription-changed cmux_title_all $0 @1 1 %5 : tests\n".utf8
+        ))
+
+        #expect(messages == [.subscriptionChanged(
+            name: "cmux_title_all", paneId: 5, value: "tests"
+        )])
+    }
 }
 
 /// Close-time activity queries: the wire commands (same quoting constraint as

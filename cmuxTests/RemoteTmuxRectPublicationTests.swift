@@ -564,14 +564,14 @@ import Testing
         // subscription pushes the re-expanded format the moment tmux would
         // redraw its own header row.
         connection.handleMessageForTesting(.subscriptionChanged(
-            name: "cmux_hdr_0", value: "#[reverse]0#[default] \"vim main.swift\""
+            name: "cmux_hdr_0", paneId: nil, value: "#[reverse]0#[default] \"vim main.swift\""
         ))
         #expect(connection.paneHeaderLabels[0] == "0 \"vim main.swift\"")
         #expect(notifies == 1)
 
         // Same value again: no re-notify (equality-guarded).
         connection.handleMessageForTesting(.subscriptionChanged(
-            name: "cmux_hdr_0", value: "#[reverse]0#[default] \"vim main.swift\""
+            name: "cmux_hdr_0", paneId: nil, value: "#[reverse]0#[default] \"vim main.swift\""
         ))
         #expect(notifies == 1)
     }
@@ -633,8 +633,8 @@ import Testing
 
         connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
         connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", value: "0|zsh"))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", value: "1|vim"))
+        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", paneId: nil, value: "0|zsh"))
+        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", paneId: nil, value: "1|vim"))
 
         // Removing pane 5 publishes through the layout's verified rects reply,
         // which prunes the dead pane's diagnostic state.
