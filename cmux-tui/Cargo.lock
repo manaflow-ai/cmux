@@ -859,6 +859,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-link"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-unix-socket",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-local-auth"
 version = "0.1.0"
 dependencies = [
@@ -1150,6 +1162,7 @@ dependencies = [
  "base64",
  "cmux-conversation",
  "cmux-layout-reducer",
+ "cmux-link",
  "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
