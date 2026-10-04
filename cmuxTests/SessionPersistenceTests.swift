@@ -849,6 +849,29 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(truncated.contains("\u{0007}" + visibleAfterBEL))
     }
 
+    func testLongCompletedOSCWithDistantCutPreservesPlainOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let completedOSC = "\u{001B}]2;" + String(repeating: "T", count: 1_500) + "\u{0007}"
+        let plainOutput = String(repeating: "P", count: 1_500)
+        let cutInsidePlainOffset = 1_200
+        let visibleAfterCut = plainOutput.count - cutInsidePlainOffset
+        let trailingBEL = "\u{0007}"
+        let trailingOutput = "after-bell"
+        let filler = String(
+            repeating: "F",
+            count: maxChars - visibleAfterCut - trailingBEL.count - trailingOutput.count
+        )
+        let source = completedOSC + plainOutput + trailingBEL + trailingOutput + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix(String(plainOutput.dropFirst(cutInsidePlainOffset))))
+        XCTAssertTrue(truncated.contains(trailingBEL + trailingOutput))
+    }
+
     func testMalformedANSIStringScanDoesNotDropDistantRealOutput() {
         let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         let malformed = "\u{001B}]0;unterminated-title"
