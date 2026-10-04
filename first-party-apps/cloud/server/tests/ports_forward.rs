@@ -149,3 +149,29 @@ fn a_dead_tunnel_closes_the_connection_and_queues_nothing() {
     assert_eq!(echo(local(&answer), b"next"), b"next");
     assert_eq!(rig.tunnel.all_received(), b"next", "the refused bytes went nowhere");
 }
+
+#[test]
+fn a_replaced_link_socket_is_not_the_same_link() {
+    use cmux_cloud::connector::iface::Carrier;
+    use cmux_cloud::ports::LinkIdentity;
+    let dir = std::env::temp_dir().join(format!("cmux-cloud-ident-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("link.sock");
+    std::fs::write(&socket, b"").unwrap();
+    let carrier = Carrier {
+        id: "cloud-vm/vm-alpha01#1".into(),
+        target: "vm-alpha01".into(),
+        generation: 1,
+        socket: socket.clone(),
+    };
+    let seen = LinkIdentity::of(&carrier);
+    assert!(seen.still(&carrier));
+    // A new link generation binds a new file at the same path.
+    let keep = dir.join("old.sock");
+    std::fs::rename(&socket, &keep).unwrap();
+    std::fs::write(&socket, b"").unwrap();
+    assert!(!seen.still(&carrier), "an old forward must not reach the new link");
+    std::fs::remove_file(&socket).unwrap();
+    assert!(!seen.still(&carrier), "nor a link that is gone");
+    let _ = std::fs::remove_dir_all(&dir);
+}

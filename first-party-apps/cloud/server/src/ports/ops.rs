@@ -174,7 +174,7 @@ fn browser_open<C: ControlPlane>(
     let map = args::object(raw, &["machine", "port", "host", "path"])?;
     let machine = args::id(map, "machine")?.to_owned();
     let port = port_arg(map)?;
-    let host = args::text(map, "host", 253)?.unwrap_or("localhost").to_owned();
+    let host = proxy::normal_host(args::text(map, "host", 253)?.unwrap_or("localhost"));
     if !proxy::is_machine_host(&host) {
         return Err(CloudError::new(
             PROXY_REFUSED,

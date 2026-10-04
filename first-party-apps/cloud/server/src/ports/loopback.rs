@@ -29,6 +29,8 @@ const FRAME: usize = 64 * 1024;
 /// Bound on each handshake answer.
 const HANDSHAKE: Duration = Duration::from_secs(10);
 const STREAM: u64 = 1;
+/// Bound on one line from the daemon (a 64 KiB frame is about 88 KiB).
+const MAX_LINE: u64 = 512 * 1024;
 
 pub struct LoopbackTunnel;
 
@@ -154,8 +156,11 @@ fn next_line(lines: &mut impl BufRead) -> io::Result<Value> {
     let mut line = Vec::new();
     loop {
         line.clear();
-        if lines.read_until(b'\n', &mut line)? == 0 {
+        if lines.by_ref().take(MAX_LINE).read_until(b'\n', &mut line)? == 0 {
             return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "the link closed"));
+        }
+        if !line.ends_with(b"\n") && line.len() as u64 >= MAX_LINE {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "a link line is too long"));
         }
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
@@ -188,13 +193,24 @@ impl Reader {
                 let bytes = STANDARD
                     .decode(data)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                if bytes.len() > FRAME {
+                    self.shared.end();
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+                }
                 self.buffer.drain(..self.at);
                 self.at = 0;
                 self.buffer.extend_from_slice(&bytes);
+                // The daemon may send only what this side granted.
+                if self.buffer.len() + self.ungranted > WINDOW {
+                    self.shared.end();
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "window exceeded"));
+                }
             }
             Some("loopback-credit") => {
                 let bytes = event["bytes"].as_u64().and_then(|b| usize::try_from(b).ok());
-                self.shared.credit().bytes += bytes.unwrap_or(0);
+                let mut credit = self.shared.credit();
+                credit.bytes = credit.bytes.saturating_add(bytes.unwrap_or(0)).min(4 * WINDOW);
+                drop(credit);
                 self.shared.ready.notify_all();
             }
             Some("loopback-eof") => self.eof = true,

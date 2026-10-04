@@ -39,10 +39,18 @@ impl Default for OpenSshTransfer {
 
 /// The `scp` arguments for `job`: no key material, the host key pinned by
 /// alias, the private agent only, no config file.
-pub fn scp_args(job: &TransferJob, agent_socket: &Path, known_hosts: &Path) -> Vec<String> {
+pub fn scp_args(
+    job: &TransferJob,
+    agent_socket: &Path,
+    known_hosts: &Path,
+    identity_pub: &Path,
+) -> Vec<String> {
     let option = |o: String| ["-o".to_owned(), o];
-    let escape = |p: &Path| p.to_string_lossy().replace('%', "%%");
-    let mut args = vec!["-F".to_owned(), "/dev/null".to_owned()];
+    // Quoted (a space would split the value) with `%` escaped (ssh tokens).
+    let escape = |p: &Path| format!("\"{}\"", p.to_string_lossy().replace('%', "%%"));
+    // `-s`: the SFTP protocol, so the guest shell never reads the path
+    // (the legacy protocol passes it to a remote shell).
+    let mut args = vec!["-s".to_owned(), "-F".to_owned(), "/dev/null".to_owned()];
     args.extend(["-P".to_owned(), job.route.port().to_string()]);
     for o in [
         "StrictHostKeyChecking=yes".to_owned(),
@@ -51,7 +59,10 @@ pub fn scp_args(job: &TransferJob, agent_socket: &Path, known_hosts: &Path) -> V
         format!("UserKnownHostsFile={}", escape(known_hosts)),
         "GlobalKnownHostsFile=/dev/null".to_owned(),
         format!("IdentityAgent={}", escape(agent_socket)),
-        "IdentitiesOnly=no".to_owned(),
+        // Only the transfer key: the public half names the agent's key, so
+        // ssh never offers the user's own keys to the guest.
+        "IdentitiesOnly=yes".to_owned(),
+        format!("IdentityFile={}", escape(identity_pub)),
         "PreferredAuthentications=publickey".to_owned(),
         "BatchMode=yes".to_owned(),
         "LogLevel=ERROR".to_owned(),
@@ -179,12 +190,15 @@ impl Transfer for OpenSshTransfer {
         let scratch = Scratch::new().map_err(|e| failed("no private folder", &e.to_string()))?;
         let socket = scratch.0.join("agent.sock");
         let known_hosts = scratch.0.join("known_hosts");
+        let identity_pub = scratch.0.join("transfer.pub");
+        std::fs::write(&identity_pub, format!("{}\n", key.public_openssh()))
+            .map_err(|e| failed("transfer.pub", &e.to_string()))?;
         let pinned = format!("{HOST_ALIAS} {}\n", job.endpoint.host_public_key);
         std::fs::write(&known_hosts, pinned).map_err(|e| failed("known_hosts", &e.to_string()))?;
         let _agent = self.start_agent(&socket)?;
         self.add_key(&socket, key)?;
         let mut child = command(&self.scp)
-            .args(scp_args(job, &socket, &known_hosts))
+            .args(scp_args(job, &socket, &known_hosts, &identity_pub))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
