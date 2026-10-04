@@ -19,14 +19,120 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     public init() {}
 
     public mutating func handle(_ event: UpdateFlowEvent, preferences: UpdatePreferences) -> [UpdateFlowEffect] {
-        []
+        switch event {
+        case .sparkle(let next):
+            return sparkleMoved(to: next)
+        case .checkRequested:
+            userAsked = true
+            return []
+        case .installRequested:
+            switch phase {
+            case .ready:
+                installRequested = true
+                return installIfClear()
+            case .downloading, .checking:
+                // Installs once staged.
+                installRequested = true
+                return []
+            case .hidden, .installing, .note:
+                return []
+            }
+        case .installNowRequested:
+            guard installRequested, case .ready = phase else { return [] }
+            if blockers.isEmpty { return installIfClear() }
+            confirmationOpen = true
+            return [.confirmInterrupt(blockers)]
+        case .interruptConfirmed:
+            guard confirmationOpen else { return [] }
+            confirmationOpen = false
+            guard installRequested, case .ready = phase else { return [] }
+            installRequested = false
+            return [.install]
+        case .interruptDeclined:
+            confirmationOpen = false
+            return []
+        case .later:
+            installRequested = false
+            confirmationOpen = false
+            return []
+        case .blockersChanged(let next):
+            blockers = next
+            guard case .ready = phase else { return [] }
+            return installIfClear()
+        case .quitRequested:
+            guard case .ready = phase, !preferences.installOnQuit else { return [.quit(.proceed)] }
+            return [.quit(.cancelPendingInstall)]
+        case .noteExpired:
+            if case .note = phase { phase = .hidden }
+            userAsked = false
+            return []
+        }
     }
 
+    private mutating func sparkleMoved(to next: UpdateIndicatorPhase) -> [UpdateFlowEffect] {
+        phase = next
+        switch next {
+        case .ready:
+            userAsked = false
+            return installIfClear()
+        case .installing:
+            installRequested = false
+            confirmationOpen = false
+            userAsked = false
+            return []
+        case .hidden:
+            // The flow ended or was cancelled: a held click does not carry
+            // over to a later update.
+            installRequested = false
+            confirmationOpen = false
+            return []
+        case .note:
+            installRequested = false
+            confirmationOpen = false
+            return []
+        case .checking, .downloading:
+            return []
+        }
+    }
+
+    /// Installs when the user asked, the update is staged and no agent is busy.
+    private mutating func installIfClear() -> [UpdateFlowEffect] {
+        guard installRequested, blockers.isEmpty, case .ready = phase else { return [] }
+        installRequested = false
+        confirmationOpen = false
+        return [.install]
+    }
+
+    /// The card above Settings, or nil. Background work never shows; what
+    /// the user asked for (a check, a held install) always shows.
     public func card(preferences: UpdatePreferences, minuteOfDay: Int) -> UpdateCard? {
-        nil
+        switch phase {
+        case .hidden:
+            return nil
+        case .checking:
+            return userAsked ? .checking : nil
+        case .downloading(let progress):
+            return userAsked ? .downloading(progress: progress) : nil
+        case .note(let text, let isError):
+            return userAsked ? .note(text, isError: isError) : nil
+        case .installing:
+            return .installing
+        case .ready(let version):
+            if installRequested, !blockers.isEmpty {
+                return .waiting(version: version, busyAgents: blockers.busyAgents)
+            }
+            guard preferences.notify == .card else { return nil }
+            if let quiet = preferences.quietHours, quiet.contains(minuteOfDay: minuteOfDay) { return nil }
+            return .ready(version: version)
+        }
     }
 
+    /// The badge on the Settings item: a staged update, unless silent.
     public func showsSettingsBadge(preferences: UpdatePreferences) -> Bool {
-        false
+        guard preferences.notify != .silent else { return false }
+        switch phase {
+        case .ready, .installing: return true
+        case .hidden, .checking, .downloading, .note: return false
+        }
     }
 }
