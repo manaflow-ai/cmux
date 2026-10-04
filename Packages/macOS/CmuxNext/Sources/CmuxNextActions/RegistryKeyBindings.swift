@@ -70,7 +70,11 @@ public struct RegistryKeyBindings {
             for (key, argument) in expandFamily(id, shortcut) { add([key], argument: argument, source: source(id, shortcut)) }
         }
         var entries = KeyBindingDefaults.entries(registry: registry)
+        let removals = registry.keyBindingLayers.removals
         for source in KeyBinding.Source.allCases {
+            if source == .user, !removals.isEmpty {
+                entries.removeAll { entry in removals.contains { $0.removes(entry) } }
+            }
             let ranked = (layers[source] ?? []).sorted { lhs, rhs in
                 lhs.specificity != rhs.specificity ? lhs.specificity < rhs.specificity : lhs.order > rhs.order
             }

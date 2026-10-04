@@ -17,19 +17,21 @@ public nonisolated struct KeyBindingIssue: Hashable, Sendable {
     }
 
     public var source: KeyBinding.Source
-    /// The position in its layer's entries.
+    /// The position in its layer's entries, or in the removals.
     public var index: Int
     public var kind: Kind
+    public var isRemoval: Bool
 
-    public init(source: KeyBinding.Source, index: Int, kind: Kind) {
+    public init(source: KeyBinding.Source, index: Int, kind: Kind, isRemoval: Bool = false) {
         self.source = source
         self.index = index
         self.kind = kind
+        self.isRemoval = isRemoval
     }
 }
 
 extension ActionRegistry {
-    /// Loads app and user entries: each entry is checked against its
+    /// Loads app and user entries and user removals: each entry is checked against its
     /// action's schema (``validated(_:)``); an entry that fails is left out
     /// and reported, the others load. A required argument may be missing:
     /// running the binding asks for it, as the palette does.
@@ -46,7 +48,17 @@ extension ActionRegistry {
                 }
             }
         }
-        keyBindingLayers = KeyBindingLayers(app: load(layers.app, .app), user: load(layers.user, .user))
+        let removals = layers.removals.enumerated().compactMap { index, removal -> KeyBindingRemoval? in
+            let id = canonicalID(for: removal.command)
+            guard descriptor(for: id) != nil || action(for: id) != nil else {
+                issues.append(KeyBindingIssue(source: .user, index: index, kind: .unknownCommand(removal.command.rawValue), isRemoval: true))
+                return nil
+            }
+            var canonical = removal
+            canonical.command = id
+            return canonical
+        }
+        keyBindingLayers = KeyBindingLayers(app: load(layers.app, .app), user: load(layers.user, .user), removals: removals)
         return issues
     }
 
