@@ -77,3 +77,39 @@ test("repl list: control characters in a session's fields print visibly", { skip
     removeTestDir(dir);
   }
 });
+
+// The interactive REPL reads a terminal one line per cell. A terminal in
+// raw mode delivers a line of any length, so the line is bounded like
+// `--eval -` and MCP input (15 MiB): a longer one is refused and skipped,
+// never buffered whole or sent, and the next line still runs.
+test("repl (interactive): a line past the input cap is refused and the next one runs", { skip, timeout: 120000 }, async () => {
+  const dir = makeTestDir("cmux-repl-cli-");
+  const socket = path.join(dir, "s.sock");
+  const calls = [];
+  const server = await fakeSocket(socket, calls, []);
+  // A raw-mode pseudo-terminal as stdin, fed a 16 MiB line, then a short one.
+  const driver = `
+import os, pty, subprocess, sys, tty
+master, slave = pty.openpty()
+tty.setraw(slave)
+child = subprocess.Popen(sys.argv[1:], stdin=slave, stdout=sys.stdout, stderr=sys.stderr)
+os.close(slave)
+chunk = b"x" * (1 << 20)
+for _ in range(16):
+    os.write(master, chunk)
+os.write(master, b"\\n1+1\\n")
+os.close(master)
+sys.exit(child.wait())
+`;
+  try {
+    const { stdout, stderr } = await run("python3", ["-c", driver, CLI, "browser", "repl"], cliEnv(socket));
+    const evals = calls.filter((c) => c.method === "browser.repl.eval").map((c) => String(c.params.code));
+    assert.ok(evals.every((code) => code.length <= 15 * 1024 * 1024), `a ${Math.max(...evals.map((c) => c.length))}-byte line was sent`);
+    assert.ok(evals.includes("1+1"), `evals: ${evals.map((c) => c.length)}; stderr: ${stderr.slice(-500)}`);
+    assert.match(stderr, /too large/i);
+    assert.match(stdout, /ran 3/);
+  } finally {
+    server.close();
+    removeTestDir(dir);
+  }
+});
