@@ -1048,6 +1048,44 @@ function promptRetryCases(): CorpusCase[] {
     c.step({ kind: "timer", key: `prompt:${m1.id}` }, []);
     cases.push(c.end());
   }
+  {
+    const c = new CaseBuilder("prompts: a prompt refused 11 times (10 retries) stops: answered, with the error posted in its conversation");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
+    c.step(live(m1), ["persist", "prompt"]);
+    const refused = { kind: "prompt_settled", prompt_id: m1.id, rejected: true, error: "no agent session" } as Input;
+    c.step(refused, ["conversation_op", "arm_timer"]);
+    for (let retry = 1; retry <= 10; retry++) {
+      c.step({ kind: "timer", key: `prompt:${m1.id}` }, ["prompt"], undefined, 30_000);
+      if (retry < 10) c.step(refused, ["arm_timer"]);
+    }
+    c.step(refused, ["persist", "conversation_op"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.conversation === "conv_a" && op.idempotency_key === `failed:${m1.id}`, `the error goes to the message's conversation, got ${op.idempotency_key}`);
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "(turn failed: no agent session)", "the error text");
+      c.check(c.persisted(e).prompts[m1.id] === undefined && c.persisted(e).answered.includes(m1.id), "answered: never sent again");
+    });
+    c.step({ kind: "timer", key: `prompt:${m1.id}` }, []);
+    cases.push(c.end());
+  }
+
+  {
+    // An agent start failure is a recorded failed turn (turn_error); the resend's answer is that
+    // failure. The turn's end is final: the failure posts once and nothing retries.
+    const c = new CaseBuilder("prompts: a recorded failed turn is final; a refused answer after it does not retry");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
+    c.step(live(m1), ["persist", "prompt"]);
+    c.step(mux(ev(1, "user_message", { promptId: m1.id })), ["conversation_op"]);
+    c.step(mux(ev(2, "turn_started")), ["typing"]);
+    c.step(mux(ev(3, "turn_error", { error: "agent failed to start" })), ["persist", "conversation_op", "typing"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "(turn failed: agent failed to start)", "the failure posts");
+    });
+    c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true, error: "agent failed to start" } as Input, []);
+    cases.push(c.end());
+  }
+
   return cases;
 }
 
