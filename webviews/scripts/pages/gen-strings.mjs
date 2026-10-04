@@ -64,7 +64,10 @@ export const PAGES = {
   settings: {
     out: "webviews/src/pages/settings/generated/strings.json",
     catalogs: [
-      { file: `${sources}/CmuxNextSettings/Localizable.xcstrings`, keys: () => schemaKeys("schemas/settings/settings-schema.json") },
+      {
+        file: `${sources}/CmuxNextSettings/Localizable.xcstrings`,
+        keys: () => schemaKeys("schemas/settings/settings-schema.json"),
+      },
       {
         file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
         keys: (all) => all.filter((key) => key.startsWith("settingsPage.")),
@@ -85,6 +88,11 @@ export const PAGES = {
         keys: (all) => all.filter((key) => key.startsWith("store.")),
       },
     ],
+  },
+  // The Keyboard Shortcuts page has its own table in the app's resources.
+  keybindings: {
+    out: "webviews/src/pages/keybindings/generated/strings.json",
+    catalogs: [{ file: `${sources}/CmuxNextApp/Resources/KeybindingsPage.xcstrings` }],
   },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {

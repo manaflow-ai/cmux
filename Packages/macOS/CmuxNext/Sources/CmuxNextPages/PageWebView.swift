@@ -25,6 +25,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let descriptor: PageDescriptor
     public let router: PageRouter
     let webView: WKWebView
+    /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
+    /// router and the bridge instead.
+    public var webKitView: WKWebView { webView }
     private let bridge: any PageHostBridge
     private var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
@@ -32,24 +35,87 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
+    /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
+    public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
+    /// The page's web content crashed. `reloading` is false once it crashed more often than
+    /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
+    /// button that calls ``reloadAfterCrashes()``).
+    public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
+    /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
+    public var themeSurface: SurfaceKind? {
+        didSet { if themeSurface != oldValue { applyTheme() } }
+    }
+    /// The crash clock (tests set it).
+    var now: () -> Date = { Date() }
+    private var crashReloads = PageCrashReloads()
 
     public var pageID: String { descriptor.id }
 
     /// Nil when the page is missing from the resource bundle.
-    public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil) {
-        guard let root = PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
-        self.init(descriptor: descriptor, root: root, routes: routes, route: route)
+    public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
+                             documentAttributes: [String: String] = [:]) {
+        guard let root = Self.debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
+        self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes)
     }
 
-    /// `root` is the directory that holds the page's `index.html` (tests pass their own).
-    public init(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil) {
+    /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
+    /// lowercase letters, digits and dashes; values are JSON string literals.
+    nonisolated static func attributesScript(_ attributes: [String: String]) -> String? {
+        let safe = attributes.filter { name, _ in !name.isEmpty && name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" } }
+        guard !safe.isEmpty else { return nil }
+        let lines = safe.keys.sorted().map { name in
+            "document.documentElement.setAttribute(\(JSONValue.string("data-" + name).compactText), \(JSONValue.string(safe[name] ?? "").compactText));"
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
+    nonisolated static func debugRoot(for descriptor: PageDescriptor) -> URL? {
+        #if DEBUG
+        let name = "CMUX_NEXT_PAGE_ROOT_" + descriptor.id.replacingOccurrences(of: ".", with: "_")
+        return ProcessInfo.processInfo.environment[name].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        #else
+        return nil
+        #endif
+    }
+
+    /// Whether `descriptor` may be served from `root`: any root for an app page; for a first-party
+    /// page only its bundled root or its DEBUG override.
+    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
+        guard PageID.isReserved(descriptor.id) else { return true }
+        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+                       debugRoot(for: descriptor)].compactMap { $0 }
+        return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
+    }
+
+    /// `root` is the directory that holds the page's `index.html`. A first-party page (``PageID``)
+    /// is served only from its bundled root, so nothing else can be served under a first-party
+    /// origin; DEBUG builds may point one at another root (`CMUX_NEXT_PAGE_ROOT_<id>`, dots as
+    /// underscores) for the page dev loop. Nil when that check fails.
+    ///
+    /// `documentAttributes` become `data-*` attributes of `<html>` before the page's code runs (the
+    /// page's init: `["cloud-machines-layout": "cards"]` is `data-cloud-machines-layout`).
+    ///
+    /// `options` are engine options (``PageEngineOptions``); each engine maps the ones it has.
+    public init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
+                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard) {
+        guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        if options.fullFrameRate {
+            configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
+        }
         configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root), forURLScheme: PageDescriptor.scheme)
         configuration.userContentController.addUserScript(
             WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        if let script = Self.attributesScript(documentAttributes) {
+            configuration.userContentController.addUserScript(
+                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
@@ -159,7 +225,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func applyTheme(force: Bool = false) {
         guard loaded else { return }
-        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                             surface: themeSurface)
         guard force || theme.payloadJSON != appliedTheme else { return }
         appliedTheme = theme.payloadJSON
         webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
@@ -168,10 +235,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     // MARK: WKNavigationDelegate
 
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-        guard let url = action.request.url else { return .cancel }
-        if descriptor.owns(url) { return .allow }
-        if action.targetFrame?.isMainFrame ?? true, url.scheme != "about" { onOpenExternal?(url) }
-        return .cancel
+        let url = action.request.url
+        switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
+                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
+        case .allow:
+            return .allow
+        case .openExternal:
+            if let url { onOpenExternal?(url) }
+            return .cancel
+        case .cancel:
+            return .cancel
+        }
     }
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -189,6 +263,19 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         loaded = false
         router.reset()
+        let reloading = crashReloads.shouldReload(at: now())
+        if reloading {
+            webView.reload()
+        } else {
+            logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
+        }
+        onCrash?(self, reloading)
+    }
+
+    /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash
+    /// notice's Reload button).
+    public func reloadAfterCrashes() {
+        crashReloads = PageCrashReloads()
         webView.reload()
     }
 }

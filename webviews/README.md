@@ -10,6 +10,8 @@ Build it with:
 
 The build output is committed under `Resources/markdown-viewer/webviews-app` because the macOS app serves local static files from its bundled resources. Keep source changes in this directory, then regenerate the bundled asset with the script above.
 
+The same build emits `diff-page.html`, the diff viewer of the cmux-next shared page host (`cmux-page://cmux.diff/`, whose root is this output directory). It embeds no config and no CSP meta: it calls `cmux.diff.config` over the cmuxPage bridge (`src/diff/page.ts` lists the ops and streams), and the scheme handler sends the CSP.
+
 React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. Verify the compiled bundle guard with:
 
 ```sh

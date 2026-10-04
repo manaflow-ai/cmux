@@ -3,6 +3,8 @@ import { conversation as homeConversation, invites } from "@cmux/home-core"
 import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
+import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
+import { HOME_RATE_LIMITED, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -10,8 +12,12 @@ import type { SubmitResult } from "./owner-do.ts"
  * secrets, token hashes and accept proofs are derived here, never sent by clients:
  *
  * - conversation.create: `conv_` + sha256(actor, idempotency key), so a retry reaches the same object.
- * - dm.open: the pair's deterministic id; an email or phone peer becomes an address participant
- *   (HMAC id with HOME_ADDRESS_KEY) and is invited in the same request.
+ * - dm.open: the caller's existing DM with a user peer (inbox `peer` index), else the pair's
+ *   deterministic id; an email or phone peer becomes an address participant (HMAC id with
+ *   HOME_ADDRESS_KEY) and is invited in the same request.
+ * - Ops that add humans carry the reach facts the Worker resolved (home-reach.ts). conversation.create
+ *   and participants.add first take one attempt from the caller's hourly budget (home-rate.ts);
+ *   a spent budget refuses before any reach RPC or member check.
  * - invite.create: invite id from (conversation, actor, key); the secret is an HMAC of the invite
  *   id with HOME_ADDRESS_KEY (retry-stable, unguessable without the key); token_hash is
  *   sha256(sha256(secret)). The secret goes only to the address's AddressDO stash.
@@ -107,14 +113,27 @@ const ownChiefMain = async (env: Env, principal: Principal, agent: string): Prom
   return (r.ok ? r.value?.chiefs ?? [] : []).find((c) => c.id === agent)?.main_conversation ?? null
 }
 
+/** The caller with the reach facts for the humans among `ids` (home-reach.ts). */
+const withReach = async (env: Env, principal: Principal, ids: ReadonlyArray<unknown>) => (await resolveHumanReach(env, principal, humanTargets(actorOf(principal), ids))).principal
+
+const participantIds = (list: unknown): Array<unknown> => (Array.isArray(list) ? list.map((p) => (typeof p === "object" && p !== null ? (p as { id?: unknown }).id : undefined)) : [])
+
 /** A Home ConversationDO mutation from the public API; the principal is already resolved (grant classes). */
 export const conversationMutate = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult> => {
   const params = (frame.params ?? {}) as Record<string, unknown>
   const key = frame.idempotency_key
+  if (isHomeRateOp(frame.op)) {
+    const gate = await takeHomeRate(env, principal, actorOf(principal), frame.op)
+    if (!gate.ok) {
+      const message = `too many ${frame.op} requests; retry in ${Math.ceil(gate.retry_after_ms / 1000)} s`
+      return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: HOME_RATE_LIMITED, message, retryable: true, replayed: false, details: { retry_after_ms: gate.retry_after_ms } } as OwnerFrame] }
+    }
+  }
   switch (frame.op) {
     case "conversation.create": {
       const id = `conv_${digest26(`conv\u0000${actorOf(principal)}\u0000${key}`)}`
-      return conversationStub(env, id).submit(id, await withOwnedAgents(env, principal), { ...frame, params: { ...params, id, kind: "group" } })
+      const who = await withReach(env, await withOwnedAgents(env, principal), participantIds(params.participants))
+      return conversationStub(env, id).submit(id, who, { ...frame, params: { ...params, id, kind: "group" } })
     }
     case "dm.open": {
       const me = actorOf(principal)
@@ -133,9 +152,13 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
         }
       }
       if (typeof peer === "string") {
+        const reach = await resolveHumanReach(env, principal, humanTargets(me, [peer]))
+        // An existing DM with this user (also one whose id came from an accepted invite, section 17 Q2) answers as is.
+        const existing = reach.dms.get(peer)
+        if (existing) return conversationStub(env, existing).submit(existing, principal, { ...frame, params: { id: existing, participants: [] } })
         const id = homeConversation.dmConversationId(me, peer)
         const participants = [self, { id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", display_name: peer }]
-        return conversationStub(env, id).submit(id, principal, { ...frame, params: { id, participants } })
+        return conversationStub(env, id).submit(id, reach.principal, { ...frame, params: { id, participants } })
       }
       const resolved = addressFor(env, (peer ?? {}) as { email?: string; phone?: string })
       if ("ok" in resolved) return reject(key, resolved.code, resolved.message)
@@ -182,7 +205,11 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     default: {
       const { conversation, ...rest } = params as { conversation?: unknown }
       if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return reject(key, "validation.invalid", `${frame.op} needs a conversation id`)
-      const who = frame.op === "participants.add" ? await withOwnedAgents(env, principal) : principal
+      const added = (rest as { participant?: { id?: unknown } }).participant
+      // Reach facts only for a current participant: anyone else is refused by the owner without
+      // RPCs to other owners, and cannot probe a target's setting through any conversation id.
+      const member = frame.op === "participants.add" && (await isParticipant(env, conversation, principal))
+      const who = frame.op === "participants.add" ? (member ? await withReach(env, await withOwnedAgents(env, principal), [added?.id]) : await withOwnedAgents(env, principal)) : principal
       return conversationStub(env, conversation).submit(conversation, who, { ...frame, params: rest })
     }
   }

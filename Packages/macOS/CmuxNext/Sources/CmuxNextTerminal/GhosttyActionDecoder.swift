@@ -1,4 +1,4 @@
-import GhosttyKit
+import GhosttyNextKit
 
 /// Copies `ghostty_action_s` (ghostty.h:1143-1250) into a Sendable value.
 nonisolated enum GhosttyActionDecoder {

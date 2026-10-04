@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub const APP_ID: &str = "com.example.hello";
-pub const SCOPE: &str = "com.example.hello:use";
+pub const SCOPE: &str = "hello:read";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -23,7 +23,7 @@ pub struct HelloResult {
 crate::pane_op! {
     /// Greet `name`.
     pub GreetOp {
-        name: "com.example.hello.greet.say", kind: Read, scope: "com.example.hello:use",
+        name: "com.example.hello.greet.say", kind: Read, scope: "hello:read",
         params: HelloParams, result: HelloResult,
         errors: [],
     }
@@ -31,7 +31,7 @@ crate::pane_op! {
 
 crate::pane_event! {
     /// Three greetings, one per event (conformance: `seq` starts at 1).
-    pub GreetTicks { name: "com.example.hello.greet.ticks", scope: "com.example.hello:use", data: HelloResult }
+    pub GreetTicks { name: "com.example.hello.greet.ticks", scope: "hello:read", data: HelloResult }
 }
 
 /// A provider serving the example op and event.

@@ -16,9 +16,14 @@ name = "cmux-cloud"
 path = "src/main.rs"
 
 [dependencies]
+base64 = "0.22"
+# One Ed25519 key per file transfer, made in memory (src/fs/key.rs).
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+getrandom = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+zeroize = "1"
 
 [dev-dependencies]
 # The one manifest validator (cmux-tui/crates/cmux-app-manifest), by path only.

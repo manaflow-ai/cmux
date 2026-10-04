@@ -400,3 +400,43 @@ Integration before C4 lands (one slice, lead or the next free helper):
 
 Open outside this lane: snapshot create dedup in the web route (needs a stored key; production schema), the
 reserved CLI word `cloud` for this app (R73 CLI owner), catalog `aliases` and namespace-qualified names (IR owner).
+
+## 10. Status (lead, 2026-10-04, later)
+
+Landed on feat-cmux-next: C1 core, C2 attach, C3 SSH sample (+ C3b host-owned channel), C4/C4i page and
+server integration, C5 files/ports/browser route, C6 network/domains/publications, C7 idempotent delete
+retry + rescue mirror, C8 page shapes, relay restore route fix. Main: PR 17244 (snapshot idempotency)
+merged and deployed; PR 17246 (rescue shell endpoint) is a draft until one live test on a machine we own.
+
+Route audit (2026-10-04): the file routes (#16936) and the network/firewall/tunnel routes (#16948) exist
+only on feat-cmux-next, not on main, so production answers 404 for `cloud.fs.*`, `cloud.firewall.*`,
+`cloud.network.list` and `cloud.tunnel.*`. The backend lead owns their main ports.
+
+Queue:
+1. C9 (running): the serve loop wakes on link events; connector mirror LocalId 64; rescue red redo by
+   mutation; delete retry counts only each kind's own not-found code (`vm_not_found` machine,
+   `vm_firewall_rule_not_found` firewall, `vm_snapshot_not_found`, `vm_file_not_found`,
+   `vm_publication_not_found`).
+2. Next server slice: file transfers on a worker thread with completion events.
+3. Next page slice: a route 404 shows "Not available yet" (localized), not "gone"; full webviews
+   `bun test` before the push.
+4. C10 (waits for the apps lead's choice between a host-only op such as `cloud.link.configure` and
+   AppHostCapabilities; no code before that answer): remove `Attach::from_env` and every env read outside
+   the allowlist `CMUX_APP_ID`, `CMUX_APP_DATA_DIR`, `TMPDIR`, `LANG` (hits: serve.rs:13, link/mod.rs:73-88,
+   link/spawner.rs:81, fs/openssh.rs:125). Child processes get an env built only from configured values
+   (absolute binary path, a private HOME under `CMUX_APP_DATA_DIR`, TMPDIR, LANG). OpenSSH children take
+   their config and known_hosts paths explicitly (`-F <path>`, `-o UserKnownHostsFile=<path>`), never an
+   implicit `~/.ssh`; a test proves the ssh child gets no implicit `~/.ssh` path. File transfers move to a
+   worker thread in the same slice. Red tests first.
+   Apps lead decision (2026-10-04): link details come from the host-only op `cmux.host.link.get {}` ->
+   `{binary, hub_socket, state_dir, socket_dir, device_name}` (answered by the supervisor; scope
+   `op:cmux.host.link.get`, server-only, first-party only) and the event `cmux.host.link.changed` (same
+   shape). Wire on the server JSON-lines channel, one shape for every host-only op: request
+   `{"t":"host.request","id":n,"op":...,"params":{}}`; reply `{"t":"host.result","id":n,"value":{}}` or
+   `{"t":"host.error","id":n,"code":...,"message":...,"retryable":bool}`; event
+   `{"t":"host.event","op":...,"data":{}}`. The credential relay (`cmux.credential.relay`) uses the same
+   frames later. `connect` answers `link_unavailable` until `link.get` answers; `link.changed` makes the
+   server re-read and respawn or rebind. Every ssh/scp child gets `-F <data>/ssh/config -o
+   UserKnownHostsFile=<data>/ssh/known_hosts -o GlobalKnownHostsFile=/dev/null -o
+   StrictHostKeyChecking=yes`; new host keys only through the user's host key sheet; anything that needs
+   the user's own SSH identity goes through the host-owned SSH channel.

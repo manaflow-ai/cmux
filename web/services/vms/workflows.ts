@@ -73,6 +73,8 @@ import {
   VmCreateInProgressError,
   VmDatabaseError,
   VmFreeAccessExpiredError,
+  VmFileNotFoundError,
+  VmFirewallRuleNotFoundError,
   VmModelPlaneError,
   VmNotFoundError,
   VmResizeInvalidError,
@@ -3639,7 +3641,7 @@ export function getVmFirewallRule(input: VmFirewallInput & { readonly ruleId: st
     if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
     const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
     const rule = rules.find((candidate) => candidate.id === input.ruleId);
-    if (!rule) return yield* Effect.fail(new VmNotFoundError({ vmId: input.ruleId }));
+    if (!rule) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
     return rule;
   });
 }
@@ -3661,9 +3663,14 @@ export function deleteVmFirewallRule(input: VmFirewallInput & { readonly ruleId:
     const { provider, providers, network } = yield* firewallProvider(input);
     if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
     const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
-    if (!rules.some((candidate) => candidate.id === input.ruleId)) return yield* Effect.fail(new VmNotFoundError({ vmId: input.ruleId }));
+    if (!rules.some((candidate) => candidate.id === input.ruleId)) return yield* Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId }));
     if (!providers.deleteFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "deleteFirewallRule" }));
-    yield* providers.deleteFirewallRule(provider, input.ruleId);
+    // Deleted by someone else between the list and the delete: the same not-found, so a retry is correct.
+    yield* providers.deleteFirewallRule(provider, input.ruleId).pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFirewallRuleNotFoundError> =>
+        isProviderNotFoundError(err.cause) ? Effect.fail(new VmFirewallRuleNotFoundError({ ruleId: input.ruleId })) : Effect.fail(err),
+      ),
+    );
   });
 }
 
@@ -3676,7 +3683,7 @@ type VmFileInput = {
   readonly maxActiveVms?: number | null;
 };
 
-function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, vm: CloudVmRow) => Effect.Effect<A, VmProviderOperationError | VmOperationUnsupportedError>): VmWorkflowProgram<A> {
+function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, vm: CloudVmRow) => Effect.Effect<A, VmProviderOperationError | VmOperationUnsupportedError | VmFileNotFoundError>): VmWorkflowProgram<A> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -3716,11 +3723,31 @@ export function mkdirVmFile(input: VmFileInput, path: string): VmWorkflowProgram
   });
 }
 
+/**
+ * Freestyle removes a missing path with success, so the workflow stats first: a path the provider
+ * reports as missing ("No such file or directory") is VmFileNotFoundError (404 vm_file_not_found).
+ * Any other stat failure, a missing VM included, stays a provider failure.
+ */
 export function removeVmFile(input: VmFileInput, path: string): VmWorkflowProgram<void> {
   return fileVm(input, (providers, vm) => {
-    if (!providers.removeFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "removeFile" }));
-    return providers.removeFile(vm.provider, input.providerVmId, path);
+    const remove = providers.removeFile
+    if (!remove) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "removeFile" }));
+    const stat: Effect.Effect<unknown, VmProviderOperationError | VmFileNotFoundError> = providers.statFile
+      ? providers.statFile(vm.provider, input.providerVmId, path).pipe(
+          Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFileNotFoundError> =>
+            isMissingFileError(err.cause) ? Effect.fail(new VmFileNotFoundError({ path })) : Effect.fail(err),
+          ),
+        )
+      : Effect.void
+    return stat.pipe(Effect.flatMap(() => remove(vm.provider, input.providerVmId, path)));
   });
+}
+
+/** A provider 404 whose message is the guest's ENOENT (not a missing VM). */
+function isMissingFileError(cause: unknown): boolean {
+  if (!isProviderNotFoundError(cause)) return false
+  const message = cause instanceof Error ? cause.message : String((cause as { message?: unknown } | null)?.message ?? "")
+  return /No such file or directory|os error 2\b/.test(message)
 }
 
 export function statVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileStat> {

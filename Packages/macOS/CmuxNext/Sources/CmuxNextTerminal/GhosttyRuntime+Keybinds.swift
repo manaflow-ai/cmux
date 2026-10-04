@@ -1,4 +1,4 @@
-import GhosttyKit
+import GhosttyNextKit
 
 /// cmux's Ghostty keybind defaults, loaded before the user's files, so a
 /// later `keybind` line of theirs for the same trigger replaces the unbind

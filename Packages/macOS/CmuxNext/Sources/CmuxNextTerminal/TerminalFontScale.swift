@@ -1,5 +1,5 @@
 import Foundation
-import GhosttyKit
+import GhosttyNextKit
 
 // Font size as a scale of the configured `font-size`, so a terminal's zoom
 // can live on its tab record (state-ownership.md 2: terminal font-size zoom)

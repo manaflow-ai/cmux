@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -65,6 +66,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         super.init(window: window)
+        installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope)
@@ -304,6 +306,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         services.keyRouter.cancelChord()
+        removeHistoryObserver()
         services.windows.windowWillClose(self)
     }
 }

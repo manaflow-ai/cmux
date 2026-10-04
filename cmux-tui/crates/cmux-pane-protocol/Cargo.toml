@@ -27,6 +27,7 @@ futures-util.workspace = true
 getrandom.workspace = true
 jsonschema.workspace = true
 libc.workspace = true
+regex.workspace = true
 ring.workspace = true
 schemars = "1"
 serde.workspace = true

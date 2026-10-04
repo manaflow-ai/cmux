@@ -18,10 +18,10 @@ public import AppKit
 public nonisolated enum KeyBindingDefaults {
     static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
     static let left = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey))!))
-    static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
-    static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey))!))
+    public static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
+    public static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey))!))
 
-    static let notTerminal = WhenClause.notEquals(KeyContext.surfaceKind, .string("terminal"))
+    public static let notTerminal = WhenClause.notEquals(KeyContext.surfaceKind, .string("terminal"))
     static let terminalCopyMode = WhenClause.and([
         .equals(KeyContext.surfaceKind, .string("terminal")), .has(KeyContext.terminalCopyMode),
     ])

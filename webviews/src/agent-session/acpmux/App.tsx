@@ -16,6 +16,7 @@ import {
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { postNative } from "./native";
+import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -1230,6 +1231,9 @@ function AcpmuxPane() {
         deliverDictation(update);
       },
     };
+    // On the shared page host the host pushes arrive as events once the bridge exists.
+    const pageHost = pageHostClient();
+    if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows) {
         rowsRef.current = new Map(rows.map((row) => [row.id, row]));

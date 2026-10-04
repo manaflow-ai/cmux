@@ -147,7 +147,7 @@ extension TabContentCache {
             return page
         }
         let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: services.historyPage,
-                                  webPage: services.historyWebPage())
+                                  webPage: PageFactory(services: services).historyWebPage())
         page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
         page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }
         return page

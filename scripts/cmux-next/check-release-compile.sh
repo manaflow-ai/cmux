@@ -39,11 +39,6 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-if [[ ! -e "$repo_root/GhosttyKit.xcframework" ]]; then
-  echo "check-release-compile: $repo_root/GhosttyKit.xcframework is missing; run scripts/download-prebuilt-ghosttykit.sh or scripts/ensure-ghosttykit.sh" >&2
-  exit 2
-fi
-
 echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')"
 cd "$repo_root/Packages/macOS/CmuxNext"
 exec "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \

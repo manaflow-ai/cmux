@@ -15,6 +15,19 @@ public nonisolated enum PageImplementation: String, Sendable, CaseIterable, Tuna
     }
 }
 
+/// The Cloud page's machine list prototypes (webviews/src/pages/cloud README).
+public nonisolated enum CloudMachinesLayout: String, Sendable, CaseIterable, TunableChoice {
+    case rows
+    case cards
+
+    public var tunableTitle: String {
+        switch self {
+        case .rows: "Rows (dense)"
+        case .cards: "Cards"
+        }
+    }
+}
+
 /// Debug Settings declarations of the React pages.
 public nonisolated enum PageTunables {
     public static let section = TunableSection(id: "pages", title: "Pages", symbol: "doc.richtext", order: 46)
@@ -23,5 +36,10 @@ public nonisolated enum PageTunables {
         "history.surface", section, "History page", help: "Shows cmux://history as the React page. New tabs use it.",
         default: .native, code: "PageTunables.history")
 
-    public static var all: [TunableDescriptor] { [history.descriptor] }
+    /// The Cloud page's machine list layout (the Cloud lead's prototype variants; rows default).
+    public static let cloudMachinesLayout = Tunable<CloudMachinesLayout>.choice(
+        "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
+        default: .rows, code: "PageTunables.cloudMachinesLayout")
+
+    public static var all: [TunableDescriptor] { [history.descriptor, cloudMachinesLayout.descriptor] }
 }
