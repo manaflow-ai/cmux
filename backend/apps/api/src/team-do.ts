@@ -42,8 +42,8 @@ export class TeamDO extends OwnerDO<TeamState> {
       ...(p.display_name ? { display_name: p.display_name } : {})
     }), {
       rowMode: { snapshotTable: TABLE_MEMBER, snapshotTail: 0 },
-      // Row-mode events carry the head to every subscriber: only the plain member view goes out (review P1).
-      // Admins get their full view in snapshots (subscriberView); managed devices come from reads.
+      // Row-mode events and snapshots carry only the plain member view (review P1). Admin data
+      // (policy history, tokens, devices, SSO, domains) is read with team.policy.history and the admin reads.
       redact: { privateTables: TEAM_PRIVATE_TABLES, state: (state) => ({ ...teamSubscriberView(state as TeamState, MEMBER_VIEW), managed_devices: {}, device_status: {} }) }
     })
   }
