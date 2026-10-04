@@ -313,11 +313,15 @@ extension CMUXCLI {
     }
 
     /// Whether the app refuses `path` as a REPL fs root: `/`, the home
-    /// directory or a directory containing it (`BrowserReplFileSandbox.rootRejection`).
+    /// directory or a directory containing it (`BrowserReplFileSandbox.rootRejection`),
+    /// and the temporary directory (or a parent of it), which holds the
+    /// sessions' private storage (`BrowserReplSession.rootRejection`).
     private static func browserReplCwdIsTooBroad(_ path: String) -> Bool {
         let canonical = (path as NSString).resolvingSymlinksInPath
-        let home = (NSHomeDirectory() as NSString).resolvingSymlinksInPath
-        return canonical == "/" || canonical == home || home.hasPrefix(canonical + "/")
+        let contains = { (other: String) in canonical == other || other.hasPrefix(canonical == "/" ? "/" : canonical + "/") }
+        return canonical == "/"
+            || contains((NSHomeDirectory() as NSString).resolvingSymlinksInPath)
+            || contains((NSTemporaryDirectory() as NSString).resolvingSymlinksInPath)
     }
 
     /// Sends one cell and prints its output, then `[ok | Nms]` or `[error | Nms]`.

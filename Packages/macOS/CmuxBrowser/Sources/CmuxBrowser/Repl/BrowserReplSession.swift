@@ -92,6 +92,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// fs calls go there whatever happens to its path.
     private let privateTemporaryDescriptor: BrowserReplDescriptor?
     private let homeDirectory: String
+    /// Where sessions keep private files under the app's temporary
+    /// directory (`cmux-browser-repl`) and where the browser puts downloads
+    /// (`cmux-downloads`, see `BrowserPanel.tempDir`): a working directory
+    /// that is, holds or is inside one of them is refused, except the
+    /// session's own directories.
+    private let privateStorageRoots: [String]
     /// What the session's fs, and its output spill files, may still write.
     private let writeBudget: BrowserReplWriteBudget
 
@@ -432,6 +438,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             ownedWorkingDirectory = resolvedCwd
         }
         (privateTemporaryDirectory, privateTemporaryDescriptor) = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp")
+        privateStorageRoots = ["cmux-browser-repl", "cmux-downloads"].map { (temporaryRoot == "/" ? "" : temporaryRoot) + "/" + $0 }
         self.id = id
         self.workingDirectory = resolvedCwd
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
@@ -567,7 +574,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             var refusal: String?
             if closed {
                 refusal = "Error: REPL session '\(id)' is closed"
-            } else if let reason = BrowserReplFileSandbox.rootRejection(cwd ?? workingDirectory, homeDirectory: homeDirectory) {
+            } else if let reason = rootRejection(cwd ?? workingDirectory) {
                 refusal = "Error: \(reason)"
             }
             if let refusal {
@@ -603,6 +610,26 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self?.timeOut(state, after: timeout)
             })
         }
+    }
+
+    /// Why `root` cannot be this session's working directory, or nil: `/`,
+    /// the home directory and its parents
+    /// (``BrowserReplFileSandbox/rootRejection(_:homeDirectory:)``), and a
+    /// directory that is, holds or is inside the sessions' private storage
+    /// or the browser's downloads, which fs would reach (another session's
+    /// spilled output, captures and downloads), unless it is one of this
+    /// session's own directories.
+    private func rootRejection(_ root: String) -> String? {
+        if let reason = BrowserReplFileSandbox.rootRejection(root, homeDirectory: homeDirectory) { return reason }
+        let canonical = BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(root))
+        let own = [ownedWorkingDirectory, privateTemporaryDirectory].compactMap { $0 }
+        if own.contains(where: { canonical == $0 || canonical.hasPrefix($0 + "/") }) { return nil }
+        let prefix = canonical == "/" ? "/" : canonical + "/"
+        for storage in privateStorageRoots where canonical == storage || storage.hasPrefix(prefix) || canonical.hasPrefix(storage + "/") {
+            return "refusing to use '\(root)' as the REPL working directory: fs would reach \(storage), where browser REPL sessions keep their private files and the browser its downloads. "
+                + "cd to a project or scratch directory (for example cd \"$(mktemp -d)\") and run the command again"
+        }
+        return nil
     }
 
     /// Stops timers, cancels in-flight driver calls and fetches, detaches
