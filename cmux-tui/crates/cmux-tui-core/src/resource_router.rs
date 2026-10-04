@@ -4,7 +4,7 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
-mod config;
+pub(crate) mod config;
 mod content;
 mod effects;
 mod mouse;
@@ -13,6 +13,7 @@ mod session;
 mod topology;
 
 pub(crate) use owner::requires_connection_context;
+use effects::indeterminate_error;
 use owner::{OperationOwner, operation_owner};
 
 use std::collections::{HashMap, HashSet};
@@ -757,15 +758,6 @@ pub(crate) fn commit_session_shutdown(
     session::commit_shutdown(mux, request)
 }
 
-/// `settings.domains.publish` and `settings.team_policy.set` after the
-/// connection checked that the hosting app sent them.
-pub(crate) fn dispatch_settings_app_input(
-    mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    config::dispatch(mux, request)
-}
-
 pub(crate) fn handle_trusted_local_auxiliary(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
@@ -1330,19 +1322,6 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
-}
-
-fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {
-    ResourceError::new(
-        "mutation.indeterminate",
-        "the external effect may have run before its outcome was recorded",
-        json!({
-            "idempotency_key":idempotency_key,
-            "operation":operation,
-            "recovery":"inspect_state_then_retry_with_new_key",
-        }),
-        false,
-    )
 }
 
 pub(super) fn mutation_result(

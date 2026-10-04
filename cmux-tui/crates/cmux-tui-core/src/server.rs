@@ -7714,7 +7714,7 @@ fn handle_resource_connection_message(
         }
         ResourceOperation::SettingsDomainsPublish | ResourceOperation::SettingsTeamPolicySet => {
             let result = crate::mux::settings::require_hosting_app(mux, client, operation)
-                .and_then(|()| crate::resource_router::dispatch_settings_app_input(mux, request));
+                .and_then(|()| crate::resource_router::config::dispatch(mux, request));
             send_resource_response(writer, id, operation, result)
         }
         _ => {

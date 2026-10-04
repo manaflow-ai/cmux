@@ -26,7 +26,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
     )
 }
 
-pub(super) fn dispatch(
+pub(crate) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
