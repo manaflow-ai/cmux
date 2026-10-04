@@ -15,7 +15,7 @@
 4. A harness grandchild that calls setsid keeps stdout open, so the host never sees stdout_done and never sends Exit. Fix: end on the harness leader's exit plus a bounded drain, not on stdout EOF alone.
 5. killpg after the leader is reaped (host.rs) can signal a reused group id. Fix: keep a group-member proof or signal before reaping.
 6. Recovery from a partial log: wait_logged times out after REPLAY_BUDGET with the `out session/prompt` entry not yet logged, and recovery marks a running turn outcome_unknown. Fix: recovery waits for the entry by hseq, not by a fixed budget.
-7. tap.rs: append_errors is a counter shared across tasks; a failure in another task (or before_agent_update) marks this entry unlogged and breaks the link. Fix: a per-append result.
+7. LANDED cd6f5cb3d45 (append_logged: the entry's own store result; tests hub/tap_tests.rs; review clean). Was: tap.rs: append_errors is a counter shared across tasks; a failure in another task (or before_agent_update) marks this entry unlogged and breaks the link. Fix: a per-append result.
 8. host.rs: a failed bind, spawn or record write leaves the `.live` lock file. Fix: remove it on every early return.
 9. Shutdown flag order: an endAgents request that arrives after a SIGTERM shutdown started is ignored. Fix: read the flag after the last request drains, or refuse endAgents with an error once shutdown started.
 10. Reaper (hq-48 lane, recommended to them): a hosted child with a closed link is not ended by detach_child; use end_unadopted_host.
@@ -26,4 +26,4 @@
 - Flake seen once on the Testbox: acpmux config::tests::launcher_check_rejects_old_subrouter (passed alone and in the next full run).
 - Step 2 Swift (quit census, endAgents step, fleet checks prompt-counts-agents and quit-ends-agents): branch nx-durable-sessions 9c7a1ddc; exact-head cmux-ci step 0049f58a367823a97dccd2c9 queued; then push and the full fleet-quit-persistence.sh run on cmux-lawrence-2 after the updates lead lands debug.updater relaunch.
 - Follow-up: move agent_host::within onto crate::clock::Clock.
-
+- 2026-10-04 QuitSheetTests GUI-lane-only (WindowSession trait) LANDED 4c7842e4511. P2-7 LANDED cd6f5cb3d45; hosted run 37219613949. Next slice: P2-3 (lost Exit ack).
