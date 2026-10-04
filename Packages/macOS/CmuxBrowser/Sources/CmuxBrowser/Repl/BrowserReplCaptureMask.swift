@@ -67,7 +67,8 @@ extension WKContentWorld {
 /// PDF, ``BlockedChildFrames/refuse``); a screenshot is handed those
 /// frames and blanks them (``BlockedChildFrames/handToCapture``).
 ///
-/// It fails closed. The capture is refused when a frame does not answer,
+/// It fails closed. The capture is refused when a frame does not answer
+/// (`stale` when a script takes over the probe's bound, 5 s by default),
 /// shows a page the domain policy blocks (as above), shows a document it
 /// did not show when the capture was prepared, or when the mask step fails, or
 /// when, after the capture, a scan finds an element holding a value that
@@ -103,6 +104,9 @@ public struct BrowserReplCaptureMask {
     let masks: [Mask]
     let policy: BrowserReplDomainPolicy
     let blockedChildFrames: BlockedChildFrames
+    /// Bounds each of the mask's scripts: WebKit drops a script's
+    /// completion when a navigation replaces its document.
+    let probe: BrowserReplScriptProbe
     private let token = UUID().uuidString
 
     /// - Parameters:
@@ -111,13 +115,17 @@ public struct BrowserReplCaptureMask {
     ///     frame shows a page it blocks is refused.
     ///   - blockedChildFrames: What a child frame that shows a page the
     ///     policy blocks does to the capture.
+    ///   - probe: Bounds each of the mask's scripts; one that does not
+    ///     answer in time refuses the capture with `stale`.
     public init(
         secretMasks: [[String: Any]],
         policy: BrowserReplDomainPolicy = BrowserReplDomainPolicy(),
-        blockedChildFrames: BlockedChildFrames = .refuse
+        blockedChildFrames: BlockedChildFrames = .refuse,
+        probe: BrowserReplScriptProbe = BrowserReplScriptProbe()
     ) {
         self.policy = policy
         self.blockedChildFrames = blockedChildFrames
+        self.probe = probe
         masks = secretMasks.compactMap { mask in
             guard let value = mask["value"] as? String, !value.isEmpty,
                   let domains = mask["domains"] as? [[String: Any]] else { return nil }
@@ -224,12 +232,16 @@ public struct BrowserReplCaptureMask {
     private func mark(_ frame: WKFrameInfo?, in webView: WKWebView) async throws -> MarkedDocument {
         let reply: Any?
         do {
-            reply = try await webView.callAsyncJavaScript(
+            reply = try await probe.call(
                 Self.maskSource,
                 arguments: ["values": [String](), "mode": "mark", "token": token],
-                in: frame,
-                contentWorld: Self.world
+                in: webView,
+                frame: frame,
+                contentWorld: Self.world,
+                what: "the capture was refused: a frame did not answer"
             )
+        } catch let error as BrowserReplDriverError {
+            throw error
         } catch {
             throw BrowserReplDriverError(
                 code: "invalid",
@@ -254,12 +266,16 @@ public struct BrowserReplCaptureMask {
         let place = shown ?? "a frame"
         let reply: Any?
         do {
-            reply = try await webView.callAsyncJavaScript(
+            reply = try await probe.call(
                 Self.maskSource,
                 arguments: ["values": values, "mode": mode, "token": token],
-                in: frame,
-                contentWorld: Self.world
+                in: webView,
+                frame: frame,
+                contentWorld: Self.world,
+                what: "the capture was refused: \(place) did not answer"
             )
+        } catch let error as BrowserReplDriverError {
+            throw error
         } catch {
             throw BrowserReplDriverError(
                 code: "invalid",
@@ -285,12 +301,15 @@ public struct BrowserReplCaptureMask {
     /// Restores what this capture masked and removes its mark.
     private func unmark(_ frames: [WKFrameInfo?], in webView: WKWebView) async {
         for frame in frames {
-            // A frame that is gone holds nothing to restore.
-            _ = try? await webView.callAsyncJavaScript(
+            // A frame that is gone holds nothing to restore, and one that
+            // does not answer in time is left to restore when it runs.
+            _ = try? await probe.call(
                 Self.maskSource,
                 arguments: ["values": [String](), "mode": "off", "token": token],
-                in: frame,
-                contentWorld: Self.world
+                in: webView,
+                frame: frame,
+                contentWorld: Self.world,
+                what: "a frame did not answer"
             )
         }
     }

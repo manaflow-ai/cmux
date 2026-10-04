@@ -296,7 +296,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   and refuses nothing. The page can still move a frame or the focus in its
   own web process between the check and the input reaching it. Each of
   these checks' own scripts (a frame's document, its focus, the frame
-  boxes) must answer within 5 s, or the call fails with `stale`: WebKit
+  boxes), each capture mask script (mark, mask, check, restore) and each
+  focus probe of a secret's typing check must answer within 5 s, or the
+  call fails with `stale`: WebKit
   drops a script's completion when a navigation replaces its document, and
   a busy page answers late.
 - Page-opened windows: a window a page opens from a user's tab, also one

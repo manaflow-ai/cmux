@@ -84,12 +84,10 @@ public final class BrowserReplFrameGate {
     /// The session's policy; only the native session sets it.
     public var policy = BrowserReplDomainPolicy()
     private let world: WKContentWorld
-    /// How long one of the gate's own probes (a frame's document, its focus,
-    /// the frame boxes) may take. WebKit does not call a script's completion
-    /// when a navigation replaces the document it runs in, and a busy page
-    /// answers late; past this the call is refused with `stale`.
-    private let probeTimeout: Duration
-    private let clock: any Clock<Duration>
+    /// Bounds each of the gate's own probes (a frame's document, its focus,
+    /// the frame boxes); one that does not answer in time refuses the call
+    /// with `stale`.
+    private let prober: BrowserReplScriptProbe
     /// The document each frame last showed when the gate read it.
     private var known: [Key: BrowserReplFrameDocument] = [:]
 
@@ -104,8 +102,7 @@ public final class BrowserReplFrameGate {
     ///   - clock: measures `probeTimeout`.
     public init(world: WKContentWorld, probeTimeout: Duration = .seconds(5), clock: any Clock<Duration> = ContinuousClock()) {
         self.world = world
-        self.probeTimeout = probeTimeout
-        self.clock = clock
+        prober = BrowserReplScriptProbe(timeout: probeTimeout, clock: clock)
     }
 
     /// Why the policy blocks the document WebKit recorded for `frame` when
@@ -549,8 +546,7 @@ public final class BrowserReplFrameGate {
     }
 
     /// Runs one of the gate's own scripts in its world, failing with
-    /// `stale` when it has not answered within ``probeTimeout``. The
-    /// script itself cannot be cancelled; a late answer is dropped.
+    /// `stale` when it has not answered in time (``BrowserReplScriptProbe``).
     private func probe(
         _ source: String,
         arguments: [String: Any],
@@ -558,28 +554,7 @@ public final class BrowserReplFrameGate {
         frame: WKFrameInfo?,
         what: String
     ) async throws -> Any? {
-        let race = ProbeRace()
-        let world = self.world
-        Task { @MainActor in
-            do {
-                race.finish(.success(BrowserReplProbeValue(value: try await webView.callAsyncJavaScript(source, arguments: arguments, in: frame, contentWorld: world))))
-            } catch {
-                race.finish(.failure(error))
-            }
-        }
-        let clock = self.clock
-        let timeout = probeTimeout
-        let message = "\(what) within \(timeout.components.seconds) s (it may have navigated or be busy); try again"
-        let deadline = Task { @MainActor in
-            do {
-                try await clock.sleep(for: timeout)
-            } catch {
-                return
-            }
-            race.finish(.failure(BrowserReplDriverError(code: "stale", message: message.prefix(1).uppercased() + message.dropFirst())))
-        }
-        defer { deadline.cancel() }
-        return try await race.value().value
+        try await prober.call(source, arguments: arguments, in: webView, frame: frame, contentWorld: world, what: what)
     }
 
     private func blocked(_ frame: BrowserReplFrame, document: BrowserReplFrameDocument?, reason: String) -> BrowserReplDriverError {
@@ -597,37 +572,5 @@ public final class BrowserReplFrameGate {
 
     private static func format(_ value: CGFloat) -> String {
         value == value.rounded() ? String(Int(value)) : String(format: "%.1f", Double(value))
-    }
-}
-
-/// A probe's answer, carried between main-actor tasks.
-private struct BrowserReplProbeValue: @unchecked Sendable {
-    let value: Any?
-}
-
-/// First answer wins: the probe's or the timeout's.
-@MainActor
-private final class ProbeRace {
-    private var result: Result<BrowserReplProbeValue, any Error>?
-    private var continuation: CheckedContinuation<BrowserReplProbeValue, any Error>?
-
-    func finish(_ value: Result<BrowserReplProbeValue, any Error>) {
-        guard result == nil else { return }
-        result = value
-        if let continuation {
-            self.continuation = nil
-            continuation.resume(with: value)
-        }
-    }
-
-    func value() async throws -> BrowserReplProbeValue {
-        if let result { return try result.get() }
-        return try await withCheckedThrowingContinuation { continuation in
-            if let result {
-                continuation.resume(with: result)
-            } else {
-                self.continuation = continuation
-            }
-        }
     }
 }
