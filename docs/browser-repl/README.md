@@ -319,7 +319,19 @@ rest. Measurements: [performance.md](performance.md).
   them the same `--session` to share one.
 - A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
   to the focused workspace when the caller is outside cmux or the id is unknown
-  to this instance.
+  to this instance. A named session belongs to that workspace: the same
+  `--session` name in another workspace is another session, with its own
+  variables, secrets, directory and tabs. `cmux browser repl list` and
+  `reset NAME` act on the caller's workspace's sessions; `--all-workspaces`
+  lists or resets every workspace's. The interactive REPL and `mcp` keep
+  the workspace their first call bound, so a change of focus outside cmux
+  does not switch sessions; separate calls from outside cmux follow the
+  focused workspace (pass `--workspace` to pin one).
+- A session name is 1 to 64 characters of letters, digits, `.`, `_` and
+  `-`. One cmux instance keeps at most 32 sessions open (named, one-shot and
+  `mcp` ones together; each holds a JavaScript thread, timers and
+  directories); one more is refused with an error that says so, and no
+  open session is closed to make room.
 - A session never moves the user's focus, so agents can work in the
   background: `tabs.open()`, navigation, input, dialogs, file choosers,
   downloads, popups, captures, the clipboard, `tabs.use()`, `page.keep()`,

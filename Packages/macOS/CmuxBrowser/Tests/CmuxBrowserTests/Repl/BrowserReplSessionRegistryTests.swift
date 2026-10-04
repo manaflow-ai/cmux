@@ -49,7 +49,7 @@ struct BrowserReplSessionRegistryTests {
         defer { other.close() }
 
         #expect(registry.reset(name: "shared", workspaceID: nil) == 2)
-        #expect(sessions.allSatisfy(\.isClosed))
+        #expect(sessions.allSatisfy { $0.isClosed })
         #expect(!other.isClosed)
     }
 
@@ -68,7 +68,8 @@ struct BrowserReplSessionRegistryTests {
         }
         #expect(!a.isClosed && !b.isClosed)
         // An existing session is still reachable at the cap.
-        #expect(try registry.session(for: .init(workspaceID: first, name: "a")) { _ in makeSession("a") } === a)
+        let again = try registry.session(for: .init(workspaceID: first, name: "a")) { _ in makeSession("a") }
+        #expect(again === a)
 
         registry.reset(.init(workspaceID: first, name: "b"))
         let c = try registry.session(for: .init(workspaceID: second, name: "c")) { _ in makeSession("c") }

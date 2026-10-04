@@ -40,6 +40,11 @@ final class BrowserReplHost: @unchecked Sendable {
 
 /// Socket methods `browser.repl.eval`, `browser.repl.reset` and `browser.repl.list`.
 ///
+/// A named session belongs to one workspace (`BrowserReplSessionKey`): the
+/// workspace `workspace_id` names, else the caller's (`caller_workspace_id`),
+/// else the focused one. `reset` and `list` act on that workspace unless
+/// `all_workspaces` is true.
+///
 /// Evaluations await the REPL's JavaScriptCore thread and the main-actor
 /// driver without parking a socket worker thread. These methods execute
 /// scripts that drive local browser tabs and read and write files under the
@@ -55,24 +60,93 @@ extension TerminalController {
         case "browser.repl.eval":
             result = await v2BrowserReplEval(request: request)
         case "browser.repl.reset":
-            let session = request.params["session"]?.foundationObject as? String ?? ""
-            guard !session.isEmpty else {
-                result = .err(code: "invalid_params", message: Self.browserReplMissingSessionMessage, data: nil)
-                break
-            }
-            let existed = BrowserReplHost.shared.registry.reset(named: session)
-            result = .ok(["session": session, "existed": existed])
+            result = await v2BrowserReplReset(request: request)
         default:
-            let sessions = BrowserReplHost.shared.registry.list().map { entry -> [String: Any] in
-                ["session": entry.id, "cwd": entry.cwd, "idle_seconds": entry.idleSeconds]
-            }
-            result = .ok(["sessions": sessions])
+            result = await v2BrowserReplList(request: request)
         }
         return v2Result(id: request.id?.foundationObject, result)
     }
 
     private nonisolated static var browserReplMissingSessionMessage: String {
         String(localized: "cli.browser.repl.error.sessionRequired", defaultValue: "A session name is required")
+    }
+
+    private nonisolated static var browserReplInvalidSessionNameMessage: String {
+        String(
+            localized: "cli.browser.repl.error.sessionName",
+            defaultValue: "A session name is 1 to 64 characters: letters, digits, '.', '_' and '-'"
+        )
+    }
+
+    /// `browser.repl.reset`: the caller's workspace's session of that name,
+    /// or with `all_workspaces` the session of that name in every workspace.
+    private nonisolated func v2BrowserReplReset(request: ControlRequest) async -> V2CallResult {
+        let params = request.params.mapValues(\.foundationObject)
+        let name = params["session"] as? String ?? ""
+        guard !name.isEmpty else {
+            return .err(code: "invalid_params", message: Self.browserReplMissingSessionMessage, data: nil)
+        }
+        guard BrowserReplSessionRegistry.isValidName(name) else {
+            return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
+        }
+        let registry = BrowserReplHost.shared.registry
+        if params["all_workspaces"] as? Bool == true {
+            let count = registry.reset(name: name, workspaceID: nil)
+            return .ok(["session": name, "existed": count > 0, "count": count])
+        }
+        switch await v2BrowserReplResolvedWorkspace(params: params) {
+        case .failure(let error):
+            return error
+        case .success(let workspaceID):
+            let existed = registry.reset(BrowserReplSessionKey(workspaceID: workspaceID, name: name))
+            return .ok(["session": name, "existed": existed, "count": existed ? 1 : 0, "workspace_id": workspaceID.uuidString])
+        }
+    }
+
+    /// `browser.repl.list`: the caller's workspace's sessions, or with
+    /// `all_workspaces` every workspace's.
+    private nonisolated func v2BrowserReplList(request: ControlRequest) async -> V2CallResult {
+        let params = request.params.mapValues(\.foundationObject)
+        var workspaceID: UUID?
+        if params["all_workspaces"] as? Bool != true {
+            switch await v2BrowserReplResolvedWorkspace(params: params) {
+            case .failure(let error):
+                return error
+            case .success(let id):
+                workspaceID = id
+            }
+        }
+        let sessions = BrowserReplHost.shared.registry.list(workspaceID: workspaceID).map { entry -> [String: Any] in
+            [
+                "session": entry.name,
+                "workspace_id": entry.workspaceID.uuidString,
+                "cwd": entry.cwd,
+                "idle_seconds": entry.idleSeconds,
+            ]
+        }
+        return .ok(["sessions": sessions])
+    }
+
+    /// The workspace a call acts on, or the error that ends the call.
+    private enum BrowserReplWorkspaceResolution {
+        case success(UUID)
+        case failure(V2CallResult)
+    }
+
+    private nonisolated func v2BrowserReplResolvedWorkspace(params: [String: Any]) async -> BrowserReplWorkspaceResolution {
+        switch await v2BrowserReplWorkspaceID(params: params) {
+        case .success(let id):
+            return .success(id)
+        case .failure(.explicitWorkspaceNotFound(let id)):
+            let prefix = String(localized: "cli.browser.repl.error.workspaceNotFound", defaultValue: "Workspace not found")
+            return .failure(.err(code: "not_found", message: "\(prefix): \(id.uuidString)", data: nil))
+        case .failure(.noFocusedWorkspace):
+            return .failure(.err(
+                code: "not_found",
+                message: String(localized: "cli.browser.repl.error.workspace", defaultValue: "No workspace to bind the REPL session to"),
+                data: nil
+            ))
+        }
     }
 
     private nonisolated func v2BrowserReplEval(request: ControlRequest) async -> V2CallResult {
@@ -89,21 +163,17 @@ extension TerminalController {
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
         let timeoutMilliseconds = (params["timeout_ms"] as? NSNumber)?.intValue ?? 120_000
         let named = (params["session"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        let sessionID = named ?? "oneshot-\(UUID().uuidString)"
+        if let named, !BrowserReplSessionRegistry.isValidName(named) {
+            return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
+        }
+        let sessionName = named ?? "oneshot-\(UUID().uuidString)"
 
         let workspaceID: UUID
-        switch await v2BrowserReplWorkspaceID(params: params) {
+        switch await v2BrowserReplResolvedWorkspace(params: params) {
         case .success(let id):
             workspaceID = id
-        case .failure(.explicitWorkspaceNotFound(let id)):
-            let prefix = String(localized: "cli.browser.repl.error.workspaceNotFound", defaultValue: "Workspace not found")
-            return .err(code: "not_found", message: "\(prefix): \(id.uuidString)", data: nil)
-        case .failure(.noFocusedWorkspace):
-            return .err(
-                code: "not_found",
-                message: String(localized: "cli.browser.repl.error.workspace", defaultValue: "No workspace to bind the REPL session to"),
-                data: nil
-            )
+        case .failure(let error):
+            return error
         }
 
         let host = BrowserReplHost.shared
@@ -114,13 +184,29 @@ extension TerminalController {
         case .failure(let error):
             return .err(code: "unavailable", message: "Error: \(error.description)", data: nil)
         }
-        let session = host.registry.session(named: sessionID) {
-            BrowserReplSession(
-                id: sessionID,
-                cwd: cwd,
-                bundle: bundle,
-                driver: WebKitBrowserReplDriver(sessionID: sessionID, workspaceID: workspaceID, bundle: bundle)
+        // A named session is the caller's workspace's: the same name in
+        // another workspace is another session. Each instance gets an id of
+        // its own, so driver state never outlives it into a later session
+        // of the same name.
+        let key = BrowserReplSessionKey(workspaceID: workspaceID, name: sessionName)
+        let session: BrowserReplSession
+        do {
+            session = try host.registry.session(for: key) { instanceID in
+                BrowserReplSession(
+                    id: sessionName,
+                    cwd: cwd,
+                    bundle: bundle,
+                    driver: WebKitBrowserReplDriver(sessionID: instanceID, workspaceID: workspaceID, bundle: bundle)
+                )
+            }
+        } catch BrowserReplSessionRegistry.Refusal.tooManySessions(let limit) {
+            let prefix = String(
+                localized: "cli.browser.repl.error.tooManySessions",
+                defaultValue: "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` lists them)"
             )
+            return .err(code: "unavailable", message: "\(prefix) (\(limit))", data: nil)
+        } catch {
+            return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }
         let outcome = await session.evaluate(
             code: code,
@@ -129,10 +215,11 @@ extension TerminalController {
             maxOutput: (params["max_output"] as? NSNumber)?.intValue
         )
         if named == nil {
-            host.registry.reset(named: sessionID)
+            host.registry.reset(key)
         }
         var payload: [String: Any] = [
             "session": named ?? NSNull(),
+            "workspace_id": workspaceID.uuidString,
             "ok": outcome.error == nil,
             "output": outcome.lines.map { ["level": $0.level, "text": $0.text] },
             "duration_ms": outcome.durationMilliseconds,

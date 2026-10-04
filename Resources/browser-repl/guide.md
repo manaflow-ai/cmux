@@ -10,12 +10,16 @@ pages see trusted events.
     cmux browser repl 'await page.goto("https://example.com"); snapshot()'
     cmux browser repl --eval - < script.js
     cmux browser repl --session work 'const s1 = await snapshot()'
-    cmux browser repl list | reset <session> | guide
+    cmux browser repl list | reset <session> [--all-workspaces] | guide
 
 Without `--session` each call is one-shot: its tabs close at the end unless
 `page.keep()` was called. With `--session NAME`, top-level `const`/`let`
 bindings and tabs persist until `reset NAME` or 30 minutes idle. A session
-binds to your cmux workspace, or to the focused workspace outside cmux.
+binds to your cmux workspace, or to the focused workspace outside cmux; the
+same name in another workspace is another session, and `list` and `reset`
+act on your workspace's sessions (`--all-workspaces` for every one). A name
+is up to 64 letters, digits, `.`, `_` and `-`; at most 32 sessions are open
+at once.
 
 - The last expression's value prints (a promise is awaited first);
   `undefined` prints nothing. `console.log()` prints too.
