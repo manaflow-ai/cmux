@@ -514,29 +514,65 @@ enum AttachmentMedia {
     static func isLocation(_ item: AVMetadataItem) -> Bool {
         if item.commonKey == .commonKeyLocation { return true }
         guard let raw = item.identifier?.rawValue else { return false }
-        return raw.hasPrefix("mdta/com.apple.quicktime.location.") || raw == AVMetadataIdentifier.commonIdentifierLocation.rawValue
+        return isLocationIdentifier(raw)
+    }
+
+    /// The same test for a metadata identifier (`mdta/...`, `udta/...`).
+    static func isLocationIdentifier(_ raw: String) -> Bool {
+        raw.hasPrefix("mdta/com.apple.quicktime.location.") || raw == AVMetadataIdentifier.commonIdentifierLocation.rawValue
             || raw == AVMetadataIdentifier.quickTimeUserDataLocationISO6709.rawValue || raw == "udta/loci"
     }
 
+    /// Track types that can carry positions as samples: timed metadata,
+    /// and text or subtitles (a drone writes its GPS as subtitles).
+    static var locationTrackTypes: Set<AVMediaType> { [.metadata, .text, .subtitle] }
+
+    /// True when a track's samples may hold positions. A text or subtitle
+    /// track always may. A timed metadata track may when one of its formats
+    /// names a location identifier, or when its format lists no
+    /// identifiers to check (GoPro GPMF, camera motion `camm`: these carry
+    /// GPS). A boxed track that names only other keys (an iPhone's
+    /// orientation, still-image-time or face tracks) holds no location.
+    static func trackMayHoldLocation(_ track: AVAssetTrack) async -> Bool {
+        switch track.mediaType {
+        case .text, .subtitle:
+            return true
+        case .metadata:
+            let formats = (try? await track.load(.formatDescriptions)) ?? []
+            guard !formats.isEmpty else { return true }
+            for format in formats {
+                guard CMFormatDescriptionGetMediaSubType(format) == kCMMetadataFormatType_Boxed,
+                      let identifiers = CMMetadataFormatDescriptionGetIdentifiers(format) as? [String] else { return true }
+                if identifiers.contains(where: isLocationIdentifier) { return true }
+            }
+            return false
+        default:
+            return false
+        }
+    }
+
     /// Location anywhere in a movie or M4A: asset or track metadata items,
-    /// or a timed metadata track (a GoPro or drone GPS track).
+    /// or a track whose samples may hold positions (`trackMayHoldLocation`).
     static func movieHasLocation(_ asset: AVAsset) async -> Bool {
         if ((try? await asset.load(.metadata)) ?? []).contains(where: isLocation) { return true }
         for track in (try? await asset.load(.tracks)) ?? [] {
-            if track.mediaType == .metadata { return true }
+            if await trackMayHoldLocation(track) { return true }
             if ((try? await track.load(.metadata)) ?? []).contains(where: isLocation) { return true }
         }
         return false
     }
 
     /// A copy of the movie (or M4A) without location, written to a temp
-    /// file under `root` by a passthrough export (no re-encode) of every
-    /// track except timed metadata tracks, with each track's transform and
-    /// the asset metadata that is not location (as
+    /// file under `root` by a passthrough export (no re-encode), with each
+    /// track's transform and the asset metadata that is not location (as
     /// `AVMetadataItemFilter.forSharing` allows); track metadata is not
-    /// copied. Nil when the file has no location. The caller deletes it.
-    /// Throws `HomeAttachmentError.locationNotRemoved` when the export
-    /// fails or its result still holds a location.
+    /// copied. Timed metadata, text and subtitle tracks are left out
+    /// (`locationTrackTypes`). Another track the composition cannot take
+    /// (a timecode track, a Cinematic disparity track) is left out too; an
+    /// audio or video track it cannot take refuses the file, since the
+    /// message would lose its content. Nil when the file has no location.
+    /// The caller deletes it. Throws `HomeAttachmentError.locationNotRemoved`
+    /// when the export fails or its result still holds a location.
     @concurrent
     static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL) async throws -> URL? {
         let asset = AVURLAsset(url: url)
@@ -544,11 +580,21 @@ enum AttachmentMedia {
         let refused = HomeAttachmentError.locationNotRemoved(name: name)
         let composition = AVMutableComposition()
         do {
-            for track in try await asset.load(.tracks) where track.mediaType != .metadata {
+            for track in try await asset.load(.tracks) where !locationTrackTypes.contains(track.mediaType) {
+                let essential = track.mediaType == .video || track.mediaType == .audio
                 let (range, transform) = try await track.load(.timeRange, .preferredTransform)
                 guard let copy = composition.addMutableTrack(withMediaType: track.mediaType,
-                                                             preferredTrackID: kCMPersistentTrackID_Invalid) else { throw refused }
-                try copy.insertTimeRange(range, of: track, at: range.start)
+                                                             preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    if essential { throw refused }
+                    continue
+                }
+                do {
+                    try copy.insertTimeRange(range, of: track, at: range.start)
+                } catch {
+                    if essential { throw refused }
+                    composition.removeTrack(copy)
+                    continue
+                }
                 copy.preferredTransform = transform
             }
         } catch {
