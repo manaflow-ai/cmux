@@ -684,6 +684,7 @@ const vmFirewallRuleNotFoundResponse = (error: VmFirewallRuleNotFoundError): Res
     status: 404,
     message: "This firewall rule is not in your Cloud VM network.",
     action: "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done.",
+    displayTitle: "Firewall rule not found",
     details: { ruleId: error.ruleId },
   });
 
