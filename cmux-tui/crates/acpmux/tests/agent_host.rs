@@ -62,7 +62,7 @@ async fn wait_dead(lock: std::fs::File) {
     .unwrap();
 }
 
-async fn connected(record: &HostRecord, after: u64) -> (Link, link::Adopted) {
+async fn connected(record: &HostRecord, after: u64) -> (Box<Link>, link::Adopted) {
     match link::connect(record.clone(), after).await.expect("connect") {
         Connect::Ready(link, adopted) => (link, adopted),
         Connect::Incompatible { .. } => panic!("host refused a same-build controller"),
@@ -71,7 +71,11 @@ async fn connected(record: &HostRecord, after: u64) -> (Link, link::Adopted) {
 
 /// Reads entries, acknowledging each, until `until` matches one; returns
 /// every entry read and checks that sequences are contiguous after `after`.
-async fn read_until(link: &Link, after: &mut u64, until: impl Fn(&Entry) -> bool) -> Vec<(u64, Entry)> {
+async fn read_until(
+    link: &Link,
+    after: &mut u64,
+    until: impl Fn(&Entry) -> bool,
+) -> Vec<(u64, Entry)> {
     let mut seen = Vec::new();
     let mut rx = link.entries.lock().await;
     loop {
@@ -136,8 +140,13 @@ async fn host_keeps_the_turn_running_without_a_controller_and_resumes_exactly() 
     make_fifo(&gate);
     let prompt = json!({"sessionId": sid, "prompt": [{"type":"text","text": format!("gate: {}", gate.display())}]});
     request(&first, 3, "session/prompt", prompt).await;
-    let before = read_until(&first, &mut logged, |e| chunk_text(e).as_deref() == Some("before-gate")).await;
-    assert!(before.iter().any(|(_, e)| matches!(e, Entry::Tap { dir: TapDir::Out, msg } if msg["id"] == 3)));
+    let before =
+        read_until(&first, &mut logged, |e| chunk_text(e).as_deref() == Some("before-gate")).await;
+    assert!(
+        before
+            .iter()
+            .any(|(_, e)| matches!(e, Entry::Tap { dir: TapDir::Out, msg } if msg["id"] == 3))
+    );
 
     // The controller dies mid-turn: no detach.
     drop(first);

@@ -12,7 +12,6 @@ use tokio::net::UnixListener;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-
 /// Entry point of `acpmux __agent-host`: read the spawn spec from stdin,
 /// start the harness, answer on stdout, then serve controllers until the
 /// harness ended and its exit was logged.
@@ -94,9 +93,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
     }
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
+    let mut child =
+        cmd.spawn().with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -406,7 +404,9 @@ impl State {
         }
         if self.stderr_dropped > 0 {
             let n = std::mem::take(&mut self.stderr_dropped);
-            self.push(Entry::Err { line: format!("[{n} stderr lines dropped while no controller read them]") });
+            self.push(Entry::Err {
+                line: format!("[{n} stderr lines dropped while no controller read them]"),
+            });
         }
         self.push(Entry::Err { line });
     }
@@ -445,7 +445,12 @@ impl State {
         }
         // A line no frame can carry would wedge every replay.
         if line.len() > MAX_FRAME - 4096 {
-            self.push(Entry::Err { line: format!("[stdout line of {} bytes dropped: over the frame limit]", line.len()) });
+            self.push(Entry::Err {
+                line: format!(
+                    "[stdout line of {} bytes dropped: over the frame limit]",
+                    line.len()
+                ),
+            });
             // An answer that cannot be carried still ends its request.
             if self.translator.is_none()
                 && let Ok(v) = serde_json::from_str::<Value>(&line)
@@ -541,29 +546,27 @@ impl State {
                 return;
             }
             let Some(version) = negotiate(*min, *max) else {
-                let _ = tx
-                    .send(HostFrame::Incompatible {
-                        min: PROTOCOL_MIN,
-                        max: PROTOCOL_MAX,
-                        host_build: self.record.host_build.clone(),
-                    });
+                let _ = tx.send(HostFrame::Incompatible {
+                    min: PROTOCOL_MIN,
+                    max: PROTOCOL_MAX,
+                    host_build: self.record.host_build.clone(),
+                });
                 return;
             };
             if let Some(old) = self.controller.take() {
                 let _ = old.tx.send(HostFrame::Superseded);
             }
             let exited = self.exit_h.map(|_| self.leader_code.unwrap_or(None));
-            let _ = tx
-                .send(HostFrame::HostHello {
-                    version,
-                    host_build: self.record.host_build.clone(),
-                    incarnation: self.record.incarnation.clone(),
-                    harness_pid: self.record.harness_pid,
-                    last_h: self.next_h,
-                    acked_h: self.acked_h,
-                    max_out_id: self.max_out_id,
-                    exited,
-                });
+            let _ = tx.send(HostFrame::HostHello {
+                version,
+                host_build: self.record.host_build.clone(),
+                incarnation: self.record.incarnation.clone(),
+                harness_pid: self.record.harness_pid,
+                last_h: self.next_h,
+                acked_h: self.acked_h,
+                max_out_id: self.max_out_id,
+                exited,
+            });
             self.controller = Some(Controller { id, tx, resumed: false });
             return;
         }
@@ -592,9 +595,10 @@ impl State {
             ControllerFrame::Line { msg } => self.on_line(msg).await,
             ControllerFrame::Ack { h } => self.drop_through(h),
             ControllerFrame::Terminate { grace_ms } => {
-                if let Some(pg) = self.pgid.filter(|_| {
-                    self.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
-                }) {
+                if let Some(pg) = self
+                    .pgid
+                    .filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
+                {
                     // SAFETY: the harness leads this process group.
                     unsafe { libc::killpg(pg, libc::SIGTERM) };
                     let grace = std::time::Duration::from_millis(grace_ms);
@@ -623,9 +627,12 @@ impl State {
                     None => (None, None, None),
                 };
                 if let Some(c) = self.controller.as_ref() {
-                    let _ = c
-                        .tx
-                        .send(HostFrame::QueryReply { id, claude_session_id, modes, config_options });
+                    let _ = c.tx.send(HostFrame::QueryReply {
+                        id,
+                        claude_session_id,
+                        modes,
+                        config_options,
+                    });
                 }
             }
             ControllerFrame::Detach => {

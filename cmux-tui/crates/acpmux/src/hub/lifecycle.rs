@@ -351,10 +351,8 @@ impl Hub {
                     if method == crate::agent::HOST_EXIT =>
                 {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
-                    let intentional = matches!(
-                        tap_session.status(),
-                        SessionStatus::Idle | SessionStatus::Closed
-                    );
+                    let intentional =
+                        matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     tap_hub.append_with_host_seq(
                         &tap_session,
                         "mux",
@@ -418,7 +416,8 @@ impl Hub {
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
-            let rec = tap_hub.append_with_host_seq(&tap_session, d, &kind, msg.to_value(), host_seq);
+            let rec =
+                tap_hub.append_with_host_seq(&tap_session, d, &kind, msg.to_value(), host_seq);
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
@@ -498,23 +497,27 @@ impl Hub {
                 )
                 .await?
             } else {
-            let tr =
-                crate::claude_stdio::Translator::new(session.id.clone(), &mode, &model, &effort);
-            if let Some(sid) = known {
-                *tr.session_id.lock().await = Some(sid);
-            }
-            ChildAgent::spawn_with(
-                &meta.harness,
-                profile,
-                &meta.cwd,
-                session.inbound_tx.clone(),
-                tap,
-                Some((plan.program, plan.args)),
-                Some(tr),
-                Some((&session.id, &meta.name)),
-            )
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+                let tr = crate::claude_stdio::Translator::new(
+                    session.id.clone(),
+                    &mode,
+                    &model,
+                    &effort,
+                );
+                if let Some(sid) = known {
+                    *tr.session_id.lock().await = Some(sid);
+                }
+                ChildAgent::spawn_with(
+                    &meta.harness,
+                    profile,
+                    &meta.cwd,
+                    session.inbound_tx.clone(),
+                    tap,
+                    Some((plan.program, plan.args)),
+                    Some(tr),
+                    Some((&session.id, &meta.name)),
+                )
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
             }
         } else if self.agent_hosts_enabled() {
             self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?

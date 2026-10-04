@@ -60,7 +60,10 @@ impl Hub {
 
     /// Adopt this session's running host again (its link was lost, or a
     /// first adoption failed). Returns the adopted child.
-    pub(super) async fn readopt(self: &Arc<Self>, session: &Arc<Session>) -> Option<Arc<ChildAgent>> {
+    pub(super) async fn readopt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) -> Option<Arc<ChildAgent>> {
         let dir = agent_host::hosts_dir();
         let (good, _) = agent_host::load_records(&dir).ok()?;
         let (_, record) = good.into_iter().find(|(_, r)| r.session_id == session.id)?;
@@ -297,11 +300,12 @@ impl Hub {
                 ("out", method::SESSION_PROMPT) if current && work.turn.is_some() => {
                     work.prompt_request = e.msg.get("id").cloned();
                 }
-                ("in", "response") if current => {
-                    if work.prompt_request.is_some() && e.msg.get("id") == work.prompt_request.as_ref()
-                    {
-                        work.prompt_response = Some(e.msg.clone());
-                    }
+                ("in", "response")
+                    if current
+                        && work.prompt_request.is_some()
+                        && e.msg.get("id") == work.prompt_request.as_ref() =>
+                {
+                    work.prompt_response = Some(e.msg.clone());
                 }
                 ("out", "response") if current => {
                     if let Some(id) = e.msg.get("id") {
@@ -322,14 +326,21 @@ impl Hub {
             }
             true
         });
-        work.requests =
-            requests.into_iter().filter(|(id, _, _, _)| !answered.contains(&id.to_string())).collect();
+        work.requests = requests
+            .into_iter()
+            .filter(|(id, _, _, _)| !answered.contains(&id.to_string()))
+            .collect();
         work.permissions = asked;
         work
     }
 
     /// Rebuild the turn and the unanswered agent requests of an adopted host.
-    async fn recover_work(self: &Arc<Self>, session: &Arc<Session>, child: &Arc<ChildAgent>, work: OpenWork) {
+    async fn recover_work(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        work: OpenWork,
+    ) {
         if let Some((turn_seq, turn_id, prompt_id, prompt, client)) = work.turn.clone() {
             match (work.prompt_request.clone(), work.prompt_response.clone()) {
                 // The prompt never reached this host (or another host ran
@@ -394,7 +405,9 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            tokio::spawn(async move { hub.on_agent_request(s, id, m, params, epoch, turn_id).await });
+            tokio::spawn(
+                async move { hub.on_agent_request(s, id, m, params, epoch, turn_id).await },
+            );
         }
     }
 
@@ -430,8 +443,11 @@ impl Hub {
             {
                 let state = s.permissions.lock().unwrap();
                 if state.pending.is_empty() && s.status() == SessionStatus::Waiting {
-                    let next =
-                        if s.turn().is_some() { SessionStatus::Running } else { SessionStatus::Ready };
+                    let next = if s.turn().is_some() {
+                        SessionStatus::Running
+                    } else {
+                        SessionStatus::Ready
+                    };
                     hub.set_status(&s, next);
                 }
             }
@@ -455,8 +471,10 @@ fn permission_answer(outcome: Value) -> Value {
 
 fn response_result(msg: &Value) -> Result<Value, RpcError> {
     match msg.get("error") {
-        Some(e) if !e.is_null() => Err(serde_json::from_value(e.clone())
-            .unwrap_or_else(|_| RpcError::internal("agent error"))),
+        Some(e) if !e.is_null() => {
+            Err(serde_json::from_value(e.clone())
+                .unwrap_or_else(|_| RpcError::internal("agent error")))
+        }
         _ => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
     }
 }

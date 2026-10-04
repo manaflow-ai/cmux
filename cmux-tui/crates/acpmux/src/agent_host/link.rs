@@ -72,9 +72,13 @@ pub struct Adopted {
 }
 
 pub enum Connect {
-    Ready(Link, Adopted),
+    Ready(Box<Link>, Adopted),
     /// No protocol version in common: the host keeps running.
-    Incompatible { min: u16, max: u16, host_build: String },
+    Incompatible {
+        min: u16,
+        max: u16,
+        host_build: String,
+    },
 }
 
 /// One owner connection to a host. Entries arrive on `entries`; the owner
@@ -185,9 +189,15 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                         break;
                     }
                     Ok(Some(HostFrame::TerminateAck)) => {}
-                    Ok(Some(HostFrame::QueryReply { id, claude_session_id, modes, config_options })) => {
+                    Ok(Some(HostFrame::QueryReply {
+                        id,
+                        claude_session_id,
+                        modes,
+                        config_options,
+                    })) => {
                         if let Some(reply) = queries.lock().unwrap().remove(&id) {
-                            let _ = reply.send(QueryReply { claude_session_id, modes, config_options });
+                            let _ =
+                                reply.send(QueryReply { claude_session_id, modes, config_options });
                         }
                     }
                     Ok(Some(_)) | Ok(None) | Err(_) => break,
@@ -201,7 +211,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         .await
         .map_err(|_| anyhow!("agent host connection closed"))?;
     Ok(Connect::Ready(
-        Link {
+        Box::new(Link {
             tx,
             queries,
             next_query: std::sync::atomic::AtomicU64::new(1),
@@ -209,7 +219,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
             entries: Mutex::new(entries_rx),
             detach_ack: Mutex::new(Some(detach_rx)),
             closed,
-        },
+        }),
         adopted,
     ))
 }

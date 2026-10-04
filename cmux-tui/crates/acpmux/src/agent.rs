@@ -319,7 +319,10 @@ impl ChildAgent {
                             Ok(v) => v,
                             Err(_) => {
                                 let _ = inbound
-                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}"), None))
+                                    .send(Inbound::Stderr(
+                                        format!("[non-json stdout] {line}"),
+                                        None,
+                                    ))
                                     .await;
                                 continue;
                             }
@@ -363,7 +366,10 @@ impl ChildAgent {
                             Err(e) => {
                                 tracing::warn!(agent = %agent_for_exit.name, "bad line from agent: {e}: {line}");
                                 let _ = inbound
-                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}"), None))
+                                    .send(Inbound::Stderr(
+                                        format!("[non-json stdout] {line}"),
+                                        None,
+                                    ))
                                     .await;
                                 continue;
                             }
@@ -467,8 +473,8 @@ impl ChildAgent {
             if h.link.terminate(grace).await.is_ok() {
                 // The host's exit entry ends the wait; the bound covers a
                 // host that cannot report it.
-                let _ = tokio::time::timeout(grace + std::time::Duration::from_secs(1), exited)
-                    .await;
+                let _ =
+                    tokio::time::timeout(grace + std::time::Duration::from_secs(1), exited).await;
             }
             return;
         }
@@ -601,7 +607,9 @@ impl ChildAgent {
     pub async fn wait_logged(&self, h: u64, budget: std::time::Duration) -> bool {
         let Some(hosted) = &self.hosted else { return true };
         let mut rx = hosted.logged.subscribe();
-        tokio::time::timeout(budget, rx.wait_for(|logged| *logged >= h)).await.is_ok_and(|r| r.is_ok())
+        tokio::time::timeout(budget, rx.wait_for(|logged| *logged >= h))
+            .await
+            .is_ok_and(|r| r.is_ok())
     }
 
     /// The Claude translator's state, wherever the translator runs.
@@ -650,7 +658,7 @@ impl ChildAgent {
     ) -> Result<Attached> {
         use crate::agent_host::link::{Connect, connect};
         let (link, adopted) = match connect(record, resume_after).await? {
-            Connect::Ready(link, adopted) => (Arc::new(link), adopted),
+            Connect::Ready(link, adopted) => (Arc::from(link), adopted),
             Connect::Incompatible { min, max, host_build } => {
                 return Ok(Attached::Incompatible { min, max, host_build });
             }
@@ -788,10 +796,10 @@ impl ChildAgent {
                     hosted.exited.store(true, Ordering::SeqCst);
                     hosted.exit.notify_waiters();
                 }
-                let _ = inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
+                let _ =
+                    inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
                 true
             }
         }
     }
-
 }

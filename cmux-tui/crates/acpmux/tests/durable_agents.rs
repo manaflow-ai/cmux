@@ -84,7 +84,13 @@ impl Daemon {
         files.sort();
         files
             .iter()
-            .flat_map(|f| std::fs::read_to_string(f).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>())
+            .flat_map(|f| {
+                std::fs::read_to_string(f)
+                    .unwrap_or_default()
+                    .lines()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
             .filter_map(|l| serde_json::from_str(&l).ok())
             .collect()
     }
@@ -119,8 +125,12 @@ impl Drop for Daemon {
                 if path.extension().and_then(|e| e.to_str()) != Some("json") {
                     continue;
                 }
-                if let Ok(r) = serde_json::from_slice::<Value>(&std::fs::read(&path).unwrap_or_default()) {
-                    for pid in [r["harness_pid"].as_i64(), r["host_pid"].as_i64()].into_iter().flatten() {
+                if let Ok(r) =
+                    serde_json::from_slice::<Value>(&std::fs::read(&path).unwrap_or_default())
+                {
+                    for pid in
+                        [r["harness_pid"].as_i64(), r["host_pid"].as_i64()].into_iter().flatten()
+                    {
                         // SAFETY: process groups this test's daemon created.
                         unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
                     }
@@ -232,7 +242,10 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
     // The adopted agent keeps working, with fresh request ids.
     let mut rpc = daemon.rpc().await;
     let reply = rpc
-        .call("session/prompt", json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello again"}]}))
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello again"}]}),
+        )
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     assert!(alive(harness_pid), "a second agent replaced the adopted one");
@@ -249,7 +262,8 @@ async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_age
             json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
         )
         .await;
-    let asked = daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    let asked =
+        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
     let permission_id = asked["msg"]["permissionId"].as_str().unwrap().to_owned();
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
 

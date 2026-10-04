@@ -309,7 +309,9 @@ pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<Unrea
             .as_ref()
             .and_then(|v| v.get("start_nonce")?.as_str())
             .filter(|n| {
-                !n.is_empty() && n.len() <= 128 && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                !n.is_empty()
+                    && n.len() <= 128
+                    && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
             })
             .map(str::to_owned);
         bad.push(UnreadableRecord {
@@ -384,7 +386,10 @@ pub fn terminate_unadoptable(
     }
     let Some(pid) = host_pid else { return Ok(false) };
     let pid = i32::try_from(pid).context("pid")?;
-    let lock = std::fs::OpenOptions::new().read(true).write(true).open(live_path(dir, session_id, nonce))?;
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(live_path(dir, session_id, nonce))?;
     // The death proof: a blocking lock that returns when the host's
     // descriptor closes, on its own thread so the wait has a deadline.
     let (done_tx, done_rx) = std::sync::mpsc::channel();
@@ -437,7 +442,10 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     Ok(())
 }
 
-pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(w: &mut W, frame: &T) -> Result<()> {
+pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(
+    w: &mut W,
+    frame: &T,
+) -> Result<()> {
     let body = serde_json::to_vec(frame)?;
     if body.len() > MAX_FRAME {
         bail!("frame of {} bytes is over the limit", body.len());
@@ -513,7 +521,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("s1.json"),
-            serde_json::json!({"record_version": 7, "session_id": "s1", "host_pid": 42}).to_string(),
+            serde_json::json!({"record_version": 7, "session_id": "s1", "host_pid": 42})
+                .to_string(),
         )
         .unwrap();
         let (good, bad) = load_records(&dir).unwrap();

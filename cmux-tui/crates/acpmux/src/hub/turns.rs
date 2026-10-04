@@ -886,10 +886,7 @@ impl Hub {
         for s in &sessions {
             // An agent under a host keeps running, with its turn and its
             // permission prompts, for the next daemon to adopt.
-            let mut slot = match tokio::time::timeout(LOCK, s.child.lock()).await {
-                Ok(slot) => Some(slot),
-                Err(_) => None,
-            };
+            let mut slot = tokio::time::timeout(LOCK, s.child.lock()).await.ok();
             if let Some(child) =
                 slot.as_ref().and_then(|g| g.as_ref()).filter(|c| c.host_record().is_some())
             {
