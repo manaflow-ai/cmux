@@ -24,6 +24,7 @@ extension PaneContentView {
             // A view another pane took keeps that pane's band (v4 review e).
             if let view = current as? NSView, view.superview == nil || view.superview === contentHost {
                 current.onPaneHeaderBandRelease = nil
+                current.onPaneHeaderBandReattach = nil
                 current.setPaneHeaderBandHeight(0)
             }
             bandHost = nil
@@ -31,6 +32,8 @@ extension PaneContentView {
         if let wanted {
             bandHost = wanted
             wanted.onPaneHeaderBandRelease = { [weak self] in self?.releaseBand() }
+            // Crash recovery puts the browser back in this pane: re-pin.
+            wanted.onPaneHeaderBandReattach = { [weak self] in self?.updateBand() }
             pinBand()
         }
         needsLayout = true
@@ -68,15 +71,6 @@ extension PaneContentView {
         needsLayout = true
     }
 
-    /// The content view came back into this pane's host on its own (a
-    /// renderer crash recovery removes the browser and adds it back): pin
-    /// again through the same path. A swap in `show` sets `content` after
-    /// the add, so it is not this case.
-    func contentReturned(_ view: NSView) {
-        guard view === content else { return }
-        updateBand()
-    }
-
     /// The strip height changed (density, metrics, scale): the band follows.
     func refreshBandHeight() {
         guard isBandActive else { return }
@@ -84,13 +78,3 @@ extension PaneContentView {
     }
 }
 
-/// The pane's content host; it reports subviews added to it, so a browser
-/// that returns after crash recovery gets its band pins back.
-final class PaneContentHostView: NSView {
-    var onDidAddSubview: ((NSView) -> Void)?
-
-    override func didAddSubview(_ subview: NSView) {
-        super.didAddSubview(subview)
-        onDidAddSubview?(subview)
-    }
-}
