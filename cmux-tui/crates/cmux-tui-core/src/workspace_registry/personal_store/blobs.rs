@@ -58,7 +58,7 @@ pub(crate) const ICON_REFERENCE_FIELDS: &[(&str, &str)] = &[
     ("profiles", "icon"),
     ("browser_profiles", "icon"),
     ("workspace_status_entries", "icon"),
-    ("closed_history", "record_json"),
+    ("closed_groups", "record_json"),
     // Opaque client JSON: kept conservatively in case a window stores an icon.
     ("window_records", "record_json"),
 ];
