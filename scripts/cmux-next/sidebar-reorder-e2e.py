@@ -13,9 +13,11 @@ import argparse, glob, json, os, socket, subprocess, sys, tempfile, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
+parser.add_argument("--app", help="the tagged app (default: the tag's DerivedData build)")
+parser.add_argument("--spaces", action="store_true", help="also record the R99 space slide and swipe")
 opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
-APP = next(iter(sorted(glob.glob(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/*.app")))), None)
+APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/*.app")))), None)
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -86,6 +88,37 @@ def shot(name):
                       f"alpha={row.get('view_alpha')} in_list={row.get('in_list')} suppressed={row.get('suppressed')}", flush=True)
 
 
+FRAME = [0]
+
+
+def frames(prefix, seconds):
+    """Snapshots as fast as the socket allows for `seconds` (a frame sequence:
+    no Screen Recording permission is needed)."""
+    end = time.time() + seconds
+    while time.time() < end:
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "r99", f"{FRAME[0]:04d}-{prefix}.png")})
+        FRAME[0] += 1
+
+
+def record_spaces():
+    os.makedirs(os.path.join(opts.out, "r99"), exist_ok=True)
+    print("space.new:", cli("action", "run", "space.new"), flush=True)
+    frames("new-space", 1.0)
+    print("space.newWorkspace:", cli("action", "run", "space.newWorkspace"), flush=True)
+    time.sleep(1)  # test harness: let the row appear
+    print("space.previous:", cli("action", "run", "space.previous"), flush=True)
+    frames("previous", 1.0)
+    # A two-finger swipe toward the next space, 1:1, then a flick release.
+    rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": -10, "phase": "began"})
+    for _ in range(8):
+        rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": -18, "phase": "changed"})
+        frames("swipe", 0.05)
+    rpc("debug.mouse", {"x": 100, "y": 260, "action": "scroll", "dx": 0, "phase": "ended"})
+    frames("release", 1.2)
+    report = rpc("debug.sidebar_rows") or {}
+    print("after the swipe:", [(r.get("title"), r["frame"]["y"]) for w in report.get("windows", []) for r in w.get("rows", []) if r.get("title")], flush=True)
+
+
 def launch():
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -131,6 +164,8 @@ try:
     shot("r77-4-dropped")
     print("daemon order after drop:", cli("workspace", "list"), flush=True)
     print("personal placements after drop:", cli("workspace", "placement", "list"), flush=True)
+    if opts.spaces:
+        record_spaces()
     app.terminate()
     app.wait(timeout=30)
     app = launch()
