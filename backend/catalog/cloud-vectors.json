@@ -383,7 +383,7 @@
       "op": "cloud.machine.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "name": "new box",
@@ -489,7 +489,7 @@
       "op": "cloud.machine.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "name": "other box",
@@ -528,7 +528,7 @@
       "op": "cloud.machine.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "name": "cut box",
@@ -611,7 +611,7 @@
       "op": "cloud.machine.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "name": "big box",
@@ -653,7 +653,7 @@
       "op": "cloud.machine.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "name": "sixth box",
@@ -680,7 +680,8 @@
               "details": {
                 "limit": 5,
                 "used": 5,
-                "resource": "active"
+                "resource": "active",
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -697,7 +698,7 @@
       "op": "cloud.machine.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "name": "huge box",
@@ -722,7 +723,8 @@
               "message": "this size needs another plan",
               "retryable": false,
               "details": {
-                "memory_mb": 65536
+                "memory_mb": 65536,
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -773,6 +775,87 @@
           }
         }
       ]
+    },
+    {
+      "name": "machine.create.install",
+      "op": "cloud.machine.create",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "name": "from an install",
+        "size": {
+          "cpu": 2,
+          "memory_mb": 4096,
+          "disk_mb": 16384
+        }
+      },
+      "idempotency_key": "key-create-install",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.create",
+            "error": {
+              "code": "auth.forbidden",
+              "message": "creating a machine needs a signed-in person",
+              "retryable": false
+            },
+            "transaction": "",
+            "idempotency_key": "key-create-install",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "Money and destructive ops never use the default install grants."
+    },
+    {
+      "name": "machine.create.install_confirmed",
+      "op": "cloud.machine.create",
+      "class": "mutation",
+      "principal": {
+        "kind": "install",
+        "origin_confirmation": "conf_pending_origin"
+      },
+      "params": {
+        "name": "confirmed on the Mac",
+        "size": {
+          "cpu": 2,
+          "memory_mb": 4096,
+          "disk_mb": 16384
+        }
+      },
+      "idempotency_key": "key-create-confirmed",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.create",
+            "error": {
+              "code": "auth.forbidden",
+              "message": "creating a machine needs a signed-in person",
+              "retryable": false
+            },
+            "transaction": "",
+            "idempotency_key": "key-create-confirmed",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "PENDING ORIGIN: an install with a fresh single-use origin.confirmation token from the native confirmation sheet. Until the origin window lands this is refused like any install; after it, the expected answer is the machine.create success."
     },
     {
       "name": "machine.rename",
@@ -916,7 +999,8 @@
               "details": {
                 "limit": 2,
                 "used": 2,
-                "resource": "active"
+                "resource": "active",
+                "plan": "pro"
               }
             },
             "transaction": "",
@@ -990,7 +1074,7 @@
       "op": "cloud.machine.resize",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000001",
@@ -1052,7 +1136,7 @@
       "op": "cloud.machine.resize",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000001",
@@ -1077,7 +1161,8 @@
               "message": "this size needs another plan",
               "retryable": false,
               "details": {
-                "memory_mb": 65536
+                "memory_mb": 65536,
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -1152,7 +1237,7 @@
       "op": "cloud.machine.delete",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000002"
@@ -1205,7 +1290,7 @@
       "op": "cloud.machine.delete",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000002"
@@ -1239,7 +1324,7 @@
       "op": "cloud.machine.delete",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000003"
@@ -1321,6 +1406,41 @@
           }
         }
       ]
+    },
+    {
+      "name": "machine.delete.install",
+      "op": "cloud.machine.delete",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001"
+      },
+      "idempotency_key": "key-delete-install",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.delete",
+            "error": {
+              "code": "auth.forbidden",
+              "message": "deleting a machine needs a signed-in person",
+              "retryable": false
+            },
+            "transaction": "",
+            "idempotency_key": "key-delete-install",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "Money and destructive ops never use the default install grants."
     },
     {
       "name": "machine.connect_info",
@@ -1687,7 +1807,7 @@
       "op": "cloud.snapshot.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000001",
@@ -1729,7 +1849,7 @@
       "op": "cloud.snapshot.create",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000001",
@@ -1752,7 +1872,8 @@
               "details": {
                 "limit": 10,
                 "used": 10,
-                "resource": "saved"
+                "resource": "saved",
+                "plan": "max"
               }
             },
             "transaction": "",
@@ -1769,7 +1890,7 @@
       "op": "cloud.snapshot.restore",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "snapshot": "snap_s0000000000000000001",
@@ -1906,7 +2027,7 @@
       "op": "cloud.snapshot.delete",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "snapshot": "snap_s0000000000000000001"
@@ -1971,6 +2092,7 @@
             "op": "cloud.plan.get",
             "value": {
               "plan_id": "pro",
+              "upgrade_plan": "max",
               "limits": {
                 "max_active": 5,
                 "max_saved": 10,
@@ -2004,7 +2126,7 @@
       "op": "cloud.billing.checkout",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "plan": "pro"
@@ -2101,7 +2223,7 @@
       "op": "cloud.migration.start",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {},
       "idempotency_key": "key-migrate-1",
@@ -2132,7 +2254,7 @@
       "op": "cloud.migration.start",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {},
       "idempotency_key": "key-migrate-none",
@@ -2197,7 +2319,7 @@
       "op": "cloud.machine.upgrade",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000007"
@@ -2254,7 +2376,7 @@
       "op": "cloud.machine.upgrade",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000001"
@@ -2288,7 +2410,7 @@
       "op": "cloud.machine.upgrade",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000007"
@@ -2580,6 +2702,7 @@
       "data": {
         "plan": {
           "plan_id": "pro",
+          "upgrade_plan": "max",
           "limits": {
             "max_active": 5,
             "max_saved": 10,

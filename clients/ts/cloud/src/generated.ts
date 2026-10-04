@@ -135,6 +135,7 @@ export type CloudMachineStatus = "provisioning" | "starting" | "running" | "paus
 
 export type CloudPlan = {
   readonly plan_id: string
+  readonly upgrade_plan: string | null
   readonly limits: {
     readonly max_active: number
     readonly max_saved: number

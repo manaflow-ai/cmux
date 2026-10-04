@@ -207,6 +207,8 @@ pub(super) struct Inner {
     /// Open tokens minted for user runs of server ops (`servers.rs`).
     pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
     pub server_crashes: HashMap<String, super::servers::Crashes>,
+    /// Run callers and the ops they wait for (`cancel.rs`).
+    pub calls: super::cancel::Calls,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -282,6 +284,7 @@ impl Supervisor {
                 servers: HashMap::new(),
                 open_tokens: HashMap::new(),
                 server_crashes: HashMap::new(),
+                calls: Default::default(),
             }),
             config,
             router,
@@ -304,12 +307,14 @@ impl Supervisor {
         self.inner.lock().unwrap().sinks.entry(client).or_insert(sink);
     }
 
-    /// A control connection closed: its mounts unmount, its follows end.
+    /// A control connection closed: its mounts unmount, its follows end, its
+    /// runs are cancelled.
     pub fn disconnect(&self, client: u64) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
-            let provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
             }

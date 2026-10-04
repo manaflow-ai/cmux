@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod calls;
 #[cfg(unix)]
+mod cancel;
+#[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
 mod egress;
@@ -67,7 +69,7 @@ pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
 pub(crate) use provider::{ProviderClaim, admit_origin};
 #[cfg(unix)]
-pub(crate) use runs::RunRequest;
+pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 

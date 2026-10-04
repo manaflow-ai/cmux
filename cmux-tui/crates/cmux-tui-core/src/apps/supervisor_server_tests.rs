@@ -24,6 +24,7 @@ fn write_server_app(root: &Path, dir: &str, server: Value) {
         op("ping", "read", "read", "forbidden"),
         op("fail", "read", "read", "forbidden"),
         op("notify", "read", "read", "forbidden"),
+        op("hang", "read", "read", "required"),
         op("write", "mutation", "mutate-own", "forbidden"),
         wipe,
     ];
@@ -42,13 +43,14 @@ fn write_server_app(root: &Path, dir: &str, server: Value) {
 /// A fake server binary: appends `start` and `stop` to the marker file (its
 /// first argument), writes its environment to `<marker>.env`, appends every
 /// line it receives to `<marker>.lines`, and answers every op line with
-/// `{served: true}`, except `*.fail` (an error with details, retryable) and
-/// `*.notify` (an event `<op>.changed` first).
+/// `{served: true}`, except `*.fail` (an error with details, retryable),
+/// `*.notify` (an event `<op>.changed` first) and `*.hang` (no answer). An
+/// `op.cancel` line is answered `cmux.op.cancelled`, as the protocol says.
 fn write_fake_server(dir: &Path) {
     write_script(
         dir,
         "fake-server",
-        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nprintf '%s\\n' \"id=$CMUX_APP_ID\" \"data=$CMUX_APP_DATA_DIR\" \"tmp=$TMPDIR\" \"home=$HOME\" \"cargo=$CARGO_MANIFEST_DIR\" > \"$marker.env\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$marker.lines\"\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  op=${line#*\\\"op\\\":\\\"}\n  op=${op%%\\\"*}\n  case \"$op\" in\n    *.fail)\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":false,\"error\":{\"code\":\"cmux.cloud.not_found\",\"message\":\"no such machine\",\"retryable\":true,\"details\":{\"status\":404,\"upstream_code\":\"vm_not_found\"}}}\\n' \"$id\" ;;\n    *.notify)\n      printf '{\"type\":\"event\",\"event\":\"%s.changed\",\"data\":{\"n\":1}}\\n' \"$op\"\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\" ;;\n    *)\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\" ;;\n  esac\ndone\necho stop >> \"$marker\"\n",
+        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nprintf '%s\\n' \"id=$CMUX_APP_ID\" \"data=$CMUX_APP_DATA_DIR\" \"tmp=$TMPDIR\" \"home=$HOME\" \"cargo=$CARGO_MANIFEST_DIR\" > \"$marker.env\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$marker.lines\"\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  case \"$line\" in\n    *op.cancel*)\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":false,\"error\":{\"code\":\"cmux.op.cancelled\",\"message\":\"cancelled\",\"retryable\":false}}\\n' \"$id\"\n      continue ;;\n  esac\n  op=${line#*\\\"op\\\":\\\"}\n  op=${op%%\\\"*}\n  case \"$op\" in\n    *.fail)\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":false,\"error\":{\"code\":\"cmux.cloud.not_found\",\"message\":\"no such machine\",\"retryable\":true,\"details\":{\"status\":404,\"upstream_code\":\"vm_not_found\"}}}\\n' \"$id\" ;;\n    *.hang) ;;\n    *.notify)\n      printf '{\"type\":\"event\",\"event\":\"%s.changed\",\"data\":{\"n\":1}}\\n' \"$op\"\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\" ;;\n    *)\n      printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\" ;;\n  esac\ndone\necho stop >> \"$marker\"\n",
     );
 }
 
@@ -508,5 +510,8 @@ fn server_errors_keep_details_and_events_use_full_names() {
 }
 
 /// Terminal interface tests; a child module so they share these fixtures.
+#[path = "supervisor_cancel_tests.rs"]
+mod cancel;
+
 #[path = "terminal_ops_tests.rs"]
 mod terminal_ops_tests;

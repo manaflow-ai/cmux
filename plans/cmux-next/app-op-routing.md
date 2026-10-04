@@ -45,7 +45,7 @@ When a caller drops a request it made (page navigation or tab close in the page 
 
 Senders (who emits `op.cancel`):
 - cmux-cloud (first-party Cloud app server): RECEIVER, done (`first-party-apps/cloud/server/src/api/serve.rs`, `fs/jobs.rs`, `link/park.rs`; tests `tests/op_cancel.rs`).
-- The app supervisor (`cmux-tui/crates/cmux-tui-core/src/apps/servers.rs`, `call_server_locked` keeps `server.pending` by id): sends `op.cancel` when the `apps-run` caller's connection closes or the caller sends its own cancel, and answers that caller `cmux.op.cancelled`. Owner: app platform / daemon lane.
+- The app supervisor: SENDER, done for a closed connection (`cmux-tui/crates/cmux-tui-core/src/apps/cancel.rs`; tests `apps/supervisor_cancel_tests.rs`). It keeps each `apps-run` caller by connection and request id and answers a cancelled caller `cmux.op.cancelled` once; a later answer of the op is dropped. Callers that share an idempotency key share one op: `op.cancel` goes out only when the last of them cancels, and a queued line is dropped instead of sent. A QuickJS host run cannot be stopped; its callers are answered and its own answer is kept for the key. The caller-side cancel is the `cancel-request` frame below (needs a window). Owner: app platform / daemon lane.
 - The page bridge (webviews client `call`, with an AbortSignal on navigation and tab close) and the Rust CLI (Ctrl-C during `cmux ... ` app op verbs): send the caller-side cancel to the supervisor. Owners: app platform (bridge) and the CLI owner.
 
 ## D1: who calls the API Worker (decided, app platform lead, 2026-10-02)

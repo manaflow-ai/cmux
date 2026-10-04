@@ -771,6 +771,17 @@
             "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
           }
         },
+        "upgrade_plan": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            }
+          }
+        },
         "limits": {
           "required": true,
           "type": {
@@ -14842,9 +14853,11 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
+        "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
         "idempotency.conflict",
@@ -15203,6 +15216,7 @@
         "client.too_old",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
+        "cloud.rate_limited",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -18366,6 +18380,17 @@
                 "type": "string",
                 "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
               },
+              "upgrade_plan": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "limits": {
                 "type": "object",
                 "properties": {
@@ -18458,6 +18483,7 @@
             },
             "required": [
               "plan_id",
+              "upgrade_plan",
               "limits",
               "usage"
             ],
@@ -19161,6 +19187,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
