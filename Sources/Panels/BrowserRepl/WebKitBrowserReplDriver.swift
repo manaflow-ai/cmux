@@ -495,11 +495,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// A tab this session may drive: one of its workspace's browser surfaces,
     /// or a tab in another workspace it claimed with tabs.use(id) after
-    /// `tabs.list({ all: true })` listed it (reference B's claimTab).
+    /// `tabs.list({ all: true })` listed it (reference B's claimTab), but
+    /// never a tab another live session created (`denied`, naming that
+    /// session): that tab's page, cookies, storage and clipboard are the
+    /// other session's.
     @MainActor
     private func reachablePanel(_ id: UUID) throws -> BrowserPanel? {
-        if let own = try browserPanels().first(where: { $0.id == id }) { return own }
-        if let other = allBrowserPanels().first(where: { $0.panel.id == id })?.panel { return other }
+        if let own = try browserPanels().first(where: { $0.id == id }) { return try drivable(own) }
+        if let other = allBrowserPanels().first(where: { $0.panel.id == id })?.panel { return try drivable(other) }
         // A tab a relaunch restored but has not loaded yet is a placeholder
         // until first use; using it creates its browser, which then loads
         // like a hibernated tab (prepareTab). Creating it shows nothing.
@@ -509,6 +512,34 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    /// `panel`, unless another live session created it.
+    @MainActor
+    private func drivable(_ panel: BrowserPanel) throws -> BrowserPanel {
+        if let owner = otherSessionOwning(panel.id) {
+            throw Self.error("denied", "the tab \(panel.id.uuidString) belongs to the REPL session \(Self.describeSession(owner)), which is still running; a session drives only the tabs it opened and the user's tabs (tabs.list({ all: true }) shows each tab's owner)")
+        }
+        return panel
+    }
+
+    /// The live session other than this one that created tab `id`, if any.
+    @MainActor
+    private func otherSessionOwning(_ id: UUID) -> String? {
+        BrowserReplTabAttachments.shared.attachment(for: id)?.ownerRefusing(sessionID)
+    }
+
+    /// A session's name, and its workspace, for messages.
+    private static func describeSession(_ instanceID: String) -> String {
+        guard let key = BrowserReplSessionKey(instanceID: instanceID) else { return "\"\(instanceID)\"" }
+        return "\"\(key.name)\" (workspace \(key.workspaceID.uuidString))"
+    }
+
+    /// The name of the live session other than this one that created tab
+    /// `id`, for `tabs.list` (`ownerSession`).
+    @MainActor
+    private func ownerSessionName(_ id: UUID) -> String? {
+        otherSessionOwning(id).map { BrowserReplSessionKey(instanceID: $0)?.name ?? $0 }
     }
 
     /// Every workspace of every window, the session's own first.
@@ -757,15 +788,22 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     if let row = deferred[id] {
                         others.append(row)
                     } else if let panel = other.panels[id] as? BrowserPanel {
-                        others.append([
+                        var row: [String: Any] = [
                             "targetId": panel.id.uuidString,
                             "title": Self.title(panel),
                             "url": Self.url(panel),
                             "active": false,
                             "windowId": other.id.uuidString,
                             "state": tabCondition(panel).state.rawValue,
-                            "dataStore": Self.dataStoreID(panel.webView.configuration.websiteDataStore),
-                        ])
+                        ]
+                        // Another live session's tab lists with its owner and
+                        // without its data store; this session cannot use it.
+                        if let owner = ownerSessionName(panel.id) {
+                            row["ownerSession"] = owner
+                        } else {
+                            row["dataStore"] = Self.dataStoreID(panel.webView.configuration.websiteDataStore)
+                        }
+                        others.append(row)
                     }
                 }
             }
@@ -792,8 +830,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "active": panel.id == active?.id,
                 "windowId": workspace.id.uuidString,
                 "state": tabCondition(panel).state.rawValue,
-                "dataStore": Self.dataStoreID(panel.webView.configuration.websiteDataStore),
             ]
+            if let owner = ownerSessionName(panel.id) {
+                entry["ownerSession"] = owner
+            } else {
+                entry["dataStore"] = Self.dataStoreID(panel.webView.configuration.websiteDataStore)
+            }
             if let opener = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.openerTargetID {
                 entry["openerTargetId"] = opener
             }
@@ -883,7 +925,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "tabs.open: dataStore must be a string from tabs.list or tabs.dataStore")
         }
         if let proxyDataStore, Self.dataStoreID(proxyDataStore) == id { return (proxyDataStore, nil) }
-        if let panel = allBrowserPanels().map({ $0.panel }).first(where: { Self.dataStoreID($0.webView.configuration.websiteDataStore) == id }) {
+        // Only a store a tab this session may drive uses: another live
+        // session's private or proxy store stays its own.
+        if let panel = allBrowserPanels().map({ $0.panel }).first(where: {
+            otherSessionOwning($0.id) == nil && Self.dataStoreID($0.webView.configuration.websiteDataStore) == id
+        }) {
             return (panel.webView.configuration.websiteDataStore, panel.profileID)
         }
         let defaultStore = try cookieTab([:]).store
@@ -2421,7 +2467,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if let proxyDataStore {
             return (proxyDataStore, nil)
         }
-        let panels = try browserPanels()
+        let panels = try browserPanels().filter { otherSessionOwning($0.id) == nil }
         let preferred = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first
         if let preferred {

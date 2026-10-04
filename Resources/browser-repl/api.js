@@ -623,9 +623,13 @@
 
     async function pageById(id) {
       if (id instanceof core.Page) return id;
-      // Any tab tabs.list({ all: true }) lists can be attached (a claim).
+      // Any tab tabs.list({ all: true }) lists can be attached (a claim),
+      // except one another running session opened; the driver refuses
+      // those too.
       const list = await session.call("tabs.list", { all: true });
-      if (!list.some((t) => t.targetId === String(id))) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
+      const row = list.find((t) => t.targetId === String(id));
+      if (!row) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
+      if (row.ownerSession) throw new Error(`Tab ${JSON.stringify(String(id))} belongs to the REPL session ${JSON.stringify(row.ownerSession)}, which is still running; a session drives only the tabs it opened and the user's tabs`);
       const page = session.pageFor(String(id));
       await page._syncInfo().catch(() => {});
       return page;
@@ -635,7 +639,8 @@
 
     const tabs = {
       // `{ all: true }` also lists browser tabs in the user's other
-      // workspaces and windows; tabs.use(id) attaches any of them.
+      // workspaces and windows; tabs.use(id) attaches any of them but one
+      // another running session opened (`ownedBy` names that session).
       async list(options = {}) {
         const list = await session.call("tabs.list", options && options.all ? { all: true } : {});
         const current = state.current && state.current._targetId;
@@ -645,6 +650,8 @@
           // "crashed" (page.reload() loads it again).
           const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current, state: t.state || "live" };
           if (options && options.all) row.workspace = t.windowId === undefined ? null : t.windowId;
+          // A tab another running session opened: listed, not usable.
+          if (t.ownerSession) row.ownedBy = t.ownerSession;
           return row;
         });
       },

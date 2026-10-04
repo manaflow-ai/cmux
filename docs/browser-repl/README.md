@@ -40,7 +40,7 @@ reference ([parity-report.md](parity-report.md)).
 | Global | Purpose |
 | --- | --- |
 | `page` | The current tab, a Playwright `Page`. |
-| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current, state }` without attaching or waking a tab (`state`: see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)); `list({ all: true })` adds tabs in the user's other workspaces and windows, which `use(id)` attaches (reference B's `claimTab`). `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
+| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current, state }` without attaching or waking a tab (`state`: see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)); `list({ all: true })` adds tabs in the user's other workspaces and windows, which `use(id)` attaches (reference B's `claimTab`), except one another running session opened (listed with `ownedBy`; see [Sessions and tabs](#sessions-and-tabs)). `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies (`credentials`: `"include"` by default, `"same-origin"`, `"omit"`). The domain policy is checked on every redirect hop; a body over 64 MiB fails (download it in a tab instead). |
@@ -350,6 +350,19 @@ rest. Measurements: [performance.md](performance.md).
   page handles stops at the page: WebKit hands such a key back to the
   app's key window, where it would type into the user's terminal or run a
   menu shortcut, so cmux drops that resend for automated keys.
+- A session drives the tabs it created and the user's tabs, never a tab
+  another running session created. `tabs.list({ all: true })` lists such a
+  tab with `ownedBy` (the other session's name), and `tabs.use()`,
+  `tabs.get()` and every call on it fail with an error that names that
+  session; its page, cookies, storage, clipboard and network events stay
+  the other session's. Sessions share tabs only by being one session: the
+  same `--session NAME` in the same workspace. Once the creating session
+  ends (a tab it kept with `page.keep()`), the tab is the user's and any
+  session may drive it; its clipboard is emptied then. Network events
+  (`page.on("request")` and the like) in a tab the session did not create
+  reach it only while it listens for them, or for a request its own action
+  started, and never carry the page's credential headers (`Cookie`,
+  `Authorization` and the like).
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,

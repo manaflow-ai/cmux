@@ -536,6 +536,11 @@
 
   // Page events whose listeners a session reports to the driver.
   const HANDLED_EVENTS = ["dialog", "filechooser", "download"];
+  // Page events reported as the one driver event "network": in a tab the
+  // session did not create, network events (and their headers) reach the
+  // session only while it listens for them, or for a request its own
+  // action started.
+  const NETWORK_EVENTS = ["request", "response", "requestfailed", "requestfinished"];
   // How long a call on a tab waits for that tab's pending tab.handleEvents.
   const HANDLED_SYNC_TIMEOUT = 5000;
   // What the bounded wait resolves with when the update did not settle.
@@ -2258,11 +2263,12 @@
       return r;
     }
     _syncHandledEvents(event) {
-      if (event !== undefined && !HANDLED_EVENTS.includes(event)) return;
+      if (event !== undefined && !HANDLED_EVENTS.includes(event) && !NETWORK_EVENTS.includes(event)) return;
       // A tab not opened yet will be one this session opened; those route
       // every event to the session anyway.
       if (this._closed || this._targetId.startsWith("lazy:")) return;
       const events = HANDLED_EVENTS.filter((e) => this.listenerCount(e) > 0);
+      if (NETWORK_EVENTS.some((e) => this.listenerCount(e) > 0)) events.push("network");
       const key = events.join(",");
       if (key === (this._handledKey === undefined || this._handledKey === null ? "" : this._handledKey)) return;
       this._handledKey = key;

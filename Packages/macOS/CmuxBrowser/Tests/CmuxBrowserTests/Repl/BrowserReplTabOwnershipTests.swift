@@ -155,9 +155,12 @@ import Testing
         var ownership = BrowserReplTabOwnership()
         ownership.markCreated(by: "creator")
         ownership.attach(sessionID: "other")
-        #expect(!ownership.detach(sessionID: "other"))
-        #expect(ownership.detach(sessionID: "creator"))
-        #expect(!ownership.detach(sessionID: "creator"), "only once")
+        let other = ownership.detach(sessionID: "other")
+        let creator = ownership.detach(sessionID: "creator")
+        let again = ownership.detach(sessionID: "creator")
+        #expect(!other)
+        #expect(creator)
+        #expect(!again, "only once")
     }
 
     // Network events carry request and response headers. They go to the
@@ -178,18 +181,21 @@ import Testing
             BrowserReplNetworkRecipient(sessionID: "listener", seesCredentials: false),
         ])
         // The rest of that request follows it, after the input ended.
-        #expect(ownership.networkRecipients(event: "response", requestID: "1").map(\.sessionID) == ["agent", "listener"])
-        #expect(ownership.networkRecipients(event: "requestfinished", requestID: "1").map(\.sessionID) == ["agent", "listener"])
+        let response = ownership.networkRecipients(event: "response", requestID: "1")
+        let finished = ownership.networkRecipients(event: "requestfinished", requestID: "1")
+        #expect(response.map(\.sessionID) == ["agent", "listener"])
+        #expect(finished.map(\.sessionID) == ["agent", "listener"])
         // A later request the agent's input did not start reaches only the listener.
-        #expect(ownership.networkRecipients(event: "request", requestID: "2").map(\.sessionID) == ["listener"])
+        let later = ownership.networkRecipients(event: "request", requestID: "2")
+        #expect(later.map(\.sessionID) == ["listener"])
         ownership.setHandledEvents([], for: "listener")
-        #expect(ownership.networkRecipients(event: "request", requestID: "3").isEmpty)
+        let unheard = ownership.networkRecipients(event: "request", requestID: "3")
+        #expect(unheard.isEmpty)
 
         var created = BrowserReplTabOwnership()
         created.markCreated(by: "creator")
-        #expect(created.networkRecipients(event: "request", requestID: "1") == [
-            BrowserReplNetworkRecipient(sessionID: "creator", seesCredentials: true),
-        ])
+        let own = created.networkRecipients(event: "request", requestID: "1")
+        #expect(own == [BrowserReplNetworkRecipient(sessionID: "creator", seesCredentials: true)])
     }
 
     @Test func credentialHeadersAreRemovedForOtherSessions() {
