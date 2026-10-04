@@ -35,11 +35,15 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var sessionEvents: Bool
     /// The connection's role. `page_relay` sends `client-hello {role: page_relay}` after
     /// `identify`, no `set-client-info` label and no `subscribe`, and refuses a daemon without
-    /// `origin-claim-v1`: its requests must never run with a client role. `main` sends no hello
-    /// until P8 (request-origin.md).
+    /// `origin-claim-v1`: its requests must never run with a client role. `main` sends a hello
+    /// only when `clientHello` is set (P8, request-origin.md).
     public var role: DaemonClientRole
     /// Where a page relay connection stores its `client-hello` id; nil otherwise.
     public var relayIdentity: PageRelayIdentity?
+    /// Sends `client-hello` (role main) after `identify` on each connect,
+    /// with the install-key proof when a key is set (P8 3b-2). Only the
+    /// app's own control connection to its local daemon sets it.
+    public var clientHello: ClientHelloIdentity?
 
     public init(
         clientName: String = "cmux-next",
@@ -56,7 +60,8 @@ public struct DaemonConnectionConfiguration: Sendable {
         resolvesShellIntegration: Bool = false,
         sessionEvents: Bool = false,
         role: DaemonClientRole = .main,
-        relayIdentity: PageRelayIdentity? = nil
+        relayIdentity: PageRelayIdentity? = nil,
+        clientHello: ClientHelloIdentity? = nil
     ) {
         self.clientName = clientName
         self.requiredCapabilities = requiredCapabilities
@@ -73,6 +78,18 @@ public struct DaemonConnectionConfiguration: Sendable {
         self.sessionEvents = sessionEvents
         self.role = role
         self.relayIdentity = relayIdentity
+        self.clientHello = clientHello
+    }
+}
+
+/// What the app's main connection proves in `client-hello`.
+public struct ClientHelloIdentity: Sendable {
+    /// Nil: role main only (the daemon may still verify the app by its
+    /// code signature).
+    public var installKey: FrontendInstallKey?
+
+    public init(installKey: FrontendInstallKey?) {
+        self.installKey = installKey
     }
 }
 

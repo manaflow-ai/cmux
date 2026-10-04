@@ -9,10 +9,22 @@
 //! `client_hello.bad_request {field}` for a missing or unknown role or a
 //! malformed install id, `client_hello.window_closed` for a late or second
 //! hello. The role is fixed for the connection's life; `set-client-info`
-//! never sets it. Step 1 returns no nonce: P8 adds the nonce and step 2.
+//! never sets it.
+//!
+//! P8 (server/app_trust.rs): a role-main hello on a signed build is checked
+//! against the app's code signature (prover A). A role-main hello with an
+//! install id always gets a nonce, and the very next line must be step 2,
+//! `{cmd: "client-hello", install_id, proof}` -> `{verified, install_id,
+//! connection_id}`; any other line closes the window, and a refused proof
+//! is `client_hello.refused` (no retry). Either prover sets the
+//! connection's `verified_app`; neither changes its `peer_key`.
 //!
 //! A page relay connection may not `subscribe` (its requests are page
 //! requests; it reads replies, not the event stream).
+
+use cmux_link::app_caller::PeerToken;
+use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
+use zeroize::Zeroizing;
 
 use super::*;
 use crate::request_origin::{HelloRole, RequestOrigin, valid_install_id};
@@ -24,7 +36,27 @@ enum Window {
     Open {
         identified: bool,
     },
+    /// Step 1 issued a nonce; the next line must be the proof (P8).
+    Challenged {
+        install_id: String,
+        nonce: Zeroizing<[u8; NONCE_LEN]>,
+    },
     Closed,
+}
+
+/// What the socket says about its peer, read when the hello comes.
+pub(super) struct Peer {
+    /// `token:<pid>.<pid version>` (request-origin.md peer_key).
+    pub(super) key: Option<String>,
+    /// The audit token (prover A); macOS only.
+    pub(super) token: Option<PeerToken>,
+}
+
+impl Peer {
+    /// A transport with no socket peer facts (a WebSocket).
+    pub(super) const fn unknown() -> Self {
+        Self { key: None, token: None }
+    }
 }
 
 /// The hello state of ONE connection, owned by its read loop, so ordinary
@@ -42,6 +74,12 @@ impl HelloGate {
         Self { transport, window: Window::Open { identified: false }, page_relay: false }
     }
 
+    /// Ends the hello window (a line the connection's admission refused
+    /// still counts as a line).
+    pub(super) fn close(&mut self) {
+        self.window = Window::Closed;
+    }
+
     /// Sees every line before dispatch. `Some(reply)` answers the line here
     /// (a `client-hello`, or a page relay's `subscribe`) and nothing else
     /// sees it; `None` dispatches it as usual.
@@ -50,11 +88,11 @@ impl HelloGate {
         mux: &Mux,
         client: u64,
         line: &str,
-        peer_key: impl FnOnce() -> Option<String>,
+        peer: impl FnOnce() -> Peer,
     ) -> Option<Value> {
         // After the window closes only a late hello, or a page relay's
         // subscribe, is answered here; each test is a superset of its case.
-        let open = matches!(self.window, Window::Open { .. });
+        let open = !matches!(self.window, Window::Closed);
         let maybe_subscribe = self.page_relay && line.contains("subscribe");
         if !open && !maybe_subscribe && !line.contains(CLIENT_HELLO) {
             return None;
@@ -74,7 +112,10 @@ impl HelloGate {
                     "client-hello needs a local Unix socket connection",
                     None,
                 )),
-                Window::Open { .. } => self.start(mux, client, &value, peer_key),
+                Window::Open { .. } => self.start(mux, client, &value, peer),
+                Window::Challenged { install_id, nonce } => {
+                    prove(mux, client, &value, &install_id, &nonce)
+                }
             },
             Some("identify") if matches!(window, Window::Open { identified: false }) => {
                 self.window = Window::Open { identified: true };
@@ -105,7 +146,7 @@ impl HelloGate {
         mux: &Mux,
         client: u64,
         value: &Value,
-        peer_key: impl FnOnce() -> Option<String>,
+        peer: impl FnOnce() -> Peer,
     ) -> Result<Value, Refusal> {
         let bad = |field: &str| {
             let message = if field == "role" {
@@ -120,17 +161,54 @@ impl HelloGate {
             .and_then(Value::as_str)
             .and_then(HelloRole::declared)
             .ok_or_else(|| bad("role"))?;
-        // Step 1 fixes the install_id shape; P8 keeps it for the proof.
         let install_id = value.get("install_id");
         if install_id.is_some_and(|id| !id.as_str().is_some_and(valid_install_id)) {
             return Err(bad("install_id"));
         }
-        if !origin_gate::set_hello(mux, client, role, peer_key()) {
+        let peer = peer();
+        // Prover A, outside every lock: role main on a signed build.
+        let signed =
+            role == HelloRole::Main && mux.control_clients.app_trust.signature_proves(peer.token);
+        if !origin_gate::set_hello(mux, client, role, peer.key, signed) {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
         self.page_relay = role == HelloRole::PageRelay;
-        Ok(json!({"connection_id": client.to_string()}))
+        let mut data = json!({"connection_id": client.to_string()});
+        // Uniform nonce rule: role main with an install id always gets one,
+        // known id or not and signed build or not (no oracle).
+        let (HelloRole::Main, Some(install_id)) = (role, install_id.and_then(Value::as_str)) else {
+            return Ok(data);
+        };
+        let mut nonce = Zeroizing::new([0u8; NONCE_LEN]);
+        // A connection whose nonce could not be made stays unverified.
+        if getrandom::fill(nonce.as_mut_slice()).is_ok() {
+            data["nonce"] = Value::String(frontend_proof::hex(nonce.as_slice()));
+            self.window = Window::Challenged { install_id: install_id.to_string(), nonce };
+        }
+        Ok(data)
     }
+}
+
+/// Step 2: the install-key proof over this connection's nonce (prover B).
+/// Any refusal is `client_hello.refused` and the window stays closed.
+fn prove(
+    mux: &Mux,
+    client: u64,
+    value: &Value,
+    install_id: &str,
+    nonce: &[u8; NONCE_LEN],
+) -> Result<Value, Refusal> {
+    const REFUSED: Refusal = ("client_hello.refused", "client-hello refused", None);
+    let field = |name: &str| value.get(name).and_then(Value::as_str);
+    let (Some(claimed_id), Some(proof)) = (field("install_id"), field("proof")) else {
+        return Err(REFUSED);
+    };
+    if !mux.control_clients.app_trust.install_key_proves(install_id, nonce, claimed_id, proof)
+        || !origin_gate::set_install_proved(mux, client)
+    {
+        return Err(REFUSED);
+    }
+    Ok(json!({"verified": true, "install_id": install_id, "connection_id": client.to_string()}))
 }
 
 #[cfg(all(test, unix))]

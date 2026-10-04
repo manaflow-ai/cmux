@@ -101,6 +101,8 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+mod app_trust;
+pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
 #[cfg(unix)]
 mod fs_wire;
@@ -5288,6 +5290,7 @@ pub(crate) struct ClientRegistry {
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
     origin_clock: crate::request_origin::OriginClock,
+    app_trust: app_trust::AppTrust,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5304,6 +5307,7 @@ impl ClientRegistry {
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             origin_clock: Default::default(),
+            app_trust: app_trust::AppTrust::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -5368,15 +5372,6 @@ impl ClientRegistry {
             self.state.lock().unwrap().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
         )
-    }
-
-    fn is_unix(&self, client: u64) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .clients
-            .get(&client)
-            .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
     }
 
     fn install_resource_stream(

@@ -17,6 +17,7 @@ public enum ProcessRunner {
         executable: URL,
         arguments: [String],
         environment: [String: String]?,
+        stdin: Data? = nil,
         timeout: Duration,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
@@ -26,7 +27,23 @@ public enum ProcessRunner {
         process.executableURL = executable
         process.arguments = arguments
         if let environment { process.environment = environment }
-        process.standardInput = FileHandle.nullDevice
+        // `stdin` (the install key) goes through a pipe, never argv or env.
+        // It is far below the pipe buffer, so it is written before launch
+        // and the write end closes: the child reads it to end of file.
+        let input = stdin.map { _ in Pipe() }
+        if let input, let stdin {
+            // Close-on-exec on both ends: no other child this app starts
+            // inherits a readable copy (Process dup2s the read end into the
+            // child's stdin, which clears the flag there only).
+            _ = fcntl(input.fileHandleForReading.fileDescriptor, F_SETFD, FD_CLOEXEC)
+            _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
+            try input.fileHandleForWriting.write(contentsOf: stdin)
+            try input.fileHandleForWriting.close()
+            process.standardInput = input
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
+        defer { try? input?.fileHandleForReading.close() }
         process.standardOutput = stdoutFile.handle
         process.standardError = stderrFile.handle
 

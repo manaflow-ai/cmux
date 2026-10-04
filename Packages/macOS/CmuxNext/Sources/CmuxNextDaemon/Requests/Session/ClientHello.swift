@@ -9,23 +9,56 @@ public enum DaemonClientRole: String, Sendable, Codable {
     case pageRelay = "page_relay"
 }
 
-/// `client-hello {role}`, sent only to a daemon with `origin-claim-v1` (an older daemon answers
-/// unknown command and the connection stays a legacy client). No `install_id` until P8, and
-/// never on `page_relay`.
+/// `client-hello` step 1 `{role, install_id?}`. An older daemon answers unknown command and the
+/// connection stays a legacy client. `install_id` only on the app's `main` connection (P8,
+/// plans/cmux-next/identity.md), never on `page_relay`; with it the daemon returns a nonce and
+/// expects `ClientHelloProofRequest` as the very next line.
 public struct ClientHelloRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var connectionId: String
+        /// Present when the daemon expects step 2 (role main with an install id).
+        public var nonce: String?
 
         enum CodingKeys: String, CodingKey {
             case connectionId = "connection_id"
+            case nonce
         }
     }
 
     public static let command = "client-hello"
     public var role: DaemonClientRole
+    public var installID: String?
 
-    public init(role: DaemonClientRole) {
+    public init(role: DaemonClientRole, installID: String? = nil) {
         self.role = role
+        self.installID = role == .main ? installID : nil
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case installID = "install_id"
+    }
+}
+
+/// `client-hello` step 2 (P8): the install-key proof over the step 1 nonce. It must be the very
+/// next line after step 1.
+public struct ClientHelloProofRequest: DaemonRequest {
+    public static let command = "client-hello"
+    public var installID: String
+    public var proof: String
+
+    public init(installID: String, proof: String) {
+        self.installID = installID
+        self.proof = proof
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case installID = "install_id"
+        case proof
+    }
+
+    public struct Response: Decodable, Sendable, Equatable {
+        public var verified: Bool
     }
 }
 

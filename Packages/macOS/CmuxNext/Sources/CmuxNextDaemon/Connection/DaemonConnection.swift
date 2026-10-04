@@ -242,17 +242,13 @@ public actor DaemonConnection {
     }
 
     /// `identify`, `set-client-info` and `subscribe` go out together (one
-    /// round trip); the identity is checked before the connection is used.
-    /// Against the wrong or an incompatible daemon the other two are
-    /// harmless, and the socket closes. The page relay has its own (`PageRelayHandshake`).
+    /// round trip, with `client-hello` when configured: `HandshakeLines`);
+    /// the identity is checked before the connection is used. Against the
+    /// wrong or an incompatible daemon the other lines are harmless, and the
+    /// socket closes. The page relay has its own (`PageRelayHandshake`).
     private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
         if configuration.role == .pageRelay { return try await PageRelayHandshake.run(transport, configuration: configuration) }
-        let replies = await transport.pipeline([
-            PipelinedLine(IdentifyRequest()),
-            PipelinedLine(SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
-                                               capabilities: configuration.handshakeCapabilities)),
-            PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
-        ], timeout: configuration.requestTimeout)
+        let replies = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
         DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
