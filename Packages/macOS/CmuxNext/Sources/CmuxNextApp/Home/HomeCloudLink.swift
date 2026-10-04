@@ -34,6 +34,13 @@ final class HomeCloudLink {
     }
 
     /// One observed link. Returns once the source is configured for it.
+    ///
+    /// The source acts as an account only once the daemon holds that
+    /// account's lease: a lease that failed (no token, or a token for
+    /// another account because the user switched meanwhile) leaves the
+    /// daemon without one and the source holding the account unleased. It
+    /// sends no op then and shows nothing that a read did not return for
+    /// it; the daemon's next `cloud-session-needed` leases it again.
     func apply(_ link: Link) async {
         guard link != last else { return }
         if let previous = last, previous.userID != nil, previous.userID != link.userID {
@@ -43,15 +50,33 @@ final class HomeCloudLink {
             source.configure(commands: previous.endpoint, link: previous.id, identity: nil)
         }
         last = link
-        if let endpoint = link.endpoint { await lease.sync(endpoint) }
-        let identity = link.userID.map { CloudIdentity(stackUserID: $0, displayName: link.displayName, localID: localID) }
-        source.configure(commands: link.endpoint, link: link.id, identity: identity)
+        guard let endpoint = link.endpoint else {
+            // No transport, so no lease and nothing goes out: offline.
+            source.configure(commands: nil, link: nil, identity: identity(link.userID, link), leased: false)
+            return
+        }
+        switch await lease.sync(endpoint, expectedUserID: link.userID) {
+        case .leased(let subject):
+            source.configure(commands: endpoint, link: link.id, identity: identity(subject, link), leased: true)
+        case .signedOut:
+            source.configure(commands: endpoint, link: link.id, identity: nil)
+        case .failed:
+            source.configure(commands: endpoint, link: link.id, identity: identity(link.userID, link), leased: false)
+        }
     }
 
-    /// The daemon asked for a lease (`cloud-session-needed`).
+    /// The daemon asked for a lease (`cloud-session-needed`): it is for the
+    /// account the source acts as when the lease work runs, and only a
+    /// lease for that account counts as renewed.
     func sessionNeeded(reason: String) {
         guard let endpoint = last?.endpoint else { return }
-        lease.renew(endpoint, reason: reason) { [source] in source.leaseRenewed() }
+        lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [source] subject in
+            source.leaseRenewed(subject: subject)
+        }
+    }
+
+    private func identity(_ userID: String?, _ link: Link) -> CloudIdentity? {
+        userID.map { CloudIdentity(stackUserID: $0, displayName: link.displayName, localID: localID) }
     }
 
     /// Waits for the lease work started so far (tests).

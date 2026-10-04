@@ -101,10 +101,10 @@ import Testing
         let before = recoveries(tape.all)
         let send = HomeIntent(key: IdempotencyKey("cmk_l"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
         await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
-        source.leaseRenewed()
+        source.leaseRenewed(subject: "stack-me")
         #expect(await tape.wait { recoveries($0) == before + 1 })
         // Nothing failed since: a second renewal is not a recovery.
-        source.leaseRenewed()
+        source.leaseRenewed(subject: "stack-me")
         source.handle(.inboxChanged(CloudInboxChanged(seq: 4, entries: [F.entry(dm)])))
         #expect(await tape.wait { !summaries($0, dm).isEmpty })
         #expect(recoveries(tape.all) == before + 1)
@@ -449,6 +449,13 @@ import Testing
         #expect(HomeCloudLease.expiry(ofJWT: jwt(#"{"exp":4000000000}"#)) == nil)
         let soon = Int(Date().timeIntervalSince1970) + 3600
         #expect(HomeCloudLease.expiry(ofJWT: jwt(#"{"exp":\#(soon)}"#)) == UInt64(soon) * 1000)
+    }
+
+    /// The lease is checked against the account the token names.
+    @Test func theSubjectIsTheTokensSubClaim() {
+        #expect(HomeCloudLease.subject(ofJWT: CloudFixtures.jwt(sub: "u-1")) == "u-1")
+        #expect(HomeCloudLease.subject(ofJWT: "opaque") == nil)
+        #expect(CloudIdentity.cloudID(stackUserID: "u-1") == CloudIdentity.cloudID(stackUserID: "user_u-1"))
     }
 
     @Test func theLeaseNamesOnlyTheAPIOrigin() {

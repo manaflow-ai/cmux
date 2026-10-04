@@ -30,6 +30,9 @@ nonisolated final class CloudHomeSource: HomeSource {
         var commands: (any CloudConversationCommands)?
         var link: ObjectIdentifier?
         var identity: CloudIdentity?
+        /// The daemon holds a lease for `identity`. Until it does, no op goes
+        /// out (they wait, `ownerUnreachable`) and nothing recovers.
+        var leased = false
         /// Bumps on every configure; work started under an older one is dropped.
         var generation: UInt64 = 0
         var entries: [ConversationID: CloudInboxEntry] = [:]
@@ -77,21 +80,29 @@ nonisolated final class CloudHomeSource: HomeSource {
     // MARK: Fed by HomeService
 
     /// A daemon connection with the cloud transport (or none, `link` names
-    /// it) and the signed-in account (or none). Everything this source keeps
-    /// belongs to one account (its cloud id): a new account, or signing out,
-    /// revokes the previous account's intents (`.intentsRevoked`, before any
-    /// other event, and refused here for good) and empties the cloud part of
-    /// the inbox. A lost connection only goes offline and keeps what this
-    /// source knew; a new display name is the same account.
-    func configure(commands: (any CloudConversationCommands)?, link: ObjectIdentifier?, identity: CloudIdentity?) {
-        let renamed = state.withLock { state -> Bool in
+    /// it) and the account the daemon's lease is for (or none). `leased`
+    /// is false while the daemon holds no lease for `identity` yet
+    /// (`HomeCloudLink`): ops wait until `leaseRenewed(subject:)` names it.
+    /// Everything this source keeps belongs to one account (its cloud id): a
+    /// new account, or signing out, revokes the previous account's intents
+    /// (`.intentsRevoked`, before any other event, and refused here for
+    /// good) and empties the cloud part of the inbox. A lost connection only
+    /// goes offline and keeps what this source knew; a new display name is
+    /// the same account.
+    func configure(commands: (any CloudConversationCommands)?, link: ObjectIdentifier?, identity: CloudIdentity?,
+                   leased: Bool = true) {
+        let same = state.withLock { state -> (renamed: Bool, nowLeased: Bool, generation: UInt64)? in
             guard link == state.link, let identity, let current = state.identity, current.cloudID == identity.cloudID,
-                  current != identity else { return false }
-            state.identity = identity
-            return true
+                  current != identity || state.leased != leased else { return nil }
+            defer {
+                state.identity = identity
+                state.leased = leased
+            }
+            return (current != identity, leased && !state.leased, state.generation)
         }
-        if renamed {
-            publishInbox()
+        if let same {
+            if same.renamed { publishInbox() }
+            if same.nowLeased { leaseArrived(generation: same.generation) }
             return
         }
         let change = state.withLock { state -> (generation: UInt64, cleared: Bool, ended: [ConversationID], kept: [ConversationID],
@@ -119,6 +130,7 @@ nonisolated final class CloudHomeSource: HomeSource {
             state.commands = commands
             state.link = link
             state.identity = identity
+            state.leased = leased
             // Without a connection the open conversations are remembered for the next one.
             if commands != nil || cleared {
                 state.targets = [:]
@@ -180,8 +192,33 @@ nonisolated final class CloudHomeSource: HomeSource {
         if case .inboxChanged = event { recover() }
     }
 
-    /// The daemon took a new lease: refused ops can go through again.
-    func leaseRenewed() { recover() }
+    /// The account this source acts as (its cloud id), leased or not.
+    var accountID: String? { state.withLock { $0.identity?.cloudID } }
+
+    /// The daemon took a new lease for `subject` (a Stack user id). Only a
+    /// lease for the account this source acts as counts: refused ops can go
+    /// through again, and an account that waited for its first lease lists
+    /// its inbox. A lease for another account changes nothing here.
+    func leaseRenewed(subject: String) {
+        let renewed = state.withLock { state -> (first: Bool, generation: UInt64)? in
+            guard let identity = state.identity, identity.cloudID == CloudIdentity.cloudID(stackUserID: subject) else { return nil }
+            defer { state.leased = true }
+            return (!state.leased, state.generation)
+        }
+        guard let renewed else { return }
+        if renewed.first {
+            leaseArrived(generation: renewed.generation)
+        } else {
+            recover()
+        }
+    }
+
+    /// The first lease of this generation's account: what waited for it goes again.
+    private func leaseArrived(generation: UInt64) {
+        recover()
+        // task-owner: one inbox list; ends with its reply
+        Task { [weak self] in await self?.reloadInbox(generation: generation) }
+    }
 
     // MARK: HomeSource
 
@@ -670,6 +707,11 @@ nonisolated final class CloudHomeSource: HomeSource {
             if let key {
                 if state.revoked.contains(key) { return .failure(.notAuthorized) }
                 state.accepted.insert(key)
+                // No lease for this account yet: nothing may go out under another one's.
+                guard state.leased else {
+                    state.degraded = true
+                    return .failure(.ownerUnreachable)
+                }
             }
             guard let commands = state.commands else {
                 state.degraded = true
@@ -711,7 +753,7 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// The cloud is reachable again after a failure: the store resends.
     private func recover() {
         publish { state in
-            guard state.degraded, state.identity != nil, state.commands != nil else { return nil }
+            guard state.degraded, state.identity != nil, state.leased, state.commands != nil else { return nil }
             state.degraded = false
             return .ownerRecovered
         }

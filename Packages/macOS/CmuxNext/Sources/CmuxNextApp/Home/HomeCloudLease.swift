@@ -28,12 +28,31 @@ extension CloudAuth: CloudLeaseTokens {
 /// (home-cloud-proxy.md section 2). CloudAuth (the signed-in trusted local
 /// client) owns the Stack session; the daemon holds the current access token
 /// in memory only and asks for a new one with `cloud-session-needed`.
+///
+/// Each lease is for one named account: a token whose `sub` is another
+/// account is never leased, so the account the cloud source acts as is the
+/// account the daemon's lease holds. Lease work runs one at a time, in the
+/// order it was asked for, so an older lease never lands after a newer one.
 final class HomeCloudLease {
+    enum Outcome: Equatable, Sendable {
+        /// The daemon holds a lease for this account (the token's `sub`).
+        case leased(subject: String)
+        /// No account was asked for: the daemon holds no lease.
+        case signedOut
+        /// No lease for the account asked for.
+        case failed
+    }
+
+    private enum Refusal: Error {
+        case signedOut, noOrigin, otherAccount
+    }
+
     private let tokens: any CloudLeaseTokens
     private let apiBaseURL: URL
     private let clientVersion: String?
     private let logger: Logger
-    private var leasing: Task<Void, Never>?
+    /// The newest lease work; the next waits for it.
+    private var leasing: Task<Outcome, Never>?
 
     init(tokens: any CloudLeaseTokens, apiBaseURL: URL, clientVersion: String?, logger: Logger) {
         self.tokens = tokens
@@ -42,50 +61,73 @@ final class HomeCloudLease {
         self.logger = logger
     }
 
-    /// Leases the current token to the daemon while signed in, and ends
-    /// the lease when signed out. Returns once the daemon answered, so
-    /// cloud reads that follow carry the lease.
-    func sync(_ sessions: any CloudLeaseSessions) async {
-        leasing?.cancel()
-        await lease(sessions, forceRefresh: false)
+    /// Leases `expectedUserID`'s token to the daemon, or ends the lease
+    /// when nil. Returns once the daemon answered, so cloud reads that
+    /// follow carry the lease. A failure clears the daemon's lease, so it
+    /// never keeps a previous account's token. Work queued before is
+    /// cancelled: this link supersedes it.
+    func sync(_ sessions: any CloudLeaseSessions, expectedUserID: String?) async -> Outcome {
+        let prior = leasing
+        prior?.cancel()
+        // task-owner: one token read and one cloud-session-set or -clear, after the previous lease work; ends with the reply
+        let task = Task { [weak self] () -> Outcome in
+            await prior?.value
+            guard let self else { return .failed }
+            return await lease(sessions, expectedUserID: expectedUserID, forceRefresh: false, clearOnFailure: true)
+        }
+        leasing = task
+        return await task.value
     }
 
-    /// The daemon asked for a lease. `missing` takes the current token; the
-    /// others need a refreshed one (an `expiring` token may still be the
-    /// current one, which would only be asked for again). `leased` runs once
-    /// the daemon holds the new lease, so ops it refused can go again.
-    func renew(_ sessions: any CloudLeaseSessions, reason: String, leased: @escaping @MainActor () -> Void) {
-        leasing?.cancel()
-        // task-owner: one token read and one cloud-session-set; ends with the reply
-        leasing = Task { [weak self] in
-            if await self?.lease(sessions, forceRefresh: reason != "missing") == true { leased() }
+    /// The daemon asked for a lease. `expectedUserID` names the account the
+    /// cloud source acts as when the work runs (nil: none, nothing to lease).
+    /// `missing` takes the current token; the others need a refreshed one
+    /// (an `expiring` token may still be the current one, which would only
+    /// be asked for again). `leased` runs with the leased account once the
+    /// daemon holds the lease, so ops it refused can go again. A failure
+    /// leaves the daemon's lease as it was: it is that account's or none.
+    func renew(_ sessions: any CloudLeaseSessions, reason: String, expectedUserID: @escaping @MainActor () -> String?,
+               leased: @escaping @MainActor (String) -> Void) {
+        let prior = leasing
+        // task-owner: one token read and one cloud-session-set, after the previous lease work; ends with the reply
+        leasing = Task { [weak self] () -> Outcome in
+            await prior?.value
+            guard let self, let expected = expectedUserID() else { return .failed }
+            let outcome = await lease(sessions, expectedUserID: expected, forceRefresh: reason != "missing", clearOnFailure: false)
+            if case .leased(let subject) = outcome { leased(subject) }
+            return outcome
         }
     }
 
     /// Waits for the lease work started so far (tests).
     func settle() async {
-        await leasing?.value
+        _ = await leasing?.value
     }
 
-    /// Returns whether the daemon now holds a lease.
-    @discardableResult
-    private func lease(_ sessions: any CloudLeaseSessions, forceRefresh: Bool) async -> Bool {
+    private func lease(_ sessions: any CloudLeaseSessions, expectedUserID: String?, forceRefresh: Bool,
+                       clearOnFailure: Bool) async -> Outcome {
         do {
-            guard tokens.isSignedIn else {
+            guard let expectedUserID else {
                 _ = try await sessions.clearSession()
-                return false
+                return .signedOut
             }
+            guard tokens.isSignedIn else { throw Refusal.signedOut }
             let token = try await tokens.accessToken(forceRefresh: forceRefresh)
-            guard !Task.isCancelled, let origin = Self.origin(apiBaseURL) else { return false }
+            try Task.checkCancellation()
+            guard let origin = Self.origin(apiBaseURL) else { throw Refusal.noOrigin }
+            // The token must be the account asked for: the user may have switched while it was read.
+            guard let subject = Self.subject(ofJWT: token),
+                  CloudIdentity.cloudID(stackUserID: subject) == CloudIdentity.cloudID(stackUserID: expectedUserID) else {
+                throw Refusal.otherAccount
+            }
             let expiresAt = Self.expiry(ofJWT: token) ?? Self.fallbackExpiry(now: Date())
             _ = try await sessions.setSession(CloudSessionSetRequest(apiBaseURL: origin, accessToken: token, expiresAt: expiresAt,
                                                                      clientVersion: clientVersion))
-            return true
-        } catch is CancellationError {
-            return false
+            return .leased(subject: subject)
         } catch {
-            logger.error("cloud lease: \(String(describing: error), privacy: .public)")
-            return false
+            if !(error is CancellationError) { logger.error("cloud lease: \(String(describing: error), privacy: .public)") }
+            if clearOnFailure { _ = try? await sessions.clearSession() }
+            return .failed
         }
     }
 
@@ -104,15 +146,28 @@ final class HomeCloudLease {
     /// A claim that is not finite, or later than `maxLifetime` from `now`,
     /// reads as missing (the lease then uses `fallbackExpiry`).
     nonisolated static func expiry(ofJWT token: String, now: Date = Date()) -> UInt64? {
+        guard let claims = claims(ofJWT: token),
+              let exp = (claims["exp"] as? NSNumber)?.doubleValue, exp.isFinite, exp > 0,
+              exp <= now.timeIntervalSince1970 + maxLifetime else { return nil }
+        return UInt64(exp * 1000)
+    }
+
+    /// The `sub` claim of a JWT access token: the Stack user id it was
+    /// issued for. Read only to check that a lease is for the account asked
+    /// for; the daemon and the Worker verify the token.
+    nonisolated static func subject(ofJWT token: String) -> String? {
+        guard let sub = claims(ofJWT: token)?["sub"] as? String, !sub.isEmpty else { return nil }
+        return sub
+    }
+
+    /// The decoded payload of a JWT, unverified.
+    nonisolated private static func claims(ofJWT token: String) -> [String: Any]? {
         let segments = token.split(separator: ".", omittingEmptySubsequences: false)
         guard segments.count == 3 else { return nil }
         var payload = segments[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let exp = (claims["exp"] as? NSNumber)?.doubleValue, exp.isFinite, exp > 0,
-              exp <= now.timeIntervalSince1970 + maxLifetime else { return nil }
-        return UInt64(exp * 1000)
+        guard let data = Data(base64Encoded: payload) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
     /// A token without a readable `exp` is leased for five minutes, so the

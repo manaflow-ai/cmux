@@ -20,9 +20,14 @@ nonisolated struct CloudIdentity: Hashable, Sendable {
 
     /// The Worker's participant id for a Stack user id (`user_` prefix once).
     init(stackUserID: String, displayName: String, localID: ParticipantID) {
-        cloudID = stackUserID.hasPrefix("user_") ? stackUserID : "user_" + stackUserID
+        cloudID = Self.cloudID(stackUserID: stackUserID)
         self.localID = localID
         self.displayName = displayName
+    }
+
+    /// The Worker's participant id for a Stack user id.
+    static func cloudID(stackUserID: String) -> String {
+        stackUserID.hasPrefix("user_") ? stackUserID : "user_" + stackUserID
     }
 
     func toHome(_ id: String) -> ParticipantID { id == cloudID ? localID : ParticipantID(id) }
