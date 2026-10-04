@@ -11,6 +11,7 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var remoteTmuxNewWorkspaceOnHost: DefaultsValueModel<Bool>
     @State private var remoteTmuxOriginColors: DefaultsValueModel<Bool>
     @State private var remoteTmuxOriginHostTitles: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
@@ -26,6 +27,7 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _remoteTmuxNewWorkspaceOnHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxNewWorkspaceOnHost))
         _remoteTmuxOriginColors = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginColors))
         _remoteTmuxOriginHostTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginHostTitles))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
@@ -50,6 +52,8 @@ public struct BetaFeaturesSection: View {
                 customSidebarsRow
                 SettingsCardDivider()
                 remoteTmuxRow
+                SettingsCardDivider()
+                remoteTmuxNewWorkspaceOnHostRow
                 SettingsCardDivider()
                 remoteTmuxOriginColorsRow
                 SettingsCardDivider()
@@ -78,6 +82,7 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
+            remoteTmuxNewWorkspaceOnHost,
             remoteTmuxOriginColors,
             remoteTmuxOriginHostTitles,
             workspaceTodoControls,
@@ -216,6 +221,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaRemoteTmuxToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxNewWorkspaceOnHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:remoteTmuxNewWorkspaceOnHost",
+            String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost", defaultValue: "New Workspace on the remote host"),
+            subtitle: remoteTmuxNewWorkspaceOnHost.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOn", defaultValue: "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host. New Local Workspace opens a local one.")
+                : String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOff", defaultValue: "New Workspace always opens a local workspace, even with a remote tmux workspace selected.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxNewWorkspaceOnHost.current }, set: { remoteTmuxNewWorkspaceOnHost.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxNewWorkspaceOnHostToggle")
         }
     }
 
