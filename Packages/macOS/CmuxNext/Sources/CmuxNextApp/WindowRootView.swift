@@ -247,6 +247,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         paintBackground()
     }
 
+    /// A later subview must not cover the window's agent cursor while it
+    /// lives here (the overlay panel is detached): the host raises it again.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(subview) }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         themeDidChange()
