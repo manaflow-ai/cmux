@@ -31,6 +31,7 @@ import type {
   VMStatus,
 } from "./drivers";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { sshKeyFingerprint } from "./drivers/scp";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -4490,6 +4491,59 @@ export function prepareScpEndpoint(input: {
       imageId: vm.imageId,
       metadata: { transport: "wireguard-scp", expiresAtUnix: endpoint.expiresAtUnix },
     }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
+  });
+}
+
+/**
+ * Authorizes a short-lived Ed25519 key that may open one PTY as cmux on the
+ * machine (the rescue shell when the cmux-tui daemon does not answer). Same
+ * access rule, resume and private-network path as SCP. The audit record holds
+ * the key fingerprint and expiry, never the key.
+ */
+export function prepareShellEndpoint(input: {
+  readonly publicKey: string;
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly callerPlanId?: string | null;
+  readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!providers.prepareShell) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareShell" }));
+    if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh", {
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane,
+    });
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "ssh",
+      providers.prepareShell(vm.provider, input.providerVmId, input.publicKey),
+      input.maxActiveVms,
+    );
+    // The audit record must exist for every granted shell key: a failed write fails the grant.
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.shell_endpoint",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: {
+        transport: "wireguard-ssh",
+        keyFingerprint: sshKeyFingerprint(input.publicKey),
+        expiresAtUnix: endpoint.expiresAtUnix,
+      },
+    });
     return endpoint;
   });
 }

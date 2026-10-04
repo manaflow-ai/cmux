@@ -56,7 +56,7 @@ import {
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
-import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
+import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS, shellPrepareCommand, SHELL_KEY_TTL_SECONDS } from "./scp";
 import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
@@ -1016,21 +1016,36 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
-    return withVmSpan("cmux.vm.provider.prepare_scp", "provider", spanAttributes(vmId, "prepare_scp"), async () => {
-      const key = parseSshPublicKey(publicKey);
-      const vm = this.deps.client().vms.ref(vmId);
-      const data = await vm.data();
-      const host = freestylePortAddress(data, vmId);
-      const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
-      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
-      if (!result || result.exitCode !== 0) {
-        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
-      }
-      let hostPublicKey: string;
-      try { hostPublicKey = parseSshPublicKey(result.stdout); }
-      catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
-      return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
-    });
+    return withVmSpan("cmux.vm.provider.prepare_scp", "provider", spanAttributes(vmId, "prepare_scp"), () =>
+      this.prepareGuestKey(vmId, publicKey, "SCP", SCP_KEY_TTL_SECONDS, scpPrepareCommand));
+  }
+
+  /** A short-lived key that may open one PTY as cmux (rescue shell). */
+  async prepareShell(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
+    return withVmSpan("cmux.vm.provider.prepare_shell", "provider", spanAttributes(vmId, "prepare_shell"), () =>
+      this.prepareGuestKey(vmId, publicKey, "Shell", SHELL_KEY_TTL_SECONDS, shellPrepareCommand));
+  }
+
+  private async prepareGuestKey(
+    vmId: string,
+    publicKey: string,
+    label: string,
+    ttlSeconds: number,
+    command: (publicKey: string, expires: Date) => string,
+  ): Promise<import("./types").SCPEndpoint> {
+    const key = parseSshPublicKey(publicKey);
+    const vm = this.deps.client().vms.ref(vmId);
+    const data = await vm.data();
+    const host = freestylePortAddress(data, vmId);
+    const expires = new Date(Date.now() + ttlSeconds * 1000);
+    const result = await this.execResult(vm, command(key, expires));
+    if (!result || result.exitCode !== 0) {
+      throw new ProviderError("freestyle", `${label} preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+    }
+    let hostPublicKey: string;
+    try { hostPublicKey = parseSshPublicKey(result.stdout); }
+    catch { throw new ProviderError("freestyle", `${label} preparation returned an invalid guest host key.`); }
+    return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
   }
 
   async create(options: CreateOptions): Promise<VMHandle> {

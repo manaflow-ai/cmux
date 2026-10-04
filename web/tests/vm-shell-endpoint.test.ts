@@ -16,7 +16,7 @@ const vmId = "vm-" + "b".repeat(32);
 describe("rescue shell endpoint", () => {
   test("a shell key may open one PTY and nothing else, and expires", () => {
     const line = shellAuthorizedKeyLine(key, new Date("2026-10-04T00:05:00Z"));
-    expect(line).toBe(`restrict,pty,expiry-time="20261004000500Z" ${key} cmux-shell:1791079500`);
+    expect(line).toBe(`restrict,pty,expiry-time="20261004000500Z" ${key} cmux-shell:1791072300`);
     expect(line).not.toContain("port-forwarding");
     expect(line).not.toContain("agent-forwarding");
     expect(line).not.toContain("command=");

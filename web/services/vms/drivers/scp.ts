@@ -1,6 +1,11 @@
+import { createHash } from "node:crypto";
 import { shellQuote } from "./cmuxTuiDaemon";
 
 export const SCP_KEY_TTL_SECONDS = 15 * 60;
+/** A rescue shell key only has to last until the client authenticates once. */
+export const SHELL_KEY_TTL_SECONDS = 5 * 60;
+
+type GuestKeyKind = "scp" | "shell";
 
 /** Accept one Ed25519 key, not an authorized_keys options line or shell text. */
 export function parseSshPublicKey(input: string): string {
@@ -13,20 +18,44 @@ export function parseSshPublicKey(input: string): string {
   return `ssh-ed25519 ${blob.toString("base64")}`;
 }
 
-export function scpAuthorizedKeyLine(publicKey: string, expires: Date): string {
+/** OpenSSH-style SHA256 fingerprint, for audit records (never log the key). */
+export function sshKeyFingerprint(publicKey: string): string {
+  const blob = Buffer.from(parseSshPublicKey(publicKey).split(" ")[1], "base64");
+  return `SHA256:${createHash("sha256").update(blob).digest("base64").replace(/=+$/, "")}`;
+}
+
+function guestKeyLine(kind: GuestKeyKind, publicKey: string, expires: Date): string {
   const expiry = expires.toISOString().replace(/[-:]/g, "").replace("T", "").replace(/\.\d{3}Z$/, "Z");
-  return `restrict,expiry-time="${expiry}" ${parseSshPublicKey(publicKey)} cmux-scp:${Math.floor(expires.getTime() / 1000)}`;
+  // `restrict` turns off port, agent and X11 forwarding, user rc and PTYs; a
+  // shell key turns only the PTY back on.
+  const options = kind === "shell" ? `restrict,pty,expiry-time="${expiry}"` : `restrict,expiry-time="${expiry}"`;
+  return `${options} ${parseSshPublicKey(publicKey)} cmux-${kind}:${Math.floor(expires.getTime() / 1000)}`;
+}
+
+export function scpAuthorizedKeyLine(publicKey: string, expires: Date): string {
+  return guestKeyLine("scp", publicKey, expires);
+}
+
+export function shellAuthorizedKeyLine(publicKey: string, expires: Date): string {
+  return guestKeyLine("shell", publicKey, expires);
 }
 
 /** Run as cmux. Preserve unrelated keys and concurrent transfers under flock. */
 export function scpAuthorizeCommand(publicKey: string, expires: Date): string {
-  const line = scpAuthorizedKeyLine(publicKey, expires);
+  return guestKeyAuthorizeCommand(scpAuthorizedKeyLine(publicKey, expires));
+}
+
+export function shellAuthorizeCommand(publicKey: string, expires: Date): string {
+  return guestKeyAuthorizeCommand(shellAuthorizedKeyLine(publicKey, expires));
+}
+
+function guestKeyAuthorizeCommand(line: string): string {
   return [
     "set -eu", "umask 077", 'mkdir -p "$HOME/.ssh"', 'cd "$HOME/.ssh"',
     "exec 9>.cmux-scp.lock", "flock -x 9", 'touch authorized_keys',
     'tmp=$(mktemp .cmux-scp.XXXXXXXXXX)', `trap 'rm -f -- "$tmp"' EXIT`,
     // Only our expired markers are removed. User and provider keys are preserved.
-    `awk -v now="$(date +%s)" '{ if ($NF ~ /^cmux-scp:[0-9]+$/) { split($NF,a,":"); if (a[2] <= now) next } print }' authorized_keys > "$tmp"`,
+    `awk -v now="$(date +%s)" '{ if ($NF ~ /^cmux-(scp|shell):[0-9]+$/) { split($NF,a,":"); if (a[2] <= now) next } print }' authorized_keys > "$tmp"`,
     `printf '%s\\n' ${shellQuote(line)} >> "$tmp"`,
     'chmod 600 "$tmp"', 'mv -f -- "$tmp" authorized_keys',
   ].join("; ");
@@ -34,9 +63,17 @@ export function scpAuthorizeCommand(publicKey: string, expires: Date): string {
 
 /** Read the host key over the authenticated provider API, never ssh-keyscan. */
 export function scpPrepareCommand(publicKey: string, expires: Date): string {
+  return guestKeyPrepareCommand(scpAuthorizeCommand(publicKey, expires));
+}
+
+export function shellPrepareCommand(publicKey: string, expires: Date): string {
+  return guestKeyPrepareCommand(shellAuthorizeCommand(publicKey, expires));
+}
+
+function guestKeyPrepareCommand(authorize: string): string {
   return [
     "set -eu", "test -x /usr/sbin/sshd", "systemctl start ssh",
-    `runuser -u cmux -- sh -c ${shellQuote(scpAuthorizeCommand(publicKey, expires))}`,
+    `runuser -u cmux -- sh -c ${shellQuote(authorize)}`,
     "cat /etc/ssh/ssh_host_ed25519_key.pub",
   ].join("; ");
 }

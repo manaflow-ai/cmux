@@ -126,6 +126,7 @@ export type VmProviderGatewayShape = {
     options?: CmuxRemoteApprovalOptions,
   ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
   readonly prepareSCP?: (provider: ProviderId, vmId: string, publicKey: string) => Effect.Effect<SCPEndpoint, VmProviderOperationError>;
+  readonly prepareShell?: (provider: ProviderId, vmId: string, publicKey: string) => Effect.Effect<SCPEndpoint, VmProviderOperationError>;
   readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
     provider: ProviderId,
@@ -343,6 +344,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const impl = getProvider(provider);
       if (!impl.prepareSCP) throw new VmOperationUnsupportedError({ provider, operation: "prepareSCP" });
       return impl.prepareSCP(vmId, publicKey);
+    }),
+  prepareShell: (provider, vmId, publicKey) =>
+    providerEffect(provider, "prepareShell", async () => {
+      const impl = getProvider(provider);
+      if (!impl.prepareShell) throw new VmOperationUnsupportedError({ provider, operation: "prepareShell" });
+      return impl.prepareShell(vmId, publicKey);
     }),
   openSSH: (provider, vmId) =>
     providerEffect(provider, "openSSH", async () => {
