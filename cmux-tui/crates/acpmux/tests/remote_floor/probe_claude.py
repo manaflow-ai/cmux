@@ -159,9 +159,14 @@ def scenarios(root):
         ("sb-write-read-root", "FLOOR", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                  "args": ["--setting-sources", ""],
                                                  "input": {"command": "touch {marker}"}}),
-        ("sb-write-scratch-allowed", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
-                                                      "args": ["--setting-sources", ""], "effects": ["{scratch}/ok"],
-                                                      "input": {"command": "touch $TMPDIR/ok"}}),
+        # Positive controls: an allowed sandboxed Bash call runs (its output reaches the model) and
+        # can write in /tmp. Without these, a HOLDS above could mean Bash never ran.
+        ("sb-control-bash-runs", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                                  "args": ["--setting-sources", ""],
+                                                  "input": {"command": "echo probe-secret-7f3a9c"}}),
+        ("sb-control-tmp-write", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                                  "args": ["--setting-sources", ""], "effects": ["{tmpdir}/ok"],
+                                                  "input": {"command": "touch {tmpdir}/ok; echo TMPDIR=$TMPDIR"}}),
         ("sb-read-acpmux-home", "FLOOR", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                   "args": ["--setting-sources", ""],
                                                   "input": {"command": "cat {acpmux}/agent.token"}}),
@@ -294,7 +299,8 @@ def start_listeners(scratch):
     """A Unix socket and a loopback TCP listener; each connection leaves a hit file."""
     import socket
     import threading
-    sock_path = os.path.join(scratch, "probe.sock")
+    # macOS limits AF_UNIX paths to 104 bytes; the job folder is deeper than that.
+    sock_path = os.path.join(tempfile.mkdtemp(prefix="rfp-", dir="/tmp"), "s.sock")
     unix = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     unix.bind(sock_path)
     unix.listen(4)
@@ -400,7 +406,8 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
     listeners = start_listeners(scratch) if opts.get("listen") else None
     fill = {"marker": marker, "scratch": scratch, "project": project, "home": home, "acpmux": acpmux_home,
             "sock": listeners[0] if listeners else "", "port": str(listeners[1]) if listeners else "0",
-            "label": f"com.cmux.probe.{os.getpid()}.{name}"}
+            "label": f"com.cmux.probe.{os.getpid()}.{name}",
+            "tmpdir": tempfile.mkdtemp(prefix="rft-", dir="/tmp")}
     if opts.get("sandbox"):
         opts = dict(opts)
         inject = json.loads(json.dumps(opts.get("inject") or remote_settings(ask=["*"])))
