@@ -4,7 +4,8 @@ import UniformTypeIdentifiers
 
 /// The owner's attachment rules (home-messaging.md 10.1), checked on the
 /// client before any upload so a refused file never leaves the device.
-public enum HomeAttachmentPolicy {
+public struct HomeAttachmentPolicy {
+    public init() {}
     /// Per file, every type (decimal megabytes, like the owner).
     public static let maxBytes = 100_000_000
     /// Up to this size a source streams the bytes through the owner's
