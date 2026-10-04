@@ -33,6 +33,20 @@ extension AppControl {
                 }
             },
         ])
+        // DEV and NIGHTLY only: a test appcast for every check (signatures
+        // still required). `{url: null}` returns to the real feed.
+        if updater.identity.track == .nightly || updater.identity.track == .development {
+            service?.router.register([
+                .mainActor("updates.test_feed") { call in
+                    do {
+                        try updater.useTestFeed(call.params["url"]?.stringValue, pinned: call.params["pinned"]?.boolValue == true)
+                    } catch {
+                        throw ControlError.invalidParams(String(describing: error))
+                    }
+                    return .value(Self.json(updater.status, log: []))
+                },
+            ])
+        }
         #if DEBUG
         service?.router.register([
             .mainActor("debug.update_indicator") { call in
@@ -78,6 +92,7 @@ extension AppControl {
             "last_probe": status.lastProbe.map(json) ?? .null,
             "last_probe_error": status.lastProbeError.map(JSONValue.string) ?? .null,
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
+            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),
         ])
     }

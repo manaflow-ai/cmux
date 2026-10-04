@@ -77,7 +77,7 @@ public final class UpdaterService {
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
     @ObservationIgnored private let policy: ManagedUpdatePolicy
     @ObservationIgnored private let prober: UpdateProber
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let switcher: AppChannelSwitcher
     @ObservationIgnored private var probeTask: Task<String?, Never>?
     @ObservationIgnored private var switchTask: Task<String?, Never>?
@@ -122,6 +122,7 @@ public final class UpdaterService {
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
         }
         minuteOfDay = Self.minuteOfDay(now())
+        restorePinnedTestFeed()
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -177,7 +178,9 @@ public final class UpdaterService {
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
         isProbing = true
-        let prober = prober, identity = identity
+        let prober = prober
+        var identity = identity
+        if let testFeedURL { identity.infoFeedURL = testFeedURL }
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
@@ -259,7 +262,7 @@ public final class UpdaterService {
             build: identity.build,
             minimumSystemVersion: identity.minimumSystemVersion,
             system: .current,
-            feedURL: identity.feed().url,
+            feedURL: testFeedURL ?? identity.feed().url,
             sparkleDisabledReason: reason,
             automaticChecks: reason == nil && bool(UpdateSettings.automaticChecksKey, fallback: true),
             automaticDownloads: reason == nil && bool(UpdateSettings.automaticallyUpdateKey, fallback: false),
@@ -268,7 +271,8 @@ public final class UpdaterService {
             probing: isProbing,
             lastProbe: lastProbe,
             lastProbeError: lastProbeError,
-            channelSwitchTarget: identity.channelSwitchTarget
+            channelSwitchTarget: identity.channelSwitchTarget,
+            testFeedURL: testFeedURL
         )
     }
 

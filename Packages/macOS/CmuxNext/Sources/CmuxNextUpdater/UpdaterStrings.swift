@@ -32,6 +32,13 @@ nonisolated enum UpdaterStrings {
     static var installing: String { text("updater.title.installing", "Installing…") }
     static var readyToInstall: String { text("updater.title.readyToInstall", "Update Ready") }
 
+    // Test feed
+    static var testFeedRefused: String {
+        text("updater.testFeed.refused", "A test update feed needs a DEV or NIGHTLY build and an https address (http only on this Mac).")
+    }
+    static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
+    static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
+
     // R114 card
     static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
     static func cardReadyDetail(_ version: String) -> String { format("updater.card.readyDetail", "cmux %@ is ready", version) }
