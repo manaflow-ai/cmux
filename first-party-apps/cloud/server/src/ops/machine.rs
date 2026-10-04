@@ -84,10 +84,20 @@ pub(super) fn run<C: ControlPlane>(
             Ok(json!({ "deleted": true }))
         }
         "cloud.machine.connect_info" => {
-            let map = args::object(raw, &["machine"])?;
-            let id = args::id(map, "machine")?;
-            let answer = ctx.wire(name, args::params(map, &["machine"]));
-            let info: ConnectInfo = decode_answer(name, gone_if_not_found(ctx, id, answer)?.value)?;
+            // Exactly one of `machine` and `host` (contract 1.7).
+            let map = args::object(raw, &["machine", "host"])?;
+            let machine = args::opt_id(map, "machine")?;
+            let host = args::opt_id(map, "host")?;
+            if machine.is_some() == host.is_some() {
+                return Err(CloudError::invalid("give exactly one of machine and host"));
+            }
+            let answer = ctx.wire(name, args::params(map, &["machine", "host"]));
+            let answer = match machine {
+                Some(id) => gone_if_not_found(ctx, id, answer)?,
+                None => answer?,
+            };
+            // Serialized without `link_token`: that stays with `cmux link`.
+            let info: ConnectInfo = decode_answer(name, answer.value)?;
             Ok(json!(info))
         }
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),

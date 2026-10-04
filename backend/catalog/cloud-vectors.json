@@ -551,7 +551,7 @@
             "error": {
               "code": "mutation.indeterminate",
               "message": "the provider call was cut off; retry with the same key",
-              "retryable": false
+              "retryable": true
             },
             "transaction": "",
             "idempotency_key": "key-create-cut",
@@ -1257,7 +1257,7 @@
             "error": {
               "code": "mutation.indeterminate",
               "message": "the provider call was cut off; retry with the same key",
-              "retryable": false
+              "retryable": true
             },
             "transaction": "",
             "idempotency_key": "key-delete-cut",
@@ -1341,19 +1341,149 @@
           "body": {
             "op": "cloud.machine.connect_info",
             "value": {
+              "machine": "vm_m0000000000000000001",
               "host": "host_h0000000000000000001",
-              "daemon_version": "0.40.0",
-              "capabilities": [
-                "terminal",
-                "files",
-                "ports"
-              ]
+              "epoch": 1,
+              "state": "running",
+              "peer": {
+                "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "overlay_address": "fd7c:6d78:0:0:0:0:0:1",
+                "vpc_endpoint": null,
+                "public_ipv6": null
+              },
+              "gateway": null,
+              "services": [
+                "daemon",
+                "ssh"
+              ],
+              "link_token": {
+                "token": "lt_vector_0001",
+                "expires_at": 1790000300000
+              },
+              "daemon": {
+                "version": "0.40.0",
+                "capabilities": [
+                  "terminal",
+                  "files",
+                  "ports"
+                ]
+              },
+              "revision": "7"
             },
             "stream": "cloud:team_t0000000000000000001",
             "revision": "7"
           }
         }
       ]
+    },
+    {
+      "name": "machine.connect_info.by_host",
+      "op": "cloud.machine.connect_info",
+      "class": "read",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "host": "host_h0000000000000000001"
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/read",
+            "status": 200
+          },
+          "body": {
+            "op": "cloud.machine.connect_info",
+            "value": {
+              "machine": "vm_m0000000000000000001",
+              "host": "host_h0000000000000000001",
+              "epoch": 1,
+              "state": "running",
+              "peer": {
+                "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "overlay_address": "fd7c:6d78:0:0:0:0:0:1",
+                "vpc_endpoint": null,
+                "public_ipv6": null
+              },
+              "gateway": null,
+              "services": [
+                "daemon",
+                "ssh"
+              ],
+              "link_token": {
+                "token": "lt_vector_0001",
+                "expires_at": 1790000300000
+              },
+              "daemon": {
+                "version": "0.40.0",
+                "capabilities": [
+                  "terminal",
+                  "files",
+                  "ports"
+                ]
+              },
+              "revision": "7"
+            },
+            "stream": "cloud:team_t0000000000000000001",
+            "revision": "7"
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.connect_info.paused",
+      "op": "cloud.machine.connect_info",
+      "class": "read",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000002"
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/read",
+            "status": 200
+          },
+          "body": {
+            "op": "cloud.machine.connect_info",
+            "value": {
+              "machine": "vm_m0000000000000000002",
+              "host": "host_h0000000000000000002",
+              "epoch": 1,
+              "state": "paused",
+              "peer": {
+                "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "overlay_address": "fd7c:6d78:0:0:0:0:0:2",
+                "vpc_endpoint": null,
+                "public_ipv6": null
+              },
+              "gateway": null,
+              "services": [
+                "daemon",
+                "ssh"
+              ],
+              "link_token": {
+                "token": "lt_vector_0002",
+                "expires_at": 1790000300000
+              },
+              "daemon": {
+                "version": "0.40.0",
+                "capabilities": [
+                  "terminal",
+                  "files",
+                  "ports"
+                ]
+              },
+              "revision": "4"
+            },
+            "stream": "cloud:team_t0000000000000000001",
+            "revision": "4"
+          }
+        }
+      ],
+      "note": "A paused machine is not an error: the result says state paused (contract 1.7)."
     },
     {
       "name": "machine.connect_info.not_bound",
@@ -1375,30 +1505,6 @@
             "_tag": "BadRequest",
             "code": "cloud.machine.not_bound",
             "message": "the machine is still provisioning"
-          }
-        }
-      ]
-    },
-    {
-      "name": "machine.connect_info.paused",
-      "op": "cloud.machine.connect_info",
-      "class": "read",
-      "principal": {
-        "kind": "install"
-      },
-      "params": {
-        "machine": "vm_m0000000000000000002"
-      },
-      "responses": [
-        {
-          "http": {
-            "path": "/v1/read",
-            "status": 400
-          },
-          "body": {
-            "_tag": "BadRequest",
-            "code": "cloud.machine.paused",
-            "message": "the machine is paused"
           }
         }
       ]
