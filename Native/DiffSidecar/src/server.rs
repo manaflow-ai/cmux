@@ -2715,11 +2715,12 @@ mod tests {
         assert_eq!(groups[0].id, "suggested");
         assert_eq!(groups[0].rows[0].r#ref, "main");
         assert_eq!(groups[1].id, "branches");
-        assert_eq!(
-            groups[1].rows.len(),
-            1,
-            "the current branch is not a base row"
-        );
+        let local: Vec<_> = groups[1]
+            .rows
+            .iter()
+            .map(|row| (row.r#ref.as_str(), row.reason.as_deref()))
+            .collect();
+        assert_eq!(local, [("feature", Some("head")), ("main", None)]);
         let _ = std::fs::remove_dir_all(&repo);
     }
 }

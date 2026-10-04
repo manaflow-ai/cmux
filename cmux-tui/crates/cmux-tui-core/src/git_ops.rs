@@ -34,6 +34,13 @@ pub(crate) const CHECKPOINTS_CAPABILITY: &str = "git-checkpoints-v1";
 /// Advertised in identify: the session host answers `git.files.search`.
 pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 
+/// Advertised in identify: the session host answers `git.branches`.
+pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";
+
+/// Every git capability identify advertises.
+pub(crate) const CAPABILITIES: &[&str] =
+    &[CHECKPOINTS_CAPABILITY, FILES_SEARCH_CAPABILITY, BRANCHES_CAPABILITY];
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,

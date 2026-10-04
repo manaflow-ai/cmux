@@ -959,10 +959,15 @@ fn rpc_branch_list_and_change_use_a_real_repository() {
     assert_eq!(rows[0]["ref"], "main");
     assert_eq!(rows[0]["current"], true);
     assert_eq!(rows[0]["reason"], "default");
-    // HEAD's own branch (feature) is not offered as a base.
+    // Local lists HEAD's branch (feature, newest) with the reason `head`;
+    // only the selected base is `current`.
     assert_eq!(groups[1]["id"], "branches", "{listed}");
-    assert_eq!(groups[1]["rows"].as_array().map(Vec::len), Some(1));
-    assert_eq!(groups[1]["rows"][0]["ref"], "main");
+    assert_eq!(groups[1]["rows"].as_array().map(Vec::len), Some(2));
+    assert_eq!(groups[1]["rows"][0]["ref"], "feature");
+    assert_eq!(groups[1]["rows"][0]["reason"], "head");
+    assert!(groups[1]["rows"][0].get("current").is_none(), "{listed}");
+    assert_eq!(groups[1]["rows"][1]["ref"], "main");
+    assert_eq!(groups[1]["rows"][1]["current"], true);
     assert!(groups.get(2).is_none(), "no remote group without remotes");
 
     // Changing the base opens a branch session against the merge base of

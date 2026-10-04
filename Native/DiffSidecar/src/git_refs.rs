@@ -64,8 +64,9 @@ async fn blocking<T: Send + 'static>(
 /// The picker's groups, each left out when empty:
 /// - `suggested`: the selected base when it is not a candidate (`manual`),
 ///   then the base candidates best first (`default`, `upstream`);
-/// - `branches`: local branches except the one HEAD is on, with the upstream
-///   as the secondary text;
+/// - `branches`: local branches, with the upstream as the secondary text;
+///   the branch HEAD is on carries the reason `head` instead, so the page
+///   labels it (`current` stays the selected base, which the page checks);
 /// - `remotes`: remote-tracking branches.
 ///
 /// Rows name branches by short name, which `branchChange` resolves. The
@@ -107,12 +108,16 @@ pub(crate) fn branch_list(refs: &RepositoryRefs, selected: Option<&str>) -> Bran
         refs.branches
             .branches
             .iter()
-            .filter(|branch| branch.kind == kind && !branch.current)
+            .filter(|branch| branch.kind == kind)
             .map(|branch| BranchPickerRow {
                 r#ref: branch.name.clone(),
                 label: branch.name.clone(),
-                secondary: branch.upstream.clone(),
-                reason: None,
+                secondary: if branch.current {
+                    None
+                } else {
+                    branch.upstream.clone()
+                },
+                reason: branch.current.then(|| "head".to_owned()),
                 confidence: None,
                 current: (selected == Some(branch.name.as_str())).then_some(true),
                 worktree_dir: None,
@@ -251,6 +256,7 @@ mod tests {
                 (
                     "branches".to_owned(),
                     vec![
+                        row("feat", Some("head"), None, false),
                         row("main", None, Some("origin/main"), false),
                         row("old", None, None, false),
                     ]
