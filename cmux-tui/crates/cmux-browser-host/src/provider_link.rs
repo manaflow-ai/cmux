@@ -16,9 +16,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
 mod handshake;
+mod input_wire;
 mod lease_wire;
 mod tab_table;
 pub use handshake::{ProviderInfo, accept};
+pub use input_wire::{AUTOMATION_INPUT, tee_inputs};
 use lease_wire::{Leases, apply_lease, user_lease_op};
 use tab_table::TabTable;
 pub use tab_table::{BROWSER_PAGE, EXTENSION_HOST_ACCESS};
