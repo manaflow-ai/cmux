@@ -1,7 +1,8 @@
 # cmux next: Reopen Closed (Cmd-Shift-T) and bulk container actions (R102, design proposal)
 
-Status: DESIGN PROPOSAL from the reopen-closed lead. No code yet. The coordinator owns the spec;
-this file is the proposal that the coordinator reads. Base: feat-cmux-next 86fd13ce03c.
+Status: APPROVED by the coordinator (2026-10-04), D1-D5 as recommended, with one change: app-local
+tab kinds MIGRATE into daemon tab kinds (section 3.0). The coordinator owns the spec;
+this file is the lane plan. Base: feat-cmux-next 86fd13ce03c.
 
 Lawrence's request: "we need cmd shift t to work (ensure history is done very efficiently, ownership
 in rust, and works for every surface type, in a generalizable way, accounting for cmux apps that
@@ -109,6 +110,24 @@ Each surface kind has one restore provider with two functions:
 capture(tab) -> {provider, provider_version, title, icon, payload (<= 16 KiB JSON), cold?}
 restore(pane, index, member) -> new tab
 ```
+
+### 3.0 Ownership rule (coordinator change, 2026-10-04)
+
+App-local tab kinds MIGRATE into daemon tab kinds; they do not stay app-local with pushed state.
+The agent tab and the new-tab page become a daemon `app` tab (R91, through the app screens lead's
+`app` tab kind). Internal React pages and viewers become daemon tabs of the same `app` kind (a
+first-party app id plus a route or path). Then `capture()` reads only daemon rows for every kind.
+Pushed state (below) is ONLY for state that the daemon cannot own, documented per kind:
+
+| Kind | Daemon owns (captured at close) | Pushed (daemon cannot own it) |
+|---|---|---|
+| terminal | cwd, launch spec, env set through cmux, hook-reported agent session, scrollback grid | nothing |
+| browser (CEF, via cmux-browser-host) | url, engine, profile, back/forward list (the Rust host sees every navigation) | scroll position |
+| browser (WebKit) | url, engine, profile | back/forward list (WKBackForwardList lives in the app process), scroll |
+| app tab: agent (R91) | app id, conversation id, acpmux session id, cwd | draft prompt text |
+| app tab: new-tab page, React pages | app id, page id, route | scroll |
+| app tab: viewer | app id, path or document id, revision | scroll anchor |
+| app tab: third-party | app id, app version | the app's restore payload (section 3.1, through the app host, which is a daemon module) |
 
 The daemon cannot ask the app at close time (the app may be gone; the close may come from the CLI,
 an agent or another Mac). So state that the daemon does not own is PUSHED ahead of time by its
@@ -433,6 +452,9 @@ touch it.
 
 ## 9. Build order (red test first in every slice)
 
+- Deletion rule (coordinator): the slice that moves a kind into the daemon also DELETES the Swift
+  history of that kind: ClosedTabTracker, ClosedScreenHistory, ClosedWorkspaceTracker and the
+  app-only `reopenClosedWindow`, with a test that no Swift closed history remains.
 - S1 (daemon, cmux-tui window, no Cargo.lock change): closed-history-v2 schema, migration, groups,
   RAM index, `history.closed.list|restore|delete`, window scope, retention, privacy filters,
   `surface.restore_state.put`, restore_state on close ops. Review subagent before landing.
@@ -445,7 +467,7 @@ touch it.
 - S5 (app platform): manifest `restore` option, validator rules, host methods, placeholder tab.
 - S6 (browser payload) with the browser lead.
 
-## 10. Decisions for Lawrence
+## 10. Decisions (all APPROVED as recommended, coordinator 2026-10-04)
 
 1. DECISION: Cmd-Shift-T scope. RECOMMEND: the newest group of the key window, else the newest group
    from a closed window; never a group from another live window. Reason: it matches browsers and
