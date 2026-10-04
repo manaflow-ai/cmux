@@ -110,6 +110,18 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
         }
     }
 
+    /// The mark of the values `sessionID` would mask now, for
+    /// ``typedSince(_:forReader:)``. Seam.
+    public func captureMark(forReader sessionID: String) -> Int {
+        0
+    }
+
+    /// Whether another session typed a value `sessionID` must not see since
+    /// `mark` (``captureMark(forReader:)``). Seam.
+    public func typedSince(_ mark: Int, forReader sessionID: String) -> Bool {
+        false
+    }
+
     /// The values other sessions typed, as the driver's `secretMasks`
     /// (`[{ value, domains }]`), for a capture `sessionID` takes.
     public func captureMasks(forReader sessionID: String) -> [[String: Any]] {

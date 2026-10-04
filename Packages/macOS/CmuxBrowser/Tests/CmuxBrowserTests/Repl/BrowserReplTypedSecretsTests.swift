@@ -19,6 +19,27 @@ struct BrowserReplTypedSecretsTests {
         #expect((masks.first?["domains"] as? [[String: Any]])?.first?["raw"] as? String == "https://login.example.com")
     }
 
+    /// A capture takes its masks before it waits for the page; a value
+    /// another session types into the tab meanwhile is not among them, so
+    /// the capture must learn of it afterwards and not return its pixels.
+    @Test func aValueTypedDuringACaptureIsReportedAfterIt() {
+        let typed = BrowserReplTypedSecrets()
+        typed.record(tab: "tab1", name: "password", value: "first-secret", domains: Self.domains, typist: "typist")
+        let mark = typed.captureMark(forReader: "reader")
+        #expect(!typed.typedSince(mark, forReader: "reader"))
+        // The reader's own typing is not a value it must not see.
+        typed.record(tab: "tab1", name: "mine", value: "own-secret", domains: Self.domains, typist: "reader")
+        #expect(!typed.typedSince(mark, forReader: "reader"))
+        // Another session types while the capture waits for the page.
+        typed.record(tab: "tab1", name: "otp", value: "second-secret", domains: Self.domains, typist: "typist")
+        #expect(typed.typedSince(mark, forReader: "reader"), "a value typed during the capture went unnoticed")
+        // Typing the same name again (a new value) counts too.
+        let later = typed.captureMark(forReader: "reader")
+        typed.record(tab: "tab1", name: "otp", value: "third-secret", domains: Self.domains, typist: "typist")
+        #expect(typed.typedSince(later, forReader: "reader"))
+        #expect(!typed.typedSince(typed.captureMark(forReader: "reader"), forReader: "reader"))
+    }
+
     @Test func theTypingSessionKeepsItsOwnRedaction() {
         let typed = BrowserReplTypedSecrets()
         typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
