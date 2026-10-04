@@ -16,7 +16,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import mysql from "mysql2/promise"
 
-const DIR = join(import.meta.dir, "drizzle-mysql")
+const DIR = join(import.meta.dirname, "drizzle-mysql")
 
 export interface Migration {
   readonly name: string

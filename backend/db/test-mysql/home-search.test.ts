@@ -10,7 +10,7 @@ const url = process.env.MYSQL_URL
 const run = url ? describe : describe.skip
 const binding = () => {
   const u = new URL(url!)
-  return { host: u.hostname, port: Number(u.port || 3306), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password), database: u.pathname.slice(1) }
+  return { host: u.hostname, port: Number(u.port || 3306), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password), database: u.pathname.slice(1), tls: u.searchParams.has("ssl") }
 }
 const env = () => ({ PS_MYSQL_RO: binding() }) as never
 const as = (user: string) => ({ identity: `session:${user}`, kind: "session", user }) as never
@@ -76,5 +76,19 @@ run("home.search on the MySQL projection", () => {
     expect(ids(await homeSearchMysql(env(), as("user_ta"), { q: "plan", before: "not a time" }))).toEqual(["ERR invalid before"])
     const install = { identity: "install:x", kind: "install", user: "user_ta", grant_classes: ["mutate-own"] } as never
     expect(ids(await homeSearchMysql(env(), install, { q: "plan" }))).toEqual(["ERR grant does not cover read"])
+  })
+})
+
+describe.skipIf(!url)("feed sweep user paging on MySQL", () => {
+  it("pages user ids in byte order after a cursor", async () => {
+    const { listUsersMysql } = await import("../../apps/api/src/feed-sweep.ts")
+    const db = await mysql.createConnection({ uri: url!, timezone: "Z" })
+    await db.query("DELETE FROM users WHERE id LIKE 'user\\_fs%'")
+    for (const id of ["user_fsB", "user_fsA", "user_fsa", "user_fsC"]) await db.query("INSERT INTO users (id, stack_user_id, display_name, personal_team, source_stream, source_seq) VALUES (?, ?, 'x', 't', 's', 1)", [id, `st_${id}`])
+    await db.end()
+    const env = { PS_MYSQL_RO: binding() } as never
+    const all = (await listUsersMysql(env, null, 1000)).filter((id) => id.startsWith("user_fs"))
+    expect(all).toEqual(["user_fsA", "user_fsB", "user_fsC", "user_fsa"])
+    expect((await listUsersMysql(env, "user_fsB", 2)).filter((id) => id.startsWith("user_fs"))).toEqual(["user_fsC", "user_fsa"])
   })
 })
