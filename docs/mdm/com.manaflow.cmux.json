@@ -205,28 +205,16 @@
       "title" : "Browser Toolbar Opacity",
       "type" : "number"
     },
-    "appearance.surfaces.internalPage.color" : {
-      "description" : "appearance.surfaces.internalPage.color",
-      "title" : "Internal Pages Color",
+    "appearance.surfaces.diff.color" : {
+      "description" : "appearance.surfaces.diff.color",
+      "title" : "Diff Viewer Color",
       "type" : "string"
     },
-    "appearance.surfaces.internalPage.opacity" : {
-      "description" : "appearance.surfaces.internalPage.opacity",
+    "appearance.surfaces.diff.opacity" : {
+      "description" : "appearance.surfaces.diff.opacity",
       "maximum" : 1,
       "minimum" : 0,
-      "title" : "Internal Pages Opacity",
-      "type" : "number"
-    },
-    "appearance.surfaces.splitDivider.color" : {
-      "description" : "appearance.surfaces.splitDivider.color",
-      "title" : "Split Divider Color",
-      "type" : "string"
-    },
-    "appearance.surfaces.splitDivider.opacity" : {
-      "description" : "appearance.surfaces.splitDivider.opacity",
-      "maximum" : 1,
-      "minimum" : 0,
-      "title" : "Split Divider Opacity",
+      "title" : "Diff Viewer Opacity",
       "type" : "number"
     },
     "appearance.surfaces.docks.color" : {
@@ -251,6 +239,18 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Home Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.internalPage.color" : {
+      "description" : "appearance.surfaces.internalPage.color",
+      "title" : "Internal Pages Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.internalPage.opacity" : {
+      "description" : "appearance.surfaces.internalPage.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Internal Pages Opacity",
       "type" : "number"
     },
     "appearance.surfaces.newTabPage.color" : {
@@ -287,6 +287,18 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Sidebar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.splitDivider.color" : {
+      "description" : "appearance.surfaces.splitDivider.color",
+      "title" : "Split Divider Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.splitDivider.opacity" : {
+      "description" : "appearance.surfaces.splitDivider.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Split Divider Opacity",
       "type" : "number"
     },
     "appearance.surfaces.tabBar.color" : {
