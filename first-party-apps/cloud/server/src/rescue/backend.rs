@@ -5,8 +5,8 @@
 //! It is the only writer of each rescue terminal's stream state.
 
 use super::iface::{
-    BackendCapabilities, BackendError, BackendId, ByteEvent, ByteTerminal, Close, ExitStatus,
-    Grid, Input, LocalId, OpenRequest, ResumeToken, Signal, TerminalBackend,
+    BackendCapabilities, BackendError, BackendId, ByteEvent, ByteTerminal, Close, ExitStatus, Grid,
+    Input, LocalId, OpenRequest, ResumeToken, Signal, TerminalBackend,
 };
 use super::transport::{RescueTransport, StreamId, TransportEvent};
 use crate::connector::iface::{allow_kind, check_kinds};
@@ -171,7 +171,24 @@ impl TerminalBackend for RescueBackend {
     }
 
     fn open(&mut self, request: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError> {
-        todo!("C2 red commit: not implemented yet")
+        allow_kind(&self.kinds, &request.kind)?;
+        if request.command.is_some() {
+            return Err(BackendError::Unsupported(
+                "the rescue shell runs the machine's login shell only".into(),
+            ));
+        }
+        let mut inner = lock(&self.inner);
+        let stream = inner.transport.open(&request.target, request.grid)?;
+        inner.streams.insert(
+            stream,
+            Stream {
+                status: Status::Open,
+                next_seq: 0,
+                pending: BTreeMap::new(),
+                events: Vec::new(),
+            },
+        );
+        Ok(Box::new(RescueTerminal { inner: Arc::clone(&self.inner), stream }))
     }
 
     fn resume(&mut self, _token: &ResumeToken) -> Result<Box<dyn ByteTerminal>, BackendError> {
@@ -188,7 +205,11 @@ impl ByteTerminal for RescueTerminal {
     fn take_events(&mut self) -> Vec<ByteEvent> {
         let mut inner = lock(&self.inner);
         inner.pump();
-        inner.streams.get_mut(&self.stream).map(|s| std::mem::take(&mut s.events)).unwrap_or_default()
+        inner
+            .streams
+            .get_mut(&self.stream)
+            .map(|s| std::mem::take(&mut s.events))
+            .unwrap_or_default()
     }
 
     fn write(&self, input: Input) -> Result<(), BackendError> {

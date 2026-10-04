@@ -14,7 +14,10 @@ use serde_json::json;
 const ENDPOINT: &str = "/api/vm/vm-alpha01/attach-endpoint";
 
 fn server(fixtures: &[&str], spawner: &FakeSpawner) -> Server<FakeControlPlane> {
-    Server::with_attach(FakeControlPlane::with(fixtures), attach(spawner, &FakeTransport::default()))
+    Server::with_attach(
+        FakeControlPlane::with(fixtures),
+        attach(spawner, &FakeTransport::default()),
+    )
 }
 
 fn connect(machine: &str, key: &str) -> Request {
@@ -46,11 +49,7 @@ fn a_paused_machine_is_started_first() {
         s.control_plane().calls.iter().map(|c| format!("{} {}", c.method, c.path)).collect();
     assert_eq!(
         calls,
-        [
-            "GET /api/vm",
-            "POST /api/vm/vm-beta02/resume",
-            "POST /api/vm/vm-beta02/attach-endpoint"
-        ],
+        ["GET /api/vm", "POST /api/vm/vm-beta02/resume", "POST /api/vm/vm-beta02/attach-endpoint"],
         "start, then attach"
     );
     assert_eq!(spawner.spawns(), 1);
@@ -119,8 +118,10 @@ fn revoked_does_not_respawn() {
     assert_eq!(spawner.spawns(), 1, "no new link process");
     assert_eq!(s.control_plane().count("POST", ENDPOINT), 2, "no attach call after revoke");
     // A disconnect forgets the revocation; the next connect asks again.
-    s.handle(&Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" })).key("d-1"))
-        .expect("disconnect");
+    s.handle(
+        &Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" })).key("d-1"),
+    )
+    .expect("disconnect");
     s.control_plane_mut().serve("attach_endpoint_alpha");
     s.handle(&connect("vm-alpha01", "c-4")).expect("connect after disconnect");
     assert_eq!(spawner.spawns(), 2);
@@ -214,7 +215,10 @@ fn disconnect_ends_the_link_process_and_reports_down() {
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     s.connector().take_events();
     let done = s
-        .handle(&Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" })).key("d-1"))
+        .handle(
+            &Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" }))
+                .key("d-1"),
+        )
         .expect("disconnect");
     assert_eq!(done, json!({ "machine": "vm-alpha01", "disconnected": true }));
     assert_eq!(spawner.log().terminated.len(), 1);
@@ -224,4 +228,55 @@ fn disconnect_ends_the_link_process_and_reports_down() {
     spawner.exit("vm-alpha01", 0);
     assert!(s.connector().take_events().is_empty());
     assert!(s.attach().supervisor().state("vm-alpha01").is_none());
+}
+
+/// The real spawner with `/bin/sh` standing in for `cmux-tui` (no network).
+#[cfg(unix)]
+mod real_process {
+    use cmux_cloud::link::{LinkCommand, LinkFailure, LinkSupervisor, ProcessSpawner};
+    use std::path::PathBuf;
+
+    fn command(script: &str, dir: &str) -> LinkCommand {
+        let dir = std::env::temp_dir().join(format!("cmux-c2-{dir}-{}", std::process::id()));
+        LinkCommand {
+            binary: PathBuf::from("/bin/sh"),
+            args: vec!["-c".into(), script.into()],
+            env: vec![("CMUX_REMOTE_STATE_DIR".into(), dir.join("state").display().to_string())],
+            state_dir: dir.join("state"),
+            local_socket: dir.join("link.sock"),
+        }
+    }
+
+    #[test]
+    fn a_ready_line_gives_the_carrier_and_the_exit_is_reported() {
+        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner));
+        let ready =
+            r#"printf '%s\n' '{"event":"connection-snapshot","local_socket":"/tmp/c2.sock"}'"#;
+        let carrier =
+            supervisor.spawn_and_wait("vm-real01", &command(ready, "ready")).expect("carrier");
+        assert_eq!(carrier.socket, PathBuf::from("/tmp/c2.sock"));
+        assert_eq!(carrier.id, "cloud-vm/vm-real01#1");
+    }
+
+    #[test]
+    fn an_early_exit_is_down_with_its_status() {
+        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner));
+        let err = supervisor.spawn_and_wait("vm-real02", &command("exit 7", "exit")).unwrap_err();
+        match err {
+            LinkFailure::Down { retryable: true, reason } => {
+                assert!(reason.contains('7'), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_child_gets_a_cleared_environment() {
+        // cargo sets CARGO_MANIFEST_DIR for this test process; the link must not inherit it.
+        assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
+        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner));
+        let script = r#"test -z "${CARGO_MANIFEST_DIR:-}" && test -n "$CMUX_REMOTE_STATE_DIR" && printf '%s\n' '{"event":"connection-snapshot","local_socket":"/tmp/c2-env.sock"}'"#;
+        let carrier = supervisor.spawn_and_wait("vm-real03", &command(script, "env"));
+        assert!(carrier.is_ok(), "{carrier:?}");
+    }
 }

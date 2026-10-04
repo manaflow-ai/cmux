@@ -137,7 +137,12 @@ impl FakeTransport {
     }
 
     pub fn written(&self, stream: StreamId) -> Vec<u8> {
-        self.log().writes.iter().filter(|(s, _)| *s == stream).flat_map(|(_, b)| b.clone()).collect()
+        self.log()
+            .writes
+            .iter()
+            .filter(|(s, _)| *s == stream)
+            .flat_map(|(_, b)| b.clone())
+            .collect()
     }
 }
 
