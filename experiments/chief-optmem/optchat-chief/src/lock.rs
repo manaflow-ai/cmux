@@ -205,6 +205,11 @@ mod tests {
             older_host("42", 9_000, 1, &Probe(true, Some(8_000))),
             Some(42)
         );
+        // An empty second line is a missing one, as lock.ts reads it.
+        assert_eq!(
+            older_host("42\n\n", 9_000, 1, &Probe(true, Some(8_000))),
+            Some(42)
+        );
         // Dead, our own pid, or garbage.
         assert_eq!(older_host("42\n5000\n", 0, 1, &Probe(false, None)), None);
         assert_eq!(older_host("1\n5000\n", 0, 1, &Probe(true, None)), None);

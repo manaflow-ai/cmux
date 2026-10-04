@@ -205,6 +205,14 @@ mod tests {
                 .unwrap();
         assert_eq!(mcp["mcpServers"]["optchat"]["args"][0], "mcp");
         assert_eq!(mcp["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
+        // Audit round 2: Claude Code's own subagents would stream their
+        // steps into the turn's events (section 9: they stay out of the log);
+        // the Chief starts agents with `chief agents` instead.
+        let settings: Value = serde_json::from_slice(
+            &std::fs::read(paths.session.join(".claude").join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(settings["permissions"]["deny"], json!(["Task", "Agent"]));
         let launcher = std::fs::read_to_string(paths.bin.join("chief")).unwrap();
         assert!(launcher.contains("MUX_HOME=/h; export MUX_HOME\n"));
         assert!(launcher.ends_with("exec /x/optchat-chief \"$@\"\n"));

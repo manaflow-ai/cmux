@@ -449,6 +449,95 @@ mod tests {
         );
     }
 
+    /// Audit round 2: a Task/Agent subagent's stream reaches acpmux through
+    /// the same translator; its raw `claude.*` line carries a
+    /// `parent_tool_use_id`, and the translated updates follow it.
+    #[test]
+    fn a_subagents_text_and_tool_calls_stay_out_of_the_log() {
+        let raw = |seq: u64, kind: &str, parent: Value| {
+            ev(
+                seq,
+                "in",
+                kind,
+                json!({"type": kind.trim_start_matches("claude."), "parent_tool_use_id": parent}),
+            )
+        };
+        let mut fold = TurnFold::new();
+        let mut log = Vec::new();
+        let events = vec![
+            raw(1, "claude.assistant", Value::Null),
+            update(
+                2,
+                "tool_call",
+                json!({"toolCallId": "task", "rawInput": {"prompt": "find x"}, "_meta": {"claude": {"tool": "Agent"}}}),
+            ),
+            raw(3, "claude.stream_event", json!("task")),
+            chunk(4, "Searching for x."),
+            raw(5, "claude.assistant", json!("task")),
+            update(
+                6,
+                "tool_call",
+                json!({"toolCallId": "g1", "rawInput": {"pattern": "x"}, "_meta": {"claude": {"tool": "Grep"}}}),
+            ),
+            raw(7, "claude.user", json!("task")),
+            update(
+                8,
+                "tool_call_update",
+                json!({"toolCallId": "g1", "status": "completed", "rawOutput": "a.rs:1"}),
+            ),
+            raw(9, "claude.stream_event", json!("task")),
+            chunk(10, "x is in a.rs."),
+            raw(11, "claude.user", Value::Null),
+            update(
+                12,
+                "tool_call_update",
+                json!({"toolCallId": "task", "status": "completed", "rawOutput": "x is in a.rs."}),
+            ),
+            raw(13, "claude.stream_event", Value::Null),
+            chunk(14, "Found it."),
+            ev(15, "mux", "turn_end", json!({"stopReason": "end_turn"})),
+        ];
+        for e in &events {
+            log.extend(fold.apply(e));
+        }
+        assert_eq!(
+            kinds(&log),
+            vec![
+                (Kind::Tool, "Agent {\"prompt\":\"find x\"}"),
+                (Kind::Echo, "x is in a.rs."),
+                (Kind::Talk, "Found it."),
+            ]
+        );
+        assert_eq!(fold.final_text(), Some("Found it."));
+    }
+
+    /// Audit round 2: a turn that stops early (refusal, max_tokens,
+    /// cancelled) must say why, not end silently.
+    #[test]
+    fn a_turn_end_with_another_stop_reason_is_an_error() {
+        let mut fold = TurnFold::new();
+        fold.apply(&ev(1, "mux", "turn_end", json!({"stopReason": "refusal"})));
+        let error = fold.ended().unwrap().error.clone();
+        assert!(error.as_deref().is_some_and(|e| e.contains("refusal")), "{error:?}");
+        let mut fold = TurnFold::new();
+        fold.apply(&ev(1, "mux", "turn_end", json!({"stopReason": "end_turn"})));
+        assert_eq!(fold.ended(), Some(&Ended { error: None }));
+    }
+
+    /// Audit round 2: an orphan's fold starts with no tool map; a result for
+    /// a call folded before the connection loss must not log a bogus
+    /// nameless `tool` entry.
+    #[test]
+    fn a_result_for_a_call_folded_earlier_logs_only_its_echo() {
+        let mut fold = TurnFold::after(1);
+        let out = fold.apply(&update(
+            2,
+            "tool_call_update",
+            json!({"toolCallId": "t1", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "ok"}}]}),
+        ));
+        assert_eq!(kinds(&out), vec![(Kind::Echo, "ok")]);
+    }
+
     #[test]
     fn finish_flushes_pending_talk() {
         let mut fold = TurnFold::new();

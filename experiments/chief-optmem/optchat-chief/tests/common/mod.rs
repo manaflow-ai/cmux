@@ -88,6 +88,8 @@ pub struct Owner {
     /// a reused key with the same text replays (posts nothing), with other
     /// text it is refused with `idempotency_conflict`.
     pub ledger: Option<BTreeMap<String, String>>,
+    /// Rejections for the next `read_cursor.set` ops, in order (None: accept).
+    pub cursor_rejects: VecDeque<Option<String>>,
 }
 
 impl Owner {
@@ -149,6 +151,9 @@ impl ConversationPort for FakeDaemon {
         owner.ops.push((key.to_owned(), op.clone()));
         match op {
             Op::ReadCursorSet { seq } => {
+                if let Some(Some(reason)) = owner.cursor_rejects.pop_front() {
+                    return Err(OpError::Rejected(reason));
+                }
                 owner
                     .summary
                     .as_mut()
@@ -239,6 +244,10 @@ pub struct Agents {
     pub released: usize,
     /// The next turn loses its acpmux connection instead of answering.
     pub lose: bool,
+    /// `events` fails with this error while set.
+    pub events_error: Option<String>,
+    /// The prompt's answer (default `{"stopReason": "end_turn"}`).
+    pub answer: Option<Value>,
 }
 
 pub struct FakeAgents {
@@ -322,12 +331,16 @@ impl AgentPort for FakeAgents {
                     inner = me.changed.wait(inner).unwrap();
                 }
             }
-            let lose = std::mem::take(&mut me.inner.lock().unwrap().lose);
+            let (lose, answer) = {
+                let mut inner = me.inner.lock().unwrap();
+                (std::mem::take(&mut inner.lose), inner.answer.clone())
+            };
             let _ = signals.send(TurnSignal::Changed);
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
             } else {
-                let _ = signals.send(TurnSignal::Done(Ok(json!({"stopReason": "end_turn"}))));
+                let answer = answer.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
+                let _ = signals.send(TurnSignal::Done(Ok(answer)));
             }
         });
         Ok(())
@@ -335,6 +348,9 @@ impl AgentPort for FakeAgents {
 
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
         let inner = self.inner.lock().unwrap();
+        if let Some(e) = &inner.events_error {
+            return Err(e.clone());
+        }
         Ok(inner
             .events
             .get(session)
