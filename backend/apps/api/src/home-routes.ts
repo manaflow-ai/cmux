@@ -4,7 +4,7 @@ import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
-import { HOME_RATE_LIMITED, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
+import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -38,6 +38,7 @@ export interface ConversationStub {
   card(entity: string): Promise<{ first_name: string; avatar_url: null } | null>
   invitePreview(entity: string, secret: string): Promise<unknown>
   mayInvite(entity: string, principal: Principal): Promise<boolean>
+  homeDecided(entity: string, principal: Principal, key: string): Promise<boolean>
 }
 
 interface AddressStub {
@@ -54,6 +55,8 @@ export const conversationForCode = (code: string): string | null => {
 }
 
 const digest26 = (text: string) => invites.crockford(createHash("sha256").update(text).digest(), 26)
+/** The id conversation.create gives a group: one per (actor, idempotency key). */
+const createdId = (actor: string, key: string) => `conv_${digest26(`conv\u0000${actor}\u0000${key}`)}`
 const actorOf = (p: Principal) => homeConversation.actorOf(p) ?? p.identity
 const reject = (key: string, code: string, message: string): SubmitResult => ({
   frames: [{ t: "reject", tx: "", idempotency_key: key, code, message, retryable: false, replayed: false } as OwnerFrame]
@@ -118,22 +121,91 @@ const withReach = async (env: Env, principal: Principal, ids: ReadonlyArray<unkn
 
 const participantIds = (list: unknown): Array<unknown> => (Array.isArray(list) ? list.map((p) => (typeof p === "object" && p !== null ? (p as { id?: unknown }).id : undefined)) : [])
 
+/** The owner frame of a dm.open that creates the pair's DM (the caller and `peer`); the replay path rebuilds the same one. */
+const dmCreateFrame = (principal: Principal, frame: OpFrame, peer: string): { id: string; frame: OpFrame } => {
+  const me = actorOf(principal)
+  const id = homeConversation.dmConversationId(me, peer)
+  // No display names in the hashed params: the owner's policy takes the caller's name from the principal
+  // and the peer's from its records, so a renamed caller's same-key retry still replays.
+  return { id, frame: { ...frame, params: { id, participants: [{ id: me, kind: principal.agent ? "agent" : "human" }, { id: peer, kind: peer.startsWith("agent_") ? "agent" : "human" }] } } }
+}
+/** The owner frame of a dm.open that reopens an existing DM (no participants: it never creates one). */
+const dmReopenFrame = (frame: OpFrame, id: string): OpFrame => ({ ...frame, params: { id, participants: [] } })
+
+/**
+ * The ConversationDO and the owner frame a rate-gated op becomes (the same mapping the op's case
+ * below submits), or null: conversation.create (a group per actor and key), dm.open with a user
+ * peer (the pair's DM), participants.add (its conversation, which the frame leaves out).
+ */
+const ownerTarget = (principal: Principal, frame: OpFrame): { id: string; frame: OpFrame } | null => {
+  const params = (frame.params ?? {}) as Record<string, unknown>
+  const me = actorOf(principal)
+  if (frame.op === "conversation.create") {
+    const id = createdId(me, String(frame.idempotency_key))
+    return { id, frame: { ...frame, params: { ...params, id, kind: "group" } } }
+  }
+  if (frame.op === "dm.open" && typeof params.peer === "string" && params.peer.startsWith("user_")) return dmCreateFrame(principal, frame, params.peer)
+  const { conversation, ...rest } = params
+  return typeof conversation === "string" && CONVERSATION_ID.test(conversation) ? { id: conversation, frame: { ...frame, params: rest } } : null
+}
+
+/**
+ * A rate-gated op whose key is already decided in its target conversation: the ledger answers it
+ * (its stored result, or idempotency.conflict for other params) from identity and key alone, so it
+ * goes straight to submit with the plain principal, with no charge and no reach RPC. Asked before
+ * the budget (one RPC to the target conversation). A dm.open whose existing DM has another id
+ * (from an accepted invite) is not found here.
+ */
+const replayDecided = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult | null> => {
+  const target = ownerTarget(principal, frame)
+  if (!target || typeof frame.idempotency_key !== "string") return null
+  const stub = conversationStub(env, target.id)
+  if (!(await stub.homeDecided(target.id, principal, frame.idempotency_key))) return null
+  const res = await stub.submit(target.id, principal, target.frame)
+  // A dm.open key decided on the pair's DM may have been a reopen (no participants): its params differ, so try that shape once.
+  const conflict = res.frames.some((f) => f.t === "reject" && (f as { code?: string }).code === "idempotency.conflict")
+  return frame.op === "dm.open" && conflict ? stub.submit(target.id, principal, dmReopenFrame(frame, target.id)) : res
+}
+
+/**
+ * dm.open with a user peer after a budget refusal: the caller's existing DM with that peer (inbox
+ * `peer` index, one RPC to the caller's own UserDO) still opens, with no charge and no reach; the
+ * owner answers an existing id with its summary and writes nothing. Null when there is none.
+ */
+const reopenDm = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult | null> => {
+  const peer = (frame.params as { peer?: unknown } | undefined)?.peer
+  // A chief never reopens through its owner's inbox (as resolveHumanReach): forbidden vs home.rate_limited would tell it whether the owner has that DM.
+  if (frame.op !== "dm.open" || typeof peer !== "string" || !peer.startsWith("user_") || !principal.user || principal.agent) return null
+  const inbox = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readInbox(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { conversation?: string | null } }> }
+  const found = await inbox.readInbox(principal.user, principal, "inbox.dm_peer", { peer })
+  const id = found.ok ? found.value?.conversation : null
+  return id ? conversationStub(env, id).submit(id, principal, dmReopenFrame(frame, id)) : null
+}
+
 /** A Home ConversationDO mutation from the public API; the principal is already resolved (grant classes). */
 export const conversationMutate = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult> => {
   const params = (frame.params ?? {}) as Record<string, unknown>
   const key = frame.idempotency_key
-  if (isHomeRateOp(frame.op)) {
-    const gate = await takeHomeRate(env, principal, actorOf(principal), frame.op)
+  // dm.open with a user peer may create a conversation and resolves reach: it spends the conversation.create budget.
+  const rateOp = isHomeRateOp(frame.op) ? frame.op : frame.op === "dm.open" && typeof params.peer === "string" && !params.peer.startsWith("agent_") ? "conversation.create" : null
+  if (rateOp) {
+    // A decided key replays first: no unit, no reach, and the exact frame the first call sent.
+    const replayed = await replayDecided(env, principal, frame)
+    if (replayed) return replayed
+    const gate = await takeHomeRate(env, principal, actorOf(principal), rateOp)
+    if (!gate.ok && "not_ready" in gate) return reject(key, HOME_USER_NOT_READY, "call user.ensure once before Home conversation ops")
     if (!gate.ok) {
+      const reopened = await reopenDm(env, principal, frame)
+      if (reopened) return reopened
       const message = `too many ${frame.op} requests; retry in ${Math.ceil(gate.retry_after_ms / 1000)} s`
       return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: HOME_RATE_LIMITED, message, retryable: true, replayed: false, details: { retry_after_ms: gate.retry_after_ms } } as OwnerFrame] }
     }
   }
   switch (frame.op) {
     case "conversation.create": {
-      const id = `conv_${digest26(`conv\u0000${actorOf(principal)}\u0000${key}`)}`
+      const target = ownerTarget(principal, frame)!
       const who = await withReach(env, await withOwnedAgents(env, principal), participantIds(params.participants))
-      return conversationStub(env, id).submit(id, who, { ...frame, params: { ...params, id, kind: "group" } })
+      return conversationStub(env, target.id).submit(target.id, who, target.frame)
     }
     case "dm.open": {
       const me = actorOf(principal)
@@ -145,7 +217,7 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
         if (main) {
           // dm.open on an existing conversation id answers its full summary (no write). With no
           // participants it can never create one: a main conversation still in the outbox is a retryable reject.
-          const res = await conversationStub(env, main).submit(main, principal, { ...frame, params: { id: main, participants: [] } })
+          const res = await conversationStub(env, main).submit(main, principal, dmReopenFrame(frame, main))
           const reply = resultOf(res)
           if (reply?.t !== "result") return reject(key, "chief_main_pending", "the chief's main conversation is being created; retry")
           return { frames: res.frames.map((f) => (f === reply ? { ...reply, value: { ...(reply.value as object), redirected: "chief_main" } } : f)) }
@@ -155,10 +227,9 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
         const reach = await resolveHumanReach(env, principal, humanTargets(me, [peer]))
         // An existing DM with this user (also one whose id came from an accepted invite, section 17 Q2) answers as is.
         const existing = reach.dms.get(peer)
-        if (existing) return conversationStub(env, existing).submit(existing, principal, { ...frame, params: { id: existing, participants: [] } })
-        const id = homeConversation.dmConversationId(me, peer)
-        const participants = [self, { id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", display_name: peer }]
-        return conversationStub(env, id).submit(id, reach.principal, { ...frame, params: { id, participants } })
+        if (existing) return conversationStub(env, existing).submit(existing, principal, dmReopenFrame(frame, existing))
+        const created = dmCreateFrame(principal, frame, peer)
+        return conversationStub(env, created.id).submit(created.id, reach.principal, created.frame)
       }
       const resolved = addressFor(env, (peer ?? {}) as { email?: string; phone?: string })
       if ("ok" in resolved) return reject(key, resolved.code, resolved.message)

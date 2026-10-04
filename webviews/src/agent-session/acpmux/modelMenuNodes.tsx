@@ -5,7 +5,7 @@ import type React from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { Combo } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
-import { t } from "./i18n";
+import type { Translate } from "./i18n";
 import {
   buildTaxonomy,
   familyDefault,
@@ -109,6 +109,7 @@ const ordered = <T,>(items: T[], order: Order) => (order === "bestLast" ? [...it
 /// A level that shows its best LEVEL_ROWS rows and folds the rest under "More…", which expands
 /// in place. The fold sits at the far end from the best row.
 export function folded<T>(
+  t: Translate,
   key: string,
   ranked: T[],
   row: (item: T) => MenuNode,
@@ -142,10 +143,13 @@ export function menuNodes(
     order,
     expanded,
     expand,
+    t,
   }: {
     order: Order;
     expanded: ReadonlySet<string>;
     expand(key: string): void;
+    /** The caller's `useT()` translator. */
+    t: Translate;
   },
 ) {
   const modelRow = (model: TaxModel, section?: string, detail?: string): MenuNode => ({
@@ -158,6 +162,7 @@ export function menuNodes(
   });
   const familyModels = (family: TaxFamily, section?: string) =>
     folded(
+      t,
       `family:${family.key}`,
       data.rankModels(family.models),
       (model) => modelRow(model, section),
@@ -172,6 +177,7 @@ export function menuNodes(
     if (!family) return [];
     const offered = new Set(data.numbered.map((combo) => combo.model));
     return folded(
+      t,
       `current:${family.key}`,
       data.rankModels(family.models).filter((model) => !offered.has(model.id)),
       (model) => modelRow(model, family.name),
@@ -190,6 +196,7 @@ export function menuNodes(
   });
   const families = (provider: TaxProvider, section?: string) =>
     folded(
+      t,
       `families:${provider.name}`,
       data.rankFamilies(provider.families),
       (family) => familyRow(family, section),
@@ -218,6 +225,7 @@ export function menuNodes(
       const providers = data.taxonomy.providers;
       if (providers.length === 1) return families(providers[0]!, section ? t("picker.family") : undefined);
       return folded(
+        t,
         "providers",
         data.rankProviders(providers),
         (provider) => providerRow(provider, section ? t("picker.provider") : undefined),

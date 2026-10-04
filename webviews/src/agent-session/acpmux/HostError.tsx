@@ -1,9 +1,10 @@
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 /// Why the host could not hand the pane acpmux, in the host's words (which carry the next
 /// step, such as where to install it), above the composer. The pane keeps retrying on its own;
 /// Retry asks again now, or once the attempt in flight ends (`retrying`).
 export function HostError({ message, retrying, onRetry }: { message: string; retrying?: boolean; onRetry(): void }) {
+  const t = useT();
   return (
     <div className="acpmux-host-error" role="alert">
       <div className="acpmux-host-error-card">

@@ -6068,6 +6068,100 @@
             }
           },
           "description": "What reopen recreates; a closed tab has one screen with one tab."
+        },
+        "window": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Window record id (`install_id/window_id`) that listed the closed objects; null when no window listed them."
+        },
+        "member_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members of the group (one close gesture)."
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedMemberRecord"
+            }
+          },
+          "description": "Every closed object of the group in restore order. The top-level fields mirror the first member."
+        }
+      },
+      "extra": false
+    },
+    "ClosedMemberRecord": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tab",
+              "screen",
+              "workspace"
+            ]
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "pane"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "screens": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedScreenRecord"
+            }
+          }
         }
       },
       "extra": false
@@ -6099,6 +6193,25 @@
             "kind": "resource_id",
             "resource": "workspace"
           }
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "Every workspace the reopened members went to; `workspace_id` is the first."
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the group after a partial reopen."
         },
         "screen_ids": {
           "required": true,
@@ -9539,7 +9652,29 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "window": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 257
+            },
+            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "default": 100,
+            "description": "Newest groups to return."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -9573,11 +9708,35 @@
         },
         "fields": {
           "closed": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "ref",
               "name": "StateId"
-            }
+            },
+            "description": "The group to reopen. Omit to reopen the newest group of `window`, else the newest group no live window owns."
+          },
+          "window": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 257
+            },
+            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "uint32"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Indexes into the group's `members` to reopen. Omit to reopen every member; the rest stay in the group."
           },
           "expected_revision": {
             "required": false,
@@ -9590,7 +9749,8 @@
         },
         "extra": false,
         "constraints": [
-          "A tab reopens in its pane when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
+          "One close gesture is one group; reopen restores its members in order.",
+          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
         ]
       },
       "result": {

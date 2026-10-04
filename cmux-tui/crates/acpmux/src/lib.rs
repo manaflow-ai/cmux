@@ -24,6 +24,7 @@ pub mod rpc;
 pub mod schema;
 pub mod server;
 pub mod session_name;
+pub mod sha256;
 pub mod store;
 pub mod transcript;
 pub mod trust;

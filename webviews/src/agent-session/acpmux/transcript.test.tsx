@@ -1,7 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { translatorFor } from "./i18n";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { editedCardHeight, layoutConversation, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
+
+const english = translatorFor("en");
 
 // A silent console: jsdom has no canvas, so text measurement logs and falls back to row estimates.
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -3183,7 +3186,7 @@ describe("acpmux hunk review", () => {
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
     };
     try {
-      await show(turnDisplay(toolFiles, { state: "missing" }, false));
+      await show(turnDisplay(english, toolFiles, { state: "missing" }, false));
       expect(document.querySelector(".acpmux-turn-note")?.textContent).toBe(
         "No checkpoint for this turn. Showing the agent's edits.",
       );
@@ -3191,7 +3194,7 @@ describe("acpmux hunk review", () => {
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
       expect(document.querySelector(".acpmux-hunk-reject")).not.toBeNull();
 
-      await show(turnDisplay(toolFiles, checkpoint, false));
+      await show(turnDisplay(english, toolFiles, checkpoint, false));
       const badges = [...document.querySelectorAll(".acpmux-diff-file")].map((node) => [
         node.getAttribute("data-path"),
         node.querySelector(".acpmux-fh-outside")?.textContent ?? "",

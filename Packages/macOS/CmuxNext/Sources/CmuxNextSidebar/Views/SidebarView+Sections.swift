@@ -19,6 +19,11 @@ extension SidebarView {
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
             region.onAccessory = { [weak self] id in self?.model.send(.activateItemAccessory(id)) }
+            // A drop gives the layout the order the band showed (R77).
+            region.onReorder = { [weak self] subject, shown in
+                guard let self, let op = SidebarRegionReorder.op(for: subject, shown: shown, document: self.model.layout) else { return }
+                self.model.send(.layout(op))
+            }
         }
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
         belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
@@ -135,5 +140,17 @@ extension SidebarView {
             view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
             x += width + Metrics.space2
         }
+    }
+
+    /// A space switch (R99): after a swipe the real list takes the page's
+    /// place; else the old page slides out toward the side away from the new
+    /// space's dot (a new space at the end comes in from the trailing edge).
+    func switchSpace(from old: ProfileKey?, to new: ProfileKey?, profiles: [SidebarProfile]) {
+        if spacePaging.modelDidSwitch(to: new) { return list.reload(animated: false) }
+        let oldIndex = profiles.firstIndex { $0.id == old }, newIndex = profiles.firstIndex { $0.id == new }
+        guard let oldIndex, let newIndex, oldIndex != newIndex else { return list.reload(animated: false) }
+        spacePaging.prepareSlide()
+        list.reload(animated: false)
+        spacePaging.slide(direction: SpacePager.direction(from: oldIndex, to: newIndex))
     }
 }
