@@ -145,10 +145,16 @@ fn a_remote_connection_is_never_a_trusted_local_connection() {
 fn url_open_loopback_scheduler_resource_and_binary_frames_are_refused_before_any_router() {
     for (frame, denial) in [
         (r#"{"id":1,"cmd":"url-open","terminal_id":"t","url":"https://x"}"#, Denial::Command),
-        (r#"{"id":1,"cmd":"loopback-open","stream":1,"host":"127.0.0.1","port":22}"#, Denial::Command),
+        (
+            r#"{"id":1,"cmd":"loopback-open","stream":1,"host":"127.0.0.1","port":22}"#,
+            Denial::Command,
+        ),
         (r#"{"id":1,"cmd":"loopback-status"}"#, Denial::Command),
         (r#"{"id":1,"cmd":"scheduler.dispatch"}"#, Denial::Command),
-        (r#"{"protocol":"cmux.protocol/2","id":"r","op":"workspace.list"}"#, Denial::ResourceProtocol),
+        (
+            r#"{"protocol":"cmux.protocol/2","id":"r","op":"workspace.list"}"#,
+            Denial::ResourceProtocol,
+        ),
         (r#"{"v":2,"op":"workspace.list"}"#, Denial::NoCommand),
         ("\u{0}\u{1}binary", Denial::NotAnObject),
         ("[1,2]", Denial::NotAnObject),
@@ -181,7 +187,9 @@ fn only_the_section_4_commands_pass_the_gate() {
     ];
     let mut passed: Vec<String> = names
         .iter()
-        .filter(|name| check_frame(&json!({"id": 1, "cmd": name}).to_string()) != Err(Denial::Command))
+        .filter(|name| {
+            check_frame(&json!({"id": 1, "cmd": name}).to_string()) != Err(Denial::Command)
+        })
         .cloned()
         .collect();
     passed.sort();
@@ -265,7 +273,8 @@ fn command_bearing_unknown_and_id_shaped_params_are_refused_on_every_method() {
         let frame = json!({"cmd":"conversation-snapshot","conversation":bad,"tail":1});
         assert_eq!(check_frame(&frame.to_string()), Err(Denial::IdShape), "{bad}");
     }
-    let stamp = json!({"cmd":"conversation-list","link_peer":{"install":"x","user":"42","team":"t"}});
+    let stamp =
+        json!({"cmd":"conversation-list","link_peer":{"install":"x","user":"42","team":"t"}});
     assert_eq!(check_frame(&stamp.to_string()), Err(Denial::UnknownParam));
 }
 
@@ -293,10 +302,7 @@ fn a_remote_connection_without_a_peer_record_is_refused_not_local_user() {
     let fixture = fixture();
     let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
     assert_eq!(fixture.mux.principal(client), None);
-    for frame in [
-        json!({"id":1,"cmd":"conversation-list"}),
-        json!({"id":1,"cmd":"subscribe"}),
-    ] {
+    for frame in [json!({"id":1,"cmd":"conversation-list"}), json!({"id":1,"cmd":"subscribe"})] {
         assert_code(&send(&fixture.mux, client, frame), "remote_denied");
     }
 }
@@ -332,8 +338,8 @@ fn a_device_edits_or_retracts_only_its_own_messages() {
     let fixture = fixture();
     let one = remote(&fixture, "inst_1", OWNER);
     let two = remote(&fixture, "inst_2", OWNER);
-    let conversation = create(&fixture,
-        "c1", json!([human("user_local", "Me")]), &["inst_1", "inst_2"]);
+    let conversation =
+        create(&fixture, "c1", json!([human("user_local", "Me")]), &["inst_1", "inst_2"]);
     let mine = local(
         &fixture.mux,
         fixture.local,
@@ -356,11 +362,11 @@ fn a_device_edits_or_retracts_only_its_own_messages() {
 fn a_peer_that_is_not_the_owner_owns_nothing() {
     let fixture = fixture();
     let stranger = remote(&fixture, "inst_9", "7");
-    let conversation =
-        create(&fixture, "c1", json!([human("user_local", "Me")]), &["inst_9"]);
+    let conversation = create(&fixture, "c1", json!([human("user_local", "Me")]), &["inst_9"]);
     let list = send(&fixture.mux, stranger, json!({"id":1,"cmd":"conversation-list"}));
     assert_eq!(list["data"]["conversations"], json!([]), "{list}");
-    let snapshot = json!({"id":1,"cmd":"conversation-snapshot","conversation":conversation,"tail":1});
+    let snapshot =
+        json!({"id":1,"cmd":"conversation-snapshot","conversation":conversation,"tail":1});
     assert_code(&send(&fixture.mux, stranger, snapshot), "remote_denied");
 }
 
@@ -385,7 +391,8 @@ fn unknown_and_unowned_ids_give_byte_identical_errors() {
         assert!(unowned_reply.contains("remote_denied"), "{unowned_reply}");
     }
     let owned = create(&fixture, "c2", json!([human("user_local", "Me")]), &["inst_1"]);
-    let unknown_message = json!({"kind":"message.retract","message_id":"msg_01ARZ3NDEKTSV4RRFFQ69G5FAV"});
+    let unknown_message =
+        json!({"kind":"message.retract","message_id":"msg_01ARZ3NDEKTSV4RRFFQ69G5FAV"});
     assert_code(&send(&fixture.mux, client, op(&owned, "k", unknown_message)), "remote_denied");
 }
 
@@ -413,8 +420,12 @@ fn keys(value: &Value) -> Vec<String> {
 fn remote_json_carries_only_the_section_8_fields() {
     let fixture = fixture();
     let client = remote(&fixture, "inst_1", OWNER);
-    let conversation = create(&fixture,
-        "c1", json!([human("user_local", "Me"), mux_agent()]), &["inst_1", "inst_2"]);
+    let conversation = create(
+        &fixture,
+        "c1",
+        json!([human("user_local", "Me"), mux_agent()]),
+        &["inst_1", "inst_2"],
+    );
     let work = json!({"kind":"message.send","client_msg_id":"w1","parts":[
         {"type":"text","text":"working"},
         {"type":"work","session":"secret-session","host":"h","status":"running",
@@ -576,7 +587,12 @@ fn pairing_adds_the_device_to_the_owners_conversations() {
         );
         snapshot["conversation"]["participants"].clone()
     };
-    let device = participants(&mine).as_array().unwrap().iter().find(|p| p["id"] == "remote_inst_1").cloned();
+    let device = participants(&mine)
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "remote_inst_1")
+        .cloned();
     let device = device.expect("the device joined the owner's conversation");
     assert_eq!(device["kind"], "human");
     assert_eq!(device["person"], "user_local");
@@ -586,7 +602,8 @@ fn pairing_adds_the_device_to_the_owners_conversations() {
 #[test]
 fn no_client_creates_or_impersonates_a_device_participant() {
     let fixture = fixture();
-    let device = json!({"id":"remote_inst_1","kind":"human","display_name":"x","person":"user_local"});
+    let device =
+        json!({"id":"remote_inst_1","kind":"human","display_name":"x","person":"user_local"});
     let create = json!({"cmd":"conversation-create","idempotency_key":"k","title":"t",
                         "participants":[human("user_local", "Me"), device]});
     let command: Command = serde_json::from_value(create).unwrap();
@@ -604,7 +621,10 @@ fn no_client_creates_or_impersonates_a_device_participant() {
         json!({"cmd":"conversation-agent-token","participant":"user_local"}),
     ] {
         let command: Command = serde_json::from_value(request.clone()).unwrap();
-        assert!(handle_command(&fixture.mux, fixture.local, command, &writer().0).is_err(), "{request}");
+        assert!(
+            handle_command(&fixture.mux, fixture.local, command, &writer().0).is_err(),
+            "{request}"
+        );
     }
 }
 

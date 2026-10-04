@@ -12778,7 +12778,9 @@ fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
-    if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) { return remote }
+    if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {
+        return remote;
+    }
     match cmd {
         Command::UrlOpenSubscribe { terminal_ids } => {
             mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;

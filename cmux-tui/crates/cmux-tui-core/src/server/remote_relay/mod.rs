@@ -52,7 +52,8 @@ const KEPT_REJECT_CODES: &[&str] = &[
     "approval_required",
 ];
 /// Reject codes that would tell a peer whether an object exists.
-const DENIED_REJECT_CODES: &[&str] = &["unknown_conversation", "unknown_message", "not_participant"];
+const DENIED_REJECT_CODES: &[&str] =
+    &["unknown_conversation", "unknown_message", "not_participant"];
 
 /// A refusal with no detail: a gate refusal, an unowned or unknown id, or a
 /// remote connection without a peer record.
@@ -142,10 +143,7 @@ impl Mux {
 
     /// Install the pairing records (`cmux server pair`) the owner scope
     /// reads.
-    pub fn set_pairing_records(
-        &self,
-        records: Arc<dyn crate::PairingRecords>,
-    ) {
+    pub fn set_pairing_records(&self, records: Arc<dyn crate::PairingRecords>) {
         *self.remote_relay().pairing.lock().unwrap() = Some(records);
     }
 }
