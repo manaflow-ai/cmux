@@ -6708,6 +6708,16 @@ does not advertise `fs-v1` and answers every `fs.*` op with
 on the link's remote entry, whose gate admits exactly these seven commands
 and denies every other frame with `remote_denied`; WebSocket clients get
 `fs.permission_denied`.
+Access is granted only through the link's `daemon` service, and on a Cloud
+host it covers the whole home of the daemon user. The team policy must
+therefore never grant `daemon` to a principal that is not also allowed
+`shell`/`ssh` on that machine. A remote dial must send its first line
+within 10 seconds or it is closed. A byte stream is a registered remote
+client: a kick, the link closing the dial, and the daemon's shutdown each
+end it at once, and an unfinished write leaves no file. At start, the owner
+removes its own leftover temporary files (`.<name>.cmux-<16 hex>.tmp`) that
+are older than one hour, in a bounded walk of the root that follows no
+symlink and stays on the root's file system.
 
 Params are flat, next to `id` and `cmd`. Answers use the normal envelope;
 a failure carries `error_code` and, where noted, `error_details`. Paths are

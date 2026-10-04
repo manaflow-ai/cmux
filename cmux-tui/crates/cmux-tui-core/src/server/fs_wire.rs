@@ -166,9 +166,8 @@ fn read_first_line(stream: &UnixStream, deadline: Duration) -> Option<(Vec<u8>, 
             stream.set_read_timeout(None).ok()?;
             return Some((buffer, Vec::new()));
         }
-        // RED: no deadline yet.
-        let _ = end;
-        stream.set_read_timeout(None).ok()?;
+        let remaining = end.checked_duration_since(std::time::Instant::now())?;
+        stream.set_read_timeout(Some(remaining.max(Duration::from_millis(1)))).ok()?;
         match (&mut &*stream).read(&mut chunk) {
             Ok(0) if buffer.is_empty() => return None,
             Ok(0) => {
@@ -193,32 +192,53 @@ fn serve_stream(
     leftover: Vec<u8>,
     stream: UnixStream,
 ) {
-    // RED: the stream is not a registered client yet.
-    let _ = (mux, peer, STREAM_IDLE_TIMEOUT);
-    if let Ok(mut out) = stream.try_clone() {
-        let mut reader = std::io::Cursor::new(leftover).chain(&stream);
-        let _ = match request {
-            Ok(request) => stream::serve(service, request, &mut reader, &mut out),
-            Err((id, error)) => {
-                let line = stream::answer(&id, Err(error));
-                serde_json::to_vec(&line).map_err(std::io::Error::other).and_then(|mut bytes| {
-                    bytes.push(b'\n');
-                    out.write_all(&bytes)
-                })
-            }
-        };
+    let (Ok(control), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else { return };
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink {
+            outbound: outbound.clone(),
+            control: Some(SinkControl::Unix(Box::new(control))),
+        },
+        Arc::new(RenderService::new()),
+    );
+    // Closing the client (a kick, a handoff, the entry's shutdown, or the
+    // end of the stream) closes its queue; this thread then shuts the
+    // socket down, which ends a blocked read or write of the stream at once.
+    let watcher = std::thread::Builder::new().name("mux-fs-stream-close".into()).spawn(move || {
+        while outbound.recv().is_some() {}
+        let _ = closer.shutdown(std::net::Shutdown::Both);
+    });
+    if watcher.is_err() {
+        return;
     }
-    let _ = (BoundedOutbound::default, RenderService::new, MessageWriter::new_with_render_service::<QueuedSink>);
+    let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
+    mux.bind_conversation_principal(client, super::remote_entry::remote_principal(peer));
+    if writer.is_open() {
+        let _ = stream.set_read_timeout(Some(STREAM_IDLE_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(STREAM_IDLE_TIMEOUT));
+        if let Ok(mut out) = stream.try_clone() {
+            let mut reader = std::io::Cursor::new(leftover).chain(&stream);
+            let _ = match request {
+                Ok(request) => stream::serve(service, request, &mut reader, &mut out),
+                Err((id, error)) => {
+                    let line = stream::answer(&id, Err(error));
+                    serde_json::to_vec(&line).map_err(std::io::Error::other).and_then(
+                        |mut bytes| {
+                            bytes.push(b'\n');
+                            out.write_all(&bytes)
+                        },
+                    )
+                }
+            };
+        }
+    }
+    super::disconnect_client(mux, client, false);
     let _ = stream.shutdown(std::net::Shutdown::Both);
 }
 
 /// Closes every remote client (line dials and byte streams): the entry is
 /// shutting down, so their sockets are shut down and their transfers end.
 pub(super) fn close_remote_clients(mux: &Arc<Mux>) {
-    // RED: nothing is closed yet.
-    if mux.daemon_shutdown_requested() || !mux.daemon_shutdown_requested() {
-        return;
-    }
     let remote: Vec<u64> = {
         let state =
             mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
