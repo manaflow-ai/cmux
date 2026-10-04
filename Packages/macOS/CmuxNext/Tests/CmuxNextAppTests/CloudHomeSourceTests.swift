@@ -649,6 +649,23 @@ import Testing
         #expect(daemon.ops.count == 1)
     }
 
+    /// The daemon's lease expired (`cloud_session_expired`): nothing was
+    /// sent. The op waits, and the source asks the link for a lease instead
+    /// of staying down until the link changes.
+    @Test func anOpRefusedForAnExpiredLeaseWaitsAndAsksForOne() async throws {
+        let (source, daemon, tape) = await configured(.init(op: { _ in
+            throw DaemonError.command(cmd: "cloud-conversation-op", message: "expired", code: "cloud_session_expired",
+                                      details: .object(["reason": .string("expired")]), retryable: true)
+        }))
+        #expect(await signedIn(tape))
+        let asked = Mutex(0)
+        source.onLeaseMissing { asked.withLock { $0 += 1 } }
+        let invite = HomeIntent(key: IdempotencyKey("cmk_exp"), op: .invite(contact: .email("z@y.com")))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(invite) }
+        #expect(asked.withLock { $0 } == 1, "an expired lease asked for no new one")
+        #expect(daemon.ops.count == 1)
+    }
+
     /// Revoked keys are kept per account and pruned when that account
     /// signs in again: its own keys never commit as another account, and
     /// the set does not only grow.

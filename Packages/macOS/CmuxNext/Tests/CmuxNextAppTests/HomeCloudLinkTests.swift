@@ -236,6 +236,30 @@ import Testing
         #expect(Self.ops(daemon.calls) == 3)
     }
 
+    /// Another trusted local client set the daemon's lease (any client may
+    /// send `cloud-session-set`). When that lease expires the daemon names
+    /// its expiry, which this link never set: it renews anyway. Only a
+    /// lease this link set and then replaced needs nothing.
+    @Test func aLeaseAnotherLocalClientSetIsRenewedWhenItExpires() async throws {
+        let daemon = FakeCloudDaemon()
+        let (linker, _, tokens) = make()
+        tokens.user = "a"
+        await linker.apply(link(daemon, "a"))
+        let ours = try #require(daemon.leaseExpiry)
+        let theirs = ours + 777_000
+        _ = try await daemon.setSession(CloudSessionSetRequest(apiBaseURL: "https://cloud-api.test",
+                                                               accessToken: F.jwt(sub: "a"), expiresAt: theirs))
+        #expect(daemon.leases == 2)
+        linker.sessionNeeded(reason: "expired", expiresAt: theirs)
+        await linker.settle()
+        #expect(daemon.leases == 3, "an expired lease another client set was never renewed")
+        // The lease this link set and that lease were both replaced: late requests for them need nothing.
+        linker.sessionNeeded(reason: "expired", expiresAt: theirs)
+        linker.sessionNeeded(reason: "expired", expiresAt: ours)
+        await linker.settle()
+        #expect(daemon.leases == 3)
+    }
+
     /// A new link cancels the previous one's pending retry: no lease goes
     /// out for the account that left.
     @Test func aNewLinkCancelsThePendingRetry() async throws {
