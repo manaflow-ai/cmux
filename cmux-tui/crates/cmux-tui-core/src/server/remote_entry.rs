@@ -8,7 +8,9 @@
 //! 1. the [`LinkVerifier`] accepts the connecting process (the link: same
 //!    user and, on macOS, signed as cmux; `cmux_link::caller::verify`);
 //! 2. its first line is a valid peer stamp (`cmux_link::stamp`), read before
-//!    anything else and only here, never on the local socket;
+//!    anything else and only here, never on the local socket. A stamp with
+//!    `check: link_token` (the host accepted a control-plane link token for
+//!    this stream) records the install's good check before the stream binds;
 //! 3. every later line passes the [`RemoteGate`] before anything parses or
 //!    dispatches it. The default gate, [`DenyAllGate`], refuses everything
 //!    with `error_code: remote_denied`; [`super::FsGate`] admits only the
@@ -205,10 +207,20 @@ fn serve_remote_connection(
         let _ = stream.shutdown(Shutdown::Both);
         return;
     }
-    let Some(cmux_link::stamp::Stamp { peer, check: _ }) = read_stamp(&stream) else {
+    let Some(cmux_link::stamp::Stamp { peer, check }) = read_stamp(&stream) else {
         let _ = stream.shutdown(Shutdown::Both);
         return;
     };
+    // The link accepted a control-plane link token for this stream (only the
+    // verified link writes the stamp, before any peer byte): the install's
+    // good check, recorded before the stream binds. A poisoned relay lock
+    // records nothing and closes the stream (fail closed).
+    if check == Some(cmux_link::stamp::StampCheck::LinkToken)
+        && mux.record_remote_check(&peer.install).is_err()
+    {
+        let _ = stream.shutdown(Shutdown::Both);
+        return;
+    }
     // A dial whose first line asks for an `fs.*` byte stream is served raw
     // (fs_wire.rs); any other dial reaches the line connection unchanged.
     let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
