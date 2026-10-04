@@ -40,6 +40,9 @@ final class WindowOverlayLayer {
     /// The window's overlay host: its panel holds the planes (below every
     /// presented overlay) and keeps the order above page windows.
     private var host: WindowOverlayHost { WindowOverlayHost.host(for: window) }
+    /// The window's agent cursor layer (`WindowOverlayHost.agentCursorLayer`): content-view
+    /// coordinates, y-down, above pages and the sidebar, below modal overlays, no hits.
+    var agentCursorLayer: CALayer { host.agentCursorLayer }
     private var planes: [OverlayPlane] = []
     private(set) var placement: Placement = .inWindow
     /// Interactive overlay rects in window coordinates.
