@@ -895,13 +895,17 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// after sign-out or an account switch is refused (`notAuthorized`), so
     /// no page of the previous account reaches the store. A failure that
     /// leaves intents unconfirmed marks the source degraded; a good reply
-    /// recovers it.
+    /// recovers it. A refusal for a missing lease (`cloud_signed_out`:
+    /// another trusted local client cleared it) means nothing was sent: the
+    /// source holds the account unleased and asks the link for a lease.
     private func reply<T>(for identity: CloudIdentity, _ body: () async throws -> T) async throws -> T {
         let epoch = state.withLock { $0.leaseEpoch }
         let value: T
         do {
-            value = try await Self.mapped(body)
-        } catch let rejection as HomeRejection {
+            value = try await body()
+        } catch {
+            let rejection = Self.rejection(for: error)
+            if Self.isNoLease(error) { leaseLost(for: identity) }
             // Only the account that sent it waits for a recovery.
             if rejection == .indeterminate || rejection == .ownerUnreachable {
                 state.withLock { if $0.identity?.cloudID == identity.cloudID { $0.degraded = true } }
@@ -911,6 +915,21 @@ nonisolated final class CloudHomeSource: HomeSource {
         guard state.withLock({ $0.identity?.cloudID }) == identity.cloudID else { throw HomeRejection.notAuthorized }
         reached(leaseEpoch: epoch)
         return value
+    }
+
+    /// The daemon holds no lease for `identity`, which this source still
+    /// acts as: nothing goes out until the link leases it again.
+    private func leaseLost(for identity: CloudIdentity) {
+        let missing = state.withLock { state -> (@Sendable () -> Void)? in
+            guard state.identity?.cloudID == identity.cloudID, state.leased else { return nil }
+            state.leased = false
+            return state.leaseMissing
+        }
+        missing?()
+    }
+
+    private static func isNoLease(_ error: any Error) -> Bool {
+        if case .command(_, _, "cloud_signed_out", _, _) = error as? DaemonError { true } else { false }
     }
 
     /// Ends subscriptions of conversations the inbox no longer lists.
@@ -985,15 +1004,11 @@ nonisolated final class CloudHomeSource: HomeSource {
     }
 
     /// The daemon's answers as `HomeRejection` (home-cloud-proxy.md section 6).
-    static func mapped<T>(_ body: () async throws -> T) async throws -> T {
-        do {
-            return try await body()
-        } catch let rejection as HomeRejection {
-            throw rejection
-        } catch let error as DaemonError {
-            throw rejection(error)
-        } catch {
-            throw HomeRejection.indeterminate
+    static func rejection(for error: any Error) -> HomeRejection {
+        switch error {
+        case let rejection as HomeRejection: rejection
+        case let error as DaemonError: rejection(error)
+        default: .indeterminate
         }
     }
 
@@ -1005,9 +1020,9 @@ nonisolated final class CloudHomeSource: HomeSource {
             case "cloud_conversation_rejected":
                 if retryable == true { return .rateLimited(retryAfter: nil) }
                 return reason == "forbidden" ? .notAuthorized : .invalid(reason)
-            case "cloud_signed_out": return .notAuthorized
-            // Refused before the owner saw it: nothing committed; resent after a new lease.
-            case "cloud_session_expired", "cloud_unauthenticated": return .ownerUnreachable
+            // Refused before the owner saw it: nothing committed; resent after a
+            // new lease (no lease at all: the source asks for one, `reply`).
+            case "cloud_signed_out", "cloud_session_expired", "cloud_unauthenticated": return .ownerUnreachable
             // The outcome of a mutation is unknown: resend with the same key.
             case "cloud_unavailable": return .indeterminate
             default: return .invalid(reason)
