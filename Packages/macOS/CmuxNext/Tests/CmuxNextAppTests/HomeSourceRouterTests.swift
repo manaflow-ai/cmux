@@ -47,7 +47,7 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
 /// One Home inbox over the local and the cloud owners
 /// (home-cloud-proxy.md part 2): each conversation's reads and ops reach its
 /// own owner, and local behavior is unchanged.
-@Suite(.timeLimit(.minutes(1))) struct HomeSourceRouterTests {
+@Suite(.timeLimit(.minutes(1))) nonisolated struct HomeSourceRouterTests {
     typealias F = CloudFixtures
     let dm = "conv_dm_01J0000000000000000000000A"
 
@@ -189,7 +189,7 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         let router = HomeSourceRouter(local: local, cloud: cloud)
         let tape = await EventTape(router)
         cloud.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity)
-        func inboxChange(_ event: HomeEvent, _ id: String) -> Bool {
+        @Sendable func inboxChange(_ event: HomeEvent, _ id: String) -> Bool {
             if case .conversationChanged(let summary, stream: .inbox, rev: _) = event { summary.id.rawValue == id } else { false }
         }
         // Listed and hydrated (named after its peer): no later read publishes it again.

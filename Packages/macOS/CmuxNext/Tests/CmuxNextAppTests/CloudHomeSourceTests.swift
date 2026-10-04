@@ -8,7 +8,7 @@ import Testing
 /// The cloud Home source over the daemon proxy (home-cloud-proxy.md, part 2):
 /// it reads and writes only through `cloud-conversations-v1`, keeps the
 /// owners' ids, and shows the signed-in account as the store's one `me`.
-@Suite(.timeLimit(.minutes(1))) struct CloudHomeSourceTests {
+@Suite(.timeLimit(.minutes(1))) nonisolated struct CloudHomeSourceTests {
     typealias F = CloudFixtures
     let dm = "conv_dm_01J0000000000000000000000A"
 
@@ -96,7 +96,7 @@ import Testing
             throw DaemonError.command(cmd: "cloud-conversation-op", message: "expired", code: "cloud_session_expired",
                                       details: .object(["reason": .string("expired")]), retryable: true)
         }))
-        func recoveries(_ events: [HomeEvent]) -> Int { events.filter { $0 == .ownerRecovered }.count }
+        @Sendable func recoveries(_ events: [HomeEvent]) -> Int { events.filter { $0 == .ownerRecovered }.count }
         #expect(await tape.wait { $0.contains { if case .inbox = $0 { true } else { false } } })
         let before = recoveries(tape.all)
         let send = HomeIntent(key: IdempotencyKey("cmk_l"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
@@ -325,7 +325,7 @@ import Testing
         let (source, _, tape) = await configured(.init(op: { _ in
             CloudConversationOpResult(conversation: F.head(opened, rev: 1, lastSeq: 0))
         }))
-        func inboxes(_ events: [HomeEvent]) -> [InboxSnapshot] {
+        @Sendable func inboxes(_ events: [HomeEvent]) -> [InboxSnapshot] {
             events.compactMap { if case .inbox(let inbox) = $0 { inbox } else { nil } }
         }
         // Signing in publishes the empty inbox, then the listed one.
@@ -386,7 +386,7 @@ import Testing
                                                          heads: Dictionary(uniqueKeysWithValues: ids.map { ($0, F.head($0)) }),
                                                          snapshotGate: gate))
         defer { withExtendedLifetime(source) {} }
-        func reads(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { if case .snapshot = $0 { true } else { false } }.count }
+        @Sendable func reads(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { if case .snapshot = $0 { true } else { false } }.count }
         #expect(await daemon.wait { reads($0) >= CloudHomeSource.hydrationWidth })
         gate.open()
         #expect(await daemon.wait { reads($0) == ids.count })
@@ -398,7 +398,7 @@ import Testing
     /// the entry and read nothing.
     @Test func hydrationReadsOnlyAMissingOrBehindHead() async throws {
         let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm)]))
-        func reads(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { $0 == .snapshot(dm, tail: 1) }.count }
+        @Sendable func reads(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { $0 == .snapshot(dm, tail: 1) }.count }
         #expect(await tape.wait { summaries($0, dm).contains { $0.participants.contains { $0.displayName == "Bob" } } })
         #expect(reads(daemon.calls) == 1)
         daemon.script.withLock { $0.entries = [F.entry(dm, pinned: true)] }

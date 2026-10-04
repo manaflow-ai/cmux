@@ -82,7 +82,7 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
 
     /// Waits until `condition` holds over the calls; each call wakes it.
     /// The suite's time limit bounds a condition that never holds.
-    func wait(_ condition: @escaping ([Call]) -> Bool) async -> Bool {
+    func wait(_ condition: @escaping @Sendable ([Call]) -> Bool) async -> Bool {
         for _ in 0..<10_000 {
             if condition(calls) { return true }
             if Task.isCancelled { break }
@@ -326,7 +326,7 @@ nonisolated final class EventTape: Sendable {
 
     /// Waits until `condition` holds over the events. The suite's time limit
     /// bounds a condition that never holds; so does a cap on wake-ups.
-    func wait(_ condition: ([HomeEvent]) -> Bool) async -> Bool {
+    func wait(_ condition: @Sendable ([HomeEvent]) -> Bool) async -> Bool {
         for _ in 0..<10_000 {
             if Task.isCancelled { break }
             let done = await withTaskCancellationHandler {
