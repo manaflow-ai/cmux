@@ -231,6 +231,7 @@ describe("CloudPage", () => {
   });
 
   test("the publication form shows the access mode that will apply and sends it through the native action", async () => {
+    // The Cloud API's default for a team machine is team access; the form starts there.
     const provider = new MockCloudProvider();
     await render(provider);
     await act(async () => $$(".cloud-machine")[0].click());
@@ -238,14 +239,14 @@ describe("CloudPage", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     const access = $(".cloud-publication-access") as HTMLSelectElement;
-    expect(access.value).toBe("personal");
-    expect(access.selectedOptions[0].textContent).toBe("Only me");
+    expect(access.value).toBe("team");
+    expect(access.selectedOptions[0].textContent).toBe("Team");
     await act(async () => typeInto($(".cloud-publication-port") as HTMLInputElement, "5173"));
     await act(async () => $(".cloud-publication-add")!.click());
     expect(provider.calls.some((call) => call.op === CloudOps.publicationCreate)).toBe(false);
     expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toEqual({
       action: CloudOps.publicationCreate,
-      args: { machine: sampleMachines()[0].id, port: 5173, accessMode: "personal", idempotency_key: "k1" },
+      args: { machine: sampleMachines()[0].id, port: 5173, accessMode: "team", idempotency_key: "k1" },
     });
   });
 
@@ -271,7 +272,7 @@ describe("CloudPage", () => {
     });
     await act(async () => $(".cloud-files-browse")!.click());
     const names = $$(".cloud-file-name").map((node) => node.textContent);
-    expect(names).toEqual(["notes.txt", "src", "big.bin"]);
+    expect(names).toEqual(["notes.txt", "src", "big.bin", "latest"]);
     await act(async () => $$(".cloud-file-name")[0].click());
     expect($(".cloud-file-preview")?.textContent).toBe("hello cloud\n");
     expect(provider.calls.some((call) => call.op === CloudOps.fsRemove)).toBe(false);
@@ -297,5 +298,18 @@ describe("CloudPage", () => {
     expect(tabCalls.length).toBe(1);
     expect((tabCalls[0].params as { args: { engine: string } }).args.engine).toBe("cef");
     expect($(".cloud-error")).toBeNull();
+  });
+
+  test("without a team the publication form offers no team access", async () => {
+    const provider = new MockCloudProvider();
+    provider.account.team = "";
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const access = $(".cloud-publication-access") as HTMLSelectElement;
+    expect(access.value).toBe("personal");
+    expect([...access.options].map((option) => option.value)).toEqual(["personal", "public"]);
   });
 });
