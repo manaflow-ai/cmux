@@ -18,9 +18,8 @@ fn info(revision: u64) -> ConnectInfo {
         },
         "gateway": null,
         "services": ["daemon", "ssh"],
-        "link_token": {"token": "secret-token", "expires_at": "2026-10-05T00:05:00Z"},
         "daemon": {"version": "1", "capabilities": []},
-        "revision": revision,
+        "revision": revision.to_string(),
         "future_field": true
     }))
     .unwrap()
@@ -40,17 +39,19 @@ fn a_record_for_another_host_or_overlay_address_is_refused() {
     assert_eq!(short.validate(HOST), Err(InvalidInfo::BadKey));
 }
 
-/// RED (security): the link token is handed back for its one use and never
-/// stays in the cache.
+/// The token grant never prints its secret, and covers only its host and
+/// services.
 #[test]
-fn the_cache_never_keeps_the_link_token() {
-    let mut cache = ConnectInfoCache::default();
-    let now = Instant::now();
-    let token = cache.insert(info(1), now).expect("the token comes back once");
-    assert_eq!(token.token, "secret-token");
-    let cached = cache.get(HOST, now).unwrap();
-    assert!(cached.link_token.is_none(), "a cached record must not carry the token");
-    assert!(!format!("{token:?}").contains("secret-token"), "Debug must not print the token");
+fn a_token_grant_is_scoped_and_never_printed() {
+    let grant: LinkTokenGrant = serde_json::from_value(serde_json::json!({
+        "token": "secret-token", "expires_at": "2026-10-05T00:05:00Z",
+        "host": HOST, "epoch": 4, "services": ["ssh"]
+    }))
+    .unwrap();
+    assert!(!format!("{grant:?}").contains("secret-token"));
+    assert!(grant.covers(HOST, Service::Ssh));
+    assert!(!grant.covers(HOST, Service::Daemon));
+    assert!(!grant.covers("host_other", Service::Ssh));
 }
 
 #[test]
@@ -58,6 +59,7 @@ fn records_expire_after_300_seconds_and_follow_revisions() {
     let mut cache = ConnectInfoCache::default();
     let now = Instant::now();
     cache.insert(info(5), now);
+    assert_eq!(cache.get(HOST, now).unwrap().revision, 5, "a decimal-string revision parses");
     assert!(cache.get(HOST, now + CACHE_TTL).is_some());
     assert!(cache.get(HOST, now + CACHE_TTL + Duration::from_secs(1)).is_none());
     // An older answer does not replace newer peer data.
