@@ -28,6 +28,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(agent: String)
+    /// The new tab page got its first user input (`newTab.touched`); a
+    /// touched page is never recycled into the prewarm pool.
+    case touched
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -120,6 +123,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.touched":
+            self = .touched
         case "newTab.remember":
             // One input (R86): only the agent pick is remembered.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {

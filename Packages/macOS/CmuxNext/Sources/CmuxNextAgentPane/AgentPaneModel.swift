@@ -87,6 +87,11 @@ public final class AgentPaneModel {
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
     /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
     /// already became a chat keeps its chat.
+    /// User input reached the page, or it ran any op beyond boot (the
+    /// handshake, frame pacing, render rate, capabilities). A touched page is
+    /// never recycled into the prewarm pool (coordinator: strictly untouched).
+    public private(set) var userTouched = false
+
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         guard newTab != nil else { return }
         newTab = page
@@ -94,6 +99,10 @@ public final class AgentPaneModel {
 
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
+        switch request {
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability: break
+        default: userTouched = true
+        }
         switch request {
         case .ready, .reconnect:
             setCheckpointAvailable(false)
@@ -153,6 +162,8 @@ public final class AgentPaneModel {
         case .typeAhead(let text):
             guard newTab != nil, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
             onTypeAhead(text)
+            return AgentPaneReply.success()
+        case .touched:
             return AgentPaneReply.success()
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }

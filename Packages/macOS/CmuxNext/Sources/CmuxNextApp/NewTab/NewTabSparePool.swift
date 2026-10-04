@@ -23,6 +23,9 @@ nonisolated struct NewTabSpareSlot<Spare> {
     }
 
     mutating func drop() -> Spare? { take() }
+
+    /// The spare, left in the slot.
+    var peek: Spare? { spare }
 }
 
 /// Instant new tab (plans/cmux-next/new-tab.md section 2): ONE prewarmed new
@@ -143,16 +146,16 @@ final class NewTabSparePool {
     /// spare, so the close does no teardown and the pool builds nothing (R81).
     /// False when the slot is full or no page is likely.
     func recycle(_ view: AgentPaneView) -> Bool {
-        guard slot.shouldWarm, isLikely, view.model.newTab != nil, let content = target?.contentView else { return false }
+        guard slot.shouldWarm, isLikely, view.model.newTab != nil, !view.model.userTouched, target != nil else { return false }
         BenchSpans.measure("pool.recycle") {
             view.adoptNewTab(NewTabPage.sparePage(services))
-            park(in: content)
-            view.frame = parking.bounds
-            view.autoresizingMask = [.width, .height]
-            parking.addSubview(view)
+            // Out of the view tree now (as cheap as a close); back into the window at the next
+            // quiet moment: putting a WKWebView back into a window costs a 15-20 ms commit, which
+            // in the close frame dropped a frame on every Cmd-W (R81 bench).
+            view.removeFromSuperview()
             slot.parked(view)
         }
-        warmTimer.cancel()
+        scheduleWarm()
         return true
     }
 
@@ -183,7 +186,7 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm, target != nil else { return }
+        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
@@ -199,9 +202,22 @@ final class NewTabSparePool {
         warmTimer.schedule(after: Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
+    /// A recycled spare not yet back in the window.
+    private var unparked: AgentPaneView? {
+        guard let view = slot.peek, view.superview == nil else { return nil }
+        return view
+    }
+
     private func warmNow() {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
+        if let view = unparked, let content = target?.contentView {
+            park(in: content)
+            view.frame = parking.bounds
+            view.autoresizingMask = [.width, .height]
+            BenchSpans.measure("pool.park") { parking.addSubview(view) }
+            return
+        }
         guard isLikely, slot.shouldWarm, let content = target?.contentView,
               let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
         else { return }

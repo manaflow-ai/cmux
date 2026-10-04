@@ -34,5 +34,6 @@ export function newTabScreenActions(deps: {
       deps.selectSession(sessionId);
     },
     onShowAll: deps.showAllChats,
+    onTouched: () => ignore(callNative("newTab.touched")),
   };
 }

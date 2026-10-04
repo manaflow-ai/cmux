@@ -18,6 +18,8 @@ export type NewTabScreenActions = {
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
+  /// The first user input reached the page (the host recycles only an untouched page, R81).
+  onTouched?(): void;
 };
 
 type Props = NewTabScreenActions & {
@@ -43,6 +45,12 @@ export function NewTabScreen(props: Props) {
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
+  const inputReported = useRef(false);
+  const touch = () => {
+    if (inputReported.current) return;
+    inputReported.current = true;
+    props.onTouched?.();
+  };
   const agents = useMemo(
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
@@ -83,6 +91,7 @@ export function NewTabScreen(props: Props) {
     }
   };
   const edit = (next: string) => {
+    touch();
     setTouched(true);
     if (converting) {
       setText(next);
@@ -98,6 +107,7 @@ export function NewTabScreen(props: Props) {
     }
   };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    touch();
     if (composing.current || event.nativeEvent.isComposing || converting) return;
     const input = event.currentTarget;
     wholeSelection.current =
