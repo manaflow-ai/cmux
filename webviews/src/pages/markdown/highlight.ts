@@ -30,6 +30,30 @@ export function markdownThemes(appearance?: DiffViewerAppearance): ThemeRegistra
 }
 
 /**
+ * The code themes for the `markdown.code.theme` setting: `"terminal"` uses the terminal palette
+ * (`markdownThemes`), any other name a bundled Shiki theme (loaded lazily, one chunk each). An
+ * unknown name falls back to the terminal palette.
+ */
+export async function codeThemes(
+  names: { light: string; dark: string },
+  appearance?: DiffViewerAppearance,
+): Promise<ThemeRegistrationAny[]> {
+  const terminal = markdownThemes(appearance);
+  const load = async (name: string, fallback: ThemeRegistrationAny, as: string): Promise<ThemeRegistrationAny> => {
+    if (name === "terminal") return fallback;
+    const { bundledThemes } = await import("shiki/themes");
+    const loader = (bundledThemes as Record<string, () => Promise<{ default: ThemeRegistrationAny }>>)[name];
+    if (!loader) return fallback;
+    try {
+      return { ...(await loader()).default, name: as };
+    } catch {
+      return fallback;
+    }
+  };
+  return Promise.all([load(names.light, terminal[0], LIGHT), load(names.dark, terminal[1], DARK)]);
+}
+
+/**
  * The highlighter the editor calls synchronously: tokens for a loaded grammar, else null and a
  * grammar load that calls `refresh` when done. Tokens style both schemes through CSS variables
  * (`--md-tok-light`, `--md-tok-dark`); styles.css picks one by `prefers-color-scheme`.
@@ -42,7 +66,7 @@ export class CodeHighlighter {
   private readonly pending = new Map<string, Promise<void>>();
   private readonly cache = new Map<string, CodeToken[]>();
 
-  constructor(private themes: ThemeRegistrationAny[]) {}
+  constructor(private themes: ThemeRegistrationAny[] | Promise<ThemeRegistrationAny[]>) {}
 
   private start(): Promise<HighlighterCore> {
     this.starting ??= (async () => {
@@ -51,7 +75,7 @@ export class CodeHighlighter {
         import("shiki/engine/javascript"),
       ]);
       const highlighter = await createHighlighterCore({
-        themes: this.themes,
+        themes: await this.themes,
         langs: [],
         engine: createJavaScriptRegexEngine({ forgiving: true }),
       });
@@ -62,11 +86,12 @@ export class CodeHighlighter {
   }
 
   /** Replaces the themes (the host's appearance changed). Callers refresh their decorations. */
-  async setThemes(themes: ThemeRegistrationAny[]): Promise<void> {
+  async setThemes(themes: ThemeRegistrationAny[] | Promise<ThemeRegistrationAny[]>): Promise<void> {
     this.themes = themes;
-    this.cache.clear();
+    const resolved = await themes;
     const highlighter = this.highlighter;
-    if (highlighter) for (const theme of themes) await highlighter.loadTheme(theme);
+    if (highlighter) for (const theme of resolved) await highlighter.loadTheme(theme);
+    this.cache.clear();
   }
 
   tokens(code: string, language: string, refresh: () => void): CodeToken[] | null {

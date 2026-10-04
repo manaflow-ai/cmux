@@ -9,11 +9,13 @@ import { subscribePageStreams } from "../shared/pageStreams";
 import { DiagramLibraries, renderDiagram } from "./diagrams";
 import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./editor";
 import table from "./generated/strings.json";
-import { CodeHighlighter, markdownThemes } from "./highlight";
+import type { ThemeRegistrationAny } from "shiki/core";
+import { CodeHighlighter, codeThemes } from "./highlight";
 import { MARKDOWN_OPEN_LINK_OP, resolveImageURL } from "./host";
 import { htmlPreview } from "./htmlPreview";
 import { MarkdownPage } from "./MarkdownPage";
 import { MarkdownStore } from "./store";
+import { bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { L } from "./strings";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -27,7 +29,12 @@ const LABELS: Record<EditorLabel, string> = {
 };
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
-function editorHost(store: MarkdownStore, client: PageClient | null, strings: Strings): MarkdownEditorHost {
+function editorHost(
+  store: MarkdownStore,
+  client: PageClient | null,
+  strings: Strings,
+): MarkdownEditorHost & { setCodeThemes(themes: Promise<ThemeRegistrationAny[]>): Promise<void> | undefined } {
+  // One highlighter; its themes follow `markdown.code.theme` and the terminal appearance.
   let highlighter: CodeHighlighter | null = null;
   const config = () => store.getState().config;
   const libraries = new DiagramLibraries((name) => {
@@ -47,7 +54,8 @@ function editorHost(store: MarkdownStore, client: PageClient | null, strings: St
     },
     imageURL,
     highlight(code, language, refresh) {
-      highlighter ??= new CodeHighlighter(markdownThemes(config()?.appearance));
+      const look = store.getState().look;
+      highlighter ??= new CodeHighlighter(codeThemes(markdownCodeTheme(look.settings), look.appearance));
       return highlighter.tokens(code, language, refresh);
     },
     renderDiagram(language, source, target) {
@@ -55,6 +63,9 @@ function editorHost(store: MarkdownStore, client: PageClient | null, strings: St
     },
     label: (key) => strings.t(LABELS[key]),
     htmlPreview: (html) => htmlPreview(html, imageURL),
+    setCodeThemes(themes) {
+      return highlighter?.setThemes(themes);
+    },
   };
 }
 
@@ -98,13 +109,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") void store.save();
   });
-  // The code font and palette follow the host's terminal appearance, as in the diff viewer.
-  let appliedConfig: unknown = null;
-  store.subscribe(() => {
-    const config = store.getState().config;
-    if (!config || config === appliedConfig) return;
-    appliedConfig = config;
-    if (config.appearance) applyDiffViewerAppearance(resolveDiffViewerAppearance(config.appearance));
+  // The look (settings, theme.css, terminal appearance) applies in place whenever the host sends
+  // one: CSS variables, the user stylesheet, the code font and the code theme. Never a reload.
+  bindMarkdownLook(store, {
+    appearance: (appearance) => applyDiffViewerAppearance(resolveDiffViewerAppearance(appearance)),
+    codeTheme: (names, appearance) =>
+      void host.setCodeThemes(codeThemes(names, appearance))?.then(() => editor?.refreshHighlight()),
   });
   createRoot(root).render(<MarkdownPage store={store} strings={strings} editorRef={editorRef} />);
   void store.start();

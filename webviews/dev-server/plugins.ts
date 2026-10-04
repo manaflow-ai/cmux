@@ -39,7 +39,9 @@ import {
   fillShell,
   markdownAsset,
   markdownFiles,
+  cmuxConfigFile,
   readMarkdown,
+  readMarkdownLook,
   saveMarkdown,
   splitStyles,
 } from "./markdownHost";
@@ -470,6 +472,7 @@ function markdownHost(): Plugin {
           readOnly: !files.writable(file) || !content.utf8,
           assetBase: `/__cmux-markdown/asset/${encodeURIComponent(file)}/`,
           libBase: "/__cmux-markdown/page-lib/",
+          ...readMarkdownLook(cmuxConfigFile()),
         },
       };
     }
@@ -502,6 +505,24 @@ function markdownHost(): Plugin {
         if (watchedFiles.has(file)) server.ws.send({ type: "custom", event: "cmux-markdown:content", data: { file } });
       });
       last = splitStyles(shellHTML());
+      // The look follows cmux.json's `markdown` section and markdown/theme.css live, as the app's
+      // watcher does: fs.watch on the config folder (Vite's watcher skips files outside the root).
+      const configFile = cmuxConfigFile();
+      const sendLook = () =>
+        server.ws.send({ type: "custom", event: "cmux-markdown:look", data: readMarkdownLook(configFile) });
+      for (const [folder, names] of [
+        [path.dirname(configFile), [path.basename(configFile)]],
+        [path.join(path.dirname(configFile), "markdown"), ["theme.css"]],
+      ] as const) {
+        try {
+          const watcher = fs.watch(folder, (_event, name) => {
+            if (!name || (names as readonly string[]).includes(String(name))) sendLook();
+          });
+          server.httpServer?.on("close", () => watcher.close());
+        } catch {
+          // No such folder: a look file created later applies on the next page load.
+        }
+      }
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost");
         if (url.pathname === "/markdown" || url.pathname === "/markdown/") {

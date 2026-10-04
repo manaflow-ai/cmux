@@ -5,7 +5,7 @@
 // dispatcher, which turns Cmd-S into the `save` page command. Nothing here ships.
 import { PAGE_COMMAND } from "../shared/pageStreams";
 import { RECEIVE_NAME } from "../shared/pageClient";
-import { MARKDOWN_CHANGES } from "./host";
+import { MARKDOWN_CHANGES, MARKDOWN_LOOK } from "./host";
 
 type Envelope = { t: string; id?: number; op?: string; params?: unknown; stream?: string; sub?: number };
 
@@ -66,6 +66,8 @@ addEventListener(
 
 // The file watcher: the server reports a change of a watched file; the page gets its new text.
 if (import.meta.hot) {
+  // The settings watcher: cmux.json's `markdown` section or markdown/theme.css changed.
+  import.meta.hot.on("cmux-markdown:look", (look: unknown) => emit(MARKDOWN_LOOK, look));
   import.meta.hot.on("cmux-markdown:content", async (changed: { file: string }) => {
     const { body } = await op("cmux.markdown.read", {});
     if (!file || !changed.file.endsWith(file.replace(/^.*\//, ""))) return;

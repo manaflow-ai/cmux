@@ -8,6 +8,8 @@
 //     a read-only file fails with `cmux.markdown.read_only`;
 //   - the stream `cmux.markdown.changes` sends `MarkdownChange` when the file changes on disk
 //     (including the page's own saves, which the page recognizes by hash);
+//   - the stream `cmux.markdown.look` sends `MarkdownLook` when the `markdown` settings, the user's
+//     markdown/theme.css or the terminal appearance change (settings.ts has the keys);
 //   - `cmux.markdown.openLink {path, href}` opens a link from the file (a relative markdown file in
 //     the markdown page, another file or URL through the app);
 //   - the page command `save` (cmux.page.command) is Cmd-S from the app's key dispatcher.
@@ -20,6 +22,7 @@ export const MARKDOWN_CONFIG_OP = "cmux.markdown.config";
 export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_CHANGES = "cmux.markdown.changes";
+export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
 export const MARKDOWN_READ_ONLY = "cmux.markdown.read_only";
 
@@ -38,6 +41,21 @@ export interface MarkdownConfig {
   assetBase?: string;
   /** URL prefix of the diagram libraries; without it diagrams show their source only. */
   libBase?: string;
+  /** The `markdown` section of cmux.json (settings.ts `MarkdownSettings`), unparsed. */
+  settings?: unknown;
+  /** `<cmux.json dir>/markdown/theme.css`, applied after the settings; absent when missing. */
+  themeCSS?: string;
+}
+
+/**
+ * A look change, on the `cmux.markdown.look` stream: the host re-sends the `markdown` settings,
+ * theme.css ("" after it is deleted) or the terminal appearance when one changes. Absent keys keep
+ * their current value; the page applies it in place.
+ */
+export interface MarkdownLook {
+  settings?: unknown;
+  themeCSS?: string;
+  appearance?: DiffViewerAppearance;
 }
 
 export interface MarkdownSaveResult {

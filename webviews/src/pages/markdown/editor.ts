@@ -301,6 +301,12 @@ export class MarkdownEditor {
     return this.baseline.text;
   }
 
+  /** Recomputes code colors (the code theme changed). */
+  refreshHighlight(): void {
+    const view = this.view;
+    if (view) view.dispatch(view.state.tr.setMeta(highlightKey, "refresh").setMeta("addToHistory", false));
+  }
+
   setReadOnly(readOnly: boolean): void {
     this.readOnly = readOnly;
     this.view?.setProps({ editable: () => !readOnly });

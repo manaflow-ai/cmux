@@ -2,6 +2,7 @@
 // can cover them. Dev server only; nothing here ships.
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /// shell.html placeholder -> the bundled asset MarkdownViewerAssets.shellHTML inlines there.
@@ -184,3 +185,53 @@ export const PAGE_LIBS: Record<string, string[]> = {
   mermaid: ["mermaid.min.js"],
   vega: ["vega.min.js", "vega-lite.min.js"],
 };
+
+/// `cmux.json` (CMUX_NEXT_CONFIG_FILE moves it, as it does `agent-pane/` and `diff/languages/`).
+export function cmuxConfigFile(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): string {
+  const override = env.CMUX_NEXT_CONFIG_FILE?.trim();
+  return override ? override : path.join(home, ".config", "cmux", "cmux.json");
+}
+
+/// `text` as JSON with JSONC comments and trailing commas removed (cmux.json is JSONC).
+export function stripJSONC(text: string): string {
+  let out = "";
+  let inString = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (inString) {
+      out += char;
+      if (char === "\\") out += text[++index] ?? "";
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+    } else if (char === "/" && next === "/") {
+      while (index < text.length && text[index] !== "\n") index++;
+      out += "\n";
+    } else if (char === "/" && next === "*") {
+      index += 2;
+      while (index < text.length && !(text[index] === "*" && text[index + 1] === "/")) index++;
+      index++;
+    } else out += char;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+
+/// The markdown page's look for the dev host: the `markdown` section of cmux.json and
+/// `<cmux.json dir>/markdown/theme.css` (settings.ts and host.ts on the page side).
+export function readMarkdownLook(configFile: string): { settings?: unknown; themeCSS: string } {
+  let settings: unknown;
+  try {
+    settings = (JSON.parse(stripJSONC(fs.readFileSync(configFile, "utf8"))) as { markdown?: unknown }).markdown;
+  } catch {
+    settings = undefined;
+  }
+  let themeCSS = "";
+  try {
+    themeCSS = fs.readFileSync(path.join(path.dirname(configFile), "markdown", "theme.css"), "utf8");
+  } catch {}
+  return { settings, themeCSS };
+}

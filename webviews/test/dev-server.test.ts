@@ -15,13 +15,16 @@ import {
 import { diffLanguagesDirectory, readDiffLanguagePack } from "../dev-server/diffLanguages";
 import {
   SHELL_PLACEHOLDERS,
+  cmuxConfigFile,
   contentHash,
   fillShell,
   markdownAsset,
   markdownFiles,
   readMarkdown,
+  readMarkdownLook,
   saveMarkdown,
   splitStyles,
+  stripJSONC,
 } from "../dev-server/markdownHost";
 
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dev-server-test-")));
@@ -242,6 +245,27 @@ describe("markdown editor dev host", () => {
     expect(markdownAsset(doc, "../secret.png")).toBeUndefined();
     expect(markdownAsset(doc, "notes.txt")).toBeUndefined();
     expect(markdownAsset(doc, "images/missing.png")).toBeUndefined();
+  });
+});
+
+describe("markdown editor dev look", () => {
+  test("reads the markdown section of a JSONC cmux.json and markdown/theme.css next to it", () => {
+    const config = write(
+      path.join(scratch, "look/cmux.json"),
+      '{\n  // comment\n  "url": "https://x//y", /* block */\n  "markdown": { "font": { "size": 18, }, },\n}\n',
+    );
+    write(path.join(scratch, "look/markdown/theme.css"), ".md-prose { color: red; }");
+    expect(readMarkdownLook(config)).toEqual({
+      settings: { font: { size: 18 } },
+      themeCSS: ".md-prose { color: red; }",
+    });
+    expect(JSON.parse(stripJSONC('{"a": "//not a comment", "b": [1,],}'))).toEqual({ a: "//not a comment", b: [1] });
+  });
+
+  test("a missing config or stylesheet is an empty look; CMUX_NEXT_CONFIG_FILE moves cmux.json", () => {
+    expect(readMarkdownLook(path.join(scratch, "nowhere/cmux.json"))).toEqual({ settings: undefined, themeCSS: "" });
+    expect(cmuxConfigFile({ CMUX_NEXT_CONFIG_FILE: "/tmp/x/cmux.json" }, "/home/u")).toBe("/tmp/x/cmux.json");
+    expect(cmuxConfigFile({}, "/home/u")).toBe("/home/u/.config/cmux/cmux.json");
   });
 });
 

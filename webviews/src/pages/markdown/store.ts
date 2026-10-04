@@ -5,8 +5,11 @@
 // banner when there are.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
+import type { DiffViewerAppearance } from "../../appearance";
+import { markdownBehavior } from "./settings";
 import {
   MARKDOWN_CHANGES,
+  MARKDOWN_LOOK,
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
   MARKDOWN_SAVE_OP,
@@ -14,6 +17,7 @@ import {
   type MarkdownChange,
   type MarkdownConfig,
   type MarkdownConflict,
+  type MarkdownLook,
   type MarkdownSaveResult,
 } from "./host";
 
@@ -31,6 +35,8 @@ export interface MarkdownState {
   source: string;
   /** Bumped when the document is replaced from outside (load, reload), so source views re-read. */
   revision: number;
+  /** The page's look: `markdown` settings, theme.css and the terminal appearance. */
+  look: { settings: unknown; themeCSS: string | undefined; appearance: DiffViewerAppearance | undefined };
 }
 
 /** The editor surface the store drives (MarkdownEditor, or a fake in tests). */
@@ -60,6 +66,7 @@ export class MarkdownStore {
     conflict: null,
     source: "",
     revision: 0,
+    look: { settings: undefined, themeCSS: undefined, appearance: undefined },
   };
   private readonly listeners = new Set<() => void>();
   private editor: DocumentEditor | null = null;
@@ -71,6 +78,8 @@ export class MarkdownStore {
   private saveAgain = false;
   private pendingChange: MarkdownChange | null = null;
   private stopChanges: (() => void) | null = null;
+  private stopLook: (() => void) | null = null;
+  private started = false;
 
   constructor(
     private readonly client: PageClient | null,
@@ -108,6 +117,10 @@ export class MarkdownStore {
     this.savedText = config.text;
     this.baseHash = config.hash;
     const readOnly = config.readOnly === true;
+    const look = { settings: config.settings, themeCSS: config.themeCSS, appearance: config.appearance };
+    // The settings' default mode applies when the page opens, not on a later settings change.
+    const mode = this.started ? this.state.mode : markdownBehavior(config.settings).defaultMode;
+    this.started = true;
     this.set({
       phase: "ready",
       config,
@@ -115,9 +128,19 @@ export class MarkdownStore {
       source: config.text,
       status: "saved",
       revision: this.state.revision + 1,
+      look,
+      mode,
     });
     this.editor?.setReadOnly(readOnly);
     this.editor?.load(config.text);
+    if (!this.stopLook) {
+      try {
+        this.stopLook = await client.subscribe<MarkdownLook>(MARKDOWN_LOOK, (look) => this.lookChanged(look));
+      } catch (error) {
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux markdown look", error);
+      }
+    }
     if (!this.stopChanges) {
       try {
         this.stopChanges = await client.subscribe<MarkdownChange>(MARKDOWN_CHANGES, (change) =>
@@ -128,6 +151,18 @@ export class MarkdownStore {
           console.warn("cmux markdown changes", error);
       }
     }
+  }
+
+  /** The host re-sent part of the look; the rest stays. Applied in place, never by reloading. */
+  lookChanged(look: MarkdownLook): void {
+    const current = this.state.look;
+    this.set({
+      look: {
+        settings: "settings" in look ? look.settings : current.settings,
+        themeCSS: "themeCSS" in look ? look.themeCSS : current.themeCSS,
+        appearance: look.appearance ?? current.appearance,
+      },
+    });
   }
 
   /** The editor mounted (or unmounted, with null). A loaded file goes into it. */
@@ -284,5 +319,7 @@ export class MarkdownStore {
     this.cancelAutosave?.();
     this.stopChanges?.();
     this.stopChanges = null;
+    this.stopLook?.();
+    this.stopLook = null;
   }
 }
