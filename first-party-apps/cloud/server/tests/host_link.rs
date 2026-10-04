@@ -111,6 +111,10 @@ fn a_bad_answer_is_a_typed_error_and_nothing_spawns() {
         json!({ "binary": "/opt/cmux/bin/cmux-tui", "hub_socket": "/tmp/hub.sock",
             "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "mac\u{7}" }),
         json!({ "binary": "/opt/cmux/bin/cmux-tui" }),
+        json!({ "binary": "/opt/cmux/bin/cmux-tui", "hub_socket": "/tmp/hub.sock",
+            "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "--carrier" }),
+        json!({ "binary": "/opt/cmux/../bin/cmux-tui", "hub_socket": "/tmp/hub.sock",
+            "state_dir": "/tmp/s", "socket_dir": "/tmp", "device_name": "mac" }),
     ] {
         let mut host = host();
         link_get(&mut host);
@@ -245,4 +249,28 @@ fn a_link_changed_back_to_a_null_hub_ends_the_live_link() {
     let again = connect(&mut host, "c-2");
     assert_eq!(again["error"]["code"], "cmux.cloud.link_unavailable", "{again}");
     assert_eq!(host.spawner.spawns(), 1, "no new link without a hub");
+}
+
+#[test]
+fn a_late_link_get_answer_never_replaces_newer_link_changed_details() {
+    let mut host = host();
+    link_get(&mut host);
+    host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed",
+        "data": details("/opt/cmux/v2/cmux-tui") }));
+    host.send(&json!({ "t": "host.result", "id": 1, "value": details("/opt/cmux/v1/cmux-tui") }));
+    let up = connect(&mut host, "c-1");
+    assert_eq!(up["ok"], true, "{up}");
+    let binary = host.spawner.log().commands[0].binary.clone();
+    assert_eq!(binary, std::path::PathBuf::from("/opt/cmux/v2/cmux-tui"), "the newer details win");
+}
+
+#[test]
+fn a_malformed_answer_ends_the_request_with_a_typed_error() {
+    let mut host = host();
+    link_get(&mut host);
+    host.send(&json!({ "t": "host.result", "id": 1 }));
+    let answer = connect(&mut host, "c-1");
+    assert_eq!(answer["error"]["code"], "cmux.cloud.link_unavailable", "{answer}");
+    assert_eq!(answer["error"]["upstream_code"], "cmux.cloud.host_answer_invalid", "{answer}");
+    assert_eq!(host.spawner.spawns(), 0);
 }

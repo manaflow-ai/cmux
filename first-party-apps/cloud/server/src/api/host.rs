@@ -23,6 +23,9 @@ pub const LINK_GET: &str = "cmux.host.link.get";
 /// `cmux.host.link.changed`: the same shape as the `link.get` answer.
 pub const LINK_CHANGED: &str = "cmux.host.link.changed";
 
+/// The code of a host answer that was not well formed.
+pub const MALFORMED: &str = "cmux.cloud.host_answer_invalid";
+
 /// Longest host error code and message kept (display text only).
 const MAX_CODE: usize = 128;
 const MAX_MESSAGE: usize = 2048;
@@ -84,6 +87,12 @@ impl HostRequests {
         self.waiting.values().any(|waiting| waiting == op)
     }
 
+    /// Forgets the waiting request of `op` (a newer event replaced what its
+    /// answer would say), so a late answer to it is dropped.
+    pub fn cancel(&mut self, op: &str) {
+        self.waiting.retain(|_, waiting| waiting != op);
+    }
+
     /// The frames to send, in order.
     pub fn take_outbox(&mut self) -> Vec<Value> {
         std::mem::take(&mut self.outbox)
@@ -100,37 +109,37 @@ impl HostRequests {
                     .get("id")
                     .and_then(Value::as_u64)
                     .ok_or("a host answer without a numeric id")?;
-                if !self.waiting.contains_key(&id) {
+                let Some(op) = self.waiting.remove(&id) else {
                     return Err(format!("a host answer to no waiting request ({id})"));
-                }
-                let frame = if kind == "host.result" {
-                    let value =
-                        line.get("value").cloned().ok_or("a host.result without a value")?;
-                    HostFrame::Result { op: String::new(), value }
-                } else {
-                    let code = line.get("code").and_then(Value::as_str).filter(|c| !c.is_empty());
-                    let code = code.ok_or("a host.error without a code")?;
-                    HostFrame::Error {
-                        op: String::new(),
-                        error: HostError {
-                            code: cut(code, MAX_CODE),
-                            message: cut(
-                                line.get("message").and_then(Value::as_str).unwrap_or_default(),
-                                MAX_MESSAGE,
-                            ),
-                            retryable: line
-                                .get("retryable")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false),
-                        },
-                    }
                 };
-                // The request is answered only by a well-formed frame.
-                let op = self.waiting.remove(&id).unwrap_or_default();
-                Ok(match frame {
-                    HostFrame::Result { value, .. } => HostFrame::Result { op, value },
-                    HostFrame::Error { error, .. } => HostFrame::Error { op, error },
-                    event @ HostFrame::Event { .. } => event,
+                // A malformed answer still ends its request (no request
+                // waits forever): it becomes a typed, final error.
+                let malformed = |op: String, why: &str| HostFrame::Error {
+                    op,
+                    error: HostError {
+                        code: MALFORMED.to_owned(),
+                        message: why.to_owned(),
+                        retryable: false,
+                    },
+                };
+                if kind == "host.result" {
+                    return Ok(match line.get("value") {
+                        Some(value) => HostFrame::Result { op, value: value.clone() },
+                        None => malformed(op, "a host.result without a value"),
+                    });
+                }
+                let code = line.get("code").and_then(Value::as_str).filter(|c| !c.is_empty());
+                let Some(code) = code else {
+                    return Ok(malformed(op, "a host.error without a code"));
+                };
+                let message = line.get("message").and_then(Value::as_str).unwrap_or_default();
+                Ok(HostFrame::Error {
+                    op,
+                    error: HostError {
+                        code: cut(code, MAX_CODE),
+                        message: cut(message, MAX_MESSAGE),
+                        retryable: line.get("retryable").and_then(Value::as_bool).unwrap_or(false),
+                    },
                 })
             }
             "host.event" => {

@@ -92,11 +92,15 @@ impl LinkPaths {
         }
         let device_name =
             value.get("device_name").and_then(Value::as_str).ok_or("device_name is missing")?;
+        // A leading `-` would read as a flag of the link's argv.
         if device_name.trim().is_empty()
+            || device_name.starts_with('-')
             || device_name.chars().any(char::is_control)
             || device_name.len() > 128
         {
-            return Err("device_name is empty, too long or has control characters".into());
+            return Err(
+                "device_name is empty, too long, starts with - or has control characters".into()
+            );
         }
         Ok(Self {
             binary: path(value, "binary")?,
@@ -131,7 +135,12 @@ impl<C: ControlPlane> Server<C> {
         };
         match frame {
             HostFrame::Result { op, value } if op == LINK_GET => self.apply_link_details(&value),
-            HostFrame::Event { op, data } if op == LINK_CHANGED => self.apply_link_details(&data),
+            HostFrame::Event { op, data } if op == LINK_CHANGED => {
+                // The event is newer than any waiting link.get: its late
+                // answer must not bring older details back.
+                self.host_requests().cancel(LINK_GET);
+                self.apply_link_details(&data);
+            }
             HostFrame::Error { op, error } if op == LINK_GET => {
                 let retry = error.retryable;
                 self.attach_mut().link = LinkConfig::HostError { error, retry };

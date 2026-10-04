@@ -13,7 +13,9 @@
 //! and `UserKnownHostsFile=<data>/ssh/known_hosts` (the server pinned the
 //! endpoint's host key there before the job), `GlobalKnownHostsFile=/dev/null`
 //! and `StrictHostKeyChecking=yes`, and runs `ssh` by absolute path (`-S`),
-//! so nothing reads the user's `~/.ssh`.
+//! so nothing reads the user's `~/.ssh`. One access remains: OpenSSH takes
+//! the home folder from the user database (not `HOME`) and may `stat` (or
+//! create, when missing) the real `~/.ssh`; it reads no file there.
 //!
 //! UNVERIFIED live: needs a Cloud machine (no non-production account yet).
 
@@ -84,6 +86,9 @@ pub fn scp_args(job: &TransferJob, agent_socket: &Path, identity_pub: &Path) -> 
         format!("UserKnownHostsFile={}", escape(&job.ssh.known_hosts)),
         "GlobalKnownHostsFile=/dev/null".to_owned(),
         "StrictHostKeyChecking=yes".to_owned(),
+        // Never let the server add keys, never check the route's address.
+        "UpdateHostKeys=no".to_owned(),
+        "CheckHostIP=no".to_owned(),
         "HostKeyAlgorithms=ssh-ed25519".to_owned(),
         format!("HostKeyAlias={}", host_alias(&job.machine)),
         format!("IdentityAgent={}", escape(agent_socket)),

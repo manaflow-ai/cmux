@@ -5,6 +5,7 @@
 mod argv;
 pub mod config;
 pub(crate) mod ops;
+mod park;
 mod spawner;
 mod supervisor;
 
@@ -56,8 +57,13 @@ pub struct Attach {
     host_link_events: VecDeque<CarrierEvent>,
     /// `end` events for the connector, not taken yet.
     connector_events: VecDeque<ConnectorEvent>,
-    /// Connects of the serve loop whose link still connects (bounded).
-    pub(crate) pending_connects: Vec<ops::PendingConnect>,
+    /// The serve loop never waits for a link: a connect parks its op
+    /// instead (super::park). Off for direct callers, which wait.
+    pub(crate) park_link_waits: bool,
+    /// The link a connect just parked on, for the loop to pick up.
+    pub(crate) parked: Option<(String, u64)>,
+    /// Ops of the serve loop that wait for a link (bounded).
+    pub(crate) parked_ops: Vec<park::Parked>,
     next_terminal: u64,
     next_attempt: u64,
 }
@@ -86,7 +92,9 @@ impl Attach {
             connector_kinds: kinds,
             host_link_events: VecDeque::new(),
             connector_events: VecDeque::new(),
-            pending_connects: Vec::new(),
+            park_link_waits: false,
+            parked: None,
+            parked_ops: Vec::new(),
             next_terminal: 0,
             next_attempt: 0,
         }

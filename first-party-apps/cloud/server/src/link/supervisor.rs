@@ -196,13 +196,20 @@ impl LinkSupervisor {
         let opened = matches!(link.state, LinkState::Up(_));
         let generation = link.generation;
         self.stop_process(machine);
+        let reason = "the link details changed";
         self.events.push(CarrierEvent::Down {
             target: machine.to_owned(),
             generation,
             retryable: true,
-            reason: "the link details changed".into(),
+            reason: reason.into(),
             opened,
         });
+        // The old generation is down whatever happens next, so its late
+        // exit (same generation) adds no second down.
+        if let Some(link) = self.links.get_mut(machine) {
+            link.state = LinkState::Down { retryable: true, reason: reason.into() };
+            link.deadline = None;
+        }
         self.start(machine, command)
     }
 
@@ -394,10 +401,15 @@ impl LinkSupervisor {
         }
     }
 
-    /// Ends every link without a revocation (sign-out): after a new sign-in
-    /// one connect call opens a link again.
+    /// Ends every link without a revocation (sign-out, no hub): after a new
+    /// sign-in one connect call opens a link again. Revocations stay.
     pub fn disconnect_all(&mut self, reason: &str) {
-        let machines: Vec<String> = self.links.keys().cloned().collect();
+        let machines: Vec<String> = self
+            .links
+            .iter()
+            .filter(|(_, l)| !matches!(l.state, LinkState::Revoked { .. }))
+            .map(|(m, _)| m.clone())
+            .collect();
         for machine in machines {
             self.stop_process(&machine);
             if let Some(link) = self.links.remove(&machine)
