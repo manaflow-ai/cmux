@@ -15,6 +15,9 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var notify: UpdatesNotifySetting = .card
     /// Hours in which a ready update shows no card; nil is off.
     public var quietHours: QuietHours?
+    /// Previous builds kept for rollback (red-test stub).
+    public var keepPreviousVersions = 0
+    public static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
 
     public init() {}
 
@@ -24,6 +27,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public static let installOnQuitPath = ["updates", "installOnQuit"]
     public static let notifyPath = ["updates", "notify"]
     public static let quietHoursPath = ["updates", "quietHours"]
+    public static let keepPreviousVersionsPath = ["updates", "keepPreviousVersions"]
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
