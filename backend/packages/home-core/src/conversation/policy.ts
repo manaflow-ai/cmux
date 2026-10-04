@@ -1,4 +1,5 @@
 import type { Principal } from "./engine-types.ts"
+import { reachDecision } from "./reach.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type Participant } from "./types.ts"
 import { safeDisplayName } from "./validate.ts"
 
@@ -32,8 +33,10 @@ export const actorOf = (principal: Principal): string | null => {
  * The rules that need no outside data: the caller themself (name from the
  * principal); a address (its id comes from `address.ensure` in the Worker); a
  * former participant of this conversation (its stored record is trusted); a
- * departed agent only when the caller is its stored owner. Everyone else is
- * refused: an injected policy decides those.
+ * departed agent only when the caller is its stored owner. Another human
+ * follows the reach rule (reach.ts) when the Worker resolved the caller's
+ * `home_reach` facts; without them (local and self-hosted owners) they are
+ * refused. Agents beyond these need an injected policy.
  */
 export const defaultParticipantPolicy: ParticipantPolicy = (principal, participant, head) => {
   const actor = actorOf(principal)
@@ -45,6 +48,7 @@ export const defaultParticipantPolicy: ParticipantPolicy = (principal, participa
   }
   if (participant.id === actor) return { ok: true, display_name: safeDisplayName(principal.display_name, FALLBACK_NAME) }
   if (known) return { ok: true, display_name: known.display_name }
+  if (principal.home_reach !== undefined) return reachDecision(principal.home_reach.find((reach) => reach.user === participant.id))
   return { ok: false, code: "forbidden" }
 }
 

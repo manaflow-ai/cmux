@@ -1,5 +1,5 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
-import { inbox as homeInbox } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
@@ -155,6 +155,17 @@ export class UserDO extends OwnerDO<UserState> {
       return { ok: true, value: { entries: homeInbox.listInbox(entries, query) }, revision: String(engine.currentSeq) }
     }
     return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
+  }
+
+  /**
+   * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
+   * user's `allow_dm_from`, never the discovery flags. An object that never served this user
+   * answers the default without binding.
+   */
+  async homeAllowDmFrom(entity: string): Promise<homeConversation.AllowDmFrom> {
+    const row = this.sqlStore.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
+    if (!row || row.entity !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_dm_from
+    return (this.bind(entity).currentState.home_settings ?? homeUser.DEFAULT_HOME_SETTINGS).allow_dm_from
   }
 
   /**

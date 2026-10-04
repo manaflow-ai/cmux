@@ -46,7 +46,7 @@ export const ConversationCreate = def({
     settings: Schema.optionalKey(ConversationSettings)
   }),
   result: Schema.Struct({ conversation: ConversationSummary }),
-  errors: [...conversationErrors, "conversation_exists", "invalid_participant", "invalid_title"],
+  errors: [...conversationErrors, "conversation_exists", "invalid_participant", "invalid_title", "not_reachable"],
   docs: "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation.",
   cli: cli("create"),
   mcp: { expose: "default", group: "home" }
@@ -67,7 +67,7 @@ export const DmOpen = def({
     ])
   }),
   result: Schema.Struct({ conversation: ConversationSummary }),
-  errors: [...conversationErrors, "invalid_participant", "invite_limit"],
+  errors: [...conversationErrors, "invalid_participant", "invite_limit", "not_reachable"],
   docs: "Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned.",
   cli: cli("dm"),
   mcp: { expose: "default", group: "home" }
@@ -189,7 +189,7 @@ export const ParticipantsAdd = def({
   principals: ["session", "install"],
   params: Schema.Struct({ ...conv, participant: ParticipantInput }),
   result: commit,
-  errors: [...conversationErrors, "duplicate_participant", "invalid_participant"],
+  errors: [...conversationErrors, "duplicate_participant", "invalid_participant", "not_reachable"],
   docs: "Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
   cli: cli("add"),
   mcp: { expose: "opt_in", group: "home" }

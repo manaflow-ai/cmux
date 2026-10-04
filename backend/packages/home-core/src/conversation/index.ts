@@ -52,6 +52,7 @@ export {
   type ParticipantDecision,
   type ParticipantPolicy
 } from "./policy.ts"
+export { ALLOW_DM_FROM, NOT_REACHABLE, reachDecision, type AllowDmFrom, type HumanReach, type ReachDecision } from "./reach.ts"
 export { safeDisplayName } from "./validate.ts"
 export { commitOutbox, createOutbox } from "./outbox.ts"
 export { CLOUD_REJECT_CODES, LOCAL_REJECT_CODES, REJECT_CODES, type ConversationReject, type RejectCode } from "./reject.ts"
