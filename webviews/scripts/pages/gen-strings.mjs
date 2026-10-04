@@ -104,6 +104,11 @@ export const PAGES = {
     out: "webviews/src/pages/cloud/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
   },
+  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
+  coderouter: {
+    out: "webviews/src/pages/coderouter/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
+  },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",

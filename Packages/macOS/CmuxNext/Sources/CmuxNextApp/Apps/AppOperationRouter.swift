@@ -32,12 +32,18 @@ nonisolated final class AppOperationRouter: AppOperationSink, Sendable {
         self.storage = storage
         self.ledger = ledger
         capabilities = AppHostCapabilities([CodeRouterAppOps(control: { method, params throws(AppHostCapabilityError) in
-            switch await router.handle(ControlRequest(method: method, params: params), connection: .inProcess) {
-            case .success(let value): return value
-            case .failure(let error):
-                throw AppHostCapabilityError(code: error.code, message: error.message, details: error.data.map(AppJSON.init))
-            }
+            try await Self.control(router, method, params)
         })])
+    }
+
+    /// Runs one control method in process (the CodeRouter app's and page's ops use it).
+    static func control(_ router: ControlRouter, _ method: String,
+                        _ params: [String: CmuxNextSettings.JSONValue]) async throws(AppHostCapabilityError) -> CmuxNextSettings.JSONValue {
+        switch await router.handle(ControlRequest(method: method, params: params), connection: .inProcess) {
+        case .success(let value): return value
+        case .failure(let error):
+            throw AppHostCapabilityError(code: error.code, message: error.message, details: error.data.map(AppJSON.init))
+        }
     }
 
     func perform(_ request: AppOperationRequest) async -> Result<AppOperationResult, AppOperationError> {

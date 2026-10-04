@@ -89,12 +89,25 @@ describe("AppsPage", () => {
     expect($(".apps-detail-name")).toBeNull();
   });
 
-  test("Installed lists apps with Update, Permissions and Logs", async () => {
+  test("Installed lists apps with Update, Permissions and Logs; first-party apps hide, never remove", async () => {
     const provider = new MockAppsProvider();
     await render(provider, "#/installed");
-    expect($$(".apps-installed-row .apps-name")[0]?.textContent).toContain("GitHub PRs");
+    expect($$(".apps-installed-row .apps-name").map((name) => name.textContent)).toEqual(["GitHub PRs 1.1.0"]);
     const buttons = () => $$(".apps-installed-actions .apps-button");
-    expect(buttons().map((button) => button.textContent)).toEqual(["Update", "Permissions", "Logs", "Remove"]);
+    expect(buttons().map((button) => button.textContent)).toEqual(["Update", "Permissions", "Logs", "Hide"]);
+    await click(buttons().find((button) => button.textContent === "Hide"));
+    expect(provider.calls.find((call) => call.op === AppsOps.set)?.params).toEqual({
+      app: "cmux.github-prs",
+      hidden: true,
+    });
+    expect(provider.calls.some((call) => call.op === AppsOps.uninstall)).toBe(false);
+    expect(buttons().map((button) => button.textContent)).toContain("Show");
+    await click(buttons().find((button) => button.textContent === "Show"));
+    expect(provider.calls.filter((call) => call.op === AppsOps.set).at(-1)?.params).toEqual({
+      app: "cmux.github-prs",
+      hidden: false,
+    });
+    provider.calls.length = 0;
     await click(buttons().find((button) => button.textContent === "Logs"));
     expect($(".apps-logs")?.textContent).toContain("cmux.github-prs started");
     await click(buttons().find((button) => button.textContent === "Permissions"));
@@ -104,6 +117,15 @@ describe("AppsPage", () => {
       app: "cmux.github-prs",
       enabled: false,
     });
+  });
+
+  test("a first-party listing offers Hide, not Remove; the store is not a listing", async () => {
+    const provider = new MockAppsProvider();
+    await render(provider, "#/discover?app=cmux.github-prs");
+    expect($$(".apps-detail-actions .apps-button").map((button) => button.textContent)).toEqual(["Open", "Hide"]);
+    await render(provider, "#/discover?app=cmux/app-store");
+    expect($(".apps-detail-name")).toBeNull();
+    expect($$(".apps-card .apps-name").map((name) => name.textContent)).not.toContain("App Store");
   });
 
   test("split layout shows the list and the selected detail side by side", async () => {
@@ -138,6 +160,50 @@ describe("AppsPage", () => {
     expect(host.querySelector(".apps-empty")?.textContent).toBe(
       "The App Store is not available until cmux reconnects.",
     );
+  });
+
+  test("the host's route changes (appStore.show {app}, showInstalled) move the page without a reload", async () => {
+    const provider = new MockAppsProvider();
+    const { mountAppsPage } = await import("./main");
+    const host = dom.window.document.createElement("div");
+    dom.window.document.body.append(host);
+    let store!: AppsStore;
+    await act(async () => {
+      store = mountAppsPage(host, provider, "");
+    });
+    await act(async () => {
+      await store.start();
+    });
+    const hashChange = async (hash: string) => {
+      await act(async () => {
+        dom.window.location.hash = hash;
+        await new Promise((resolve) => dom.window.addEventListener("hashchange", resolve, { once: true }));
+      });
+      await act(async () => undefined);
+    };
+    await hashChange("#/installed");
+    expect(store.getSnapshot().tab).toBe("installed");
+    await hashChange("#/discover?app=acme.caffeinate");
+    expect(store.getSnapshot().tab).toBe("discover");
+    expect(host.querySelector(".apps-detail-name")?.textContent).toBe("Caffeinate");
+    await hashChange("#/discover?app=cmux/app-store");
+    expect(store.getSnapshot().selection).toBeUndefined();
+  });
+
+  test("DESKTOP-FEEL: only content selects (description, scope reasons, logs, errors), never chrome", async () => {
+    const provider = new MockAppsProvider();
+    await render(provider, "#/discover?app=acme.caffeinate");
+    expect($(".apps-detail-description")?.classList.contains("selectable")).toBe(true);
+    expect($$(".apps-scope .apps-muted").every((reason) => reason.classList.contains("selectable"))).toBe(true);
+    expect($(".apps-detail-name")?.closest(".selectable")).toBeNull();
+    expect($(".apps-detail-actions")?.closest(".selectable")).toBeNull();
+    provider.failNext(AppsOps.install, new Error("refused"));
+    await click($$(".apps-detail-actions .apps-button").find((button) => button.textContent === "Install"));
+    expect($(".apps-error")?.classList.contains("selectable")).toBe(true);
+    await render(provider, "#/installed");
+    await click($$(".apps-installed-actions .apps-button").find((button) => button.textContent === "Logs"));
+    expect($(".apps-logs")?.classList.contains("selectable")).toBe(true);
+    expect($(".apps-installed-actions")?.closest(".selectable")).toBeNull();
   });
 
   test("Japanese strings and the disconnected state", async () => {
