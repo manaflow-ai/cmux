@@ -283,6 +283,10 @@ export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActi
   return [...items, { kind: "thought", text }];
 }
 
+/// Notices made in one millisecond each keep their row: the id carries a counter, not the time.
+let notices = 0;
+const noticeId = (kind: string) => `${kind}-${(notices += 1)}`;
+
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
@@ -1504,13 +1508,15 @@ export class AcpmuxDirectClient {
   /// A line in the shown transcript (a pick the agent refused).
   notice(text: string): void {
     const at = Date.now();
-    this.rows.set(`notice-${at}`, { id: `notice-${at}`, version: 1, at, kind: "notice", text });
+    const id = noticeId("notice");
+    this.rows.set(id, { id, version: 1, at, kind: "notice", text });
     this.emit();
   }
   private adoptFailed(reason: string): void {
     const at = Date.now();
-    this.rows.set(`notice-adopt-${at}`, {
-      id: `notice-adopt-${at}`,
+    const id = noticeId("notice-adopt");
+    this.rows.set(id, {
+      id,
       version: 1,
       at,
       kind: "notice",
@@ -1533,8 +1539,9 @@ export class AcpmuxDirectClient {
       if (generation === this.selectionGeneration) {
         const at = Date.now();
         const reason = error instanceof Error && error.message ? `: ${error.message}` : "";
-        this.rows.set(`notice-fork-${at}`, {
-          id: `notice-fork-${at}`,
+        const id = noticeId("notice-fork");
+        this.rows.set(id, {
+          id,
           version: 1,
           at,
           kind: "notice",
