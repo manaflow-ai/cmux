@@ -2,6 +2,7 @@
 // before the last safe boundary is final: it is parsed once, keeps its object (so a memoized block
 // never renders again) and its key. Only the tail after that boundary is parsed again.
 import { type MdBlock, parseMarkdown } from "./Markdown";
+import { safeTail } from "./safeTail";
 
 export type KeyedBlock = { key: string; block: MdBlock };
 
@@ -20,14 +21,18 @@ const DISPLAY_CLOSE = /\\\]\s*$/;
  */
 export class IncrementalMarkdown {
   private source = "";
+  private streaming = false;
   private closed: KeyedBlock[] = [];
   private closedEnd = 0;
   private tail: KeyedBlock[] = [];
   /// The characters the last update parsed (for tests and the debug perf report).
   lastParsedLength = 0;
 
-  update(source: string): KeyedBlock[] {
-    if (source === this.source) return [...this.closed, ...this.tail];
+  /// `streaming`: the tail draws only what is safe to draw half-written (safeTail.ts).
+  update(source: string, options: { streaming?: boolean } = {}): KeyedBlock[] {
+    const streaming = options.streaming ?? false;
+    if (source === this.source && streaming === this.streaming) return [...this.closed, ...this.tail];
+    this.streaming = streaming;
     if (!source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
     this.source = source;
     this.lastParsedLength = 0;
@@ -37,7 +42,8 @@ export class IncrementalMarkdown {
       this.closedEnd = boundary;
     }
     const previous = new Map(this.tail.map((entry) => [entry.key, entry]));
-    this.tail = this.parse(source.slice(this.closedEnd), this.closed.length).map((entry) => {
+    const rest = source.slice(this.closedEnd);
+    this.tail = this.parse(streaming ? safeTail(rest) : rest, this.closed.length).map((entry) => {
       const before = previous.get(entry.key);
       return before && sameBlock(before.block, entry.block) ? before : entry;
     });

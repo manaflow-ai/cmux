@@ -200,8 +200,8 @@ extension DaemonConnection {
     }
 
     /// `set-column-sticky` for the column holding `pane`; nil unpins it.
-    public func setColumnSticky(of pane: PaneID, sticky: StickySnapshot?, transaction: UInt64? = nil) async throws {
-        _ = try await request(SetColumnStickyRequest(pane: pane, sticky: sticky, transaction: transaction))
+    public func setColumnDock(of pane: PaneID, dock: DockSnapshot?, transaction: UInt64? = nil) async throws {
+        _ = try await request(SetColumnDockRequest(pane: pane, dock: dock, transaction: transaction))
     }
 
     public func swapPane(_ pane: PaneID, with target: SwapTarget) async throws {

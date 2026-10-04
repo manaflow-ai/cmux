@@ -8,7 +8,7 @@ public import CmuxNextDesign
 public nonisolated enum LayoutPrototypeModel: String, Sendable, CaseIterable, TunableChoice {
     /// The real layout.
     case off
-    /// Design A, the frame: the right sticky column is drawn as a top or
+    /// Design A, the frame: the right docked column is drawn as a top or
     /// bottom dock between the side docks.
     case frameDocks
     /// Design B, the grid: each strip column's panes become cells by index,
@@ -24,7 +24,7 @@ public nonisolated enum LayoutPrototypeModel: String, Sendable, CaseIterable, Tu
     }
 }
 
-/// The edge the frame prototype docks the right sticky column to.
+/// The edge the frame prototype docks the right docked column to.
 public nonisolated enum LayoutPrototypeDockEdge: String, Sendable, CaseIterable, TunableChoice {
     case bottom
     case top

@@ -29,7 +29,7 @@ So the problems are not depth. They are what is missing, what is misplaced, and 
 
 **Order fights frequency**
 - General opens on History, and the newest useful row (New Tab Opens) sits under Window.
-- A 9-row Columns group of niri tunables (sticky edges, minimum pane sizes) ends the page.
+- A 9-row Columns group of niri tunables (dock edges, minimum pane sizes) ends the page.
 - Notifications is 18 rows: three per-source dismissal overrides and 8 attention-ring details, all at the same level as the two settings most people want (banners, sound).
 
 **Search covers only half the window**
@@ -50,7 +50,7 @@ So the problems are not depth. They are what is missing, what is misplaced, and 
 
 **Several write paths, two sources**
 - The window and the new tab page write through the validated `setSetting`.
-- The palette handlers use typed setters, and some write raw paths with no schema check: focus ring, sticky column and notification dismissal.
+- The palette handlers use typed setters, and some write raw paths with no schema check: focus ring, docked column and notification dismissal.
 - Density is written three ways and theme five ways.
 - cmux.json is the store for preferences. Per-object state lives elsewhere:
   - room and workspace themes in the daemon;

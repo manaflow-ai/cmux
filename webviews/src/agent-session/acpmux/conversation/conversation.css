@@ -841,3 +841,46 @@
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
 }
+
+/* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
+ * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
+.cv-code-plain {
+  margin: 0;
+  padding: 0 12px 0 8px;
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--cv-codeblock-text);
+  white-space: pre;
+}
+.cv-code-plain__line {
+  min-height: 20px;
+}
+/* The highlighted card waits underneath the plain one until Pierre has painted, then fades in
+ * over it; the plain card leaves when that fade ends. */
+.cv-code-handoff {
+  position: relative;
+}
+.cv-code-handoff.is-plain .cv-code-handoff__real,
+.cv-code-handoff.is-fading .cv-code-handoff__real {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+}
+.cv-code-handoff.is-plain .cv-code-handoff__real {
+  opacity: 0;
+}
+@keyframes cv-enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-code-handoff.is-fading .cv-code-handoff__real {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}

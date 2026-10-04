@@ -33,7 +33,7 @@ import Testing
     // LOW11: a tiny sidebar keeps each band's first row (Home, Settings).
     @Test func tinyHeightsKeepEachBandsFirstRow() {
         for scroll in [true, false] {
-            let p = SidebarSectionsPreferences(stickyBandsScroll: scroll)
+            let p = SidebarSectionsPreferences(pinnedBandsScroll: scroll)
             let h = SidebarBandHeights.resolve(above: band(200), below: band(60), available: 70, preferences: p,
                                                minimumList: 84, bandFloor: 28)
             #expect(h.above >= 28 && h.below >= 28, "scroll \(scroll)")

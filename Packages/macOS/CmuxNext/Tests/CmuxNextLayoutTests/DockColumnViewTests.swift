@@ -3,26 +3,26 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextLayout
 
-/// The live layout with a sticky column (sticky-column.md, V1 to V4, B5):
+/// The live layout with a docked column (dock-column.md, V1 to V4, B5):
 /// fixed frames above the strip, docked clipping, the overlay backdrop,
 /// pointer and drop routing, the inner-edge resize and the scrollbar.
 /// 1000 x 600 window, pinned style (gap 6, no padding). Serialized: cases
 /// pin the process-wide `Motion.reduceMotionOverride` across awaits.
 @MainActor @Suite(.serialized)
-struct StickyColumnViewTests {
-    private func screens(_ sticky: StickyColumn) -> [LayoutScreen] {
+struct DockColumnViewTests {
+    private func screens(_ dock: DockColumn) -> [LayoutScreen] {
         let columns = [("a", 0.5), ("b", 0.5), ("c", 0.5), ("d", 0.3)].map { id, width in
-            LayoutColumn(id: ColumnID("c\(id)"), width: width, root: .leaf(PaneID(id)), sticky: id == "d" ? sticky : nil)
+            LayoutColumn(id: ColumnID("c\(id)"), width: width, root: .leaf(PaneID(id)), dock: id == "d" ? dock : nil)
         }
         return [LayoutScreen(id: "s", name: "", layout: .columns(columns))]
     }
 
-    private func makeRoot(_ sticky: StickyColumn, scrollbar: StripScrollbarMode = .auto,
+    private func makeRoot(_ dock: DockColumn, scrollbar: StripScrollbarMode = .auto,
                           scrollbarClock: any Clock<Duration> = ManualClock()) -> (LayoutRootView, NSWindow) {
-        let model = LayoutModel(screens: screens(sticky), activeScreenID: "s", focusedPane: "a")
+        let model = LayoutModel(screens: screens(dock), activeScreenID: "s", focusedPane: "a")
         model.followsDesignMetrics = false
         model.stripScrollbarOverride = scrollbar
-        let view = LayoutRootView(model: model, contentProvider: StickyStubProvider.shared, scrollbarClock: scrollbarClock)
+        let view = LayoutRootView(model: model, contentProvider: DockStubProvider.shared, scrollbarClock: scrollbarClock)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -42,30 +42,30 @@ struct StickyColumnViewTests {
     private func host(_ view: LayoutRootView, _ pane: PaneID) -> PaneHostView? { view.context.hosts[pane] }
 
     @Test func aDockedColumnStaysPutAboveAClippedStrip() async {
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked))
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked))
         defer { window.close() }
         let screen = view.screenViews["s"]!
-        let sticky = CGRect(x: 702, y: 0, width: 292, height: 600)
-        #expect(host(view, "d")?.frame == sticky)
+        let dock = CGRect(x: 702, y: 0, width: 292, height: 600)
+        #expect(host(view, "d")?.frame == dock)
         // c starts at strip x 702: under the docked column, clipped away.
         #expect(!view.model.visiblePanes.contains("c"))
         #expect(host(view, "c")?.layer?.mask?.frame.width == 0)
         let order = screen.subviews
-        let stickyIndex = order.firstIndex { $0 === host(view, "d") } ?? -1
+        let dockIndex = order.firstIndex { $0 === host(view, "d") } ?? -1
         for pane: PaneID in ["a", "b", "c"] {
-            #expect((order.firstIndex { $0 === host(view, pane) } ?? .max) < stickyIndex)
+            #expect((order.firstIndex { $0 === host(view, pane) } ?? .max) < dockIndex)
         }
         view.model.focus("c")
         await settle { screen.scroll.target > 0 }
         runToRest(view)
         #expect(screen.scroll.value == screen.geometry.maxOffset)
-        #expect(host(view, "d")?.frame == sticky)
+        #expect(host(view, "d")?.frame == dock)
         #expect(abs((host(view, "c")?.frame.maxX ?? 0) - 696) < 0.5)
         #expect(view.model.visiblePanes.isSuperset(of: ["c", "d"]))
     }
 
     @Test func anOverlayColumnFloatsOnAGlassBackdrop() {
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .overlay))
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .overlay))
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.backdrops.count == 1)
@@ -85,8 +85,8 @@ struct StickyColumnViewTests {
         #expect(rim === screen)
     }
 
-    @Test func directionalFocusReachesColumnsPastARightStickyColumn() {
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked))
+    @Test func directionalFocusReachesColumnsPastARightDockColumn() {
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked))
         defer { window.close() }
         let frames = view.navigationFrames
         // d sits after the strip's end, so right from b reaches c first.
@@ -94,8 +94,8 @@ struct StickyColumnViewTests {
         #expect(FocusNavigation.neighbor(of: "c", direction: .right, frames: frames) == "d")
     }
 
-    @Test func aTabDragOverTheStickyColumnTargetsItsPane() {
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .overlay))
+    @Test func aTabDragOverTheDockColumnTargetsItsPane() {
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .overlay))
         defer { window.close() }
         #expect(view.updateTabDrag("t", locationInWindow: NSPoint(x: 848, y: 300)) == .pane("d", .center))
         #expect(view.updateTabDrag("t", locationInWindow: NSPoint(x: 700, y: 300)) == nil)
@@ -104,7 +104,7 @@ struct StickyColumnViewTests {
     }
 
     @Test func dragginTheInnerEdgeOfARightColumnWidensIt() {
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked))
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked))
         defer { window.close() }
         var widths: [Double] = []
         view.model.intentHandler = { intent in
@@ -125,7 +125,7 @@ struct StickyColumnViewTests {
     @Test(arguments: [false, true]) func theScrollbarShowsOnScrollAndHidesWhenOff(reduceMotion: Bool) async {
         Motion.reduceMotionOverride = reduceMotion
         defer { Motion.reduceMotionOverride = nil }
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
@@ -148,7 +148,7 @@ struct StickyColumnViewTests {
     @Test(arguments: [false, true]) func aSyncThatKeepsTheOffsetDoesNotShowTheScrollbar(reduceMotion: Bool) {
         Motion.reduceMotionOverride = reduceMotion
         defer { Motion.reduceMotionOverride = nil }
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
         let screen = view.screenViews["s"]!
         screen.syncScroll(focused: "a", source: .programmatic, mode: .never, animated: !reduceMotion, showsScrollbarOnSnap: true)
@@ -167,20 +167,20 @@ struct StickyColumnViewTests {
     @Test func snapsWithoutAWindowDoNotShowTheScrollbar() async {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        let launched = LayoutModel(screens: screens(StickyColumn(edge: .right, mode: .docked)), activeScreenID: "s", focusedPane: "c")
+        let launched = LayoutModel(screens: screens(DockColumn(edge: .right, mode: .docked)), activeScreenID: "s", focusedPane: "c")
         launched.followsDesignMetrics = false
         launched.stripScrollbarOverride = .auto
-        let launchView = LayoutRootView(model: launched, contentProvider: StickyStubProvider.shared, scrollbarClock: ManualClock())
+        let launchView = LayoutRootView(model: launched, contentProvider: DockStubProvider.shared, scrollbarClock: ManualClock())
         launchView.frame = CGRect(x: 0, y: 0, width: 1000, height: 600)
         launchView.layoutSubtreeIfNeeded()
         let launchScreen = launchView.screenViews["s"]!
         #expect(launchScreen.scroll.value > 0)
         #expect(launchScreen.scrollbar?.isShown != true)
 
-        let model = LayoutModel(screens: screens(StickyColumn(edge: .right, mode: .docked)), activeScreenID: "s", focusedPane: "a")
+        let model = LayoutModel(screens: screens(DockColumn(edge: .right, mode: .docked)), activeScreenID: "s", focusedPane: "a")
         model.followsDesignMetrics = false
         model.stripScrollbarOverride = .auto
-        let view = LayoutRootView(model: model, contentProvider: StickyStubProvider.shared, scrollbarClock: ManualClock())
+        let view = LayoutRootView(model: model, contentProvider: DockStubProvider.shared, scrollbarClock: ManualClock())
         view.frame = CGRect(x: 0, y: 0, width: 1000, height: 600)
         view.layoutSubtreeIfNeeded()
         let screen = view.screenViews["s"]!
@@ -193,11 +193,11 @@ struct StickyColumnViewTests {
     @Test func noScrollbarWhenTheColumnsFit() {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .columns([
             LayoutColumn(id: "ca", width: 0.5, root: .leaf("a")),
-            LayoutColumn(id: "cd", width: 0.3, root: .leaf("d"), sticky: StickyColumn()),
+            LayoutColumn(id: "cd", width: 0.3, root: .leaf("d"), dock: DockColumn()),
         ]))], activeScreenID: "s", focusedPane: "a")
         model.followsDesignMetrics = false
         model.stripScrollbarOverride = .always
-        let view = LayoutRootView(model: model, contentProvider: StickyStubProvider.shared)
+        let view = LayoutRootView(model: model, contentProvider: DockStubProvider.shared)
         view.frame = CGRect(x: 0, y: 0, width: 1000, height: 600)
         view.layoutSubtreeIfNeeded()
         #expect(view.screenViews["s"]?.scrollbar?.isShown != true)
@@ -205,7 +205,7 @@ struct StickyColumnViewTests {
 }
 
 @MainActor
-private final class StickyStubProvider: LayoutPaneContentProvider {
-    static let shared = StickyStubProvider()
+private final class DockStubProvider: LayoutPaneContentProvider {
+    static let shared = DockStubProvider()
     func makeContentView(for pane: PaneID) -> NSView { NSView() }
 }

@@ -7,7 +7,7 @@ Every agent that touches state, the daemon, the store, the protocol or the CLI r
 | Role | Owns | Runs | Knows layout? |
 | --- | --- | --- | --- |
 | Session host | PTYs and processes, scrollback, durable transcripts (bounded, per-session opt-out), canonical terminal size (default: smallest attached viewer wins), ordered input with attribution, presence of attached clients, kick-off, revive | every machine that runs terminals (laptop, each Mac mini, each Cloud VM); headless | no |
-| Workspace store | the layout document: windows-as-records, workspaces, columns (incl. sticky), panes, tabs that reference sessions on any host, browser tab records, pins, tab groups, spaces, saved groups, closed history, keep-layout records | per user; a replica on each device, synced; on a laptop it may run inside the local binary as its own actor and crate | yes (arrangement only) |
+| Workspace store | the layout document: windows-as-records, workspaces, columns (incl. docked), panes, tabs that reference sessions on any host, browser tab records, pins, tab groups, spaces, saved groups, closed history, keep-layout records | per user; a replica on each device, synced; on a laptop it may run inside the local binary as its own actor and crate | yes (arrangement only) |
 | Client | view state, gestures, animation, rendering; on the Mac the Chromium runtime | inside each app (Mac, iPhone, TUI) | renders it |
 
 Today cmux-tui mixes session host and workspace store. New code must not deepen that: new shared or personal state goes into the workspace-store side (`cmux-tui-core::state` from PR #16174, or the presentation store until it merges), never into PTY/session code.

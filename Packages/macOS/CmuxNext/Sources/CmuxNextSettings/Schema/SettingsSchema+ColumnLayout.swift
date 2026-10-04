@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 
-/// Split, new column, sticky column and minimum pane size settings
+/// Split, new column, docked column and minimum pane size settings
 /// (plans/cmux-next/column-sizing.md), in the General section's Columns group.
 extension SettingsSchema {
     static var columnLayout: [SettingDescriptor] {
@@ -27,25 +27,25 @@ extension SettingsSchema {
                 default: .string(ColumnLayoutSettings.newColumnWidthFallback.rawValue), keywords: ["width", "column"]
             ),
             SettingDescriptor(
-                ColumnLayoutSettings.stickyEdgePath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.stickyColumnEdge", "Sticky Column Edge"),
+                ColumnLayoutSettings.dockEdgePath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.dockColumnEdge", "Dock Column Edge"),
                 kind: .choice([
-                    SettingChoice(StickyDefaultEdge.nearest.rawValue, SettingsText.keyed("settings.choice.nearestEdge", "Nearest Edge")),
-                    SettingChoice(StickyDefaultEdge.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
-                    SettingChoice(StickyDefaultEdge.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
-                    SettingChoice(StickyDefaultEdge.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                    SettingChoice(StickyDefaultEdge.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                    SettingChoice(DockDefaultEdge.nearest.rawValue, SettingsText.keyed("settings.choice.nearestEdge", "Nearest Edge")),
+                    SettingChoice(DockDefaultEdge.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
+                    SettingChoice(DockDefaultEdge.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice(DockDefaultEdge.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(DockDefaultEdge.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
                 ]),
-                default: .string(ColumnLayoutSettings.stickyEdgeFallback.rawValue), keywords: ["sticky", "pin", "column"]
+                default: .string(ColumnLayoutSettings.dockEdgeFallback.rawValue), keywords: ["dock", "pin", "column"]
             ),
             SettingDescriptor(
-                ColumnLayoutSettings.stickyModePath, section: .general, group: columns,
-                title: SettingsText.keyed("settings.layout.stickyColumnMode", "Sticky Column Mode"),
+                ColumnLayoutSettings.dockModePath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.dockColumnMode", "Dock Column Mode"),
                 kind: .choice([
-                    SettingChoice(StickyDefaultMode.docked.rawValue, SettingsText.keyed("settings.choice.docked", "Docked")),
-                    SettingChoice(StickyDefaultMode.overlay.rawValue, SettingsText.keyed("settings.choice.overlay", "Floating")),
+                    SettingChoice(DockDefaultMode.docked.rawValue, SettingsText.keyed("settings.choice.docked", "Docked")),
+                    SettingChoice(DockDefaultMode.overlay.rawValue, SettingsText.keyed("settings.choice.overlay", "Floating")),
                 ]),
-                default: .string(ColumnLayoutSettings.stickyModeFallback.rawValue), keywords: ["sticky", "floating", "overlay", "dock"]
+                default: .string(ColumnLayoutSettings.dockModeFallback.rawValue), keywords: ["floating", "overlay", "dock"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.frameOrientationPath, section: .general, group: columns,
@@ -54,7 +54,7 @@ extension SettingsSchema {
                     SettingChoice(FrameOrientation.columnMajor.rawValue, SettingsText.keyed("settings.choice.columnMajor", "Side Docks Full Height")),
                     SettingChoice(FrameOrientation.rowMajor.rawValue, SettingsText.keyed("settings.choice.rowMajor", "Top and Bottom Docks Full Width")),
                 ]),
-                default: .string(ColumnLayoutSettings.frameOrientationFallback.rawValue), keywords: ["dock", "frame", "orientation", "corner", "sticky"]
+                default: .string(ColumnLayoutSettings.frameOrientationFallback.rawValue), keywords: ["dock", "frame", "orientation", "corner"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.rowsPath, section: .general, group: columns,

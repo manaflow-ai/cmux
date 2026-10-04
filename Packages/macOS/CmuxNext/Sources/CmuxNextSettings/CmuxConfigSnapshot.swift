@@ -79,12 +79,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
     /// `sidebar.*` section settings; defaults when unset or invalid.
     public var sidebarSections = SidebarSectionsPreferences.defaults
-    /// `layout.splitSizing`, `layout.newColumnWidth`, sticky defaults and the
+    /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
     public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthFallback
-    public var stickyColumnEdge: StickyDefaultEdge = ColumnLayoutSettings.stickyEdgeFallback
-    public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
+    public var dockColumnEdge: DockDefaultEdge = ColumnLayoutSettings.dockEdgeFallback
+    public var dockColumnMode: DockDefaultMode = ColumnLayoutSettings.dockModeFallback
     /// `layout.frameOrientation`: which docks own the frame's corners.
     public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).

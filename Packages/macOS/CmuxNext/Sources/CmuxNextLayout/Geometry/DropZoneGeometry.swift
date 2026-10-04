@@ -53,13 +53,13 @@ public nonisolated enum DropZoneGeometry {
     }
 
     /// Drop target under `point` in view coordinates, with the strip
-    /// scrolled to `offset`. Sticky columns sit above the strip: their panes
-    /// take the drop, and the rest of what a sticky column covers (its glass
+    /// scrolled to `offset`. Docked columns sit above the strip: their panes
+    /// take the drop, and the rest of what a docked column covers (its glass
     /// rim, a docked column's edge band) takes none, so nothing lands in a
     /// strip pane hidden under it. The strip resolves as `target(at:)`.
     public static func target(atView point: CGPoint, offset: CGFloat, screen: ScreenID, geometry: ScreenGeometry,
                               headers: [PaneID: CGFloat] = [:], style: LayoutStyle) -> DropTarget? {
-        if let cover = geometry.sticky.first(where: { $0.cover.contains(point) }) {
+        if let cover = geometry.dock.first(where: { $0.cover.contains(point) }) {
             let pane = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
                 .sorted { $0.key < $1.key }.first { $0.value.contains(point) }
             return pane.map { .pane($0.key, zone(at: point, in: $0.value, header: header(of: $0.key, in: $0.value, headers, style),
@@ -88,7 +88,7 @@ public nonisolated enum DropZoneGeometry {
         let band = min(style.dockDropBand, size.height / 4)
         let topBand = min(style.dockTopDropBand, size.height / 4)
         let side = min(style.dockDropBand / 2, size.width / 8)
-        let free = { (edge: StickyEdge) in !geometry.sticky.contains { $0.sticky.edge == edge } }
+        let free = { (edge: DockEdge) in !geometry.dock.contains { $0.dock.edge == edge } }
         if point.y >= topInset, point.y <= topInset + topBand, free(.top) { return .newDock(screen: screen, edge: .top) }
         if point.y >= size.height - band, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
         if point.x <= side, free(.left) { return .newDock(screen: screen, edge: .left) }
@@ -99,11 +99,11 @@ public nonisolated enum DropZoneGeometry {
     /// Where a new dock would sit (view coordinates): a band 30% of the
     /// height across the screen, or a side column 30% of the width down it,
     /// less the strip gaps.
-    static func dockPreview(_ edge: StickyEdge, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect {
+    static func dockPreview(_ edge: DockEdge, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect {
         let size = geometry.viewport
         let gap = style.stripGap
         if edge.isBand {
-            let height = min(size.height * 0.3, size.height * StickyStripGeometry.maxBandShare)
+            let height = min(size.height * 0.3, size.height * DockStripGeometry.maxBandShare)
             return CGRect(x: gap, y: edge == .top ? 0 : size.height - height, width: max(1, size.width - gap * 2), height: height)
         }
         let width = size.width * 0.3
