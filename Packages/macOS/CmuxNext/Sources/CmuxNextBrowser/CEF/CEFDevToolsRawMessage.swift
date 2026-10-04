@@ -77,8 +77,11 @@ nonisolated enum CEFDevToolsRawMessage {
         i = skipSpace(p, i + 1)
         var found: Int?
         if i < p.count, p[i] == UInt8(ascii: "}") { return nil }
-        while true {
-            guard i < p.count, p[i] == UInt8(ascii: "\""), let keyEnd = skipString(p, i) else { return nil }
+        // Every pass consumes at least one byte, so the loop ends within
+        // p.count passes; `closed` is set at the object's closing brace.
+        var closed = false
+        while i < p.count {
+            guard p[i] == UInt8(ascii: "\""), let keyEnd = skipString(p, i) else { return nil }
             let isID = keyEnd - i == 4 && p[i + 1] == UInt8(ascii: "i") && p[i + 2] == UInt8(ascii: "d")
             i = skipSpace(p, keyEnd)
             guard i < p.count, p[i] == UInt8(ascii: ":") else { return nil }
@@ -103,10 +106,11 @@ nonisolated enum CEFDevToolsRawMessage {
             }
             i = skipSpace(p, i)
             guard i < p.count else { return nil }
-            if p[i] == UInt8(ascii: "}") { break }
+            if p[i] == UInt8(ascii: "}") { closed = true; break }
             guard p[i] == UInt8(ascii: ",") else { return nil }
             i = skipSpace(p, i + 1)
         }
+        guard closed else { return nil }
         guard skipSpace(p, i + 1) == p.count else { return nil }
         return found
     }
