@@ -38,7 +38,13 @@ pub struct TabState {
     pub session_id: String,
     pub ready: bool,
     pub setup_error: Option<String>,
+    /// The main frame's URL, also a pending one (`targetInfoChanged`).
     pub url: String,
+    /// The main frame's committed URL (`frameNavigated`, same-document
+    /// navigations): the document that script would run in.
+    pub committed_url: String,
+    /// Committed URL of every frame, by frame id.
+    pub frame_urls: HashMap<String, String>,
     pub title: String,
     pub opener: Option<String>,
     pub main_frame: Option<String>,
@@ -70,7 +76,9 @@ impl TabState {
             session_id,
             ready: false,
             setup_error: None,
+            committed_url: url.clone(),
             url,
+            frame_urls: HashMap::new(),
             title,
             opener,
             main_frame: None,
@@ -113,8 +121,9 @@ pub enum FollowUp {
     /// A non-page target (worker) attached paused: let it run.
     Resume { session_id: String },
     /// A target that shows a browser page (`policy::is_browser_page`): let
-    /// it run if paused and detach, so no agent call can reach it.
-    Release { session_id: String, waiting: bool },
+    /// it run if paused and detach (through `parent` for a child session),
+    /// so no agent call can reach it.
+    Release { session_id: String, waiting: bool, parent: Option<String> },
 }
 
 #[derive(Debug, Default)]
@@ -225,9 +234,11 @@ impl State {
         };
         let waiting = params.get("waitingForDebugger").and_then(Value::as_bool) == Some(true);
         if info.get("url").and_then(Value::as_str).is_some_and(crate::policy::is_browser_page) {
-            applied
-                .follow_ups
-                .push(FollowUp::Release { session_id: session_id.to_owned(), waiting });
+            applied.follow_ups.push(FollowUp::Release {
+                session_id: session_id.to_owned(),
+                waiting,
+                parent: parent.map(str::to_owned),
+            });
             return;
         }
         let resume = |applied: &mut Applied| {
@@ -335,10 +346,25 @@ impl State {
                 let frame = &params["frame"];
                 let frame_id = frame.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
                 let url = frame_url(frame);
+                tab.frame_urls.insert(frame_id.clone(), url.clone());
+                if !is_main && crate::policy::is_browser_page(&url) {
+                    // An out-of-process frame committed a browser page.
+                    tab.frame_sessions.retain(|_, session| session.as_str() != session_id);
+                    tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
+                    let parent = tab.session_id.clone();
+                    self.sessions.remove(session_id);
+                    applied.follow_ups.push(FollowUp::Release {
+                        session_id: session_id.to_owned(),
+                        waiting: false,
+                        parent: Some(parent),
+                    });
+                    return;
+                }
                 if is_main && frame.get("parentId").and_then(Value::as_str).is_none() {
                     tab.crashed = false;
                     tab.main_frame = Some(frame_id.clone());
                     tab.url = url.clone();
+                    tab.committed_url = url.clone();
                     tab.loader = frame.get("loaderId").and_then(Value::as_str).map(str::to_owned);
                     tab.lifecycle.clear();
                     tab.nav_seq += 1;
@@ -358,8 +384,10 @@ impl State {
                 let frame_id =
                     params.get("frameId").and_then(Value::as_str).unwrap_or("").to_owned();
                 let url = params.get("url").and_then(Value::as_str).unwrap_or("").to_owned();
+                tab.frame_urls.insert(frame_id.clone(), url.clone());
                 if tab.main_frame.as_deref() == Some(frame_id.as_str()) {
                     tab.url = url.clone();
+                    tab.committed_url = url.clone();
                     tab.nav_seq += 1;
                     tab.last_nav_same_document = true;
                 }

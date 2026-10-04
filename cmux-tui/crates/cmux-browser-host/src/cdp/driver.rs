@@ -210,7 +210,7 @@ impl Inner {
                     .collect();
                 let _ = self.conn.call_batch(Some(&session_id), steps, INTERNAL_TIMEOUT);
             }
-            FollowUp::Release { session_id, waiting } => {
+            FollowUp::Release { session_id, waiting, parent } => {
                 if waiting {
                     let _ = self.conn.call(
                         Some(&session_id),
@@ -220,7 +220,7 @@ impl Inner {
                     );
                 }
                 let _ = self.conn.call(
-                    None,
+                    parent.as_deref(),
                     "Target.detachFromTarget",
                     json!({"sessionId": session_id}),
                     INTERNAL_TIMEOUT,

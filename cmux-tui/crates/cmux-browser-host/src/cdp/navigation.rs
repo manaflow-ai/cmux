@@ -154,7 +154,7 @@ impl Inner {
                 }
             }
         }
-        // No script runs in a browser page, not even the driver's own.
+        // The driver's own title read does not run in a browser page.
         if !dialog_open && !self.shows_browser_page(&session.target_id) {
             self.refresh_title(&session);
         }

@@ -21,7 +21,7 @@ const PAGE_ACCESS: &[&str] = &[
     "input.key",
     "input.insertText",
     "tab.screenshot",
-    "dialog.respond",
+    "tab.reload",
     "cdp",
 ];
 
@@ -54,16 +54,28 @@ impl Inner {
         let Some(target) = params.get("targetId").and_then(Value::as_str) else {
             return Ok(());
         };
-        let shown = self.lock().tabs.get(target).map(|tab| tab.url.clone());
-        match shown {
-            Some(url) if is_browser_page(&url) => Err(refused(method, &url)),
-            _ => Ok(()),
+        // The pending URL, the committed document and the addressed frame
+        // must all be web pages: a pending navigation away does not unlock
+        // the document that is still committed.
+        let frame = params.get("frameId").and_then(Value::as_str);
+        let state = self.lock();
+        let Some(tab) = state.tabs.get(target) else {
+            return Ok(());
+        };
+        let frame_url = frame.and_then(|frame| tab.frame_urls.get(frame));
+        let shown = [Some(&tab.url), Some(&tab.committed_url), frame_url];
+        match shown.into_iter().flatten().find(|url| is_browser_page(url)) {
+            Some(url) => Err(refused(method, url)),
+            None => Ok(()),
         }
     }
 
     /// True when the tab shows a browser page now.
     pub(super) fn shows_browser_page(&self, target_id: &str) -> bool {
-        self.lock().tabs.get(target_id).is_some_and(|tab| is_browser_page(&tab.url))
+        self.lock()
+            .tabs
+            .get(target_id)
+            .is_some_and(|tab| is_browser_page(&tab.url) || is_browser_page(&tab.committed_url))
     }
 
     /// A navigation landed on a browser page (a redirect): go to the blank
