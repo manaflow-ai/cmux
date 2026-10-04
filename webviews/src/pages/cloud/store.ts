@@ -596,7 +596,7 @@ export class CloudStore {
    */
   private fail(op: string, error: unknown): void {
     if (this.refused(error)) return;
-    if (noImage(error)) this.set({ blocked: "no_snapshot_configured" });
+    if (noImage(error)) this.set({ blocked: "no_snapshot_configured", refusal: undefined, error: undefined });
     else if (isUnsupported(error)) this.markUnavailable(op);
     else this.set(failure(error));
   }
@@ -604,7 +604,7 @@ export class CloudStore {
   /** Shows a plan refusal; false when `error` is none. */
   private refused(error: unknown): boolean {
     const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
-    if (refusal) this.set({ refusal });
+    if (refusal) this.set({ refusal, blocked: undefined });
     return !!refusal;
   }
 
@@ -677,10 +677,13 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A transport failure means the owner is unreachable: the page shows disconnected. */
+/**
+ * A transport failure means the owner is unreachable: the page shows disconnected. The page shows one
+ * alert at a time, so an error banner replaces the no-image banner.
+ */
 export function failure(error: unknown, withMessage = true): Partial<CloudState> {
   if (isPageError(error) && error.code === "cmux.protocol.transport") {
-    return { connection: "disconnected", error: message(error) };
+    return { connection: "disconnected", error: message(error), blocked: undefined };
   }
-  return withMessage ? { error: message(error) } : {};
+  return withMessage ? { error: message(error), blocked: undefined } : {};
 }
