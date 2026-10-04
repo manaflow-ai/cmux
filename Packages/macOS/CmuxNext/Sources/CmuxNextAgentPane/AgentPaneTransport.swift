@@ -229,7 +229,8 @@ public extension AgentPaneTransportPacer {
             if case .send(let text) = decision, sentFirst, let refusal = sessionRefusal(text) {
                 decision = refusal
             }
-            if case .send(let text) = decision, sentFirst {
+            // Off the main thread only when the frame names a folder (or is a session/new).
+            if case .send(let text) = decision, sentFirst, AcpmuxPathPolicy.needsCheck(text) {
                 let scope = AcpmuxPathPolicy.Scope(roots: roots() + addedRoots, gestureRoots: gestureRoots(), fillCwd: primaryRoot())
                 let result = await AcpmuxPathPolicy.check(text, scope: scope)
                 // The connection may have changed while the disk was read.

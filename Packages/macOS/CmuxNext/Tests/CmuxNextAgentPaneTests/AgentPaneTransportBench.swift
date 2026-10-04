@@ -17,8 +17,8 @@ private actor BenchHost: AgentPaneHostProviding {
 /// (CMUX_PANE_TRANSPORT_BENCH=1; scripts/measure/pane-native-transport.sh). Each frame is about
 /// 300 bytes of `session/update`; the page parses it and acknowledges it at once with an
 /// allowlisted notification, so every number is a round trip through the whole path (the host's
-/// allowlist check included). Workloads: `paced`, 2,000 frames at 2,000 frames/s; `burst`, 2,000
-/// frames back to back. Main-thread CPU is the host main thread's CPU time across the burst.
+/// allowlist check included). Workloads: `light`, 300 frames at 100 frames/s (no load); `paced`,
+/// 2,000 frames at 2,000 frames/s; `burst`, 2,000 frames back to back. Main-thread CPU is the host main thread's CPU time across the burst.
 /// CMUX_PANE_TRANSPORT_BENCH_VISIBLE=1 puts the windows on screen (a live Mac).
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
@@ -175,12 +175,15 @@ struct AgentPaneTransportBench {
             rigs.append(rig)
         }
         defer { for rig in rigs { rig.pane?.close(); rig.window.close() } }
-        var paced: [Mode: [UInt64]] = [:], burst: [Mode: [UInt64]] = [:], totals: [Mode: [UInt64]] = [:]
+        var light: [Mode: [UInt64]] = [:], paced: [Mode: [UInt64]] = [:], burst: [Mode: [UInt64]] = [:], totals: [Mode: [UInt64]] = [:]
         var cpu: [Mode: [UInt64]] = [:], flushes: [Mode: [Int]] = [:]
         for round in 0..<Self.rounds {
             for offset in 0..<rigs.count {
                 let rig = rigs[(round + offset) % rigs.count]
                 print("PANE-STAGE round \(round) \(rig.mode.rawValue)")
+                // 300 frames at 100 frames/s: ordinary token streaming, no load.
+                let lightRun = await server.stream(to: rig.connectionIndex, count: 300, interval: 10_000_000)
+                light[rig.mode, default: []] += lightRun.latencies
                 let pacedRun = await server.stream(to: rig.connectionIndex, count: 2000, interval: 500_000)
                 paced[rig.mode, default: []] += pacedRun.latencies
                 let flushed = rig.pane?.model.transport.flushes ?? 0
@@ -198,7 +201,8 @@ struct AgentPaneTransportBench {
         for mode in Mode.allCases {
             let d = Mode.direct
             var row: [String: Any] = ["mode": mode.rawValue, "rounds": Self.rounds, "visible": Self.visible]
-            for (name, values, base) in [("paced", paced[mode]!, paced[d]!), ("burst", burst[mode]!, burst[d]!)] {
+            for (name, values, base) in [("light", light[mode]!, light[d]!), ("paced", paced[mode]!, paced[d]!),
+                                         ("burst", burst[mode]!, burst[d]!)] {
                 for p in [0.5, 0.95, 0.99] {
                     let key = "\(name)_p\(Int(p * 100))_ms"
                     row[key] = Self.pct(values, p)

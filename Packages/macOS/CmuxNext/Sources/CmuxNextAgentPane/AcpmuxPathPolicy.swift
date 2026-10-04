@@ -144,6 +144,19 @@ public nonisolated enum AcpmuxPathPolicy {
         throw Refusal(error: .pathOutsideRoots, requestID: nil, method: nil, outsidePath: resolved)
     }
 
+    /// Whether a page frame needs the disk check: it names a folder field at any depth, or it is a
+    /// `session/new` (which gets a cwd when it names none). Parsed, never a substring test.
+    public static func needsCheck(_ text: String) -> Bool {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return false }
+        return object["method"] as? String == "session/new" || object["params"].map(namesFolder) == true
+    }
+
+    static func namesFolder(_ value: Any) -> Bool {
+        if let object = value as? [String: Any] { return object.contains { keys.contains($0.key) || namesFolder($0.value) } }
+        if let list = value as? [Any] { return list.contains(where: namesFolder) }
+        return false
+    }
+
     /// The canonical form of an absolute path that exists, nil otherwise: `realpath` (symlinks and
     /// `..` resolved), then each component in the filesystem's own spelling (APFS is case- and
     /// normalization-insensitive and realpath keeps the typed spelling), then NFC. Off the main
