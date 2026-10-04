@@ -87,18 +87,31 @@ test("repl (interactive): a line past the input cap is refused and the next one 
   const socket = path.join(dir, "s.sock");
   const calls = [];
   const server = await fakeSocket(socket, calls, []);
-  // A raw-mode pseudo-terminal as stdin, fed a 16 MiB line, then a short one.
+  // A raw-mode pseudo-terminal as stdin, fed a 16 MiB line, then a short
+  // one. The terminal stays open until the short line's output arrives:
+  // closing it drops input the CLI has not read yet.
   const driver = `
-import os, pty, subprocess, sys, tty
+import os, pty, select, subprocess, sys, tty
 master, slave = pty.openpty()
 tty.setraw(slave)
-child = subprocess.Popen(sys.argv[1:], stdin=slave, stdout=sys.stdout, stderr=sys.stderr)
+child = subprocess.Popen(sys.argv[1:], stdin=slave, stdout=subprocess.PIPE, stderr=sys.stderr)
 os.close(slave)
 chunk = b"x" * (1 << 20)
 for _ in range(16):
     os.write(master, chunk)
 os.write(master, b"\\n1+1\\n")
+out = b""
+while b"ran 3" not in out:
+    ready, _, _ = select.select([child.stdout], [], [], 90)
+    if not ready:
+        break
+    data = os.read(child.stdout.fileno(), 65536)
+    if not data:
+        break
+    out += data
 os.close(master)
+out += child.stdout.read()
+sys.stdout.write(out.decode())
 sys.exit(child.wait())
 `;
   try {
