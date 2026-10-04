@@ -1,0 +1,26 @@
+{
+  "name": "@cmux/a11y-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "@ariakit/react": "0.4.40",
+    "@base-ui/react": "1.8.0",
+    "radix-ui": "1.6.7",
+    "react": "19.2.3",
+    "react-aria-components": "1.21.1",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@react-aria/optimize-locales-plugin": "2.0.2",
+    "@vitejs/plugin-react": "^5.1.2",
+    "axe-core": "4.13.0",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "playwright": "1.62.1",
+    "vite": "7.1.12"
+  }
+}

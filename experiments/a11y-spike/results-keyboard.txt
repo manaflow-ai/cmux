@@ -1,0 +1,161 @@
+rac chromium                       required keys 19/22  optional 1/3  AT semantics 1/3  axe nodes 1 (serious+critical 0)
+    FAIL[sem] Input is exposed as role=combobox: {"role":"input","name":"Path","active":null,"expanded":null}
+    FAIL[key] Async listing highlights the first row via aria-activedescendant: {"role":"input","name":"Path","active":null,"expanded":null}
+    FAIL[key] ArrowRight drills into src and highlights its first row: {"role":"input","name":"Path","active":null,"expanded":null}
+    FAIL[key] Root listing highlights a row again: {"role":"input","name":"Path","active":null,"expanded":null}
+    FAIL[sem] Folder change or result count is announced in a live region (beyond our #result): ["chose: /src/main.tsx"]
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [toolbar tooltip] region (moderate) x1 div[data-overlay-container="true"]
+rac chromium rtl                   required keys 14/14  optional 1/3  AT semantics 1/1  axe nodes 1 (serious+critical 0)
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [toolbar tooltip] region (moderate) x1 div[data-overlay-container="true"]
+rac-combobox chromium              required keys 16/23  optional 1/3  AT semantics 3/3  axe nodes 9 (serious+critical 6)
+    FAIL[key] Async listing highlights the first row via aria-activedescendant: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] Typing filters and keeps a highlighted row: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] ArrowRight drills into src and highlights its first row: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] drill recovered: {"role":"combobox","name":"Path","active":{"role":"option","name":"src/"},"expanded":"true"}
+    FAIL[key] ArrowDown moves the highlight: {"role":"combobox","name":"Path","active":{"role":"option","name":"src/"},"expanded":"true"}
+    FAIL[key] Enter chooses the file: ""
+    FAIL[key] Root listing highlights a row again: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [initial] aria-hidden-focus (serious) x2 #react-aria1532500388-_r_0_
+    axe [initial] page-has-heading-one (moderate) x1 html
+    axe [picker after drill] aria-hidden-focus (serious) x2 #react-aria2441785075-_r_0_
+    axe [picker after drill] page-has-heading-one (moderate) x1 html
+    axe [toolbar tooltip] aria-hidden-focus (serious) x2 #react-aria4712775819-_r_0_
+    axe [toolbar tooltip] page-has-heading-one (moderate) x1 html
+rac-combobox chromium rtl          required keys 14/14  optional 1/3  AT semantics 1/1  axe nodes 1 (serious+critical 0)
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [toolbar tooltip] region (moderate) x1 div[data-overlay-container="true"]
+baseui chromium                    required keys 22/22  optional 1/3  AT semantics 1/3  axe nodes 4 (serious+critical 0)
+    FAIL[sem] Folder change or result count is announced in a live region (beyond our #result): ["chose: /src/main.tsx"]
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":0,"describedby":[]}
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [menu open] region (moderate) x1 #_r_1_
+    axe [submenu open] region (moderate) x2 #_r_1_
+    axe [toolbar tooltip] region (moderate) x1 #_r_g_
+baseui chromium rtl                required keys 14/14  optional 1/3  AT semantics 0/1  axe nodes 4 (serious+critical 0)
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":0,"describedby":[]}
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [menu open] region (moderate) x1 #_r_1_
+    axe [submenu open] region (moderate) x2 #_r_1_
+    axe [toolbar tooltip] region (moderate) x1 #_r_g_
+ariakit chromium                   required keys 19/22  optional 3/3  AT semantics 1/3  axe nodes 1 (serious+critical 0)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    FAIL[key] ArrowRight drills into src and highlights its first row: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] Root listing highlights a row again: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[sem] Folder change or result count is announced in a live region (beyond our #result): ["chose: /src/main.tsx"]
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":4,"describedby":[]}
+    axe [toolbar tooltip] region (moderate) x1 #portal\/_r_p_
+ariakit chromium rtl               required keys 13/14  optional 3/3  AT semantics 0/1  axe nodes 1 (serious+critical 0)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":4,"describedby":[]}
+    axe [toolbar tooltip] region (moderate) x1 #portal\/_r_p_
+radix-no-combobox chromium         required keys 13/14  optional 3/3  AT semantics 1/1  axe nodes 8 (serious+critical 2)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    axe [menu open] aria-hidden-focus (serious) x1 #root
+    axe [menu open] page-has-heading-one (moderate) x1 html
+    axe [menu open] region (moderate) x1 div[data-radix-popper-content-wrapper=""]
+    axe [submenu open] aria-hidden-focus (serious) x1 #root
+    axe [submenu open] page-has-heading-one (moderate) x1 html
+    axe [submenu open] region (moderate) x2 div[data-radix-popper-content-wrapper=""][dir="ltr"]:nth-child(3)
+    axe [toolbar tooltip] region (moderate) x1 div[data-radix-popper-content-wrapper=""]
+radix-no-combobox chromium rtl     required keys 13/14  optional 3/3  AT semantics 1/1  axe nodes 8 (serious+critical 2)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    axe [menu open] aria-hidden-focus (serious) x1 #root
+    axe [menu open] page-has-heading-one (moderate) x1 html
+    axe [menu open] region (moderate) x1 div[data-radix-popper-content-wrapper=""]
+    axe [submenu open] aria-hidden-focus (serious) x1 #root
+    axe [submenu open] page-has-heading-one (moderate) x1 html
+    axe [submenu open] region (moderate) x2 div[data-radix-popper-content-wrapper=""][dir="rtl"]:nth-child(3)
+    axe [toolbar tooltip] region (moderate) x1 div[data-radix-popper-content-wrapper=""]
+rac webkit                         required keys 18/22  optional 1/3  AT semantics 1/3  axe nodes 1 (serious+critical 0)
+    FAIL[sem] Input is exposed as role=combobox: {"role":"input","name":"Path","active":null,"expanded":null}
+    FAIL[key] Async listing highlights the first row via aria-activedescendant: {"role":"input","name":"Path","active":null,"expanded":null}
+    FAIL[key] ArrowRight drills into src and highlights its first row: {"role":"input","name":"Path","active":null,"expanded":null}
+    FAIL[key] Backspace on an empty query goes up to the root: {"crumbAtRoot":false,"f":{"role":"body","name":"","active":null,"expanded":null}}
+    FAIL[key] Root listing highlights a row again: {"role":"body","name":"","active":null,"expanded":null}
+    FAIL[sem] Folder change or result count is announced in a live region (beyond our #result): []
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [toolbar tooltip] region (moderate) x1 div[data-overlay-container="true"]
+rac webkit rtl                     required keys 14/14  optional 1/3  AT semantics 1/1  axe nodes 1 (serious+critical 0)
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [toolbar tooltip] region (moderate) x1 div[data-overlay-container="true"]
+rac-combobox webkit                required keys 16/23  optional 1/3  AT semantics 3/3  axe nodes 7 (serious+critical 4)
+    FAIL[key] Async listing highlights the first row via aria-activedescendant: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] Typing filters and keeps a highlighted row: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] ArrowRight drills into src and highlights its first row: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] drill recovered: {"role":"combobox","name":"Path","active":{"role":"option","name":"src/"},"expanded":"true"}
+    FAIL[key] ArrowDown moves the highlight: {"role":"combobox","name":"Path","active":{"role":"option","name":"src/"},"expanded":"true"}
+    FAIL[key] Enter chooses the file: ""
+    FAIL[key] Root listing highlights a row again: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [initial] aria-hidden-focus (serious) x2 #react-aria6190100045-_r_0_
+    axe [initial] page-has-heading-one (moderate) x1 html
+    axe [picker after drill] aria-hidden-focus (serious) x2 #react-aria1721843643-_r_0_
+    axe [picker after drill] page-has-heading-one (moderate) x1 html
+    axe [toolbar tooltip] region (moderate) x1 div[data-overlay-container="true"]
+rac-combobox webkit rtl            required keys 14/14  optional 1/3  AT semantics 1/1  axe nodes 1 (serious+critical 0)
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [toolbar tooltip] region (moderate) x1 div[data-overlay-container="true"]
+baseui webkit                      required keys 22/22  optional 1/3  AT semantics 1/3  axe nodes 21 (serious+critical 17)
+    FAIL[sem] Folder change or result count is announced in a live region (beyond our #result): ["chose: /src/main.tsx"]
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":0,"describedby":[]}
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [menu open] aria-command-name (serious) x6 #root > span[data-base-ui-focus-guard=""][role="button"]:nth-child(1)
+    axe [menu open] region (moderate) x1 #_r_1_
+    axe [submenu open] aria-command-name (serious) x10 #root > span[data-base-ui-focus-guard=""][role="button"]:nth-child(1)
+    axe [submenu open] aria-required-children (critical) x1 #_r_1_
+    axe [submenu open] region (moderate) x2 #_r_1_
+    axe [toolbar tooltip] region (moderate) x1 #_r_g_
+baseui webkit rtl                  required keys 14/14  optional 1/3  AT semantics 0/1  axe nodes 21 (serious+critical 17)
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":0,"describedby":[]}
+    FAIL[opt] End moves to the last tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    FAIL[opt] Home moves to the first tool: {"role":"button","name":"Unified view","active":null,"expanded":null}
+    axe [menu open] aria-command-name (serious) x6 #root > span[data-base-ui-focus-guard=""][role="button"]:nth-child(1)
+    axe [menu open] region (moderate) x1 #_r_1_
+    axe [submenu open] aria-command-name (serious) x10 #root > span[data-base-ui-focus-guard=""][role="button"]:nth-child(1)
+    axe [submenu open] aria-required-children (critical) x1 #_r_1_
+    axe [submenu open] region (moderate) x2 #_r_1_
+    axe [toolbar tooltip] region (moderate) x1 #_r_g_
+ariakit webkit                     required keys 18/22  optional 3/3  AT semantics 1/3  axe nodes 1 (serious+critical 0)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    FAIL[key] Async listing highlights the first row via aria-activedescendant: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] ArrowRight drills into src and highlights its first row: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[key] Root listing highlights a row again: {"role":"combobox","name":"Path","active":null,"expanded":"true"}
+    FAIL[sem] Folder change or result count is announced in a live region (beyond our #result): ["chose: /src/main.tsx"]
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":4,"describedby":[]}
+    axe [toolbar tooltip] region (moderate) x1 #portal\/_r_p_
+ariakit webkit rtl                 required keys 13/14  optional 3/3  AT semantics 0/1  axe nodes 1 (serious+critical 0)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    FAIL[sem] Tooltip is role=tooltip and named by aria-describedby: {"roleTooltip":4,"describedby":[]}
+    axe [toolbar tooltip] region (moderate) x1 #portal\/_r_p_
+radix-no-combobox webkit           required keys 13/14  optional 3/3  AT semantics 1/1  axe nodes 8 (serious+critical 2)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    axe [menu open] aria-hidden-focus (serious) x1 #root
+    axe [menu open] page-has-heading-one (moderate) x1 html
+    axe [menu open] region (moderate) x1 div[data-radix-popper-content-wrapper=""]
+    axe [submenu open] aria-hidden-focus (serious) x1 #root
+    axe [submenu open] page-has-heading-one (moderate) x1 html
+    axe [submenu open] region (moderate) x2 div[data-radix-popper-content-wrapper=""][dir="ltr"]:nth-child(3)
+    axe [toolbar tooltip] region (moderate) x1 div[data-radix-popper-content-wrapper=""]
+radix-no-combobox webkit rtl       required keys 13/14  optional 3/3  AT semantics 1/1  axe nodes 8 (serious+critical 2)
+    FAIL[key] Escape closes only the submenu, focus back on Committed: {"f":{"role":"button","name":"Source","active":null,"expanded":"false"},"menus":[]}
+    axe [menu open] aria-hidden-focus (serious) x1 #root
+    axe [menu open] page-has-heading-one (moderate) x1 html
+    axe [menu open] region (moderate) x1 div[data-radix-popper-content-wrapper=""]
+    axe [submenu open] aria-hidden-focus (serious) x1 #root
+    axe [submenu open] page-has-heading-one (moderate) x1 html
+    axe [submenu open] region (moderate) x2 div[data-radix-popper-content-wrapper=""][dir="rtl"]:nth-child(3)
+    axe [toolbar tooltip] region (moderate) x1 div[data-radix-popper-content-wrapper=""]

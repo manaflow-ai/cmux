@@ -1,0 +1,14 @@
+:root { --bg: #fff; --fg: #111; --muted: #555; --accent: #0a58ca; --line: #ccc; color-scheme: light; }
+body { background: var(--bg); color: var(--fg); font: 13px system-ui; margin: 16px; }
+.trigger, .tool { border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 4px 8px; }
+.popup { background: var(--bg); border: 1px solid var(--line); padding: 4px; min-width: 140px; }
+.item { padding: 4px 8px; outline: none; cursor: default; }
+.item[data-highlighted], .item[data-focused], .item[data-active-item], .item[data-focus-visible] { background: var(--accent); color: #fff; }
+.picker { margin: 12px 0; width: 320px; border: 1px solid var(--line); }
+.field { display: flex; gap: 8px; padding: 4px; }
+.crumb { color: var(--muted); }
+.input { flex: 1; }
+.list { max-height: 200px; overflow: auto; }
+.toolbar { display: flex; gap: 4px; }
+.tooltip { background: var(--fg); color: var(--bg); padding: 2px 6px; font-size: 12px; }
+@media (prefers-reduced-motion: no-preference) { .popup { transition: opacity 120ms; } }

@@ -1,0 +1,9 @@
+variant              min KB  gzip KB  brotli KB  (library cost over React baseline: min / gzip / brotli)  compiler ok/err
+baseline              190.3     59.6       51.1   +0.0 / +0.0 / +0.0   2/0
+rac                   383.0    121.3      102.6   +192.7 / +61.8 / +51.5   5/0
+rac-21-locales        379.7    119.6      101.4   +189.4 / +60.0 / +50.2   5/0
+rac-en-only           376.7    117.5      100.0   +186.4 / +58.0 / +48.9   5/0
+rac-combobox          397.3    123.8      104.8   +207.0 / +64.3 / +53.6   9/0
+baseui                378.8    123.3      106.6   +188.6 / +63.7 / +55.5   5/0
+ariakit               335.6    109.3       94.6   +145.4 / +49.7 / +43.4   5/0
+radix-no-combobox     287.7     91.9       79.5   +97.5 / +32.3 / +28.4   4/0

@@ -1,0 +1,90 @@
+{
+  "baseline": {
+    "min": 194835,
+    "gzip": 60994,
+    "brotli": 52374,
+    "compiler": {
+      "success": 2,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  },
+  "rac": {
+    "min": 392198,
+    "gzip": 124249,
+    "brotli": 105077,
+    "compiler": {
+      "success": 5,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  },
+  "rac-21-locales": {
+    "min": 388786,
+    "gzip": 122446,
+    "brotli": 103809,
+    "compiler": {
+      "success": 5,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  },
+  "rac-en-only": {
+    "min": 385710,
+    "gzip": 120346,
+    "brotli": 102441,
+    "compiler": {
+      "success": 5,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  },
+  "rac-combobox": {
+    "min": 406797,
+    "gzip": 126796,
+    "brotli": 107267,
+    "compiler": {
+      "success": 9,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  },
+  "baseui": {
+    "min": 387942,
+    "gzip": 126270,
+    "brotli": 109193,
+    "compiler": {
+      "success": 5,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  },
+  "ariakit": {
+    "min": 343693,
+    "gzip": 111877,
+    "brotli": 96823,
+    "compiler": {
+      "success": 5,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  },
+  "radix-no-combobox": {
+    "min": 294654,
+    "gzip": 94078,
+    "brotli": 81436,
+    "compiler": {
+      "success": 4,
+      "error": 0,
+      "skip": 0,
+      "errors": []
+    }
+  }
+}

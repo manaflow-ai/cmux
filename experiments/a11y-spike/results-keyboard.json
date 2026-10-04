@@ -1,0 +1,5685 @@
+{
+  "rac chromium": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": null
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "main.tsx"
+            },
+            "expanded": null
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": true,
+          "detail": "chose: /src/main.tsx"
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "crumbAtRoot": true,
+            "f": {
+              "role": "input",
+              "name": "Path",
+              "active": null,
+              "expanded": null
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": false,
+          "detail": [
+            "chose: /src/main.tsx"
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "picker after drill",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-overlay-container=\"true\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "19/22",
+      "opt": "1/3",
+      "sem": "1/3",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "rac chromium rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-overlay-container=\"true\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "14/14",
+      "opt": "1/3",
+      "sem": "1/1",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "rac-combobox chromium": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "drill recovered",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": false,
+          "detail": ""
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "crumbAtRoot": true,
+            "f": {
+              "role": "combobox",
+              "name": "Path",
+              "active": null,
+              "expanded": "true"
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": true,
+          "detail": [
+            "4 options available.0 options available.src3 options available.1 option available.src0 options available.4 options available.0 options available.4 options available."
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 2,
+            "target": "#react-aria1532500388-_r_0_"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          }
+        ]
+      },
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "picker after drill",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 2,
+            "target": "#react-aria2441785075-_r_0_"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 2,
+            "target": "#react-aria4712775819-_r_0_"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "16/23",
+      "opt": "1/3",
+      "sem": "3/3",
+      "axeNodes": 9,
+      "axeSeriousNodes": 6
+    }
+  },
+  "rac-combobox chromium rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-overlay-container=\"true\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "14/14",
+      "opt": "1/3",
+      "sem": "1/1",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "baseui chromium": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "components/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "main.tsx"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": true,
+          "detail": "chose: /src/main.tsx"
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "crumbAtRoot": true,
+            "f": {
+              "role": "combobox",
+              "name": "Path",
+              "active": {
+                "role": "option",
+                "name": "src/"
+              },
+              "expanded": "true"
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": false,
+          "detail": [
+            "chose: /src/main.tsx"
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 0,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "picker after drill",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_g_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "22/22",
+      "opt": "1/3",
+      "sem": "1/3",
+      "axeNodes": 4,
+      "axeSeriousNodes": 0
+    }
+  },
+  "baseui chromium rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 0,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_g_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "14/14",
+      "opt": "1/3",
+      "sem": "0/1",
+      "axeNodes": 4,
+      "axeSeriousNodes": 0
+    }
+  },
+  "ariakit chromium": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "main.tsx"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": true,
+          "detail": "chose: /src/main.tsx"
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "crumbAtRoot": true,
+            "f": {
+              "role": "combobox",
+              "name": "Path",
+              "active": null,
+              "expanded": "true"
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": false,
+          "detail": [
+            "chose: /src/main.tsx"
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 4,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "picker after drill",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#portal\\/_r_p_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "19/22",
+      "opt": "3/3",
+      "sem": "1/3",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "ariakit chromium rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 4,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#portal\\/_r_p_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "13/14",
+      "opt": "3/3",
+      "sem": "0/1",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "radix-no-combobox chromium": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "div[data-radix-popper-content-wrapper=\"\"][dir=\"ltr\"]:nth-child(3)"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "13/14",
+      "opt": "3/3",
+      "sem": "1/1",
+      "axeNodes": 8,
+      "axeSeriousNodes": 2
+    }
+  },
+  "radix-no-combobox chromium rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "div[data-radix-popper-content-wrapper=\"\"][dir=\"rtl\"]:nth-child(3)"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "13/14",
+      "opt": "3/3",
+      "sem": "1/1",
+      "axeNodes": 8,
+      "axeSeriousNodes": 2
+    }
+  },
+  "rac webkit": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": null
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "main.tsx"
+            },
+            "expanded": null
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": true,
+          "detail": "chose: /src/main.tsx"
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "crumbAtRoot": false,
+            "f": {
+              "role": "body",
+              "name": "",
+              "active": null,
+              "expanded": null
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "body",
+            "name": "",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": false,
+          "detail": []
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "picker after drill",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-overlay-container=\"true\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "18/22",
+      "opt": "1/3",
+      "sem": "1/3",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "rac webkit rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "input",
+            "name": "Path",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-overlay-container=\"true\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "14/14",
+      "opt": "1/3",
+      "sem": "1/1",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "rac-combobox webkit": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "drill recovered",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": false,
+          "detail": ""
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "crumbAtRoot": true,
+            "f": {
+              "role": "combobox",
+              "name": "Path",
+              "active": null,
+              "expanded": "true"
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": true,
+          "detail": [
+            "4 options available.0 options available.src3 options available.1 option available.src0 options available.4 options available.0 options available.4 options available."
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 2,
+            "target": "#react-aria6190100045-_r_0_"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          }
+        ]
+      },
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "picker after drill",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 2,
+            "target": "#react-aria1721843643-_r_0_"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-overlay-container=\"true\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "16/23",
+      "opt": "1/3",
+      "sem": "3/3",
+      "axeNodes": 7,
+      "axeSeriousNodes": 4
+    }
+  },
+  "rac-combobox webkit rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-overlay-container=\"true\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "14/14",
+      "opt": "1/3",
+      "sem": "1/1",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "baseui webkit": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "components/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "main.tsx"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": true,
+          "detail": "chose: /src/main.tsx"
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "crumbAtRoot": true,
+            "f": {
+              "role": "combobox",
+              "name": "Path",
+              "active": {
+                "role": "option",
+                "name": "src/"
+              },
+              "expanded": "true"
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": false,
+          "detail": [
+            "chose: /src/main.tsx"
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 0,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "aria-command-name",
+            "impact": "serious",
+            "nodes": 6,
+            "target": "#root > span[data-base-ui-focus-guard=\"\"][role=\"button\"]:nth-child(1)"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "aria-command-name",
+            "impact": "serious",
+            "nodes": 10,
+            "target": "#root > span[data-base-ui-focus-guard=\"\"][role=\"button\"]:nth-child(1)"
+          },
+          {
+            "id": "aria-required-children",
+            "impact": "critical",
+            "nodes": 1,
+            "target": "#_r_1_"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "picker after drill",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_g_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "22/22",
+      "opt": "1/3",
+      "sem": "1/3",
+      "axeNodes": 21,
+      "axeSeriousNodes": 17
+    }
+  },
+  "baseui webkit rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "f": {
+              "role": "menuitem",
+              "name": "Committed",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": [
+              "Working treeStagedCommitted"
+            ]
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 0,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": false,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "aria-command-name",
+            "impact": "serious",
+            "nodes": 6,
+            "target": "#root > span[data-base-ui-focus-guard=\"\"][role=\"button\"]:nth-child(1)"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "aria-command-name",
+            "impact": "serious",
+            "nodes": 10,
+            "target": "#root > span[data-base-ui-focus-guard=\"\"][role=\"button\"]:nth-child(1)"
+          },
+          {
+            "id": "aria-required-children",
+            "impact": "critical",
+            "nodes": 1,
+            "target": "#_r_1_"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "#_r_1_"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#_r_g_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "14/14",
+      "opt": "1/3",
+      "sem": "0/1",
+      "axeNodes": 21,
+      "axeSeriousNodes": 17
+    }
+  },
+  "ariakit webkit": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "picker": [
+        {
+          "name": "Tab reaches the path input",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Input is exposed as role=combobox",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Async listing highlights the first row via aria-activedescendant",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Typing filters and keeps a highlighted row",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "src/"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowRight drills into src and highlights its first row",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "ArrowDown moves the highlight",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": {
+              "role": "option",
+              "name": "main.tsx"
+            },
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Enter chooses the file",
+          "kind": "key",
+          "ok": true,
+          "detail": "chose: /src/main.tsx"
+        },
+        {
+          "name": "Backspace on an empty query goes up to the root",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "crumbAtRoot": true,
+            "f": {
+              "role": "combobox",
+              "name": "Path",
+              "active": null,
+              "expanded": "true"
+            }
+          }
+        },
+        {
+          "name": "Root listing highlights a row again",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Folder change or result count is announced in a live region (beyond our #result)",
+          "kind": "sem",
+          "ok": false,
+          "detail": [
+            "chose: /src/main.tsx"
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 4,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "picker after drill",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#portal\\/_r_p_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "18/22",
+      "opt": "3/3",
+      "sem": "1/3",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "ariakit webkit rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": false,
+          "detail": {
+            "roleTooltip": 4,
+            "describedby": []
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "combobox",
+            "name": "Path",
+            "active": null,
+            "expanded": "true"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": []
+      },
+      {
+        "state": "submenu open",
+        "violations": []
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "#portal\\/_r_p_"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "13/14",
+      "opt": "3/3",
+      "sem": "0/1",
+      "axeNodes": 1,
+      "axeSeriousNodes": 0
+    }
+  },
+  "radix-no-combobox webkit": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "initial",
+        "violations": []
+      },
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "div[data-radix-popper-content-wrapper=\"\"][dir=\"ltr\"]:nth-child(3)"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "13/14",
+      "opt": "3/3",
+      "sem": "1/1",
+      "axeNodes": 8,
+      "axeSeriousNodes": 2
+    }
+  },
+  "radix-no-combobox webkit rtl": {
+    "groups": {
+      "menu": [
+        {
+          "name": "Tab reaches the Source trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Enter opens the menu and focuses the first item",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Working tree",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Typeahead 'c' moves to Committed",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "Committed",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Arrow (inline-end) opens the submenu and focuses HEAD~1",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "menuitem",
+            "name": "HEAD~1",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape closes only the submenu, focus back on Committed",
+          "kind": "key",
+          "ok": false,
+          "detail": {
+            "f": {
+              "role": "button",
+              "name": "Source",
+              "active": null,
+              "expanded": "false"
+            },
+            "menus": []
+          }
+        },
+        {
+          "name": "Enter on HEAD~2 activates it",
+          "kind": "key",
+          "ok": true,
+          "detail": "source: HEAD~2"
+        },
+        {
+          "name": "Menu closes and focus returns to the trigger",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        }
+      ],
+      "toolbar": [
+        {
+          "name": "Tab lands on the first tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Keyboard focus shows its tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Split view"
+          ]
+        },
+        {
+          "name": "Tooltip is role=tooltip and named by aria-describedby",
+          "kind": "sem",
+          "ok": true,
+          "detail": {
+            "roleTooltip": 1,
+            "describedby": [
+              "Split view"
+            ]
+          }
+        },
+        {
+          "name": "Arrow (inline-end) moves to the next tool",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Tooltip follows focus",
+          "kind": "key",
+          "ok": true,
+          "detail": [
+            "Unified view"
+          ]
+        },
+        {
+          "name": "End moves to the last tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Collapse all files",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Home moves to the first tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Split view",
+            "active": null,
+            "expanded": null
+          }
+        },
+        {
+          "name": "Escape hides the tooltip",
+          "kind": "key",
+          "ok": true,
+          "detail": []
+        },
+        {
+          "name": "Enter activates the tool",
+          "kind": "key",
+          "ok": true,
+          "detail": "tool: split"
+        },
+        {
+          "name": "Shift+Tab leaves the toolbar in one step",
+          "kind": "key",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Source",
+            "active": null,
+            "expanded": "false"
+          }
+        },
+        {
+          "name": "Tab re-enters the toolbar at the last focused tool",
+          "kind": "opt",
+          "ok": true,
+          "detail": {
+            "role": "button",
+            "name": "Unified view",
+            "active": null,
+            "expanded": null
+          }
+        }
+      ]
+    },
+    "axe": [
+      {
+        "state": "menu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      },
+      {
+        "state": "submenu open",
+        "violations": [
+          {
+            "id": "aria-hidden-focus",
+            "impact": "serious",
+            "nodes": 1,
+            "target": "#root"
+          },
+          {
+            "id": "page-has-heading-one",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "html"
+          },
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 2,
+            "target": "div[data-radix-popper-content-wrapper=\"\"][dir=\"rtl\"]:nth-child(3)"
+          }
+        ]
+      },
+      {
+        "state": "toolbar tooltip",
+        "violations": [
+          {
+            "id": "region",
+            "impact": "moderate",
+            "nodes": 1,
+            "target": "div[data-radix-popper-content-wrapper=\"\"]"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "key": "13/14",
+      "opt": "3/3",
+      "sem": "1/1",
+      "axeNodes": 8,
+      "axeSeriousNodes": 2
+    }
+  }
+}
