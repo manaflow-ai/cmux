@@ -76,7 +76,7 @@ import Testing
     @Test func aVisibleTargetPlacesItsViewportOnlyInItsWindow() {
         let viewport = CGRect(x: 700, y: 72, width: 500, height: 628)
         let result = AgentCursorVisibility.visible(window: "w1", viewport: viewport, clip: viewport, zoom: 1.5)
-        #expect(result.placement(forWindow: "w1", overlay: overlay) == .visible(content: viewport, magnification: 1))
+        #expect(result.placement(forWindow: "w1", overlay: overlay) == .visible(content: viewport, clip: viewport, zoom: 1.5, magnification: 1))
         #expect(result.placement(forWindow: "w2", overlay: overlay) == .elsewhere)
     }
 

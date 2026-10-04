@@ -15,16 +15,17 @@ public enum AgentCursorGeometry {
         return nil
     }
 
-    /// Viewport CSS px times `zoom * magnification`, offset by the content
-    /// origin, clamped into the content rect so the cursor never lands on a
+    /// Viewport CSS px times `(event zoom ?? page zoom) * magnification`,
+    /// offset by the content origin, clamped into `clip` (the visible part of
+    /// the viewport) so the cursor never lands on a docked column or a
     /// neighboring pane.
     public static func overlayPoint(
-        of event: AutomationInputEvent, content: CGRect, magnification: Double
+        of event: AutomationInputEvent, content: CGRect, clip: CGRect, zoom: Double, magnification: Double
     ) -> CGPoint? {
         guard let page = pagePoint(of: event) else { return nil }
-        let scale = (event.zoom ?? 1) * magnification
+        let scale = (event.zoom ?? zoom) * magnification
         let x = content.minX + page.x * scale
         let y = content.minY + page.y * scale
-        return CGPoint(x: min(max(x, content.minX), content.maxX), y: min(max(y, content.minY), content.maxY))
+        return CGPoint(x: min(max(x, clip.minX), clip.maxX), y: min(max(y, clip.minY), clip.maxY))
     }
 }

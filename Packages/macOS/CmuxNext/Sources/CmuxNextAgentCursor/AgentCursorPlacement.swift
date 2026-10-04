@@ -5,10 +5,11 @@ public import CoreGraphics
 /// input event arrives, never cached across events: panes, columns and tabs
 /// can move between two events.
 public enum AgentCursorPlacement: Equatable, Sendable {
-    /// The target tab is on screen. `content` is its page content rect;
-    /// `magnification` is the view magnification (page zoom comes with the
-    /// event).
-    case visible(content: CGRect, magnification: Double)
+    /// The target tab is on screen. `content` is its page viewport, `clip`
+    /// the part of it not scrolled out or under a docked column, `zoom` the
+    /// page zoom now (an event's own `zoom` wins) and `magnification` the
+    /// view magnification.
+    case visible(content: CGRect, clip: CGRect, zoom: Double, magnification: Double)
     /// The target exists in this window but is not shown (background tab,
     /// column scrolled out of view): point at its tab chip or column edge.
     case hidden(anchor: CGRect)
