@@ -19,16 +19,18 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     /// frame that navigated since shows another one.
     @MainActor
     public init(info: WKFrameInfo) {
-        let securityOrigin = info.securityOrigin
-        if securityOrigin.protocol.isEmpty {
-            origin = "null"
-        } else {
-            let scheme = securityOrigin.protocol.lowercased()
-            let port = securityOrigin.port
-            let isDefault = port == 0 || (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
-            origin = "\(scheme)://\(Self.bracketed(securityOrigin.host.lowercased()))" + (isDefault ? "" : ":\(port)")
-        }
+        origin = Self.origin(of: info.securityOrigin)
         place = Self.place(of: info.request.url)
+    }
+
+    /// `scheme://host[:port]` of a WebKit security origin, `"null"` when opaque.
+    @MainActor
+    static func origin(of securityOrigin: WKSecurityOrigin) -> String {
+        guard !securityOrigin.protocol.isEmpty else { return "null" }
+        let scheme = securityOrigin.protocol.lowercased()
+        let port = securityOrigin.port
+        let isDefault = port == 0 || (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
+        return "\(scheme)://\(bracketed(securityOrigin.host.lowercased()))" + (isDefault ? "" : ":\(port)")
     }
 
     /// A main frame's document as its URL names it.
