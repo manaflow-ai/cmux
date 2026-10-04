@@ -16,12 +16,11 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
     }
     /// Actions for a refused send (Try Again, Delete); empty when delivered.
     var failureActions: (IdempotencyKey) -> [HomeMessageAction] = { _ in [] }
-    /// The reaction target for a bubble; nil when the message cannot take one.
-    var tapbackTarget: (HomeHit) -> HomeTapbackTarget? = { _ in nil }
-    /// Whether a message can take a reaction (VoiceOver's React action).
-    var canReact: (IdempotencyKey) -> Bool = { _ in false }
+    /// Whether the owner is reachable; no reaction target while offline
+    /// (nothing queues), so React leaves the menu and VoiceOver's actions.
+    var isOnline: () -> Bool = { false }
     /// Opens the tapback picker for a target.
-    var showTapbacks: (HomeTapbackTarget) -> Void = { _ in }
+    var showTapbacks: (HomeReactionTarget) -> Void = { _ in }
     private var elements: [UIAccessibilityElement]?
 
     override init(frame: CGRect) {
@@ -85,19 +84,28 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
         e.accessibilityTraits = .staticText
         e.accessibilityFrameInContainerSpace = item.frame
         if let key = item.item {
-            e.accessibilityCustomActions = customActions(item: key, text: item.label, frame: item.frame)
+            let canReact = controller?.reactionTarget(for: item, isOnline: isOnline()) != nil
+            e.accessibilityCustomActions = customActions(item: key, text: item.label, react: canReact ? item : nil)
         }
         return e
     }
 
-    /// React (the part under the element's center), Copy (the part's text,
-    /// the element's label) and the refused-send actions.
-    private func customActions(item: IdempotencyKey, text: String, frame: CGRect) -> [UIAccessibilityCustomAction] {
+    /// React (the element's part, when it can take a tapback), Copy (the
+    /// part's text, the element's label) and the refused-send actions. React
+    /// resolves its target again when it runs, so the chosen tapbacks and the
+    /// connection are current.
+    private func customActions(item: IdempotencyKey, text: String,
+                               react element: HomeAXItem?) -> [UIAccessibilityCustomAction] {
         var actions: [UIAccessibilityCustomAction] = []
-        if canReact(item) {
+        if let element {
             actions.append(UIAccessibilityCustomAction(name: HomeText.tapbackReact, image: UIImage(systemName: "face.smiling")) {
                 [weak self] _ in
-                MainActor.assumeIsolated { self?.openTapbacks(at: CGPoint(x: frame.midX, y: frame.midY)) ?? false }
+                MainActor.assumeIsolated {
+                    guard let self, let target = self.controller?.reactionTarget(for: element, isOnline: self.isOnline())
+                    else { return false }
+                    self.showTapbacks(target)
+                    return true
+                }
             })
         }
         actions.append(UIAccessibilityCustomAction(name: HomeText.copy, image: UIImage(systemName: "doc.on.doc")) { _ in
@@ -125,7 +133,8 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
     /// bubble or its message cannot take a reaction.
     @discardableResult
     private func openTapbacks(at point: CGPoint) -> Bool {
-        guard let hit = controller?.hit(at: point), let target = tapbackTarget(hit) else { return false }
+        guard let controller, let hit = controller.hit(at: point),
+              let target = controller.reactionTarget(for: hit, isOnline: isOnline()) else { return false }
         showTapbacks(target)
         return true
     }
@@ -136,7 +145,7 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
                                 configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let hit = controller?.hit(at: location) else { return nil }
         let text = hit.text
-        let react = tapbackTarget(hit).map { target in
+        let react = controller?.reactionTarget(for: hit, isOnline: isOnline()).map { target in
             UIAction(title: HomeText.tapbackReact, image: UIImage(systemName: "face.smiling")) { [weak self] _ in
                 self?.showTapbacks(target)
             }
