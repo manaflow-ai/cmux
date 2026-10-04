@@ -4,6 +4,7 @@ import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
+import { HOME_RATE_LIMITED, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -14,7 +15,9 @@ import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
  * - dm.open: the caller's existing DM with a user peer (inbox `peer` index), else the pair's
  *   deterministic id; an email or phone peer becomes an address participant (HMAC id with
  *   HOME_ADDRESS_KEY) and is invited in the same request.
- * - Ops that add humans carry the reach facts the Worker resolved (home-reach.ts).
+ * - Ops that add humans carry the reach facts the Worker resolved (home-reach.ts). conversation.create
+ *   and participants.add first take one attempt from the caller's hourly budget (home-rate.ts);
+ *   a spent budget refuses before any reach RPC or member check.
  * - invite.create: invite id from (conversation, actor, key); the secret is an HMAC of the invite
  *   id with HOME_ADDRESS_KEY (retry-stable, unguessable without the key); token_hash is
  *   sha256(sha256(secret)). The secret goes only to the address's AddressDO stash.
@@ -119,6 +122,13 @@ const participantIds = (list: unknown): Array<unknown> => (Array.isArray(list) ?
 export const conversationMutate = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult> => {
   const params = (frame.params ?? {}) as Record<string, unknown>
   const key = frame.idempotency_key
+  if (isHomeRateOp(frame.op)) {
+    const gate = await takeHomeRate(env, principal, actorOf(principal), frame.op)
+    if (!gate.ok) {
+      const message = `too many ${frame.op} requests; retry in ${Math.ceil(gate.retry_after_ms / 1000)} s`
+      return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: HOME_RATE_LIMITED, message, retryable: true, replayed: false, details: { retry_after_ms: gate.retry_after_ms } } as OwnerFrame] }
+    }
+  }
   switch (frame.op) {
     case "conversation.create": {
       const id = `conv_${digest26(`conv\u0000${actorOf(principal)}\u0000${key}`)}`
