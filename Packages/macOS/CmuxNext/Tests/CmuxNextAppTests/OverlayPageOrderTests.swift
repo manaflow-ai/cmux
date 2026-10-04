@@ -56,7 +56,7 @@ struct OverlayPageOrderTests {
 /// The sidebar is an occluder: Chromium pages get its rect as an occlusion
 /// rect, so the fork masks the page there and routes the mouse to the window.
 @MainActor
-struct SidebarOccluderTests {
+struct OverlaySidebarOccluderTests {
     @Test func pagesAreMaskedUnderTheSidebar() {
         let shell = ShellWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 800, height: 600), styleMask: [.borderless],
                                 backing: .buffered, defer: false)

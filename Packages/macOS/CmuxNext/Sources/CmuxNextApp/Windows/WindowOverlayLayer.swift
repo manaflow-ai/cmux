@@ -60,6 +60,8 @@ final class WindowOverlayLayer {
         self.window = window
         catchers = DividerMouseCatchers(window: window)
         let center = NotificationCenter.default
+        // An occluder (the sidebar) moved: pages re-read their occlusion rects.
+        WindowOverlayHost.host(for: window).onOccludersChange = { [weak self] in self?.requestPageUpdate() }
         observers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.evaluate() }
         })

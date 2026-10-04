@@ -8,13 +8,21 @@ public extension WindowOverlayHost {
         let handle = OverlayHandle(id: nextID, content: content, options: options, host: self)
         nextID += 1
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
+        let container = panel.container(for: options.effectiveLayer)
         if options.dimsContent, !isAppHost {
-            let scrim = OverlayScrimView(frame: panel.overlayContainer.bounds)
+            let scrim = OverlayScrimView(frame: container.bounds)
             scrim.identifier = NSUserInterfaceItemIdentifier("overlay-scrim-\(handle.id)")
-            panel.overlayContainer.addSubview(scrim)
+            container.addSubview(scrim)
         }
         content.removeFromSuperview()
-        panel.overlayContainer.addSubview(content)
+        if case .pane(let clip) = options.effectiveLayer, !isAppHost {
+            let clipView = OverlayClipView(frame: clip)
+            clipView.addSubview(content)
+            container.addSubview(clipView)
+            handle.clipView = clipView
+        } else {
+            container.addSubview(content)
+        }
         handles.append(handle)
         syncPanel()
         layout(handle)
@@ -23,6 +31,47 @@ public extension WindowOverlayHost {
         updateEscapeMonitor()
         onBlockingChange?()
         return handle
+    }
+
+    /// 0 for `.pane`, 1 for `.window`, 2 for `.modal` (bottom to top).
+    func layerIndex(of handle: OverlayHandle) -> Int {
+        switch handle.options.effectiveLayer {
+        case .pane: 0
+        case .window: 1
+        case .modal: 2
+        }
+    }
+
+    /// The overlay's frame in window coordinates.
+    func frameInWindow(_ handle: OverlayHandle) -> NSRect {
+        guard let clip = handle.clipView else { return handle.content.frame }
+        return handle.content.frame.offsetBy(dx: clip.frame.minX, dy: clip.frame.minY)
+    }
+
+    /// What of the overlay shows (window coordinates): a `.pane` overlay
+    /// inside its clip and outside every occluder.
+    func visibleRegion(of handle: OverlayHandle) -> [NSRect] {
+        let frame = frameInWindow(handle)
+        guard case .pane(let clip) = handle.options.effectiveLayer else { return [frame] }
+        return Self.subtract(occluderRects, from: frame.intersection(clip))
+    }
+
+    /// `rect` minus every rect of `holes`, as disjoint rects.
+    nonisolated static func subtract(_ holes: [NSRect], from rect: NSRect) -> [NSRect] {
+        var pieces = rect.isEmpty ? [] : [rect]
+        for hole in holes {
+            pieces = pieces.flatMap { piece -> [NSRect] in
+                let cut = piece.intersection(hole)
+                guard !cut.isEmpty else { return [piece] }
+                return [
+                    NSRect(x: piece.minX, y: piece.minY, width: piece.width, height: cut.minY - piece.minY),
+                    NSRect(x: piece.minX, y: cut.maxY, width: piece.width, height: piece.maxY - cut.maxY),
+                    NSRect(x: piece.minX, y: cut.minY, width: cut.minX - piece.minX, height: cut.height),
+                    NSRect(x: cut.maxX, y: cut.minY, width: piece.maxX - cut.maxX, height: cut.height),
+                ].filter { $0.width > 0 && $0.height > 0 }
+            }
+        }
+        return pieces
     }
 
     /// Whether the panel takes the mouse at `point` (window coordinates):
@@ -40,7 +89,7 @@ public extension WindowOverlayHost {
             if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
             var rects: [NSRect] = []
             if let region = options.modalRegion { rects.append(region) }
-            if !options.passesThroughClicks { rects.append(handle.content.frame) }
+            if !options.passesThroughClicks { rects += visibleRegion(of: handle) }
             return rects
         }
     }
@@ -50,9 +99,13 @@ extension WindowOverlayHost {
     func remove(_ handle: OverlayHandle) {
         handles.removeAll { $0 === handle }
         handle.content.removeFromSuperview()
-        panel.overlayContainer.subviews
-            .filter { $0.identifier?.rawValue == "overlay-scrim-\(handle.id)" }
-            .forEach { $0.removeFromSuperview() }
+        handle.clipView?.removeFromSuperview()
+        handle.clipView = nil
+        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
+            container.subviews
+                .filter { $0.identifier?.rawValue == "overlay-scrim-\(handle.id)" }
+                .forEach { $0.removeFromSuperview() }
+        }
         if handle.options.isModal { endModal() }
         updateMouseRouting()
         updateEscapeMonitor()
@@ -64,7 +117,15 @@ extension WindowOverlayHost {
     func layout(_ handle: OverlayHandle) {
         if isAppHost { return layoutAppPanel() }
         let bounds = panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
-        handle.content.setFrameOrigin(Self.origin(for: handle.content.frame.size, options: handle.options, in: bounds))
+        guard case .pane(let clip) = handle.options.effectiveLayer, let clipView = handle.clipView else {
+            handle.content.setFrameOrigin(Self.origin(for: handle.content.frame.size, options: handle.options, in: bounds))
+            return updateMouseRouting()
+        }
+        // Placed inside its pane; the clip view masks the occluders out.
+        clipView.frame = clip
+        let origin = Self.origin(for: handle.content.frame.size, options: handle.options, in: clip)
+        handle.content.setFrameOrigin(NSPoint(x: origin.x - clip.minX, y: origin.y - clip.minY))
+        clipView.setHoles(occluderRects.map { $0.offsetBy(dx: -clip.minX, dy: -clip.minY) })
         updateMouseRouting()
     }
 

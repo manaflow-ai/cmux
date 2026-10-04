@@ -50,6 +50,10 @@ public final class WindowOverlayHost {
     /// Called when `blocksWholeWindow` may have changed (a modal or dimming overlay came or went).
     public var onBlockingChange: (() -> Void)?
     var escapeMonitor: Any?
+    /// Rects in window coordinates that sit above `.pane` overlays and pages (the sidebar), by id.
+    var occluders: [String: NSRect] = [:]
+    /// Called when an occluder changed (the window layer re-masks its pages).
+    public var onOccludersChange: (() -> Void)?
 
     private static var hosts: [ObjectIdentifier: WindowOverlayHost] = [:]
     private static var app: WindowOverlayHost?
@@ -103,6 +107,22 @@ public final class WindowOverlayHost {
     }
 
     public var hasPresentations: Bool { !handles.isEmpty }
+
+    /// Occluder rects (window coordinates), sorted by id.
+    public var occluderRects: [NSRect] { occluders.sorted { $0.key < $1.key }.map(\.value) }
+
+    /// Something of the main window's own view tree that must stay above
+    /// pages and `.pane` overlays (the sidebar): pages are masked there (the
+    /// window layer adds these rects to the pages' occlusion rects) and pane
+    /// overlays are clipped. Nil removes it.
+    public func setOccluder(id: String, rect: NSRect?) {
+        let rect = rect.flatMap { $0.isEmpty ? nil : $0 }
+        guard occluders[id] != rect else { return }
+        occluders[id] = rect
+        for handle in handles where handle.clipView != nil { layout(handle) }
+        updateMouseRouting()
+        onOccludersChange?()
+    }
     /// A modal (without a region) or dimming overlay shows: nothing else in the window takes input.
     public var blocksWholeWindow: Bool {
         handles.contains { $0.options.dimsContent || ($0.options.isModal && $0.options.modalRegion == nil) }

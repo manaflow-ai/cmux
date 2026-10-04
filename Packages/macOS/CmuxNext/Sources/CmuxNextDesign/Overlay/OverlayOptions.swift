@@ -1,5 +1,16 @@
 public import AppKit
 
+/// The named layers above the content, bottom to top: content (page
+/// windows) < pane chrome < `.pane` overlays < the sidebar (an occluder) <
+/// `.window` overlays < `.modal` overlays.
+public enum OverlayLayer: Equatable, Sendable {
+    /// Inside one pane: clipped to `clip` (window coordinates) minus every
+    /// occluder (the sidebar).
+    case pane(clip: NSRect)
+    case window
+    case modal
+}
+
 /// How an overlay presented by `WindowOverlayHost` behaves.
 public struct OverlayOptions: Equatable, Sendable {
     public enum Kind: String, Sendable {
@@ -35,9 +46,15 @@ public struct OverlayOptions: Equatable, Sendable {
     /// Window coordinates: mouse input inside this rect is blocked (a
     /// tab-region modal), the rest of the window stays usable.
     public var modalRegion: NSRect?
+    /// Nil: `.modal` for dialogs, `.window` otherwise (`effectiveLayer`).
+    public var layer: OverlayLayer?
+
+    public var effectiveLayer: OverlayLayer { layer ?? (kind == .dialog ? .modal : .window) }
 
     public init(kind: Kind, anchor: NSRect? = nil, isModal: Bool = false, dismissOnEscape: Bool = false,
-                dimsContent: Bool = false, passesThroughClicks: Bool? = nil, modalRegion: NSRect? = nil) {
+                dimsContent: Bool = false, passesThroughClicks: Bool? = nil, modalRegion: NSRect? = nil,
+                layer: OverlayLayer? = nil) {
+        self.layer = layer
         self.kind = kind
         self.anchor = anchor
         self.isModal = isModal
@@ -63,6 +80,8 @@ public final class OverlayHandle {
     public private(set) var isDismissed = false
     weak var host: WindowOverlayHost?
     let id: Int
+    /// The clip of a `.pane` overlay (its pane minus the occluders).
+    var clipView: OverlayClipView?
     var options: OverlayOptions
     let content: NSView
 
