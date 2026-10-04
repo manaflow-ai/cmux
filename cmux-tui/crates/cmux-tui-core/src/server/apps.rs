@@ -273,7 +273,10 @@ pub(super) fn try_handle(
                     idempotency_key,
                     origin,
                     gesture,
-                    caller: None,
+                    caller: Some(crate::apps::Caller {
+                        client,
+                        request: id.clone().unwrap_or(Value::Null),
+                    }),
                 },
                 Box::new(move |result| {
                     reply(&writer, id, result);

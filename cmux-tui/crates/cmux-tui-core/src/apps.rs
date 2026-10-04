@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod calls;
 #[cfg(unix)]
+mod cancel;
+#[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
 mod egress;
