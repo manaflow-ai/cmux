@@ -1413,13 +1413,14 @@ fn write_server_app(root: &Path, dir: &str, server: Value) {
 }
 
 /// A fake server binary: appends `start` and `stop` to the marker file (its
-/// first argument), writes its environment to `<marker>.env`, and answers
-/// every op line with `{served: true}`.
+/// first argument), writes its environment to `<marker>.env`, appends every
+/// line it receives to `<marker>.lines`, and answers every op line with
+/// `{served: true}`.
 fn write_fake_server(dir: &Path) {
     write_script(
         dir,
         "fake-server",
-        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nprintf '%s\\n' \"id=$CMUX_APP_ID\" \"data=$CMUX_APP_DATA_DIR\" \"tmp=$TMPDIR\" \"home=$HOME\" \"cargo=$CARGO_MANIFEST_DIR\" > \"$marker.env\"\nwhile IFS= read -r line; do\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\"\ndone\necho stop >> \"$marker\"\n",
+        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nprintf '%s\\n' \"id=$CMUX_APP_ID\" \"data=$CMUX_APP_DATA_DIR\" \"tmp=$TMPDIR\" \"home=$HOME\" \"cargo=$CARGO_MANIFEST_DIR\" > \"$marker.env\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$marker.lines\"\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\"\ndone\necho stop >> \"$marker\"\n",
     );
 }
 
@@ -1708,4 +1709,80 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     );
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(frames(&unscoped, 1).len(), 1);
+}
+
+/// Every line the fake server with `marker` received, once `count` arrived.
+fn op_lines(marker: &Path, count: usize) -> Vec<Value> {
+    frames(&marker.with_extension("marker.lines"), count)
+}
+
+fn run_with(
+    f: &Fixture,
+    app: &str,
+    op: &str,
+    args: Value,
+    origin: Origin,
+    idempotency_key: Option<&str>,
+) -> Result<Value, super::supervisor::ApiError> {
+    let (tx, rx) = channel();
+    let mut request = run_request(app, op, idempotency_key.map(str::to_string), origin, None);
+    request.args = args;
+    f.supervisor.run(request, Box::new(move |r| tx.send(r).unwrap()));
+    rx.recv_timeout(Duration::from_secs(10)).unwrap()
+}
+
+#[test]
+fn client_open_tokens_never_reach_a_server_and_only_user_runs_get_one() {
+    let root = temp_dir();
+    let marker = root.0.join("tok.marker");
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(&root.0.join("bundled"), "tok", native_server(&marker, json!({})));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/tok");
+    let forged = json!({ "open_token": "forged", "x": 1 });
+    // Agents reach apps-run only with these origins (the A2 gate refuses
+    // their origin user), so none of them ever gets a token.
+    for origin in [Origin::Cli, Origin::Mcp, Origin::Script, Origin::Remote] {
+        run_with(&f, "cmux/tok", "tok.ping", forged.clone(), origin, None).unwrap();
+    }
+    run_with(&f, "cmux/tok", "tok.ping", forged, Origin::User, Some("k1")).unwrap();
+    let lines = op_lines(&marker, 5);
+    for line in &lines {
+        assert_eq!(line["args"], json!({ "x": 1 }), "args lose the client token: {line}");
+        assert_ne!(line["open_token"], "forged", "{line}");
+    }
+    for line in &lines[..4] {
+        assert!(line.get("open_token").is_none_or(Value::is_null), "no token: {line}");
+    }
+    let token = lines[4]["open_token"].as_str().expect("a user run gets a token");
+    assert!(token.len() >= 32 && token.bytes().all(|b| b.is_ascii_hexdigit()), "{token}");
+}
+
+#[test]
+fn open_tokens_are_single_use_bound_to_the_app_and_expire() {
+    let root = temp_dir();
+    let marker = root.0.join("use.marker");
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(&root.0.join("bundled"), "use", native_server(&marker, json!({})));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/use");
+    for key in ["k1", "k2", "k3"] {
+        run_with(&f, "cmux/use", "use.ping", json!({}), Origin::User, Some(key)).unwrap();
+    }
+    let lines = op_lines(&marker, 3);
+    let token = |i: usize| lines[i]["open_token"].as_str().unwrap().to_string();
+    let (first, second, third) = (token(0), token(1), token(2));
+    assert!(first != second && second != third, "every run gets a fresh token");
+    let now = Instant::now();
+    // Once, for the app it was minted for, with its op and key.
+    let used = f.supervisor.consume_open_token_at(&first, "cmux/use", now).expect("valid");
+    assert_eq!((used.op.as_str(), used.idempotency_key.as_deref()), ("use.ping", Some("k1")));
+    assert!(f.supervisor.consume_open_token_at(&first, "cmux/use", now).is_none(), "reuse");
+    // Another app's attempt fails and burns the token.
+    assert!(f.supervisor.consume_open_token_at(&second, "cmux/other", now).is_none());
+    assert!(f.supervisor.consume_open_token_at(&second, "cmux/use", now).is_none());
+    // A token older than 60 s is refused.
+    let late = now + Duration::from_secs(61);
+    assert!(f.supervisor.consume_open_token_at(&third, "cmux/use", late).is_none(), "expired");
+    assert!(f.supervisor.consume_open_token("not-a-token", "cmux/use").is_none());
 }

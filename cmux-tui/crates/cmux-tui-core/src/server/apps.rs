@@ -368,6 +368,17 @@ mod tests {
     }
 
     #[test]
+    fn a_client_open_token_is_not_part_of_an_apps_run_request() {
+        // The supervisor alone mints open tokens; a client's top-level one is
+        // not a field of the request, so it is dropped while parsing.
+        let run = parse(
+            json!({ "id": 5, "cmd": "apps-run", "origin": "user", "app": "cmux/a", "op": "a.go", "open_token": "forged", "args": {} }),
+        );
+        let Command::Run { args, .. } = run.command else { panic!("apps-run") };
+        assert_eq!(args, json!({}));
+    }
+
+    #[test]
     fn the_app_supervisor_starts_off_the_daemon_startup_path() {
         // The job stands in for building the supervisor; it blocks until
         // released, and the caller must already have returned.
