@@ -24,16 +24,26 @@ import Testing
         func hoverCardDeactivated(_ id: HoverTargetID) { deactivated.append(id) }
     }
 
-    static func window() -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
+    /// A window with a fixed number. A test process without a window
+    /// server session (a fleet ci-step over SSH) gives every real window
+    /// number 0, so the hit test could not tell the two sources apart and
+    /// the result followed the dictionary's per-process hash order.
+    final class NumberedWindow: NSWindow {
+        var number = 0
+        override var windowNumber: Int { number }
+    }
+
+    static func window(number: Int) -> NSWindow {
+        let window = NumberedWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        window.number = number
         return window
     }
 
     final class Harness {
         let coordinator = HoverCardCoordinator()
-        let a = FakeSource(window: window())
-        let b = FakeSource(window: window())
+        let a = FakeSource(window: window(number: 101))
+        let b = FakeSource(window: window(number: 102))
         var pointer = CGPoint.zero
         var topWindow = 0
         init() {

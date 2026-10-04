@@ -12970,264 +12970,264 @@
         }
       }
     },
-    "handlers.refusal.columnAlreadySticky": {
+    "handlers.refusal.columnAlreadyDocked": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "the column is already sticky there"
+            "value": "the column is already docked there"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "العمود مثبت هناك بالفعل"
+            "value": "العمود مُرسى هناك بالفعل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolona je već ljepljiva tamo"
+            "value": "kolona je već usidrena tamo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er allerede fastgjort der"
+            "value": "kolonnen er allerede dokket der"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "die Spalte ist dort bereits angeheftet"
+            "value": "die Spalte ist dort bereits angedockt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la columna ya está fijada ahí"
+            "value": "la columna ya está acoplada ahí"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonne est déjà épinglée là"
+            "value": "la colonne est déjà ancrée là"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonna è già fissata lì"
+            "value": "la colonna è già agganciata lì"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "カラムはすでにそこに固定されています"
+            "state": "translated",
+            "value": "カラムはすでにそこにドックされています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរឈរត្រូវបានខ្ទាស់នៅទីនោះរួចហើយ"
+            "value": "ជួរឈរត្រូវបានចតនៅទីនោះរួចហើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열이 이미 그곳에 고정되어 있습니다"
+            "value": "열이 이미 그곳에 도킹되어 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er allerede festet der"
+            "value": "kolonnen er allerede dokket der"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolumna jest już tam przypięta"
+            "value": "kolumna jest już tam zadokowana"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a coluna já está fixada aí"
+            "value": "a coluna já está encaixada aí"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонка уже закреплена там"
+            "value": "колонка уже закреплена у этого края"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอลัมน์ถูกปักหมุดไว้ที่นั่นแล้ว"
+            "value": "คอลัมน์เชื่อมต่ออยู่ที่นั่นแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sütun zaten orada sabit"
+            "value": "sütun zaten orada yerleşik"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонку вже закріплено там"
+            "value": "колонку вже закріплено біля цього краю"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cột đã được ghim ở đó"
+            "value": "cột đã được neo ở đó"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "该分栏已固定在那里"
+            "value": "该分栏已停靠在那里"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "該分欄已固定在那裡"
+            "value": "該分欄已停靠在那裡"
           }
         }
       }
     },
-    "handlers.refusal.columnNotSticky": {
+    "handlers.refusal.columnNotDocked": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "the column is not sticky"
+            "value": "the column is not docked"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "العمود غير مثبت"
+            "value": "العمود غير مُرسى"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolona nije ljepljiva"
+            "value": "kolona nije usidrena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er ikke fastgjort"
+            "value": "kolonnen er ikke dokket"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "die Spalte ist nicht angeheftet"
+            "value": "die Spalte ist nicht angedockt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la columna no está fijada"
+            "value": "la columna no está acoplada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonne n'est pas épinglée"
+            "value": "la colonne n'est pas ancrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "la colonna non è fissata"
+            "value": "la colonna non è agganciata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "カラムは固定されていません"
+            "state": "translated",
+            "value": "カラムはドックされていません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរឈរមិនត្រូវបានខ្ទាស់ទេ"
+            "value": "ជួរឈរមិនត្រូវបានចតទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열이 고정되어 있지 않습니다"
+            "value": "열이 도킹되어 있지 않습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolonnen er ikke festet"
+            "value": "kolonnen er ikke dokket"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kolumna nie jest przypięta"
+            "value": "kolumna nie jest zadokowana"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a coluna não está fixada"
+            "value": "a coluna não está encaixada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонка не закреплена"
+            "value": "колонка не закреплена у края"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอลัมน์ไม่ได้ปักหมุด"
+            "value": "คอลัมน์ไม่ได้เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sütun sabit değil"
+            "value": "sütun yerleşik değil"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "колонку не закріплено"
+            "value": "колонку не закріплено біля краю"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cột chưa được ghim"
+            "value": "cột chưa được neo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "该分栏未固定"
+            "value": "该分栏未停靠"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "該分欄未固定"
+            "value": "該分欄未停靠"
           }
         }
       }
@@ -15328,6 +15328,137 @@
         }
       }
     },
+    "refusal.server.notReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server software is not ready in this build yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "برنامج الخادم غير جاهز في هذا الإصدار بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverski softver u ovoj verziji još nije spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serversoftwaren er endnu ikke klar i denne version."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Serversoftware ist in diesem Build noch nicht bereit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El software del servidor aún no está listo en esta versión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le logiciel serveur n'est pas encore prêt dans cette version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il software server non è ancora pronto in questa build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドのサーバソフトウェアはまだ準備できていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីម៉ាស៊ីនមេមិនទាន់រួចរាល់នៅក្នុងកំណែនេះនៅឡើយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드의 서버 소프트웨어는 아직 준비되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverprogramvaren er ikke klar i denne versjonen ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oprogramowanie serwera nie jest jeszcze gotowe w tej wersji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O software do servidor ainda não está pronto nesta versão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Серверное ПО в этой сборке пока не готово."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซอฟต์แวร์เซิร์ฟเวอร์ในบิลด์นี้ยังไม่พร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu yazılımı bu sürümde henüz hazır değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Серверне ПЗ у цій збірці ще не готове."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phần mềm máy chủ trong bản dựng này chưa sẵn sàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的服务器软件尚未就绪。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的伺服器軟體尚未就緒。"
+          }
+        }
+      }
+    },
     "refusal.server.needsApproval": {
       "extractionState": "manual",
       "localizations": {
@@ -16765,6 +16896,3021 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法連線至 cmux。請檢查連線後再試一次。"
+          }
+        }
+      }
+    },
+    "refusal.server.controlNotYet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This server control is not available yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنصر التحكم هذا في الخادم غير متاح بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova kontrola servera još nije dostupna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne serverfunktion er ikke tilgængelig endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Serversteuerung ist noch nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este control del servidor aún no está disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette commande du serveur n'est pas encore disponible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo controllo del server non è ancora disponibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサーバー操作はまだ使用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគ្រប់គ្រងម៉ាស៊ីនមេនេះមិនទាន់មាននៅឡើយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 서버 제어는 아직 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne serverkontrollen er ikke tilgjengelig ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kontrolka serwera nie jest jeszcze dostępna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este controle do servidor ainda não está disponível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это управление сервером пока недоступно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การควบคุมเซิร์ฟเวอร์นี้ยังไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sunucu denetimi henüz kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Це керування сервером ще недоступне."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điều khiển máy chủ này chưa khả dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此服务器控制尚不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此伺服器控制尚無法使用。"
+          }
+        }
+      }
+    },
+    "refusal.server.cliMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build does not include the cmux command-line tool."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتضمن هذا الإصدار أداة سطر أوامر cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija ne uključuje cmux alat komandne linije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne version indeholder ikke cmux-kommandolinjeværktøjet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Build enthält das cmux-Befehlszeilenwerkzeug nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versión no incluye la herramienta de línea de comandos de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version n'inclut pas l'outil en ligne de commande cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa build non include lo strumento da riga di comando di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには cmux コマンドラインツールが含まれていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះមិនរួមបញ្ចូលឧបករណ៍បន្ទាត់ពាក្យបញ្ជា cmux ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에는 cmux 명령줄 도구가 포함되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen inneholder ikke cmux-kommandolinjeverktøyet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta wersja nie zawiera narzędzia wiersza poleceń cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versão não inclui a ferramenta de linha de comando do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта сборка не содержит инструмент командной строки cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่มีเครื่องมือบรรทัดคำสั่ง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sürüm cmux komut satırı aracını içermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця збірка не містить інструмент командного рядка cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không có công cụ dòng lệnh cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不包含 cmux 命令行工具。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不包含 cmux 命令列工具。"
+          }
+        }
+      }
+    },
+    "refusal.server.statusFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read the server status."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذرت قراءة حالة الخادم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće pročitati status servera."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke læse serverens status."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Serverstatus konnte nicht gelesen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo leer el estado del servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de lire l'état du serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile leggere lo stato del server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーの状態を読み取れませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអានស្ថានភាពម៉ាស៊ីនមេបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버 상태를 읽을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke lese serverstatusen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można odczytać stanu serwera."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível ler o status do servidor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось прочитать состояние сервера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถอ่านสถานะเซิร์ฟเวอร์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu durumu okunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося прочитати стан сервера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đọc trạng thái máy chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法读取服务器状态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法讀取伺服器狀態。"
+          }
+        }
+      }
+    },
+    "refusal.server.noFix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This check has no automatic fix."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد إصلاح تلقائي لهذا الفحص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova provjera nema automatsko rješenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne kontrol har ingen automatisk rettelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Für diese Prüfung gibt es keine automatische Korrektur."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta comprobación no tiene una corrección automática."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette vérification n'a pas de correction automatique."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo controllo non ha una correzione automatica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチェックには自動修正がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការត្រួតពិនិត្យនេះមិនមានការជួសជុលស្វ័យប្រវត្តិទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 검사에는 자동 수정이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne kontrollen har ingen automatisk retting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kontrola nie ma automatycznej poprawki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta verificação não tem correção automática."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для этой проверки нет автоматического исправления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตรวจสอบนี้ไม่มีการแก้ไขอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu denetimin otomatik bir düzeltmesi yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця перевірка не має автоматичного виправлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mục kiểm tra này không có bản sửa tự động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此检查没有自动修复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此檢查沒有自動修正。"
+          }
+        }
+      }
+    },
+    "refusal.server.helperNotInBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build does not include the server helper."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتضمن هذا الإصدار مساعد الخادم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija ne uključuje pomoćnik servera."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne version indeholder ikke serverhjælperen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Build enthält den Server-Helfer nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versión no incluye el asistente del servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version n'inclut pas l'assistant du serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa build non include l'helper del server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドにはサーバーヘルパーが含まれていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះមិនរួមបញ្ចូលកម្មវិធីជំនួយម៉ាស៊ីនមេទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에는 서버 도우미가 포함되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen inneholder ikke serverhjelperen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta wersja nie zawiera pomocnika serwera."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versão não inclui o auxiliar do servidor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта сборка не содержит помощник сервера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่มีตัวช่วยเซิร์ฟเวอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sürüm sunucu yardımcısını içermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця збірка не містить помічник сервера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không có trình trợ giúp máy chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不包含服务器助手。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不包含伺服器輔助程式。"
+          }
+        }
+      }
+    },
+    "refusal.server.helperUnsigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixes need a signed cmux build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتطلب الإصلاحات إصدارًا موقّعًا من cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ispravke zahtijevaju potpisanu verziju cmux-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rettelser kræver en signeret cmux-version."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korrekturen erfordern einen signierten cmux-Build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las correcciones necesitan una versión firmada de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les corrections nécessitent une version signée de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le correzioni richiedono una build di cmux firmata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正には署名済みの cmux ビルドが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជួសជុលត្រូវការកំណែ cmux ដែលបានចុះហត្ថលេខា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "수정하려면 서명된 cmux 빌드가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rettinger krever en signert cmux-versjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poprawki wymagają podpisanej wersji cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As correções exigem uma versão assinada do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для исправлений нужна подписанная сборка cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแก้ไขต้องใช้บิลด์ cmux ที่ลงนามแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzeltmeler imzalı bir cmux sürümü gerektirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для виправлень потрібна підписана збірка cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các bản sửa cần bản dựng cmux đã ký."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "修复需要已签名的 cmux 版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "修正需要已簽署的 cmux 版本。"
+          }
+        }
+      }
+    },
+    "refusal.server.fixRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server helper refused the fix: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض مساعد الخادم الإصلاح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomoćnik servera je odbio ispravku: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverhjælperen afviste rettelsen: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Server-Helfer hat die Korrektur abgelehnt: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El asistente del servidor rechazó la corrección: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'assistant du serveur a refusé la correction : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'helper del server ha rifiutato la correzione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーヘルパーが修正を拒否しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីជំនួយម៉ាស៊ីនមេបានបដិសេធការជួសជុល៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버 도우미가 수정을 거부했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverhjelperen avviste rettingen: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomocnik serwera odrzucił poprawkę: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O auxiliar do servidor recusou a correção: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помощник сервера отклонил исправление: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวช่วยเซิร์ฟเวอร์ปฏิเสธการแก้ไข: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu yardımcısı düzeltmeyi reddetti: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помічник сервера відхилив виправлення: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình trợ giúp máy chủ đã từ chối bản sửa: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "服务器助手拒绝了修复：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "伺服器輔助程式拒絕了修正：%@"
+          }
+        }
+      }
+    },
+    "refusal.server.helperTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server helper did not answer. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يستجب مساعد الخادم. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomoćnik servera nije odgovorio. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverhjælperen svarede ikke. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Server-Helfer hat nicht geantwortet. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El asistente del servidor no respondió. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'assistant du serveur n'a pas répondu. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'helper del server non ha risposto. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーヘルパーが応答しませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីជំនួយម៉ាស៊ីនមេមិនបានឆ្លើយតបទេ។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버 도우미가 응답하지 않았습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverhjelperen svarte ikke. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomocnik serwera nie odpowiedział. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O auxiliar do servidor não respondeu. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помощник сервера не ответил. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวช่วยเซิร์ฟเวอร์ไม่ตอบสนอง ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu yardımcısı yanıt vermedi. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помічник сервера не відповів. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình trợ giúp máy chủ không phản hồi. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "服务器助手没有响应。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "伺服器輔助程式沒有回應。請再試一次。"
+          }
+        }
+      }
+    },
+    "refusal.server.fixFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not run the fix: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذر تشغيل الإصلاح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće pokrenuti ispravku: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke køre rettelsen: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Korrektur konnte nicht ausgeführt werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo ejecutar la corrección: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d'exécuter la correction : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile eseguire la correzione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を実行できませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចដំណើរការការជួសជុលបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "수정을 실행할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke kjøre rettingen: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można uruchomić poprawki: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível executar a correção: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось выполнить исправление: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเรียกใช้การแก้ไขได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzeltme çalıştırılamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося виконати виправлення: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể chạy bản sửa: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法运行修复：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法執行修正：%@"
+          }
+        }
+      }
+    },
+    "refusal.server.revertFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not restore your power settings: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذرت استعادة إعدادات الطاقة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće vratiti postavke napajanja: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke gendanne dine strømindstillinger: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Energieeinstellungen konnten nicht wiederhergestellt werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo restaurar tu configuración de energía: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de restaurer vos réglages d'énergie : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile ripristinare le impostazioni di alimentazione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電源設定を元に戻せませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចស្ដារការកំណត់ថាមពលរបស់អ្នកបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전원 설정을 복원할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke gjenopprette strøminnstillingene: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można przywrócić ustawień zasilania: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível restaurar suas configurações de energia: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось восстановить настройки питания: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถคืนค่าการตั้งค่าพลังงานได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güç ayarlarınız geri yüklenemedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося відновити налаштування живлення: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khôi phục cài đặt nguồn của bạn: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法恢复你的电源设置：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法還原你的電源設定：%@"
+          }
+        }
+      }
+    },
+    "refusal.server.stopFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not stop serving: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذر إيقاف الخدمة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće zaustaviti posluživanje: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke stoppe serveren: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Serverbetrieb konnte nicht beendet werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo dejar de servir: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d'arrêter le service : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile interrompere il servizio: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーを停止できませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបញ្ឈប់ការបម្រើបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버 실행을 중지할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke stoppe serveren: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można zatrzymać serwera: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível parar de servir: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось остановить сервер: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถหยุดการให้บริการได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu durdurulamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зупинити сервер: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể dừng phục vụ: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法停止服务：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法停止服務：%@"
+          }
+        }
+      }
+    },
+    "refusal.server.fixCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The fix was stopped before it finished."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقف الإصلاح قبل أن يكتمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ispravka je zaustavljena prije završetka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rettelsen blev stoppet, før den var færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Korrektur wurde vor dem Ende angehalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La corrección se detuvo antes de terminar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La correction a été arrêtée avant la fin."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La correzione è stata interrotta prima di finire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正は完了前に停止されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជួសជុលត្រូវបានបញ្ឈប់មុនពេលបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "수정이 끝나기 전에 중지되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rettingen ble stoppet før den var ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poprawka została zatrzymana przed zakończeniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A correção foi interrompida antes de terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Исправление остановлено до завершения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแก้ไขถูกหยุดก่อนเสร็จสิ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzeltme bitmeden durduruldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виправлення зупинено до завершення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản sửa đã bị dừng trước khi hoàn tất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "修复在完成前已停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "修正在完成前已停止。"
+          }
+        }
+      }
+    },
+    "refusal.server.notRestored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some power settings changed by Fix were not restored. Run Fix and Stop Serving again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تتم استعادة بعض إعدادات الطاقة التي غيّرها الإصلاح. شغّل الإصلاح ثم إيقاف الخدمة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neke postavke napajanja koje je promijenila ispravka nisu vraćene. Ponovo pokrenite ispravku i zaustavljanje posluživanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nogle strømindstillinger, som Ret ændrede, blev ikke gendannet. Kør Ret og Stop server igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einige durch Korrigieren geänderte Energieeinstellungen wurden nicht wiederhergestellt. Führe Korrigieren und Serverbetrieb beenden erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se restauraron algunos ajustes de energía cambiados por Corregir. Ejecuta Corregir y Dejar de servir de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Certains réglages d'énergie modifiés par Corriger n'ont pas été restaurés. Relancez Corriger puis Arrêter le service."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alcune impostazioni di alimentazione modificate da Correggi non sono state ripristinate. Esegui di nuovo Correggi e Interrompi servizio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正で変更された一部の電源設定が元に戻されていません。修正とサーバー停止をもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់ថាមពលមួយចំនួនដែលបានផ្លាស់ប្ដូរដោយការជួសជុលមិនត្រូវបានស្ដារឡើងវិញទេ។ សូមដំណើរការជួសជុល និងបញ្ឈប់ការបម្រើម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "수정으로 변경된 일부 전원 설정이 복원되지 않았습니다. 수정과 서버 중지를 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noen strøminnstillinger som Rett endret, ble ikke gjenopprettet. Kjør Rett og Stopp server på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niektóre ustawienia zasilania zmienione przez Napraw nie zostały przywrócone. Uruchom ponownie Napraw i Zatrzymaj serwer."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algumas configurações de energia alteradas por Corrigir não foram restauradas. Execute Corrigir e Parar de servir novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Некоторые настройки питания, изменённые исправлением, не восстановлены. Снова выполните исправление и остановку сервера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่าพลังงานบางรายการที่การแก้ไขเปลี่ยนไปยังไม่ได้คืนค่า เรียกใช้การแก้ไขและหยุดให้บริการอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzeltmenin değiştirdiği bazı güç ayarları geri yüklenmedi. Düzelt ve Sunucuyu durdur işlemlerini yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Деякі налаштування живлення, змінені виправленням, не відновлено. Знову виконайте виправлення та зупинку сервера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một số cài đặt nguồn do Sửa thay đổi chưa được khôi phục. Hãy chạy Sửa và Dừng phục vụ lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“修复”更改的部分电源设置未恢复。请再次运行“修复”和“停止服务”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「修正」變更的部分電源設定未還原。請再次執行「修正」和「停止服務」。"
+          }
+        }
+      }
+    },
+    "refusal.tabDrop.columnBeforeFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new column can't open before the first column."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の列の前に新しい列は開けません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن فتح عمود جديد قبل العمود الأول."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova kolona se ne može otvoriti prije prve kolone."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny kolonne kan ikke åbne før den første kolonne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vor der ersten Spalte kann keine neue Spalte geöffnet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede abrir una columna nueva antes de la primera."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’ouvrir une colonne avant la première."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non si può aprire una nuova colonna prima della prima."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបើកជួរឈរថ្មីមុនជួរឈរទីមួយបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "첫 번째 열 앞에는 새 열을 열 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny kolonne kan ikke åpnes før den første kolonnen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można otworzyć nowej kolumny przed pierwszą kolumną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível abrir uma coluna antes da primeira."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нельзя открыть новый столбец перед первым."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดคอลัมน์ใหม่ก่อนคอลัมน์แรกไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İlk sütundan önce yeni sütun açılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не можна відкрити новий стовпець перед першим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể mở cột mới trước cột đầu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在第一列之前打开新列。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在第一欄之前開啟新欄。"
+          }
+        }
+      }
+    },
+    "refusal.tabDrop.groupDock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A tab group can't open a dock yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブグループはまだドックを開けません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لمجموعة علامات فتح رصيف بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupa kartica još ne može otvoriti dok."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En fanegruppe kan endnu ikke åbne en dock."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Tabgruppe kann noch kein Dock öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un grupo de pestañas aún no puede abrir un dock."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un groupe d’onglets ne peut pas encore ouvrir de dock."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gruppo di schede non può ancora aprire un dock."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមផ្ទាំងមិនទាន់អាចបើក dock បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 그룹은 아직 도크를 열 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En fanegruppe kan ikke åpne en dokk ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupa kart nie może jeszcze otworzyć doku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um grupo de abas ainda não pode abrir um dock."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группа вкладок пока не может открыть док."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มแท็บยังเปิดด็อกไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme grubu henüz yuva açamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Група вкладок поки не може відкрити док."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm thẻ chưa thể mở dock."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页组暂时无法打开停靠栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁群組暫時無法開啟停靠欄。"
+          }
+        }
+      }
+    },
+    "refusal.tabDrop.noTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing here can take the tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにはタブをドロップできません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء هنا يمكنه استقبال العلامة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovdje ništa ne može primiti karticu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet her kan modtage fanen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hier kann nichts den Tab aufnehmen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aquí nada puede recibir la pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien ici ne peut recevoir l’onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qui niente può ricevere la scheda."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីនៅទីនេះអាចទទួលផ្ទាំងបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에는 탭을 놓을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting her kan ta imot fanen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nic tutaj nie może przyjąć karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada aqui pode receber a aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здесь некуда поместить вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีที่ใดตรงนี้รับแท็บได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burada sekmeyi alabilecek bir şey yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тут нікуди помістити вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có gì ở đây nhận được thẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这里无法放下标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這裡無法放下分頁。"
+          }
+        }
+      }
+    },
+    "refusal.tabDrop.otherMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs can't move to a pane on another machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを別のマシンのペインに移動することはできません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن نقل العلامات إلى جزء على جهاز آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice se ne mogu premjestiti u okno na drugoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faner kan ikke flyttes til en rude på en anden maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tabs können nicht in einen Bereich auf einem anderen Rechner verschoben werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las pestañas no pueden moverse a un panel de otra máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les onglets ne peuvent pas aller dans un panneau d’une autre machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le schede non possono spostarsi in un riquadro su un’altra macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងមិនអាចផ្លាស់ទៅផ្ទាំងលើម៉ាស៊ីនផ្សេងបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭을 다른 머신의 패널로 옮길 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faner kan ikke flyttes til en rute på en annen maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kart nie można przenieść do panelu na innej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas não podem ir para um painel em outra máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки нельзя переместить в панель на другой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายแท็บไปยังแผงบนเครื่องอื่นไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekmeler başka bir makinedeki bölmeye taşınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки не можна перемістити в панель на іншій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể chuyển thẻ sang ngăn trên máy khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页无法移动到另一台机器上的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁無法移到另一台機器上的窗格。"
+          }
+        }
+      }
+    },
+    "refusal.tabDrop.splitEmptiesPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane holds only this tab, so it can't split with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインにはこのタブしかないため、このタブで分割できません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الجزء يحتوي على هذه العلامة فقط، لذا لا يمكن تقسيمه بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo okno sadrži samo ovu karticu, pa se ne može podijeliti s njom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne rude har kun denne fane, så den kan ikke deles med den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Bereich enthält nur diesen Tab und kann damit nicht geteilt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este panel solo tiene esta pestaña, así que no puede dividirse con ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce panneau ne contient que cet onglet ; il ne peut pas être divisé avec lui."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo riquadro contiene solo questa scheda, quindi non può dividersi con essa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះមានតែផ្ទាំងរងនេះប៉ុណ្ណោះ ដូច្នេះមិនអាចបំបែកជាមួយវាបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 패널에는 이 탭만 있어서 이 탭으로 분할할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne ruten har bare denne fanen, så den kan ikke deles med den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten panel zawiera tylko tę kartę, więc nie można go nią podzielić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este painel tem só esta aba, então não pode ser dividido com ela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой панели только эта вкладка, поэтому её нельзя разделить ею."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผงนี้มีเพียงแท็บนี้ จึงแบ่งด้วยแท็บนี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu bölmede yalnızca bu sekme var, bu yüzden onunla bölünemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цій панелі лише ця вкладка, тому її не можна нею розділити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngăn này chỉ có thẻ này nên không thể chia đôi bằng thẻ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格只有这个标签页，无法用它拆分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格只有這個分頁，無法用它分割。"
+          }
+        }
+      }
+    },
+    "refusal.tabDrop.targetGone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The drop target closed before the drop."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップする前にドロップ先が閉じられました。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُغلق هدف الإفلات قبل الإفلات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odredište se zatvorilo prije ispuštanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slipmålet lukkede før slippet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Ablageziel wurde vor dem Ablegen geschlossen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El destino se cerró antes de soltar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cible s’est fermée avant le dépôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La destinazione si è chiusa prima del rilascio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គោលដៅទម្លាក់បានបិទមុនពេលទម្លាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "놓기 전에 놓을 위치가 닫혔습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slippmålet ble lukket før slippet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cel upuszczenia zamknął się przed upuszczeniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O destino foi fechado antes de soltar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цель закрылась до того, как вкладку отпустили."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปลายทางถูกปิดก่อนวาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bırakma hedefi bırakmadan önce kapandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ціль закрилася до того, як вкладку відпустили."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đích thả đã đóng trước khi thả."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "放下之前目标已关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "放開之前目標已關閉。"
+          }
+        }
+      }
+    },
+    "tabDrop.stay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already Here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにここにあります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موجودة هنا بالفعل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Već je ovdje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allerede her"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereits hier"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ya está aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déjà ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Già qui"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មាននៅទីនេះរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미 여기 있음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allerede her"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Już tutaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Já está aqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уже здесь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อยู่ที่นี่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaten burada"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уже тут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã ở đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在此处"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在此處"
+          }
+        }
+      }
+    },
+    "refusal.tabDrop.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The move did not finish. The app log has the details."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動は完了しませんでした。詳細はアプリのログにあります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يكتمل النقل. التفاصيل في سجل التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premještanje nije završeno. Detalji su u zapisniku aplikacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytningen blev ikke fuldført. Appens log har detaljerne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Verschieben wurde nicht abgeschlossen. Details stehen im App-Protokoll."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El movimiento no terminó. El registro de la app tiene los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le déplacement n’a pas abouti. Le journal de l’app contient les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo spostamento non è stato completato. I dettagli sono nel log dell’app."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្លាស់ទីមិនបានបញ្ចប់ទេ។ កំណត់ហេតុកម្មវិធីមានព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이동을 완료하지 못했습니다. 자세한 내용은 앱 로그에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyttingen ble ikke fullført. Appens logg har detaljene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenoszenie nie zostało ukończone. Szczegóły są w dzienniku aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A movimentação não terminou. O log do app tem os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемещение не завершилось. Подробности в журнале приложения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การย้ายไม่เสร็จสมบูรณ์ ดูรายละเอียดในบันทึกของแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taşıma tamamlanmadı. Ayrıntılar uygulama günlüğünde."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переміщення не завершилося. Подробиці в журналі застосунку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Việc di chuyển chưa hoàn tất. Nhật ký ứng dụng có chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移动未完成。详细信息请查看应用日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移動未完成。詳細資訊請查看應用程式記錄。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeAttachNoHome": {
+      "comment": "Refusal: home.attachFiles ran while no Home conversation is shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a Home conversation to attach files."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح محادثة في الرئيسية لإرفاق ملفات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvorite razgovor u Početnoj da priložite datoteke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn en samtale i Hjem for at vedhæfte filer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffne eine Unterhaltung in „Home“, um Dateien anzuhängen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre una conversación de Inicio para adjuntar archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrez une conversation de l’Accueil pour joindre des fichiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri una conversazione di Home per allegare file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイルを添付するには、ホームの会話を開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកការសន្ទនាក្នុងទំព័រដើម ដើម្បីភ្ជាប់ឯកសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일을 첨부하려면 홈 대화를 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne en samtale i Hjem for å legge ved filer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz rozmowę w Home, aby załączyć pliki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abra uma conversa do Início para anexar arquivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Откройте разговор на главной, чтобы прикрепить файлы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการสนทนาในหน้าหลักเพื่อแนบไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya eklemek için Ana Sayfa’da bir sohbet açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрийте розмову на головній, щоб прикріпити файли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở một cuộc trò chuyện trong Trang chủ để đính kèm tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开主页中的对话以附加文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開主頁中的對話以附加檔案。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeAttachNoFile": {
+      "comment": "Refusal: home.attachFiles was given a path with no file; %@ is the path.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No file at “%@”."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد ملف في ”%@“."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema datoteke na „%@“."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der er ingen fil på “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unter „%@“ gibt es keine Datei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ningún archivo en “%@”."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun fichier à « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun file in “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」にファイルがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានឯកសារនៅ “%@” ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”에 파일이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fil på «%@»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak pliku w „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum arquivo em “%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет файла по пути «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีไฟล์ที่ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” konumunda dosya yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає файлу за шляхом «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tệp tại “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”处没有文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」沒有檔案。"
           }
         }
       }

@@ -41,9 +41,23 @@ export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
   if (!page) {
     throw new Error("Missing cmux diff viewer config");
   }
-  return bootPageDiff(page, (config, languages) => renderDiffSurface(rootElement, config, languages)).then(
-    () => undefined,
-  );
+  return bootPageDiff(
+    page,
+    (config, languages) => renderDiffSurface(rootElement, config, languages),
+    undefined,
+    undefined,
+    async (config) => {
+      // The empty state paints with the viewer's look until the user opens a repository. It loads
+      // on demand (with the ui wrapper and Base UI), so an open repository never evaluates it.
+      installWebviewStyles("diff", diffViewerStyles);
+      const empty = await import("../viewer-empty/emptySurface");
+      installWebviewStyles("viewer-empty", empty.viewerEmptyStyles);
+      installWebviewStyles("ui", empty.uiStyles);
+      applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+      installSolidBackdrop();
+      return empty.pickDiffConfig(rootElement, page, { labels: config.payload?.labels });
+    },
+  ).then(() => undefined);
 }
 
 /** Applies the config's appearance, labels and status, then renders the viewer. */

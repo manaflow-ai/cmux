@@ -1,224 +1,231 @@
-//! Typed records of the cmux Cloud API (`web/app/api/vm/**` responses).
-//! Field names stay camelCase like the API so the page reads them as is.
-//! Unknown fields are ignored; a missing optional field is `None`.
+//! Typed records of the cmux-next Cloud backend (`cmux.wire/1`,
+//! plans/cmux-next/cloud-client-contract.md 1.2). Field names are the
+//! backend's snake_case. Unknown fields are ignored; a missing optional
+//! field is `None`. Timestamps are epoch milliseconds; revisions are
+//! decimal strings that only grow per entity.
 
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum MachineStatus {
-    /// A create, restore or fork answer carries no status: the machine is coming up.
     #[default]
     Provisioning,
+    Starting,
     Running,
-    Failed,
+    Pausing,
     Paused,
-    Destroyed,
+    Deleting,
+    Failed,
     #[serde(other)]
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct Address {
-    pub ipv4: Option<String>,
-    pub ipv6: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Size {
+    #[serde(default)]
+    pub cpu: Option<u32>,
+    #[serde(default)]
+    pub memory_mb: Option<u64>,
+    #[serde(default)]
+    pub disk_mb: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Creator {
-    pub user_id: String,
-    pub display_name: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Image {
+    pub id: String,
+    #[serde(default)]
+    pub daemon_version: Option<String>,
 }
 
-/// One machine (`GET /api/vm` row, `GET /api/vm/:id`, create, restore, fork).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdlePolicy {
+    #[serde(default)]
+    pub idle_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineError {
+    pub code: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub at: Option<i64>,
+}
+
+/// `CloudMachine`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Machine {
     pub id: String,
     #[serde(default)]
-    pub provider: String,
-    #[serde(default, deserialize_with = "status_or_default")]
+    pub team: Option<String>,
+    #[serde(default)]
+    pub creator: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub size: Option<Size>,
+    #[serde(default)]
     pub status: MachineStatus,
     #[serde(default)]
-    pub display_name: Option<String>,
+    pub image: Option<Image>,
+    /// The overlay host id; `None` until the machine is bound.
     #[serde(default)]
-    pub slug: Option<String>,
+    pub host: Option<String>,
     #[serde(default)]
-    pub kind: Option<String>,
+    pub classic: bool,
     #[serde(default)]
-    pub image: Option<String>,
+    pub created_at: Option<i64>,
     #[serde(default)]
-    pub image_version: Option<String>,
-    /// Epoch milliseconds. The list answers an ISO 8601 string, create and
-    /// fork answers may carry a number; both become milliseconds.
-    #[serde(default, deserialize_with = "timestamp_ms")]
-    pub created_at: Option<f64>,
+    pub last_active_at: Option<i64>,
     #[serde(default)]
-    pub address: Option<Address>,
+    pub idle_policy: Option<IdlePolicy>,
     #[serde(default)]
-    pub created_by: Option<Creator>,
-    #[serde(default, deserialize_with = "number_or_none")]
-    pub free_access_expires_at: Option<f64>,
+    pub error: Option<MachineError>,
+    pub revision: Revision,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", try_from = "SnapshotWire")]
+/// `CloudSnapshot`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub id: String,
+    #[serde(default)]
+    pub machine: Option<String>,
+    #[serde(default)]
     pub name: Option<String>,
-    pub created_at: Option<Value>,
+    #[serde(default)]
+    pub size_mb: Option<u64>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    pub revision: Revision,
 }
 
-/// The snapshot route answers `snapshotId` and `id`; lists answer `id`.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotWire {
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    snapshot_id: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    created_at: Option<Value>,
-}
-
-impl TryFrom<SnapshotWire> for Snapshot {
-    type Error = String;
-
-    fn try_from(w: SnapshotWire) -> Result<Self, String> {
-        let id = w.snapshot_id.or(w.id).ok_or("a snapshot has no id")?;
-        Ok(Self { id, name: w.name, created_at: w.created_at })
-    }
-}
-
-/// `GET /api/vm/:id/stats` and the `POST /api/vm/:id/resize` answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Stats {
-    pub state: String,
+pub struct PlanLimits {
+    pub max_active: u32,
+    pub max_saved: u32,
     #[serde(default)]
-    pub cpus: Option<f64>,
+    pub memory_options_mb: Vec<u64>,
     #[serde(default)]
-    pub cpu_percent: Option<f64>,
-    #[serde(default)]
-    pub load_average1m: Option<f64>,
-    #[serde(default)]
-    pub memory_total_mb: Option<f64>,
-    #[serde(default)]
-    pub memory_used_mb: Option<f64>,
-    #[serde(default)]
-    pub disk_total_mb: Option<f64>,
-    #[serde(default)]
-    pub disk_used_mb: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_disk_mb: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_memory_mb: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_vcpus: Option<f64>,
-}
-
-/// The `limits` object of `GET /api/vm`: plan and usage come from it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct Limits {
-    #[serde(default)]
-    pub plan_id: Option<String>,
-    #[serde(default)]
-    pub max_active_vms: Option<i64>,
-    #[serde(default)]
-    pub active_vm_count: Option<i64>,
-    #[serde(default)]
-    pub memory_options_mb: Vec<i64>,
-    #[serde(default)]
-    pub locked_memory_options_mb: Vec<i64>,
-    #[serde(default)]
-    pub memory_upgrade_plan_id: Option<String>,
-    #[serde(default)]
-    pub free_access_window_days: Option<i64>,
-    #[serde(default, deserialize_with = "number_or_none")]
-    pub free_access_expires_at: Option<f64>,
+    pub locked_memory_options_mb: Vec<u64>,
     #[serde(default)]
     pub vm_hours_included: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanUsage {
+    pub active: u32,
+    pub saved: u32,
     #[serde(default)]
     pub vm_hours_used: Option<f64>,
     #[serde(default)]
-    pub saved_vm_limit: Option<i64>,
+    pub period_end: Option<i64>,
 }
 
-/// `GET /api/vm`.
+/// `CloudPlan`: limits and usage in one record (`cloud.usage.get` folded in).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Plan {
+    pub plan_id: String,
+    pub limits: PlanLimits,
+    pub usage: PlanUsage,
+}
+
+/// `cloud.machine.list`: one page.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct MachineList {
-    pub vms: Vec<Machine>,
+pub struct MachinePage {
+    pub machines: Vec<Machine>,
     #[serde(default)]
-    pub limits: Option<Limits>,
+    pub next_cursor: Option<String>,
+    /// The team's registry revision when the page was read.
+    #[serde(default)]
+    pub revision: Option<Revision>,
 }
 
-fn number_or_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
-    Ok(Value::deserialize(d)?.as_f64())
+/// `cloud.machine.connect_info` (contract 1.7): how `cmux link` reaches a
+/// machine. Peer data comes in every bound state, paused included. It
+/// carries no credential: the dial token is `cloud.machine.link_token`,
+/// which only `cmux link` calls.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectInfo {
+    pub machine: String,
+    pub host: String,
+    /// A restore or re-bind raises it; the link refuses a lower one.
+    pub epoch: u64,
+    pub state: MachineStatus,
+    pub peer: Peer,
+    /// This install's own tunnel into the VM's VPC; null = no tunnel path.
+    #[serde(default)]
+    pub gateway: Option<serde_json::Value>,
+    /// What this caller may dial: `daemon`, `ssh`.
+    pub services: Vec<String>,
+    pub daemon: DaemonInfo,
+    pub revision: Revision,
 }
 
-fn status_or_default<'de, D: Deserializer<'de>>(d: D) -> Result<MachineStatus, D::Error> {
-    Ok(Option::<MachineStatus>::deserialize(d)?.unwrap_or_default())
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Peer {
+    pub wg_public_key: String,
+    pub overlay_address: String,
+    #[serde(default)]
+    pub vpc_endpoint: Option<String>,
+    #[serde(default)]
+    pub public_ipv6: Option<String>,
 }
 
-fn timestamp_ms<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
-    Ok(match Value::deserialize(d)? {
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => iso8601_ms(&s),
-        _ => None,
-    })
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DaemonInfo {
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
-/// `YYYY-MM-DDTHH:MM:SS[.fff]Z` (what `Date.toISOString()` writes) to epoch
-/// milliseconds; `None` for any other shape.
-pub fn iso8601_ms(s: &str) -> Option<f64> {
-    let b = s.as_bytes();
-    let num = |r: std::ops::Range<usize>| -> Option<i64> {
-        let part = s.get(r)?;
-        part.bytes().all(|c| c.is_ascii_digit()).then(|| part.parse().ok())?
-    };
-    if b.len() < 20
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
-    {
-        return None;
+/// A `cmux.wire/1` revision: a decimal string (`^[0-9]+$`), compared as a
+/// number of any length.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct Revision(String);
+
+impl Revision {
+    pub fn zero() -> Self {
+        Self("0".into())
     }
-    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
-    let rest = &s[19..];
-    let millis = match rest.strip_suffix('Z')? {
-        "" => 0.0,
-        frac => {
-            let digits = frac.strip_prefix('.')?;
-            if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
-                return None;
-            }
-            format!("0.{digits}").parse::<f64>().ok()? * 1000.0
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for Revision {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, String> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(format!("{s:?} is not a decimal revision"));
         }
-    };
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 60
-    {
-        return None;
+        // Leading zeros carry nothing; strip them so length orders first.
+        let digits = s.trim_start_matches('0');
+        Ok(Self(if digits.is_empty() { "0".into() } else { digits.to_owned() }))
     }
-    // Days from 1970-01-01 (civil calendar, proleptic Gregorian).
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    let secs = days * 86_400 + hour * 3600 + minute * 60 + second;
-    Some(secs as f64 * 1000.0 + millis)
+}
+
+impl From<Revision> for String {
+    fn from(r: Revision) -> String {
+        r.0
+    }
+}
+
+impl Ord for Revision {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.len().cmp(&other.0.len()).then_with(|| self.0.cmp(&other.0))
+    }
+}
+
+impl PartialOrd for Revision {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }

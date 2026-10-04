@@ -86,6 +86,8 @@ extension CEFTab {
             machine.apply(.unresponsiveChanged(true))
         case .renderResponsive:
             machine.apply(.unresponsiveChanged(false))
+        case .devToolsMessage(_, let json):
+            agentRelay.deliver(json)
         default:
             break
         }

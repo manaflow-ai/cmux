@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646. */
+/* cmux-tui mux protocol 12, IR 30c200162c793bdda767ca55c44b939a784bb66eceabba2b34b2eac237485988. */
 
 
 import type * as T from "./types.js";
@@ -395,7 +395,10 @@ export interface ConversationAgentTokenRequest extends CmuxRequestBase {
   cmd: "conversation-agent-token";
   "participant": string;
 }
-export type ConversationAgentTokenResult = T.JsonValue;
+export type ConversationAgentTokenResult = {
+  "participant": string;
+  "token": string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationBindRequest extends CmuxRequestBase {
@@ -403,7 +406,9 @@ export interface ConversationBindRequest extends CmuxRequestBase {
   "participant": string;
   "token": string;
 }
-export type ConversationBindResult = T.JsonValue;
+export type ConversationBindResult = {
+  "participant": string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationCreateRequest extends CmuxRequestBase {
@@ -413,7 +418,10 @@ export interface ConversationCreateRequest extends CmuxRequestBase {
   "participants": (T.JsonValue) | null;
   "title": string;
 }
-export type ConversationCreateResult = T.JsonValue;
+export type ConversationCreateResult = {
+  "conversation": T.ConversationSummary;
+  "replayed": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationHistoryRequest extends CmuxRequestBase {
@@ -422,13 +430,17 @@ export interface ConversationHistoryRequest extends CmuxRequestBase {
   "conversation": string;
   "limit": number;
 }
-export type ConversationHistoryResult = T.JsonValue;
+export type ConversationHistoryResult = {
+  "messages": Array<T.ConversationMessage>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationListRequest extends CmuxRequestBase {
   cmd: "conversation-list";
 }
-export type ConversationListResult = T.JsonValue;
+export type ConversationListResult = {
+  "conversations": Array<T.ConversationSummary>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationOpRequest extends CmuxRequestBase {
@@ -439,7 +451,13 @@ export interface ConversationOpRequest extends CmuxRequestBase {
   "op": (T.JsonValue) | null;
   "transaction"?: (string) | null;
 }
-export type ConversationOpResult = T.JsonValue;
+export type ConversationOpResult = {
+  "change": T.ConversationChange;
+  "replayed": boolean;
+  "rev": bigint;
+  "seq"?: bigint;
+  "transaction"?: string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationSearchRequest extends CmuxRequestBase {
@@ -447,7 +465,9 @@ export interface ConversationSearchRequest extends CmuxRequestBase {
   "limit": number;
   "query": string;
 }
-export type ConversationSearchResult = T.JsonValue;
+export type ConversationSearchResult = {
+  "hits": Array<T.ConversationSearchHit>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationSnapshotRequest extends CmuxRequestBase {
@@ -455,7 +475,10 @@ export interface ConversationSnapshotRequest extends CmuxRequestBase {
   "conversation": string;
   "tail": number;
 }
-export type ConversationSnapshotResult = T.JsonValue;
+export type ConversationSnapshotResult = {
+  "conversation": T.ConversationSummary;
+  "messages": Array<T.ConversationMessage>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationTypingRequest extends CmuxRequestBase {
@@ -464,7 +487,7 @@ export interface ConversationTypingRequest extends CmuxRequestBase {
   "conversation": string;
   "on": boolean;
 }
-export type ConversationTypingResult = T.JsonValue;
+export type ConversationTypingResult = T.EmptyResult;
 
 /** Protocol v6; authority: control. */
 export interface CopyRequest extends CmuxRequestBase {
@@ -1002,10 +1025,10 @@ export type MoveTabGroupToSplitResult = T.JsonValue;
 export interface MoveTabToColumnRequest extends CmuxRequestBase {
   cmd: "move-tab-to-column";
   "after_column"?: (T.Id) | null;
+  "dock"?: (T.ColumnPin) | null;
   "pane"?: (T.Id) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
-  "sticky"?: (T.ColumnPin) | null;
   "surface": T.Id;
   "transaction"?: (string) | null;
   "width"?: (number) | null;
@@ -1113,7 +1136,13 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "rows"?: (number) | null;
   "workspace"?: (T.Id) | null;
 }
-export type NewConversationTabResult = T.JsonValue;
+export type NewConversationTabResult = {
+  "content_resource_id": (string) | null;
+  "conversation": T.ConversationTabRecord;
+  "replayed": boolean;
+  "surface": T.Id;
+  "tab_resource_id": (string) | null;
+};
 
 /** Protocol v12; authority: control. */
 export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
@@ -1152,10 +1181,12 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "cwd"?: (string) | null;
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  "url"?: (string) | null;
   "width"?: (number) | null;
 }
 export type NewPaneRightResult = T.SurfaceResult;
@@ -1609,15 +1640,15 @@ export interface SetClientSizingRequest extends CmuxRequestBase {
 export type SetClientSizingResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
-export interface SetColumnStickyRequest extends CmuxRequestBase {
-  cmd: "set-column-sticky";
+export interface SetColumnDockRequest extends CmuxRequestBase {
+  cmd: "set-column-dock";
+  "dock": boolean;
   "edge"?: (string) | null;
   "mode"?: (string) | null;
   "pane": T.Id;
-  "sticky": boolean;
   "transaction"?: (bigint) | null;
 }
-export type SetColumnStickyResult = T.JsonValue;
+export type SetColumnDockResult = T.JsonValue;
 
 /** Protocol v5; authority: control. */
 export interface SetDefaultColorsRequest extends CmuxRequestBase {
@@ -1834,10 +1865,12 @@ export interface SplitRequest extends CmuxRequestBase {
   "dir": T.SplitDirection;
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  "url"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;
 
@@ -2257,7 +2290,7 @@ export type CmuxRequest =
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
-  | SetColumnStickyRequest
+  | SetColumnDockRequest
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
   | SetPersonalTerminalRequest
@@ -3688,12 +3721,12 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
-  "set-column-sticky": {
-    request: SetColumnStickyRequest;
-    result: SetColumnStickyResult;
+  "set-column-dock": {
+    request: SetColumnDockRequest;
+    result: SetColumnDockResult;
     authority: "control";
     since: 12;
-    capability: "sticky-columns-v1";
+    capability: "dock-columns-v1";
     stream: null;
   };
   "set-default-colors": {

@@ -5,6 +5,7 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
+#include "page_scheme_registration.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -16,6 +17,11 @@ class App : public CefApp, public CefBrowserProcessHandler {
   explicit App(std::vector<std::string> switches) : switches_(std::move(switches)) {}
 
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
+
+  // The helper processes register the same schemes (helper_main.mm).
+  void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override {
+    RegisterCustomSchemes(registrar);
+  }
 
   void OnBeforeCommandLineProcessing(const CefString& process_type,
                                      CefRefPtr<CefCommandLine> command_line) override {
@@ -36,6 +42,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
     InstallForkObserver();
     InstallWindowRequestHandler();
     InstallExtensionUIHandlers();
+    InstallPageSchemes();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }
 
@@ -123,6 +130,8 @@ class Client : public CefClient,
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
+    // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
+    if (NavigationRefusedForAgent(id, url)) return true;
     if (!NavigationViolatesGuard(id, url)) return false;
     Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
     return true;
@@ -300,6 +309,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     ForgetNavigationGuard(id);
     registrations_.erase(id);
+    ForgetDevToolsProtocol(id);
     browsers().erase(id);
     ForgetOwnBackground(id);
     ForgetDevTools(id);
@@ -403,6 +413,12 @@ class Client : public CefClient,
   }
 
   // MARK: DevTools
+
+  // Every message first: raw-send replies are consumed here and never
+  // reach OnDevToolsMethodResult; watched events also go to the host.
+  bool OnDevToolsMessage(CefRefPtr<CefBrowser> browser, const void* message, size_t message_size) override {
+    return ForwardDevToolsMessage(browser->GetIdentifier(), message, message_size);
+  }
 
   void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser, int message_id, bool success, const void* result,
                               size_t result_size) override {

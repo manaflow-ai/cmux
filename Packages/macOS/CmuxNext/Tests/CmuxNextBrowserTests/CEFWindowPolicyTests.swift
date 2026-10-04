@@ -104,17 +104,19 @@ import Testing
             == .openInNewTab(url: "https://chromewebstore.google.com/", disposition: .foregroundTab))
     }
 
-    /// Every disposition Chromium can send maps to a cmux tab or to nothing;
-    /// none maps to a window.
+    /// Every disposition Chromium can send maps to a cmux tab or to nothing
+    /// (Chromium keeps it); with Chrome's defaults and no recent click,
+    /// only Shift-click (NEW_WINDOW) opens a cmux window.
     @Test func dispositionsMapToTabs() {
-        #expect(CEFDisposition(raw: 3).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 4).tabDisposition == .backgroundTab)
-        #expect(CEFDisposition(raw: 5).tabDisposition == .popup)
-        #expect(CEFDisposition(raw: 6).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 2).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 10).tabDisposition == .foregroundTab)
-        #expect(CEFDisposition(raw: 1).tabDisposition == nil)
-        #expect(CEFDisposition(raw: 7).tabDisposition == nil)
+        func placement(_ raw: Int) -> CEFLinkPlacement { CEFLinkContext().placement(for: CEFDisposition(raw: raw), source: 0) }
+        #expect(placement(3) == .tab(.foregroundTab))
+        #expect(placement(4) == .tab(.backgroundTab))
+        #expect(placement(5) == .tab(.popup))
+        #expect(placement(6) == .tab(.newWindow))
+        #expect(placement(2) == .tab(.foregroundTab))
+        #expect(placement(10) == .tab(.foregroundTab))
+        #expect(placement(1) == .chromium)
+        #expect(placement(7) == .chromium)
         #expect(CEFDisposition(raw: 99) == .unknown)
     }
 

@@ -29,6 +29,10 @@ public import SwiftUI
     var themeLevels: [SettingsThemeLevel] { get }
     /// Every Ghostty theme name.
     var themeNames: [String] { get }
+    /// The swatch strip of the theme `name` (R98): its background, six
+    /// ANSI colors and its foreground, read off the main thread and cached
+    /// by the App; empty before it loads or for an unknown name.
+    func themeSwatches(_ name: String) -> [ThemeRGB]
     /// The theme set at `level` of that window; nil is the Ghostty config.
     func theme(at level: SettingsThemeLevel) -> String?
     /// Whether Ghostty accepts `text` as a theme (a name, a path, or a
@@ -54,6 +58,7 @@ extension SettingsWindowHost {
     public func closeSettingsPane() {}
     public var themeLevels: [SettingsThemeLevel] { [] }
     public var themeNames: [String] { [] }
+    public func themeSwatches(_ name: String) -> [ThemeRGB] { [] }
     public func theme(at level: SettingsThemeLevel) -> String? { nil }
     public func acceptsTheme(_ text: String) -> Bool { false }
     public func setTheme(_ spec: String?, at level: SettingsThemeLevel) {}
@@ -67,16 +72,26 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
     public let id: String
     public let title: String
     public let subtitle: String?
-    public let symbol: String
+    /// An emoji or an SF Symbol (``IconValue``; assets draw as a symbol for now).
+    public let icon: IconValue
     /// The current room, or a connected machine.
     public let isActive: Bool
 
-    public init(id: String, title: String, subtitle: String? = nil, symbol: String, isActive: Bool = false) {
+    public init(id: String, title: String, subtitle: String? = nil, icon: IconValue, isActive: Bool = false) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
-        self.symbol = symbol
+        self.icon = icon
         self.isActive = isActive
+    }
+
+    public init(id: String, title: String, subtitle: String? = nil, symbol: String, isActive: Bool = false) {
+        self.init(id: id, title: title, subtitle: subtitle, icon: .symbol(symbol), isActive: isActive)
+    }
+
+    /// A space's row: its own icon (emoji or symbol), else the space symbol.
+    public static func space(id: String, title: String, icon: String?, isActive: Bool = false) -> SettingsListRow {
+        SettingsListRow(id: id, title: title, icon: IconValue(wire: icon) ?? .symbol("square.stack"), isActive: isActive)
     }
 }
 

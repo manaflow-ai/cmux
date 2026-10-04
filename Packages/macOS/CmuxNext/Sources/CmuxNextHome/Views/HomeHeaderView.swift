@@ -25,7 +25,7 @@ final class HomeHeaderView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
-            Palette.windowBackground.setFill()
+            Palette.paneFill.setFill()
             bounds.fill()
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center

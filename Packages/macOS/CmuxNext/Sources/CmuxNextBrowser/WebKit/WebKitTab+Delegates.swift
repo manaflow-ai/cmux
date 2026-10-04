@@ -21,10 +21,17 @@ extension WebKitTab: WKNavigationDelegate {
         }
 
         let isUserLinkClick = navigationAction.navigationType == .linkActivated
-        if isUserLinkClick, let disposition = Self.newTabDisposition(for: navigationAction), Self.isWebScheme(url) {
-            decisionHandler(.cancel, preferences)
-            emit(.openURL(url, disposition))
-            return
+        if isUserLinkClick, Self.isWebScheme(url) {
+            switch LinkClick(navigationAction, in: self) {
+            case .pageDefault, .navigate: break
+            case .open(let disposition):
+                decisionHandler(.cancel, preferences)
+                emit(.openURL(url, disposition))
+                return
+            case .download:
+                decisionHandler(.download, preferences)
+                return
+            }
         }
 
         if !Self.isWebScheme(url) {
@@ -111,14 +118,6 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 
-    /// Cmd-click opens in the background, Cmd-Shift-click in the foreground,
-    /// middle click in the background. nil means "navigate in place".
-    static func newTabDisposition(for action: WKNavigationAction) -> BrowserNewTabDisposition? {
-        let flags = action.modifierFlags
-        let isMiddleClick = action.buttonNumber == 2
-        guard flags.contains(.command) || isMiddleClick else { return nil }
-        return flags.contains(.shift) ? .foregroundTab : .backgroundTab
-    }
 
     static func isWebScheme(_ url: URL) -> Bool {
         switch url.scheme?.lowercased() {
@@ -138,8 +137,11 @@ extension WebKitTab: WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         // Without a host there is nowhere to show the page: block the popup.
-        guard hasDelegate, let child = makeChildTab(configuration: configuration) else { return nil }
-        if let explicit = Self.newTabDisposition(for: navigationAction) {
+        // The link menu's pick, else the modified click's mapping.
+        let click = takeContextMenuDisposition().map(LinkClick.open) ?? LinkClick(navigationAction, in: self)
+        guard hasDelegate, !click.runsInOpener(navigationAction.request, tab: self),
+              let child = makeChildTab(configuration: configuration) else { return nil }
+        if case .open(let explicit) = click {
             emit(.adoptTab(child, explicit))
         } else if windowFeatures.width != nil || windowFeatures.height != nil {
             // A sized popup (OAuth, payment): a floating panel, with opener.

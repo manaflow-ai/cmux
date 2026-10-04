@@ -32,11 +32,17 @@ public final class TerminalSession {
     public let find = TerminalFindController()
     public weak var delegate: (any TerminalSessionDelegate)?
 
-    /// The live surface. Replaced when a later replay arrives.
+    /// The live surface. Replaced when a later VT replay arrives; a GHOSTSNP
+    /// snapshot restores in place.
     public private(set) var surfaceView: TerminalSurfaceView
 
     public var ownsGeometry: Bool {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
+    }
+
+    /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
+    public var hostLoss: TerminalHostLoss? {
+        didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss) } }
     }
 
     /// Pauses rendering while the terminal is scrolled off-screen (strip
@@ -80,6 +86,10 @@ public final class TerminalSession {
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
+    /// READY snapshots restored in place, and surfaces swapped in for a
+    /// later VT replay (diagnostics: a snapshot attach never swaps).
+    private(set) var restoredSnapshots = 0
+    private(set) var swappedSurfaces = 0
 
     public init(io: any TerminalIO, ownsGeometry: Bool = true) {
         self.io = io
@@ -191,6 +201,13 @@ public final class TerminalSession {
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
             TerminalTimings.contentApplied()
+        case .snapshot(let data, let phase):
+            // The same surface takes the owner's state: no swap.
+            let restored = await restoreSnapshot(data, phase: phase)
+            guard phase == .ready, restored else { return }
+            restoredSnapshots += 1
+            surfaceHasContent = true
+            TerminalTimings.contentApplied()
         case .output(let data):
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
@@ -233,6 +250,7 @@ public final class TerminalSession {
         let old = surfaceView
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        swappedSurfaces += 1
         fresh.ownsGeometry = ownsGeometry
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.mirrorDemand = mirrorDemand

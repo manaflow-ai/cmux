@@ -3,6 +3,7 @@
 
 import os
 import re
+import subprocess
 import sys
 from swift_source_mask import mask_swift_source
 
@@ -19,6 +20,7 @@ parser.add_argument('--type-roots', nargs='+', required=True)
 # drops entries that are fixed; it never adds to an existing file.
 parser.add_argument('--ratchet')
 parser.add_argument('--update-ratchet', action='store_true')
+parser.add_argument('--fix', action='store_true', help='rewrite safe namespace declarations and rerun the check')
 args = parser.parse_args()
 if args.update_ratchet and not args.ratchet:
     parser.error('--update-ratchet needs --ratchet')
@@ -42,6 +44,8 @@ if args.ratchet and os.path.exists(args.ratchet):
             ratchet.add(entry)
 ratchet_seen = set()
 ratchet_new = set()
+fixes = {}
+fixed_declarations = set()
 
 general_baseline = set()
 if os.path.exists(general_baseline_path):
@@ -70,6 +74,42 @@ STATIC_KEY_PROTOCOLS = re.compile(
     r"\b(PreferenceKey|EnvironmentKey|FocusedValueKey|LayoutValueKey|"
     r"TransactionKey|ContainerValueKey|EntryKey)\b"
 )
+
+
+def schedule_fix(path, original, masked, match):
+    """Convert a safe namespace declaration and add its explicit initializer."""
+    declaration = (path, match.start())
+    if declaration in fixed_declarations:
+        return
+    brace = masked.find("{", match.end())
+    if brace < 0:
+        return
+    kind = match.group("kind")
+    if kind in ("class", "actor"):
+        print(
+            f"SKIP   namespace-type autofix     {path}:{original.count(chr(10), 0, match.start()) + 1} "
+            f"{kind} {match.group('name')} requires a manual conversion; --fix will not change its semantics"
+        )
+        return
+    visibility = "public" if "public" in match.group("head") else "package"
+    isolation = "nonisolated " if "nonisolated" in match.group("head") else ""
+    indent = match.group("indent")
+    initializer = f"\n{indent}    {visibility} {isolation}init() {{}}"
+    edits = fixes.setdefault(path, [])
+    if kind == "enum":
+        edits.append((match.start("kind"), match.end("kind"), "struct"))
+    edits.append((brace + 1, brace + 1, initializer))
+    fixed_declarations.add(declaration)
+
+
+def write_fixes():
+    for path, edits in fixes.items():
+        source = open(path, encoding="utf-8", errors="replace").read()
+        for start, end, replacement in sorted(edits, reverse=True):
+            source = source[:start] + replacement + source[end:]
+        with open(path, "w", encoding="utf-8") as out:
+            out.write(source)
+        print(f"fixed namespace declarations in {path}")
 
 
 def body_and_end(src, brace):
@@ -143,6 +183,15 @@ for root in roots:
                     if 'lint:allow' in context or f'namespace-enum\t{path}\t{name}' in general_baseline:
                         continue
                     print(f'ERROR   namespace-enum               {path}:{line}  enum {name} (caseless, static members) -> scope onto the owning type')
+                    if args.fix:
+                        # The matching namespace-type finding adds the same
+                        # initializer; this schedules the enum conversion once.
+                        m = re.search(
+                            rf"(?m)^(?P<indent>[ \t]*)(?P<head>(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|open|final|private|fileprivate|nonisolated|indirect)[ \t]+)*)(?P<kind>enum)[ \t]+{re.escape(name)}",
+                            src,
+                        )
+                        if m:
+                            schedule_fix(path, original, src, m)
                     fail = True
 
             ext_counts = {}
@@ -204,6 +253,8 @@ for root in roots:
                     "surface, not instantiable) -> extension on the receiver "
                     "type or an instantiated value with injected dependencies"
                 )
+                if args.fix:
+                    schedule_fix(path, original, src, m)
                 fail = True
 
 RATCHET_HEADER = """\
@@ -230,5 +281,12 @@ if args.ratchet:
                 f"-> delete its line from {args.ratchet}"
             )
             fail = True
+
+if args.fix and fixes:
+    write_fixes()
+    # Re-run without --fix so the command reports any unsafe or remaining
+    # findings and verifies that every mechanical edit is actually clean.
+    rerun = [arg for arg in sys.argv[1:] if arg != "--fix"]
+    sys.exit(subprocess.run([sys.executable, sys.argv[0], *rerun]).returncode)
 
 sys.exit(1 if fail else 0)

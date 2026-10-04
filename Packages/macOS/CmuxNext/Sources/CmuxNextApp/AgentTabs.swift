@@ -6,10 +6,11 @@ import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
 /// Agent chat tabs (the React acpmux pane, CmuxNextAgentPane). cmux-tui has
-/// no agent tab kind yet, so like `LocalBrowserTab` they live only in this
-/// app session and are not restored after relaunch; the acpmux sessions they
-/// show are durable in acpmux. Ids carry `prefix` so every tab path can tell
-/// them from daemon tabs.
+/// no agent tab kind yet, so the app records each pane's agent tabs in the
+/// daemon's window document (``onRecordsChanged``) and reopens them on their
+/// acpmux sessions at relaunch (``restore(_:in:of:)``, R138); the sessions are
+/// durable in acpmux. Ids carry `prefix` so every tab path can tell them from
+/// daemon tabs.
 enum LocalAgentTab {
     static let prefix = "local-agent:"
 }
@@ -28,14 +29,24 @@ final class AgentTabStore {
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
     private let customization: AgentPaneCustomizationWatcher
-    private var tabsByPane: [String: [String]] = [:]
+    var tabsByPane: [String: [String]] = [:] {
+        didSet { reportChangedPanes(from: oldValue) }
+    }
+    /// A pane's agent tabs changed (opened, closed, moved, or a new chat got its session): the
+    /// app records them in the window document so they come back after relaunch.
+    var onRecordsChanged: ((String, [AgentTabRecord]) -> Void)?
     private var views: [String: AgentPaneView] = [:]
     /// Chats outside any pane (onboarding's first task), weakly held, so
     /// they get customization changes too.
     private let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
+    /// Takes back a closed, untouched new tab page as the pool's spare
+    /// (NewTabSparePool.recycle); false when the pool already has one.
+    var recycle: ((AgentPaneView) -> Bool)?
+    /// Closed pages leave the view tree at once; their teardown waits (R81).
+    private let retirer = AgentPageRetirer()
     /// Session each tab last showed, kept across a web content crash or a
     /// view rebuilt after the tab was released.
-    private var sessions: [String: String] = [:]
+    var sessions: [String: String] = [:]
     /// Tabs opened as the new tab page, and what each does with the kind
     /// the user picks there (``PaneController/newTabPage()``).
     private var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
@@ -48,7 +59,7 @@ final class AgentTabStore {
     /// The daemon tree each pane with agent tabs belongs to. It is watched,
     /// so the tabs of a pane closed out of sight (its window showing another
     /// workspace, its daemon away) close once the live tree drops the pane.
-    private var paneStores: [String: DaemonStore] = [:]
+    var paneStores: [String: DaemonStore] = [:]
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
@@ -252,10 +263,12 @@ final class AgentTabStore {
             self?.sessions[key] = session
             self?.newTabPages[key] = nil
             self?.views[key]?.applyTheme() // now the agent chat surface (R55)
+            // The window document records the session, so the tab reopens on it after relaunch.
+            if let self, let pane = self.paneKey(listing: key) { self.onRecordsChanged?(pane, self.records(in: pane)) }
         }
-        model.onOpenTab = { [weak self] request in self?.newTabPages[key]?.handler.open(key, request) }
+        model.onOpenTab = { [weak self] request in BenchSpans.mark("bridge.tab.open"); self?.newTabPages[key]?.handler.open(key, request) }
         model.onTypeAhead = { [weak self] text in self?.newTabPages[key]?.handler.typeAhead(key, text) }
-        model.onRememberNewTab = { [weak self] mode, agent in self?.newTabPages[key]?.handler.remember(mode, agent) }
+        model.onRememberNewTab = { [weak self] agent in self?.newTabPages[key]?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
@@ -312,7 +325,14 @@ final class AgentTabStore {
     func close(_ key: String) {
         for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
-        views.removeValue(forKey: key)?.close()
+        if let view = views.removeValue(forKey: key) {
+            // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81).
+            if newTabPages[key] != nil, recycle?(view) == true {
+                standaloneViews.add(view)
+            } else {
+                retirer.retire(view)
+            }
+        }
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
@@ -354,7 +374,7 @@ final class AgentTabStore {
         return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.id))
     }
 
-    private func watch(_ store: DaemonStore) {
+    func watch(_ store: DaemonStore) {
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no pane of the store has agent tabs

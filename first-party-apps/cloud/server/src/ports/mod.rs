@@ -19,8 +19,8 @@ pub mod tunnel;
 pub use loopback::LoopbackTunnel;
 pub use tunnel::{PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
 
-use crate::connector::iface::Carrier;
-use crate::fs::transfer::{OpenSshTransfer, Transfer};
+use crate::fs::transfer::{DaemonTransfer, Transfer};
+use crate::link::Carrier;
 use crate::link::LinkSupervisor;
 use listener::{Handler, Listener, Session};
 use std::collections::BTreeMap;
@@ -67,14 +67,16 @@ pub struct EdgeDown {
 pub struct Edge {
     pub(crate) tunnel: Arc<dyn PortTunnel>,
     pub(crate) transfer: Arc<dyn Transfer>,
+    /// File ops on the machines' daemons (crate::fs::link_files).
+    pub(crate) files: Arc<dyn crate::fs::DaemonFiles>,
+    /// File ops running on workers (crate::fs::jobs); the loop is the only writer.
+    pub(crate) file_jobs: crate::fs::jobs::FileJobs,
     /// Running file transfers (crate::fs::running); the loop is the only writer.
     pub(crate) transfers: crate::fs::running::Transfers,
     pub(crate) forwards: BTreeMap<(String, u16), Forward>,
     pub(crate) proxies: BTreeMap<String, Forward>,
     /// Closes by link state since the last [`Edge::take_events`], in order.
     events: Vec<EdgeDown>,
-    /// The host key pinned for each machine (`<data>/ssh/known_hosts`).
-    pinned: BTreeMap<String, String>,
 }
 
 /// A tunnel for platforms without Unix sockets: every open fails.
@@ -93,51 +95,37 @@ impl Edge {
         Self {
             tunnel,
             transfer: Arc::from(transfer),
+            files: Arc::new(crate::fs::LinkDaemonFiles),
+            file_jobs: crate::fs::jobs::FileJobs::default(),
             transfers: crate::fs::running::Transfers::new(),
             forwards: BTreeMap::new(),
             proxies: BTreeMap::new(),
             events: Vec::new(),
-            pinned: BTreeMap::new(),
         }
     }
 
+    /// The same edge with `files` for daemon file ops (tests use a fake).
+    pub fn with_files(mut self, files: Arc<dyn crate::fs::DaemonFiles>) -> Self {
+        self.files = files;
+        self
+    }
+
+    /// The same edge with `clock` as the time source of the transfer
+    /// history (tests inject their own time).
+    pub fn with_clock(mut self, clock: Arc<dyn crate::clock::Clock>) -> Self {
+        self.transfers.set_clock(clock);
+        self
+    }
+
     /// The real tunnel (`loopback-forward-v1` on the link socket) and the
-    /// real transfer (OpenSSH with an in-memory key).
+    /// real transfer and file ops (the machine's daemon on the link).
     pub fn real() -> Self {
         #[cfg(unix)]
         let tunnel: Arc<dyn PortTunnel> = Arc::new(LoopbackTunnel);
         #[cfg(not(unix))]
         let tunnel: Arc<dyn PortTunnel> = Arc::new(NoTunnel);
-        Self::new(tunnel, Box::new(OpenSshTransfer::system()))
-    }
-
-    /// Pins `host_key` (from the Cloud API's scp-endpoint answer) for
-    /// `machine` in the app's known_hosts and rewrites the file (atomic
-    /// rename). Only the loop thread calls this. A key the Cloud API did not
-    /// give is never pinned here: new keys of other hosts go through the
-    /// user's host key sheet (crate::fs::transfer::HOST_KEY_UNPINNED).
-    pub(crate) fn pin_host_key(
-        &mut self,
-        ssh: &crate::app_env::SshFiles,
-        machine: &str,
-        host_key: &str,
-    ) -> std::io::Result<()> {
-        if self.pinned.get(machine).map(String::as_str) == Some(host_key)
-            && ssh.known_hosts.is_file()
-        {
-            return Ok(());
-        }
-        // The map changes only after the file did, so a failed write is
-        // retried by the next transfer instead of trusting a stale file.
-        let mut pinned = self.pinned.clone();
-        pinned.insert(machine.to_owned(), host_key.to_owned());
-        let text: String = pinned
-            .iter()
-            .map(|(m, key)| format!("{} {key}\n", crate::fs::transfer::host_alias(m)))
-            .collect();
-        crate::app_env::write_private(&ssh.known_hosts, text.as_bytes())?;
-        self.pinned = pinned;
-        Ok(())
+        let files: Arc<dyn crate::fs::DaemonFiles> = Arc::new(crate::fs::LinkDaemonFiles);
+        Self::new(tunnel, Box::new(DaemonTransfer::new(Arc::clone(&files)))).with_files(files)
     }
 
     fn listeners(&self) -> usize {

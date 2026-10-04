@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the agent URL rule: Swift AgentURLPolicy (CmuxNextBrowser/Core/AgentURLPolicy.swift, AgentURLPolicyVectorTests), C++ AgentRefusesURL (CEFShim/src/agent_url_policy.h, scripts/cmux-next/test-agent-url-policy-cpp.sh) and Rust cmux-browser-host policy::is_browser_page all read this file. Change all three implementations together.",
+  "description": "Shared test vectors for the agent URL rule: Swift AgentURLPolicy (CmuxNextBrowser/Core/AgentURLPolicy.swift, AgentURLPolicyVectorTests), C++ AgentRefusesURL (CEFShim/src/agent_url_policy.h, scripts/cmux-next/test-agent-url-policy-cpp.sh) and Rust cmux-browser-host policy::is_browser_page all read this file. Change all three implementations together. Reserved cmux page hosts (cmux-page://cmux, cmux-page://cmux.<id> and every single-label host such as cmux-page://shell) and the internal cmux:// scheme are refused too.",
   "cases": [
     {
       "url": "chrome://password-manager/passwords",
@@ -139,6 +139,114 @@
     },
     {
       "url": "mailto:a@chrome.test",
+      "refused": false
+    },
+    {
+      "url": "cmux-page://cmux.settings/",
+      "refused": true
+    },
+    {
+      "url": "CMUX-PAGE://CMUX.Settings/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://cmux/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://cmux.passwords/x?y#z",
+      "refused": true
+    },
+    {
+      "url": "cmux-page:cmux.settings",
+      "refused": true
+    },
+    {
+      "url": "cmux-page:///cmux.settings/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page:\\\\cmux.settings\\",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://user@cmux.settings/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://cmux.settings:8080/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://cmux.settings./",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://cmux%2Esettings/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://",
+      "refused": true
+    },
+    {
+      "url": " \tcmux-page://cmux.agent/",
+      "refused": true
+    },
+    {
+      "url": "blob:cmux-page://cmux.settings/x",
+      "refused": true
+    },
+    {
+      "url": "cmux://history",
+      "refused": true
+    },
+    {
+      "url": "CMUX://bookmarks",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://com.example.app/",
+      "refused": false
+    },
+    {
+      "url": "cmux-page://cmuxapp/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://xcmux.settings/",
+      "refused": false
+    },
+    {
+      "url": "https://cmux.settings/",
+      "refused": false
+    },
+    {
+      "url": "cmux-pages://cmux.settings/",
+      "refused": false
+    },
+    {
+      "url": "cmux-page://shell/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://SHELL./x",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://shell:1/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://user@shell/",
+      "refused": true
+    },
+    {
+      "url": "cmux-page://octo.diff_tools.viewer/",
+      "refused": false
+    },
+    {
+      "url": "cmux-page://com.example.app./",
       "refused": false
     }
   ]

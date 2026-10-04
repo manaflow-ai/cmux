@@ -57,12 +57,21 @@ fn serve() -> u16 {
                     "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
                     "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
+                    "/script.js" => "window.__loaded = true;".to_owned(),
+                    "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
+                    "/fields" => "<!doctype html><title>Fields</title>\
+                         <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
+                         <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
+                         <input id=plain value=visible-value>"
+                        .to_owned(),
                     _ => "<!doctype html><title>404</title>".to_owned(),
                 };
                 let mut stream = stream;
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {}\r\nContent-Type: {}; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    if path == "/missing" { "404 Not Found" } else { "200 OK" },
+                    if path.ends_with(".js") { "text/javascript" } else { "text/html" },
                     body.len()
                 );
             });
@@ -92,12 +101,8 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
     let origin = format!("http://127.0.0.1:{port}");
 
     let started = Instant::now();
-    let chromium = HeadlessChromium::launch(&HeadlessOptions {
-        binary: binary.into(),
-        user_data_dir: None,
-        extra_args: Vec::new(),
-    })
-    .expect("launch Chromium");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink = events.clone();
     let driver = CdpDriver::attach_browser(
@@ -258,6 +263,52 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
     assert_eq!(popup_title, "Second");
     call("tabs.close", json!({"targetId": popup}));
 
+    // frame.observe: only allowlisted page agent reads, and sensitive field
+    // values never come back (browser-host.md, frame.observe).
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/fields"), "waitUntil": "load"}),
+    );
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source":
+        "() => { pw.value = 's3cret-pass'; otp.value = '123456'; cc.value = '4111111111111111'; }"}),
+    );
+    // A stand-in page agent under the real symbol: handle ids are element ids.
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "agent", "source": r#"() => {
+        const el = (id) => document.getElementById(id);
+        globalThis[Symbol.for("cmux.browserRepl.agent")] = {
+          element: el,
+          retarget: (id) => (el(id).tagName === "LABEL" ? el(id).htmlFor : id),
+          read: (id, what, arg) => what === "inputValue" ? el(id).value
+            : what === "getAttribute" ? el(id).getAttribute(arg) : el(id)[what],
+          snapshot: () => [...document.querySelectorAll("input")]
+            .map((i) => `${i.id}=${i.value}|${i.getAttribute("value") || ""}`).join(" "),
+          fill: (id, v) => { el(id).value = v; },
+        };
+      }"#}),
+    );
+    let observe = |method: &str, args: Value| {
+        driver.call("frame.observe", &json!({"targetId": target, "method": method, "args": args}))
+    };
+    assert_eq!(observe("read", json!(["pw", "inputValue"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["otp", "inputValue"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["cc", "inputValue"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["pw", "getAttribute", "value"])).unwrap(), "********");
+    assert_eq!(observe("read", json!(["plain", "inputValue"])).unwrap(), "visible-value");
+    let snapshot = observe("snapshot", json!([])).unwrap();
+    let snapshot = snapshot.as_str().unwrap();
+    for secret in ["s3cret-pass", "123456", "4111111111111111", "hunter2-default"] {
+        assert!(!snapshot.contains(secret), "{secret} leaked: {snapshot}");
+    }
+    assert!(snapshot.contains("plain=visible-value"), "{snapshot}");
+    let refused = observe("fill", json!(["plain", "x"])).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
+    assert_eq!(refused.error_name.as_deref(), Some("observe_not_allowed"));
+    assert_eq!(observe("read", json!(["plain", "inputValue"])).unwrap(), "visible-value");
+
     call("tabs.close", json!({"targetId": target}));
     wait_event(&events, "tab.closed");
     assert!(
@@ -267,4 +318,194 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
             .iter()
             .all(|tab| tab["targetId"] != target.as_str())
     );
+}
+
+/// The runtime's page agent (host::agent_bundle) is in the agent world of
+/// every document the tab loads: the context the driver evaluates agent
+/// calls in must hold it, whichever context Chromium reports last.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn the_agent_world_holds_the_agent_after_every_navigation() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(
+        chromium.connection().clone(),
+        cmux_browser_host::host::agent_bundle(),
+        Arc::new(|_| {}),
+    )
+    .expect("attach to Chromium");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({}))["targetId"].as_str().unwrap().to_owned();
+    for url in [
+        format!("http://localhost:{port}/second"),
+        format!("http://127.0.0.1:{port}/second"),
+        format!("http://localhost:{port}/second?again"),
+        "data:text/html,<p>data</p>".to_owned(),
+        format!("http://localhost:{port}/second?after-data"),
+    ] {
+        call("tab.navigate", json!({"targetId": target, "url": url, "waitUntil": "load"}));
+        let has_agent = call(
+            "frame.evaluate",
+            json!({"targetId": target, "world": "agent", "source": "() => typeof globalThis[Symbol.for('cmux.browserRepl.agent')]"}),
+        );
+        assert_eq!(has_agent, "object", "no page agent in the agent world after loading {url}");
+    }
+}
+
+/// The same through the whole host (gate, QuickJS runtime, headless engine)
+/// as `cmux-browser-host eval` runs a cell: page-agent calls such as
+/// snapshot() work on a page served from localhost and from 127.0.0.1.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn host_sessions_reach_the_page_agent_after_goto() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-agent-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    for origin in [format!("http://localhost:{port}"), format!("http://127.0.0.1:{port}")] {
+        let out = eval(&format!(
+            "await page.goto({:?}); const s = await snapshot(); console.log('agent:' + s.tree.includes('second'));",
+            format!("{origin}/scripted")
+        ));
+        assert!(out.contains("agent:true"), "{origin}: {out}");
+    }
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A headless session starts with no tabs: the start tab Chromium opens is
+/// not the session's and not listed (scenario 13 counts tabs from zero).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_headless_session_lists_no_start_tab() {
+    use cmux_browser_host::host::Engines;
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    // SAFETY: set before the engine starts; nothing else reads it concurrently here.
+    unsafe { std::env::set_var("CMUX_BROWSER_HOST_CHROMIUM", &binary) };
+    let engines =
+        cmux_browser_host::engines::HostEngines::new(cmux_browser_host::host::agent_bundle());
+    let session = cmux_browser_host::host::SessionContext {
+        name: "start-tab".into(),
+        caller: cmux_browser_host::host::Caller {
+            actor: "test".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+        },
+        label: "start-tab".into(),
+    };
+    let driver = engines.driver("headless", Arc::new(|_| {}), &session).expect("headless driver");
+    let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
+    assert_eq!(tabs, json!([]), "the start tab is listed");
+    let opened = driver.call("tabs.open", &json!({"url": "about:blank"})).expect("tabs.open");
+    let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
+    assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+    assert_eq!(tabs[0]["targetId"], opened["targetId"]);
+}
+
+/// `cmux-browser-host eval` without `--session` is a one-shot session, as
+/// `cmux browser repl --eval` is: nothing carries over to the next call
+/// (variables, tabs, the page agent's ref numbers).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn eval_without_a_session_is_one_shot() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let dir = std::env::temp_dir().join(format!("cmux-host-oneshot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |args: &[&str], code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .arg("eval")
+            .args(args)
+            .args(["--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let page = "await page.goto('data:text/html,<button>A</button>'); console.log(String(await snapshot()).includes('[ref=e1]'));";
+    assert_eq!(eval(&[], &format!("var carried = 1; {page}")).trim(), "true");
+    assert_eq!(
+        eval(&[], &format!("console.log(typeof carried); {page}")).trim(),
+        "undefined\ntrue"
+    );
+    // A named session keeps its state.
+    eval(&["--session", "kept"], "var carried = 2;");
+    assert_eq!(eval(&["--session", "kept"], "console.log(carried);").trim(), "2");
+    let mut close = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = close.args(["close", "--session", "kept", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A document navigation answers the main document's HTTP status, as
+/// Playwright's goto() Response does (scenario 12); reload too.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn navigations_answer_the_document_status() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({}))["targetId"].as_str().unwrap().to_owned();
+    let nav = |path: &str| {
+        call(
+            "tab.navigate",
+            json!({"targetId": target, "url": format!("http://127.0.0.1:{port}{path}"), "waitUntil": "load"}),
+        )
+    };
+    assert_eq!(nav("/second")["status"], 200);
+    assert_eq!(nav("/missing")["status"], 404);
+    assert_eq!(call("tab.reload", json!({"targetId": target, "waitUntil": "load"}))["status"], 404);
+    let data = call(
+        "tab.navigate",
+        json!({"targetId": target, "url": "data:text/html,x", "waitUntil": "load"}),
+    );
+    assert!(data.get("status").is_none(), "a data: URL has no HTTP status: {data}");
 }

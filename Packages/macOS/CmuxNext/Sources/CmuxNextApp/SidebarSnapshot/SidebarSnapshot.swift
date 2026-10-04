@@ -121,7 +121,9 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
             icon = "symbol:" + name
             tint = color?.rawValue
         case let .swatch(color)?: icon = "swatch:" + color.rawValue
-        case let .emoji(text)?: icon = "emoji:" + text
+        case let .emoji(text, chip)?:
+            icon = "emoji:" + text
+            tint = chip?.rawValue
         case nil: break
         }
         return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title, icon: icon, iconTint: tint)
@@ -139,7 +141,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         switch kind {
         case "symbol": return .symbol(rest, tint: tint.flatMap(GroupColor.init(rawValue:)))
         case "swatch": return GroupColor(rawValue: rest).map(WorkspaceIcon.swatch)
-        case "emoji": return .emoji(rest)
+        case "emoji": return .emoji(rest, chip: tint.flatMap(GroupColor.init(rawValue:)))
         default: return nil
         }
     }

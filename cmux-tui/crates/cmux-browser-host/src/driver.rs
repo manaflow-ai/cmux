@@ -30,6 +30,11 @@ pub trait Driver: Send + Sync {
         let _ = filter;
         false
     }
+
+    /// The session that opened this driver ends (`browser.repl.close`, a
+    /// reset). A driver that holds per-session state (automation leases)
+    /// releases it here, at once, not when the last reference drops.
+    fn end_session(&self) {}
 }
 
 /// An event sink that drops every event.

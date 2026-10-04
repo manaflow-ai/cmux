@@ -7,7 +7,7 @@ import { turnFiles, undoPrompt, type TurnFile } from "../diff";
 import { ChevronDown, DiffFile } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { turnHunkKeys, undoableHunks } from "../changes/hunkReview";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { Undo } from "./icons";
 import { TurnActionsContext } from "./turnActions";
@@ -22,6 +22,7 @@ export function EditedFilesCard({
   row: AcpmuxRow;
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
+  const t = useT();
   const [showAll, setShowAll] = useState(false);
   const { review } = useContext(TurnActionsContext);
   const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");

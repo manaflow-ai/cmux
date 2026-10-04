@@ -52,3 +52,44 @@ test("a model acpmux reports unavailable says so in the picker, with its reason"
     { id: "gpt-5.5", name: "GPT-5.5 · unavailable: Image web search is not supported." },
   ]);
 });
+
+// plans/cmux-next/acp-usability.md, blocker 8: Gemini's probe failed ("API key is missing"), the
+// picker still offered it, and a pick failed after 5.1 s. The shapes are acpmux's: a launcher
+// check is `unavailable` on the _acpmux/harnesses entry, a failed model probe is `probeError` on
+// both the _acpmux/harnesses entry and the _acpmux/models entry (hq48-acpmux-warm d6dda95c61d).
+test("a harness acpmux cannot start carries its reason, from its launcher check or its model probe", () => {
+  const names = {
+    harnesses: {
+      codex: { family: "codex" },
+      deepseek: { unavailable: "dsh: not found on PATH" },
+      gemini: { family: "gemini", probeError: "Gemini API key is missing or not configured." },
+      opencode: { family: "opencode" },
+    },
+  };
+  const probed = {
+    harnesses: [
+      { harness: "codex", models: [{ id: "gpt-6-astra" }] },
+      {
+        harness: "gemini",
+        probeError: "Gemini API key is missing or not configured.",
+        models: [{ id: "default", name: "default (agent's choice)" }],
+      },
+      {
+        harness: "opencode",
+        probeError: "the model probe timed out after 60 s",
+        models: [{ id: "default", name: "default (agent's choice)" }],
+      },
+    ],
+  };
+  const catalog = mergeModelCatalog(names, probed);
+  const reason = (id: string) => catalog.find((harness) => harness.id === id)?.unavailable;
+  expect(reason("deepseek")).toBe("dsh: not found on PATH");
+  expect(reason("gemini")).toBe("Gemini API key is missing or not configured.");
+  // Only the models list says so (a daemon that reports the probe there first).
+  expect(reason("opencode")).toBe("the model probe timed out after 60 s");
+  expect(reason("codex")).toBeUndefined();
+  // The probe failure alone, before _acpmux/models answers.
+  expect(mergeModelCatalog(names, undefined).find((harness) => harness.id === "gemini")?.unavailable).toBe(
+    "Gemini API key is missing or not configured.",
+  );
+});

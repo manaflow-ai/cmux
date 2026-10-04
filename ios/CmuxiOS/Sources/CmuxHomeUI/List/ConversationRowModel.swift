@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxHomeRender
 import Foundation
 
 /// Everything a conversation row shows, derived from an `InboxRow`. Pure,
@@ -48,7 +49,9 @@ struct ConversationRowModel: Hashable, Sendable {
     }
 
     static func preview(for row: InboxRow, me: ParticipantID?) -> String {
-        let text = row.preview.replacingOccurrences(of: "\n", with: " ")
+        var text = row.preview.replacingOccurrences(of: "\n", with: " ")
+        // An attachment-only message has no text: "Photo", "2 photos", "File".
+        if text.isEmpty, let attachments = row.previewAttachments { text = HomeAttachmentSummary.label(attachments) }
         if text.isEmpty {
             return row.summary.hasInvitedParticipant ? HomeText.invitedNoMessages : HomeText.noMessages
         }

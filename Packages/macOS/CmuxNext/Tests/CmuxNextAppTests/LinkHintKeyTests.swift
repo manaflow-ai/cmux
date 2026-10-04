@@ -19,8 +19,8 @@ struct LinkHintKeyTests {
             services.registry.bind(id, invoke: { _ in ran.append(id) })
         }
         services.registry.context.insert(.browserFocused)
-        #expect(services.registry.resolve(Shortcut("f", modifiers: []))?.id == "browserLinkHints")
-        #expect(services.registry.resolve(Shortcut("f", modifiers: [.shift]))?.id == "browserLinkHintsNewSplit")
+        #expect(services.registry.keyWinner(Shortcut("f", modifiers: []))?.command == "browserLinkHints")
+        #expect(services.registry.keyWinner(Shortcut("f", modifiers: [.shift]))?.command == "browserLinkHintsNewSplit")
         let follow = try K.key("f", keyCode: 3, [])
         let split = try K.key("F", keyCode: 3, [.shift])
         for event in [follow, split] {
@@ -38,8 +38,8 @@ struct LinkHintKeyTests {
     @Test func linkHintKeysNeedBrowserFocus() {
         let services = ActionBindingCoverageTests.boundServices()
         services.registry.context.insert(.terminalFocused)
-        #expect(services.registry.resolve(Shortcut("f", modifiers: []))?.id != "browserLinkHints")
-        #expect(services.registry.resolve(Shortcut("f", modifiers: [.shift]))?.id != "browserLinkHintsNewSplit")
+        #expect(services.registry.keyWinner(Shortcut("f", modifiers: []))?.command != "browserLinkHints")
+        #expect(services.registry.keyWinner(Shortcut("f", modifiers: [.shift]))?.command != "browserLinkHintsNewSplit")
         #expect(!services.linkHints.isActive)
     }
 

@@ -8,7 +8,7 @@ import {
   type FileSearchSource,
   type Run,
 } from "./fileSearchModel";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 /// How long typing settles before the palette asks again.
 const SEARCH_DEBOUNCE_MS = 80;
@@ -35,6 +35,7 @@ export function FileSearch({
   /// Tests shorten it.
   debounceMs?: number;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
   const [active, setActive] = useState(0);

@@ -1,14 +1,15 @@
 // The Cloud page's state owner on the page side. The machine list is a mirror written only by the
-// owner (`cmux.cloud.machine.list` once, then `cmux.cloud.machine.watch` events; no polling, no
-// timers) plus one ordered log of pending intents (OWNERSHIP-PRINCIPLES "Clients are projections").
-// Destructive, money and view-changing ops go to the host as native actions (ops.ts NATIVE_ACTIONS).
-// React reads it through `useSyncExternalStore`; tests drive it directly.
+// owner (`cmux.cloud.machine.list` pages once, then `cmux.cloud.machine.watch` events; no polling,
+// no timers) plus one ordered log of pending intents (OWNERSHIP-PRINCIPLES "Clients are
+// projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
+// NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { AccountReader } from "./account";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
+import { TransferWatch, type FileTransfer } from "./transfers";
 import {
   applyEvent,
-  atMachineLimit,
   defaultMemory,
   normalizeMachine,
   settled,
@@ -20,21 +21,23 @@ import {
 } from "./model";
 import {
   ACTION_RUN,
+  AccountOps,
   CloudOps,
+  isGone,
   isUnsupported,
+  planRefusal,
   type ActionRunResult,
   type AuthStatus,
   type CloudMachine,
   type CloudPlan,
   type CloudSnapshot,
   type CloudTeam,
-  type CloudUsage,
-  type CreateMachineParams,
+  type CreateMachineArgs,
   type MachineEvent,
   type MachineListResult,
-  type MachineMutationResult,
-  type MachineStats,
-  type ResizeResult,
+  type MachineResult,
+  type MigrationStatus,
+  type PlanRefusal,
   type SnapshotListResult,
 } from "./ops";
 
@@ -44,13 +47,16 @@ export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
   key: string;
   name: string;
+  /** One of the plan's allowed `memory_options_mb`; the create sends it as `size.memory_mb`. */
   memoryMb?: number;
-  /** Create from this snapshot (`cmux.cloud.snapshot.restore`) instead of the base image. */
-  snapshot_id?: string;
-  /** The selected machine's snapshots (the Cloud API has no account-wide snapshot list). */
+  /** Create from this snapshot (`from_snapshot`) instead of the base image. */
+  from_snapshot?: string;
+  /** The team's snapshots (`cloud.snapshot.list {}`). */
   snapshots?: CloudSnapshot[];
   submitting: boolean;
   error?: string;
+  /** The backend refused the create for the plan (contract 1.5): a sentence and "See plans". */
+  refusal?: PlanRefusal;
 }
 
 export interface CloudState {
@@ -63,7 +69,12 @@ export interface CloudState {
   rows: MachineRow[];
   teams: CloudTeam[];
   plan?: CloudPlan;
-  usage?: CloudUsage;
+  /** `cloud.migration.status` (contract 4). */
+  migration?: MigrationStatus;
+  /** "Later" hid the classic migration banner for this page session. */
+  migrationDismissed: boolean;
+  /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
+  refusal?: PlanRefusal;
   selection?: string;
   detail?: MachineDetail;
   create?: CreateDraft;
@@ -71,12 +82,17 @@ export interface CloudState {
   layout: MachineLayout;
   /** Ops (and native actions) the owner answered as not served yet: the page shows "Not available yet". */
   unavailable: string[];
+  /** This session's file transfers, running and ended (`cloud.file.transfer.changed`). */
+  transfers: FileTransfer[];
 }
 
 export interface CloudStoreOptions {
   newKey?: () => string;
   layout?: MachineLayout;
 }
+
+/** The host's answer to a native machine action: the op's answer fields, or a declined sheet. */
+type MachineActionResult = ActionRunResult & Partial<MachineResult>;
 
 export class CloudStore {
   private state: CloudState;
@@ -90,6 +106,8 @@ export class CloudStore {
   private session = 0;
   readonly detail: DetailReader;
   readonly files: FilesReader;
+  readonly transfers: TransferWatch;
+  readonly account: AccountReader;
 
   constructor(
     private readonly client: PageClient | null,
@@ -103,20 +121,39 @@ export class CloudStore {
       pending: [],
       rows: [],
       teams: [],
+      migrationDismissed: false,
       layout: options.layout ?? "rows",
       unavailable: [],
+      transfers: [],
     };
     const host = {
       get: () => this.state.detail,
       set: (detail: MachineDetail | undefined) => this.set({ detail }),
       fail: (error: unknown) => this.set(failure(error)),
       unsupported: (op: string) => this.markUnavailable(op),
+      planRefused: (error: unknown) => this.refused(error),
+      usageChanged: () => void this.account.readPlan(this.session),
       canChange: () => this.canChange(),
       key: () => this.key(),
       epoch: () => this.detail.epoch,
     };
     this.detail = new DetailReader(client, host);
-    this.files = new FilesReader(client, host);
+    this.transfers = new TransferWatch(client, {
+      get: () => this.state.transfers,
+      set: (transfers) => this.set({ transfers }),
+      ended: (event) => this.files.transferEnded(event),
+      unsupported: (op) => this.markUnavailable(op),
+    });
+    this.files = new FilesReader(client, host, this.transfers);
+    this.account = new AccountReader(client, {
+      get: () => this.state,
+      set: (patch) => this.set(patch),
+      session: () => this.session,
+      fail: (op, error) => this.fail(op, error),
+      unsupported: (op) => this.markUnavailable(op),
+      canChange: () => this.canChange(),
+      key: () => this.key(),
+    });
   }
 
   getSnapshot = (): CloudState => this.state;
@@ -172,7 +209,7 @@ export class CloudStore {
     const session = this.session;
     try {
       const result = await this.client.call<ActionRunResult | null>(ACTION_RUN, {
-        action: CloudOps.authSignIn,
+        action: AccountOps.signIn,
         args: {},
       });
       if (result?.confirmed === false || session !== this.session) return;
@@ -184,7 +221,7 @@ export class CloudStore {
         await this.loadSignedIn(next);
       }
     } catch (error) {
-      this.fail(CloudOps.authSignIn, error);
+      this.fail(AccountOps.signIn, error);
     }
   }
 
@@ -192,12 +229,12 @@ export class CloudStore {
     if (!this.canChange()) return;
     try {
       const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
-        action: CloudOps.authSignOut,
+        action: AccountOps.signOut,
         args: {},
       });
       if (result?.confirmed === false) return;
     } catch (error) {
-      this.fail(CloudOps.authSignOut, error);
+      this.fail(AccountOps.signOut, error);
       return;
     }
     this.restartSession();
@@ -211,12 +248,12 @@ export class CloudStore {
     void this.detail.load(undefined);
     this.set({ ...signedOutState(), loading: true });
     try {
-      await this.client!.call(CloudOps.teamSelect, { team, idempotency_key: this.key() });
+      await this.client!.call(AccountOps.teamSelect, { team, idempotency_key: this.key() });
     } catch (error) {
       if (session !== this.session) return;
       if (!isUnsupported(error)) return this.set({ loading: false, ...failure(error) });
       // Nothing changed at the owner: show the same team again.
-      this.markUnavailable(CloudOps.teamSelect);
+      this.markUnavailable(AccountOps.teamSelect);
     }
     try {
       const auth = await this.client!.call<AuthStatus>(CloudOps.authStatus, {});
@@ -236,7 +273,7 @@ export class CloudStore {
   }
 
   dismissError(): void {
-    if (this.state.error) this.set({ error: undefined });
+    if (this.state.error || this.state.refusal) this.set({ error: undefined, refusal: undefined });
   }
 
   // Create sheet.
@@ -245,9 +282,7 @@ export class CloudStore {
     if (!this.canChange() || this.state.create) return;
     const key = this.key();
     this.set({ create: { key, name: "", memoryMb: defaultMemory(this.state.plan), submitting: false } });
-    const machine = this.state.selection;
-    if (!machine) return;
-    void this.client!.call<SnapshotListResult>(CloudOps.snapshotList, { machine }).then(
+    void this.client!.call<SnapshotListResult>(CloudOps.snapshotList, {}).then(
       ({ snapshots }) => this.state.create?.key === key && this.set({ create: { ...this.state.create, snapshots } }),
       () => undefined,
     );
@@ -257,44 +292,52 @@ export class CloudStore {
     if (this.state.create && !this.state.create.submitting) this.set({ create: undefined });
   }
 
-  updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "snapshot_id">>): void {
+  updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "from_snapshot">>): void {
     const draft = this.state.create;
-    if (draft && !draft.submitting) this.set({ create: { ...draft, ...patch, error: undefined } });
+    if (draft && !draft.submitting) this.set({ create: { ...draft, ...patch, error: undefined, refusal: undefined } });
   }
 
+  /**
+   * `cloud.machine.create {name?, size, from_snapshot?}` as a native action (a money op, D-MONEY). The
+   * size is the memory the sheet shows; without one (no plan) there is nothing to send.
+   */
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
-    if (!draft || draft.submitting || !this.canChange()) return;
-    if (atMachineLimit(this.state.plan, this.state.machines)) return;
-    this.set({ create: { ...draft, submitting: true, error: undefined } });
-    const snapshot = draft.snapshot_id ? draft.snapshots?.find((s) => s.id === draft.snapshot_id) : undefined;
-    const name = draft.snapshot_id ? (snapshot?.name ?? "") : draft.name.trim();
+    if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
+    this.set({ create: { ...draft, submitting: true, error: undefined, refusal: undefined } });
+    const snapshot = draft.from_snapshot ? draft.snapshots?.find((s) => s.id === draft.from_snapshot) : undefined;
+    const name = draft.name.trim() || (snapshot?.name ?? "");
     this.pushIntent({ key: draft.key, kind: "create", name });
+    const args: CreateMachineArgs & { idempotency_key: string } = {
+      ...(name ? { name } : {}),
+      size: { memory_mb: draft.memoryMb },
+      ...(draft.from_snapshot ? { from_snapshot: draft.from_snapshot } : {}),
+      idempotency_key: draft.key,
+    };
     const session = this.session;
     try {
-      let result: MachineMutationResult;
-      if (draft.snapshot_id) {
-        // A machine from a snapshot is a restore: the owner takes only the snapshot.
-        result = await this.client!.call<MachineMutationResult>(CloudOps.snapshotRestore, {
-          snapshot: draft.snapshot_id,
-          idempotency_key: draft.key,
-        });
-      } else {
-        // No memory (the plan did not load) or no name: the owner picks its default.
-        const params: CreateMachineParams = { idempotency_key: draft.key };
-        if (name) params.displayName = name;
-        if (draft.memoryMb) params.memoryMb = draft.memoryMb;
-        result = await this.client!.call<MachineMutationResult>(CloudOps.machineCreate, params);
+      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
+        action: CloudOps.machineCreate,
+        args,
+      });
+      if (result?.confirmed === false) {
+        this.dropIntent(draft.key);
+        if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false } });
+        return;
       }
       // Recorded even after a session restart (stop, retry): the intent and the sheet must not
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
-      this.updateIntent(draft.key, { result_id: result.id, replied: true, revision: revisionOf(result) });
+      this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
+      if (session === this.session) void this.account.readPlan(session);
     } catch (error) {
       this.dropIntent(draft.key);
+      const refusal = planRefusal(error);
       if (this.state.create?.key === draft.key)
-        this.set({ create: { ...draft, submitting: false, error: message(error) } });
-      if (session === this.session) this.set(failure(error, false));
+        this.set({
+          create: { ...draft, submitting: false, ...(refusal ? { refusal } : { error: message(error) }) },
+        });
+      if (session === this.session && !refusal) this.set(failure(error, false));
     }
   }
 
@@ -311,15 +354,19 @@ export class CloudStore {
   async rename(machine: string, name: string): Promise<void> {
     const trimmed = name.trim();
     if (!trimmed) return;
-    await this.machineIntent("rename", machine, CloudOps.machineRename, { displayName: trimmed }, { name: trimmed });
+    await this.machineIntent("rename", machine, CloudOps.machineRename, { name: trimmed }, { name: trimmed });
   }
 
-  /** Resizes memory to one of the plan's `memoryOptionsMb`. The answer is the new stats. */
+  /** Resizes memory to one of the plan's allowed sizes: a money op, so a native action. */
   async resize(machine: string, memoryMb: number): Promise<void> {
-    const stats = await this.machineIntent("resize", machine, CloudOps.machineResize, { memoryMb }, { memoryMb });
-    const detail = this.state.detail;
-    if (stats && detail?.machine === machine)
-      this.set({ detail: { ...detail, stats: statsOf(stats as ResizeResult) } });
+    await this.machineIntent(
+      "resize",
+      machine,
+      CloudOps.machineResize,
+      { size: { memory_mb: memoryMb } },
+      { memoryMb },
+      true,
+    );
   }
 
   /** `null` = never pause (sent as 0 seconds). */
@@ -328,20 +375,36 @@ export class CloudStore {
       "idle",
       machine,
       CloudOps.machineIdlePolicySet,
-      { idleTimeoutSeconds: seconds ?? 0 },
+      { idle_seconds: seconds ?? 0 },
       { idle: seconds },
     );
   }
 
-  /** A new machine from a snapshot (`snapshot.restore`); it shows as a pending create until its echo. */
-  restoreSnapshot(snapshot: CloudSnapshot): Promise<void> {
-    return this.newMachine(CloudOps.snapshotRestore, { snapshot: snapshot.id }, snapshot.name ?? "");
+  /** Installs the cmux-next daemon into a classic machine (contract 4.4), after a confirmation. */
+  async upgrade(machine: string): Promise<void> {
+    await this.machineIntent("upgrade", machine, CloudOps.machineUpgrade, {}, {}, true);
   }
 
-  /** A copy of the machine (`snapshot.fork`); it shows as a pending create until its echo. */
-  forkMachine(machine: string): Promise<void> {
-    const source = this.state.machines.find((m) => m.id === machine);
-    return this.newMachine(CloudOps.snapshotFork, { machine }, source?.displayName ?? "");
+  /** A new machine from a snapshot (`snapshot.restore`, a money op); a pending create until its echo. */
+  async restoreSnapshot(snapshot: CloudSnapshot): Promise<void> {
+    if (!this.canChange()) return;
+    const key = this.key();
+    const name = snapshot.name ?? "";
+    this.pushIntent({ key, kind: "create", name });
+    const session = this.session;
+    try {
+      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
+        action: CloudOps.snapshotRestore,
+        args: { snapshot: snapshot.id, idempotency_key: key },
+      });
+      if (result?.confirmed === false) return this.dropIntent(key);
+      // Recorded even after a session restart, so the pending create row cannot stay.
+      this.updateIntent(key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
+      if (session === this.session) void this.account.readPlan(session);
+    } catch (error) {
+      this.dropIntent(key);
+      if (session === this.session) this.fail(CloudOps.snapshotRestore, error);
+    }
   }
 
   /** Asks the host for the native delete confirmation; the host runs the delete as origin user. */
@@ -354,12 +417,13 @@ export class CloudStore {
         action: CloudOps.machineDelete,
         args: { machine, idempotency_key: key },
       });
-      if (result?.confirmed === false) this.dropIntent(key);
-      else this.replied(key, result);
+      if (result?.confirmed === false) return this.dropIntent(key);
+      this.replied(key, result);
+      void this.account.readPlan(this.session);
     } catch (error) {
       this.dropIntent(key);
-      // The owner no longer knows the machine: it dropped it and sent `removed`. Nothing failed.
-      if (!isPageError(error) || error.code !== "cmux.cloud.not_found") this.fail(CloudOps.machineDelete, error);
+      // `cmux.cloud.not_found`: the owner dropped it and sent `removed`. Nothing failed.
+      if (!isGone(error)) this.fail(CloudOps.machineDelete, error);
     }
   }
 
@@ -368,18 +432,8 @@ export class CloudStore {
     await this.native(CloudOps.machineConnect, { machine });
   }
 
-  /** Opens checkout or the billing portal in the browser through the host (money action). */
-  async openBilling(): Promise<void> {
-    await this.native(CloudOps.billingOpen, {});
-  }
-
-  deleteSnapshot(machine: string, snapshot: string): Promise<void> {
-    return this.detail.native(CloudOps.snapshotDelete, { machine, snapshot }, "snapshots");
-  }
-
-  /** `cloud.firewall.delete` takes the rule id only. */
-  deleteFirewallRule(rule: string): Promise<void> {
-    return this.detail.native(CloudOps.firewallDelete, { rule }, "firewall");
+  deleteSnapshot(snapshot: string): Promise<void> {
+    return this.detail.deleteSnapshot(snapshot);
   }
 
   // Internals.
@@ -388,6 +442,9 @@ export class CloudStore {
     this.session += 1;
     this.unwatch?.();
     this.unwatch = undefined;
+    // Without the event stream a running row would never end: the session's transfers go with it.
+    this.transfers.stop();
+    if (this.state.transfers.length) this.set({ transfers: [] });
   }
 
   private restartSession(): number {
@@ -395,7 +452,7 @@ export class CloudStore {
     return this.session;
   }
 
-  /** Watches, then lists once; events that arrive during the list are merged by revision. */
+  /** Watches, then lists every page once; events that arrive during the list are merged by revision. */
   private async loadSignedIn(session: number): Promise<void> {
     const client = this.client!;
     let buffer: MachineEvent[] | null = [];
@@ -411,10 +468,15 @@ export class CloudStore {
       }
       this.unwatch?.();
       this.unwatch = unwatch;
-      const result = await client.call<MachineListResult>(CloudOps.machineList, {});
+      let page = await client.call<MachineListResult>(CloudOps.machineList, {});
+      let machines = page.machines.map(normalizeMachine);
+      // A listing from the first page to the last also lets the owner drop machines it did not see.
+      while (page.next_cursor && session === this.session) {
+        page = await client.call<MachineListResult>(CloudOps.machineList, { cursor: page.next_cursor });
+        machines = [...machines, ...page.machines.map(normalizeMachine)];
+      }
       if (session !== this.session) return;
-      let machines = result.machines.map(normalizeMachine);
-      let revision = result.revision;
+      let revision = page.revision;
       for (const event of buffer) {
         // The list holds its own revision; events of that revision are re-applied (idempotent).
         if (event.revision < revision) continue;
@@ -428,23 +490,7 @@ export class CloudStore {
       if (session === this.session) this.set({ loading: false, ...failure(error) });
       return;
     }
-    const [teams, plan, usage] = await Promise.allSettled([
-      client.call<CloudTeam[]>(CloudOps.teamList, {}),
-      client.call<CloudPlan>(CloudOps.planGet, {}),
-      client.call<CloudUsage>(CloudOps.usageGet, {}),
-    ]);
-    if (session !== this.session) return;
-    for (const [op, result] of [
-      [CloudOps.teamList, teams],
-      [CloudOps.planGet, plan],
-      [CloudOps.usageGet, usage],
-    ] as const)
-      if (result.status === "rejected" && isUnsupported(result.reason)) this.markUnavailable(op);
-    this.set({
-      teams: teams.status === "fulfilled" ? teams.value : [],
-      plan: plan.status === "fulfilled" ? plan.value : undefined,
-      usage: usage.status === "fulfilled" ? usage.value : undefined,
-    });
+    await this.account.load(session);
   }
 
   private onEvent(event: MachineEvent): void {
@@ -457,8 +503,8 @@ export class CloudStore {
       return;
     }
     const target = event.type === "removed" ? event.id : event.machine.id;
-    // An answer without a revision (a native action): the owner's next event for that machine is
-    // its echo, whatever value the owner chose. Answers with a revision settle in setMirror.
+    // An answer without a revision (a delete): the owner's next event for that machine is its echo,
+    // whatever value the owner chose. Answers with a revision settle in setMirror.
     const pending = this.state.pending.filter(
       (intent) => !(intent.replied && intent.revision === undefined && intent.machine === target),
     );
@@ -488,43 +534,40 @@ export class CloudStore {
     });
   }
 
-  /** Sends one machine intent; answers the owner's result, or undefined after a reject. */
+  /**
+   * Sends one machine intent, directly or (`native`) as a host action after its confirmation.
+   * Answers the owner's result, or undefined after a reject or a declined sheet.
+   */
   private async machineIntent(
     kind: IntentKind,
     machine: string,
     op: string,
     params: Record<string, unknown>,
     fields: Partial<PendingIntent> = {},
+    native = false,
   ): Promise<unknown> {
     if (!this.canChange()) return undefined;
     const key = this.key();
     this.pushIntent({ key, kind, machine, ...fields });
     const session = this.session;
+    const args = { machine, ...params, idempotency_key: key };
     try {
       // Recorded even after a session restart, so the intent cannot stay pending.
-      const result = await this.client!.call(op, { machine, ...params, idempotency_key: key });
+      const result = native
+        ? await this.client!.call<MachineActionResult | null>(ACTION_RUN, { action: op, args })
+        : await this.client!.call<MachineResult>(op, args);
+      if (native && (result as ActionRunResult | null)?.confirmed === false) {
+        this.dropIntent(key);
+        return undefined;
+      }
       this.replied(key, result);
+      if (session === this.session && (kind === "start" || kind === "pause" || kind === "resize"))
+        void this.account.readPlan(session);
       return result;
     } catch (error) {
       this.dropIntent(key);
       if (session === this.session) this.fail(op, error);
       return undefined;
-    }
-  }
-
-  /** Restore and fork: a new machine, shown as a pending create row until the mirror has it. */
-  private async newMachine(op: string, params: Record<string, unknown>, name: string): Promise<void> {
-    if (!this.canChange()) return;
-    const key = this.key();
-    this.pushIntent({ key, kind: "create", name });
-    const session = this.session;
-    try {
-      // Recorded even after a session restart, so the pending create row cannot stay.
-      const result = await this.client!.call<MachineMutationResult>(op, { ...params, idempotency_key: key });
-      this.updateIntent(key, { result_id: result.id, replied: true, revision: revisionOf(result) });
-    } catch (error) {
-      this.dropIntent(key);
-      if (session === this.session) this.fail(op, error);
     }
   }
 
@@ -537,10 +580,21 @@ export class CloudStore {
     }
   }
 
-  /** A reject: "not available yet" for an op the owner does not serve, else the error banner. */
+  /**
+   * A reject: a plan refusal shows its sentence and "See plans"; an op the owner does not serve yet
+   * shows "Not available yet"; anything else shows the error banner.
+   */
   private fail(op: string, error: unknown): void {
+    if (this.refused(error)) return;
     if (isUnsupported(error)) this.markUnavailable(op);
     else this.set(failure(error));
+  }
+
+  /** Shows a plan refusal; false when `error` is none. */
+  private refused(error: unknown): boolean {
+    const refusal = planRefusal(error);
+    if (refusal) this.set({ refusal });
+    return !!refusal;
   }
 
   private markUnavailable(op: string): void {
@@ -586,7 +640,8 @@ function signedOutState(): Partial<CloudState> {
     rows: [],
     teams: [],
     plan: undefined,
-    usage: undefined,
+    migration: undefined,
+    refusal: undefined,
     selection: undefined,
     detail: undefined,
     create: undefined,
@@ -595,14 +650,7 @@ function signedOutState(): Partial<CloudState> {
   };
 }
 
-/** The stats of a resize answer, without its `revision`. */
-function statsOf(result: ResizeResult): MachineStats {
-  const stats: MachineStats & { revision?: number } = { ...result };
-  delete stats.revision;
-  return stats;
-}
-
-/** The `revision` of a mutation result, when the owner sent one. */
+/** The projection `revision` of a mutation result, when the owner sent one. */
 function revisionOf(result: unknown): number | undefined {
   const revision = (result as { revision?: unknown } | null)?.revision;
   return typeof revision === "number" ? revision : undefined;
@@ -613,7 +661,7 @@ function message(error: unknown): string {
 }
 
 /** A transport failure means the owner is unreachable: the page shows disconnected. */
-function failure(error: unknown, withMessage = true): Partial<CloudState> {
+export function failure(error: unknown, withMessage = true): Partial<CloudState> {
   if (isPageError(error) && error.code === "cmux.protocol.transport") {
     return { connection: "disconnected", error: message(error) };
   }

@@ -2,7 +2,8 @@ public import Foundation
 
 /// The diff page's host commands on `cmux.page.command` (diff-host.md S1). The app's single key
 /// dispatcher (R59) maps the `diffViewer*` actions to these; the page adds no key handling.
-public nonisolated enum DiffPageCommand {
+public nonisolated struct DiffPageCommand {
+    public nonisolated init() {}
     public static let nextLine = "nextLine"
     public static let previousLine = "previousLine"
     public static let halfPageDown = "halfPageDown"
@@ -39,15 +40,22 @@ public nonisolated enum DiffPageCommand {
 }
 
 /// The markdown page's host commands (the `markdownZoom*` actions, diff-host.md S6).
-public nonisolated enum MarkdownPageCommand {
+public nonisolated struct MarkdownPageCommand {
+    public nonisolated init() {}
     public static let zoomIn = "zoomIn"
     public static let zoomOut = "zoomOut"
     public static let zoomReset = "zoomReset"
+    /// Saves the document (Cmd-S, the `markdownSave` action).
+    public static let save = "save"
+    /// Inserts or edits a link at the selection (Cmd-K, `markdownLink`).
+    public static let link = "link"
 
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset]
+    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link]
 
+    /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [
-        "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset,
+        "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
+        "markdownLink": link, "markdownBack": "back", "markdownForward": "forward",
     ]
 }
 

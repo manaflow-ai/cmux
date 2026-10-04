@@ -2,6 +2,7 @@ import type { CodeViewItem } from "@pierre/diffs";
 import type { CommentAnnotationMetadata } from "./comments/types";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
+import { deferredFileDiff } from "./deferred-parse";
 import { annotateDiffMetadata } from "./diff-metadata";
 import { patchFingerprint } from "./viewed-files";
 
@@ -113,6 +114,8 @@ export type StreamPatchOptions = {
   parsePatchFiles: (patchText: string, cacheKey: string) => Array<{ files?: any[]; patchMetadata?: string }>;
   patchURL: string;
   processFile: (patchText: string, options: { cacheKey: string; isGitDiff: boolean }) => any;
+  /** Whether the repository marks `path` generated (`.gitattributes`); such files load deferred. */
+  isGeneratedPath?: (path: string) => boolean;
 };
 
 const commitMetadataPattern = /^From\s+([a-f0-9]+)\s/im;
@@ -254,7 +257,11 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
       patchMetadataIndex += 1;
     }
     const cacheKey = `cmux-diff-file-${model.fileIndex}`;
-    const fileDiff = options.processFile(fileText, { cacheKey, isGitDiff: true });
+    // A file that will open collapsed behind "Load diff" is not parsed now
+    // (deferred-parse.ts): only its header, plus a count of its changed lines.
+    const fileDiff =
+      deferredFileDiff(fileText, cacheKey, options.processFile, options.isGeneratedPath ?? (() => false)) ??
+      options.processFile(fileText, { cacheKey, isGitDiff: true });
     annotateDiffMetadata(fileDiff, fileText);
     annotatePatchIdentity(fileDiff, fileText);
     await enqueueFileDiff(fileDiff, currentPatchPrefix);
@@ -807,6 +814,10 @@ export function decodeGitQuotedPath(path: string): string {
 }
 
 export function fileStats(fileDiff: any): FileStats {
+  // A deferred file is not parsed yet; its counts come from the patch text.
+  if (fileDiff?.cmuxDeferredStats != null) {
+    return { ...fileDiff.cmuxDeferredStats };
+  }
   const stats = { added: 0, deleted: 0 };
   for (const hunk of fileDiff.hunks ?? []) {
     stats.added += hunk.additionLines ?? 0;

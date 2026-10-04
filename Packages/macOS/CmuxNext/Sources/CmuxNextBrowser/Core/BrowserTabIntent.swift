@@ -9,6 +9,9 @@ public nonisolated enum BrowserNewTabDisposition: Hashable, Sendable {
     /// `window.open` with window features (OAuth, payment popups). Callers may
     /// show it as a tab or a small floating pane; it keeps `window.opener`.
     case popup
+    /// Shift-click, "Open Link in New Window": a new cmux window (a new
+    /// workspace holding the tab).
+    case newWindow
 }
 
 /// Requests a tab sends to its host. The App layer turns them into daemon

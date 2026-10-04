@@ -75,6 +75,7 @@ extension BrowserChromeView {
         add("omnibar", addressBar)
         if extensionToolbar.isShowingExtensions { add("extensions", extensionToolbar.puzzle) }
         for id in extensionToolbar.visibleIDs { add("action:\(id)", extensionToolbar.button(for: id)) }
+        for button in BrowserToolbarButton.allCases { add("button:\(button.rawValue)", toolbarButtons.button(button)) }
         let host = extensionToolbar.host
         return BrowserToolbarReport(
             width: bounds.width, showsForward: !forwardButton.isHidden,
@@ -100,7 +101,10 @@ extension BrowserChromeView {
         super.viewDidMoveToWindow()
         if window == nil { extensionToolbar.hidePopups() }
         // A tab shown again repaints: overrides may have changed while it was out (R55).
-        else { updateColors() }
+        else {
+            updateColors()
+            renderPrompt()
+        }
     }
 
     /// The region of this chrome that contains `view`, nil when outside.
@@ -115,7 +119,7 @@ extension BrowserChromeView {
     /// Collapses the toolbar for the pane's width (BrowserToolbarLayout).
     func applyToolbarLayout() {
         let resolved = BrowserToolbarLayout.resolve(
-            width: bounds.width, pinned: extensionToolbar.pinnedCount,
+            width: widthLeftByToolbarButtons(), pinned: extensionToolbar.pinnedCount,
             showsExtensions: extensionToolbar.isShowingExtensions, metrics: Self.toolbarMetrics
         )
         guard resolved != toolbarLayout else { return }

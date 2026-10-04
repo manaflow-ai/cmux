@@ -2,6 +2,14 @@
 // so it picks the language WebKit reports for the app (`navigator.languages`, which follows
 // the app's preferred localizations), falling back to English. Keys are the English text's
 // role; values keep product names (cmux) and placeholders ({n}) intact.
+//
+// The language is a reactive value: a small store that follows `languagechange` (and
+// `setPaneLanguage`). Components read strings through `useT()`, so a language change
+// re-renders them under either React Compiler; a module-level function read during render
+// would look constant to the compiler and keep memoized strings stale. `translate` is for
+// code outside render (event handlers, clients), where the current language is read once.
+import { useSyncExternalStore } from "react";
+
 const en = {
   "search.title": "Search chats",
   "search.placeholder": "Search chats",
@@ -34,9 +42,21 @@ const en = {
   "picker.provider": "Provider",
   "picker.family": "Family",
   "picker.newChat": "New chat",
+  "picker.unavailable": "Unavailable",
+  "picker.tryAgain": "Try again",
   "picker.search": "Type to search models",
   "picker.noMatches": "No matching models",
   "picker.back": "Back",
+  "switch.starting": "Starting {agent}…",
+  "switch.failed": "Couldn't start {agent}: {reason}",
+  "switch.failedShort": "Couldn't start",
+  "switch.deferred": "{agent} starts with your next prompt. This reply keeps going.",
+  "switch.retry": "Retry",
+  "switch.cancelPrompt": "Cancel",
+  "switch.modelFailed": "Couldn't switch to {model}: {reason}",
+  "switch.cancelled": "The switch was cancelled; the prompt is back in the composer.",
+  "switch.noSession": "acpmux did not start a session",
+  "switch.unknownError": "unknown error",
   "trust.ask": "{agent} can edit and run code in {folder}",
   "trust.trust": "Trust",
   "trust.distrust": "Don't trust",
@@ -221,9 +241,21 @@ const ja: Record<StringKey, string> = {
   "picker.provider": "プロバイダ",
   "picker.family": "ファミリー",
   "picker.newChat": "新しいチャット",
+  "picker.unavailable": "利用できません",
+  "picker.tryAgain": "もう一度試す",
   "picker.search": "入力してモデルを検索",
   "picker.noMatches": "一致するモデルはありません",
   "picker.back": "戻る",
+  "switch.starting": "{agent} を起動しています…",
+  "switch.failed": "{agent} を起動できませんでした: {reason}",
+  "switch.failedShort": "起動できませんでした",
+  "switch.deferred": "{agent} は次のプロンプトから使われます。この返答はそのまま続きます。",
+  "switch.retry": "再試行",
+  "switch.cancelPrompt": "キャンセル",
+  "switch.modelFailed": "{model} に切り替えられませんでした: {reason}",
+  "switch.cancelled": "切り替えを取り消しました。プロンプトは入力欄に戻りました。",
+  "switch.noSession": "acpmux がセッションを開始しませんでした",
+  "switch.unknownError": "不明なエラー",
   "trust.ask": "{agent} は {folder} でコードを編集・実行できます",
   "trust.trust": "信頼する",
   "trust.distrust": "信頼しない",
@@ -378,8 +410,13 @@ const ja: Record<StringKey, string> = {
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
 
+export type PaneLanguage = "en" | "ja";
+export type StringValues = Record<string, string | number>;
+/** A pane string in one language, with `{name}` placeholders filled. */
+export type Translate = (key: StringKey, values?: StringValues) => string;
+
 /** The pane's language: the first of the app's languages the pane has strings for. */
-export function paneLanguage(languages: readonly string[] = globalThis.navigator?.languages ?? []): "en" | "ja" {
+export function paneLanguage(languages: readonly string[] = globalThis.navigator?.languages ?? []): PaneLanguage {
   for (const language of languages) {
     const base = language.toLowerCase().split("-")[0];
     if (base === "ja") return "ja";
@@ -388,10 +425,55 @@ export function paneLanguage(languages: readonly string[] = globalThis.navigator
   return "en";
 }
 
-/** A pane string, with `{name}` placeholders filled. */
-export function t(key: StringKey, values: Record<string, string | number> = {}, language = paneLanguage()): string {
-  const text = tables[language]?.[key] ?? en[key];
+let active: PaneLanguage = paneLanguage();
+const listeners = new Set<() => void>();
+
+/** The language the pane renders in now. */
+export function currentLanguage(): PaneLanguage {
+  return active;
+}
+
+/** Switches the pane's language; every component that reads strings through `useT()` re-renders. */
+export function setPaneLanguage(next: PaneLanguage): void {
+  if (next === active) return;
+  active = next;
+  for (const listener of listeners) listener();
+}
+
+/** Calls `listener` after each language change; returns the unsubscribe function. */
+export function subscribeLanguage(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+globalThis.window?.addEventListener("languagechange", () => setPaneLanguage(paneLanguage()));
+
+/** A pane string, with `{name}` placeholders filled. Outside render only; components use `useT()`. */
+export function translate(key: StringKey, values: StringValues = {}, lang: PaneLanguage = active): string {
+  const text = tables[lang]?.[key] ?? en[key];
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
+}
+
+// One translator per language, so `useT()` returns a value that changes exactly when the
+// language does (a memoized string depends on it, and stays cached otherwise).
+const translators: Record<PaneLanguage, Translate> = {
+  en: (key, values) => translate(key, values, "en"),
+  ja: (key, values) => translate(key, values, "ja"),
+};
+
+/** The translator for `lang`, for code that already holds a language. */
+export function translatorFor(lang: PaneLanguage): Translate {
+  return translators[lang];
+}
+
+/** The pane's language as React state. */
+export function usePaneLanguage(): PaneLanguage {
+  return useSyncExternalStore(subscribeLanguage, currentLanguage, currentLanguage);
+}
+
+/** The translator for the pane's current language; re-renders the caller when it changes. */
+export function useT(): Translate {
+  return translators[usePaneLanguage()];
 }
 
 /** Every key of every language, for tests that keep the tables complete. */

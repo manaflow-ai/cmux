@@ -1,12 +1,45 @@
 // The Files section of the selected machine (files.ts). Nothing is read until Browse. Folders open on
 // click; a file click previews a small text file, which Edit turns into a field that Save writes back.
 // Delete, Upload and Download go to the host (native confirmation or file panel); the page never
-// calls `fs.remove`, `file.push` or `file.pull` itself.
+// calls `fs.remove`, `file.push` or `file.pull` itself. A push or pull shows as a transfer row that
+// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry. A
+// machine whose daemon has no file ops yet (`fs-v1`) shows "Not available yet" for that machine.
 import { useState } from "react";
 import { formatBytes, plainKeys, type SectionProps } from "./sectionParts";
 import { joinPath } from "./files";
 import { CloudOps } from "./ops";
 import { format, L } from "./strings";
+import type { FileTransfer } from "./transfers";
+
+const TRANSFER_LABEL = {
+  running: L.transferRunning,
+  done: L.transferDone,
+  failed: L.transferFailed,
+  cancelled: L.transferCancelled,
+} as const;
+
+function Transfers({ transfers, strings }: { transfers: readonly FileTransfer[]; strings: SectionProps["strings"] }) {
+  const { t } = strings;
+  if (!transfers.length) return null;
+  return (
+    <>
+      <h4 className="cloud-subsection-title">{t(L.transfers)}</h4>
+      <ul className="cloud-items cloud-transfers">
+        {transfers.map((transfer) => (
+          <li key={transfer.transfer} className={`cloud-item cloud-transfer kind-${transfer.direction}`}>
+            <span className="cloud-item-title cloud-mono">{transfer.path}</span>
+            <span className="cloud-item-detail">
+              {transfer.state === "done" && transfer.bytes != null ? formatBytes(transfer.bytes, strings) : ""}
+            </span>
+            <span className={`cloud-transfer-state state-${transfer.state}`} title={transfer.error}>
+              {t(TRANSFER_LABEL[transfer.state])}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
 
 function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detail" | "strings">) {
   const { t } = strings;
@@ -100,27 +133,41 @@ function NewFolder({ store, t }: { store: SectionProps["store"]; t: (key: string
   );
 }
 
-export function FilesSection({ store, detail, unavailable, strings }: Omit<SectionProps, "machine">) {
+export function FilesSection({
+  store,
+  detail,
+  unavailable,
+  transfers,
+  strings,
+}: Omit<SectionProps, "machine"> & { transfers: readonly FileTransfer[] }) {
   const { t } = strings;
   const files = detail.files;
+  const off = unavailable.includes(CloudOps.fsList) || !!files?.unavailable;
+  const rows = <Transfers transfers={transfers.filter((item) => item.machine === detail.machine)} strings={strings} />;
   const header = (
     <div className="cloud-subsection-header">
       <h3 className="cloud-subsection-title">{t(L.files)}</h3>
-      {!files && !unavailable.includes(CloudOps.fsList) && (
+      {!files && !off && (
         <button type="button" className="cloud-link-button cloud-files-browse" onClick={() => void store.files.open()}>
           {t(L.filesBrowse)}
         </button>
       )}
     </div>
   );
-  if (unavailable.includes(CloudOps.fsList))
+  if (off)
     return (
       <>
         {header}
         <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>
       </>
     );
-  if (!files) return header;
+  if (!files)
+    return (
+      <>
+        {header}
+        {rows}
+      </>
+    );
   return (
     <>
       {header}
@@ -145,6 +192,19 @@ export function FilesSection({ store, detail, unavailable, strings }: Omit<Secti
           </button>
         )}
       </div>
+      {files.busy && (
+        <p className="cloud-muted cloud-transfer-busy">
+          {t(L.transferBusy)}{" "}
+          <button
+            type="button"
+            className="cloud-link-button cloud-transfer-retry"
+            onClick={() => void store.files.retryTransfer()}
+          >
+            {t(L.retry)}
+          </button>
+        </p>
+      )}
+      {rows}
       {files.entries?.length ? (
         <ul className="cloud-items cloud-files">
           {files.entries.map((entry) => {

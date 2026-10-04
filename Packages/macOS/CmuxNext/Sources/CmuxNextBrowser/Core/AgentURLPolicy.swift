@@ -7,13 +7,16 @@ public import Foundation
 /// script; `chrome://extensions` and `chrome://settings` change the profile.
 /// One rule for every agent path: navigate, Back/Forward targets, reload and
 /// evaluate while one shows, and a commit that reaches one anyway.
-public nonisolated enum AgentURLPolicy {
+public nonisolated struct AgentURLPolicy {
+    public nonisolated init() {}
     /// What an agent-driven tab shows instead of a refused page.
     public static let replacementURL = URL(string: BrowserNewTabPage.blankURL)
 
     static let refusedSchemes: Set<String> = [
         "chrome", "chrome-extension", "chrome-untrusted", "chrome-search",
         "devtools", "chrome-devtools", "view-source",
+        // cmux's internal pages (cmux://history, cmux://bookmarks, ...).
+        "cmux",
     ]
     /// Schemes whose inner URL names the origin.
     static let wrapperSchemes: Set<String> = ["blob", "filesystem"]
@@ -39,11 +42,29 @@ public nonisolated enum AgentURLPolicy {
         else { return false }
         let rest = trimmed[trimmed.index(after: colon)...]
         if refusedSchemes.contains(scheme) { return true }
+        if scheme == "cmux-page" { return isReservedPageHost(rest) }
         if wrapperSchemes.contains(scheme) { return refuses(String(rest), wrappers: wrappers + 1) }
         if scheme == "about" {
             let page = rest.prefix { $0 != "?" && $0 != "#" }.lowercased()
             return !plainAboutPages.contains(page)
         }
         return false
+    }
+
+    /// First-party pages (`cmux-page://cmux`, `cmux-page://cmux.<id>`: Settings,
+    /// History, Passwords, the agent pane; and single-label shared hosts such
+    /// as `cmux-page://shell`) answer privileged page ops; an agent never
+    /// drives them. Third-party app pages (reverse-DNS ids, always dotted)
+    /// stay allowed. Fail closed: an empty host or one with a percent escape.
+    static func isReservedPageHost(_ rest: Substring) -> Bool {
+        let afterSlashes = rest.drop { $0 == "/" || $0 == "\\" }
+        var host = afterSlashes.prefix { !"/\\?#".contains($0) }
+        if host.contains("%") { return true }
+        if let at = host.lastIndex(of: "@") { host = host[host.index(after: at)...] }
+        if let colon = host.firstIndex(of: ":") { host = host[..<colon] }
+        var name = host.lowercased()
+        while name.hasSuffix(".") { name.removeLast() }
+        // A third-party app id always has a dot; a single label ("shell") is a shared first-party host.
+        return name.isEmpty || name == "cmux" || name.hasPrefix("cmux.") || !name.contains(".")
     }
 }

@@ -1,9 +1,10 @@
-// Account, plan, billing and usage. Billing opens checkout or the billing portal in the browser
-// through the host's native action (a money action); no card data and no price logic in the page.
-// Ops the owner does not serve yet (team list, sign-out, billing) show "Not available yet".
+// Account, plan and usage. `cloud.plan.get` answers the limits and the usage in one record; the page
+// shows them as the backend reports them (machines, snapshots, compute hours) and computes no limit.
+// Checkout runs from a plan refusal's "See plans" (Notices.tsx). Ops the owner does not serve yet
+// (team list, sign-out) show "Not available yet".
 import type { Strings } from "../shared/i18n";
-import { activeMachines } from "./model";
-import { CloudOps } from "./ops";
+import { percent } from "./model";
+import { AccountOps } from "./ops";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 
@@ -20,12 +21,22 @@ function amount(
   return limit === undefined || limit === null ? text(value) : `${text(value)} / ${text(limit)}`;
 }
 
+function UsageRow({ label, used, limit, text }: { label: string; used: number; limit?: number | null; text: string }) {
+  return (
+    <div className="cloud-meter">
+      <span className="cloud-meter-label">{label}</span>
+      <span className="cloud-meter-track" aria-hidden="true">
+        <span className="cloud-meter-fill" style={{ width: `${percent(used, limit) ?? 0}%` }} />
+      </span>
+      <span className="cloud-meter-text">{text}</span>
+    </div>
+  );
+}
+
 export function AccountPanel({ store, state, strings }: { store: CloudStore; state: CloudState; strings: Strings }) {
   const { t, language } = strings;
-  const { auth, plan, usage, teams, unavailable } = state;
-  const signOutUnavailable = unavailable.includes(CloudOps.authSignOut);
-  const billingUnavailable = unavailable.includes(CloudOps.billingOpen);
-  const used = plan?.activeVmCount ?? activeMachines(state.machines);
+  const { auth, plan, teams, unavailable } = state;
+  const signOutUnavailable = unavailable.includes(AccountOps.signOut);
   return (
     <aside className="cloud-account" aria-label={t(L.plan)}>
       <div className="cloud-account-row">
@@ -46,7 +57,7 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
           <select
             className="cloud-input cloud-team-select"
             value={auth?.team ?? ""}
-            disabled={unavailable.includes(CloudOps.teamSelect)}
+            disabled={unavailable.includes(AccountOps.teamSelect)}
             onChange={(event) => event.target.value && void store.selectTeam(event.target.value)}
           >
             {!teams.some((team) => team.id === auth?.team) && <option value="">{t(L.team)}</option>}
@@ -63,33 +74,31 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
           <h3 className="cloud-subsection-title">{t(L.plan)}</h3>
           <dl className="cloud-fields">
             <dt>{t(L.plan)}</dt>
-            <dd className="cloud-plan-name">{plan.planId ?? "-"}</dd>
-            {plan.maxActiveVms !== undefined && plan.maxActiveVms !== null && (
-              <>
-                <dt>{t(L.machines)}</dt>
-                <dd>{format(t(L.planMachines), { used, limit: plan.maxActiveVms })}</dd>
-              </>
-            )}
+            <dd className="cloud-plan-name">{plan.plan_id}</dd>
           </dl>
-          <button
-            type="button"
-            className="cloud-button cloud-billing-button"
-            aria-disabled={billingUnavailable}
-            title={billingUnavailable ? t(L.unavailable) : undefined}
-            onClick={() => !billingUnavailable && void store.openBilling()}
-          >
-            {t(plan.memoryUpgradePlanId ? L.upgrade : L.manageBilling)}
-          </button>
-          {billingUnavailable && <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>}
-        </>
-      )}
-      {usage && usage.vmHoursUsed !== undefined && usage.vmHoursUsed !== null && (
-        <>
           <h3 className="cloud-subsection-title">{t(L.usage)}</h3>
-          <dl className="cloud-fields">
-            <dt>{t(L.usageCompute)}</dt>
-            <dd>{amount(usage.vmHoursUsed, usage.vmHoursIncluded, L.hours, t, language)}</dd>
-          </dl>
+          <div className="cloud-stats cloud-usage">
+            <UsageRow
+              label={t(L.machines)}
+              used={plan.usage.active}
+              limit={plan.limits.max_active}
+              text={format(t(L.planMachines), { used: plan.usage.active, limit: plan.limits.max_active })}
+            />
+            <UsageRow
+              label={t(L.snapshots)}
+              used={plan.usage.saved}
+              limit={plan.limits.max_saved}
+              text={format(t(L.planUsed), { used: plan.usage.saved, limit: plan.limits.max_saved })}
+            />
+            {plan.usage.vm_hours_used !== undefined && plan.usage.vm_hours_used !== null && (
+              <UsageRow
+                label={t(L.usageCompute)}
+                used={plan.usage.vm_hours_used}
+                limit={plan.limits.vm_hours_included}
+                text={amount(plan.usage.vm_hours_used, plan.limits.vm_hours_included, L.hours, t, language)}
+              />
+            )}
+          </div>
         </>
       )}
     </aside>

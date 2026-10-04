@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { translatorFor } from "../i18n";
 import { hunkKey, turnFiles } from "../diff";
 import type { AcpmuxRow } from "../model";
 import { rejectedHunks } from "./hunkReview";
 import { readTurnCheckpoint, turnCounts, turnDisplay, type TurnCheckpointLoad } from "./turnCheckpoint";
+
+const english = translatorFor("en");
 
 const toolFiles = turnFiles([
   {
@@ -48,7 +51,7 @@ describe("turn checkpoint", () => {
   });
 
   test("a loaded checkpoint replaces the tool calls' edits, marking files no tool call changed", () => {
-    const display = turnDisplay(toolFiles, readTurnCheckpoint(wire()), false);
+    const display = turnDisplay(english, toolFiles, readTurnCheckpoint(wire()), false);
     expect(display.source).toBe("checkpoint");
     expect(display.note).toBeUndefined();
     expect(display.files.map((file) => [file.displayPath, file.outside ?? false])).toEqual([
@@ -64,6 +67,7 @@ describe("turn checkpoint", () => {
 
   test("a checkpoint hunk only maps to a tool hunk with the same changed lines", () => {
     const changed = turnDisplay(
+      english,
       toolFiles,
       readTurnCheckpoint({
         ...wire(),
@@ -87,6 +91,7 @@ describe("turn checkpoint", () => {
 
   test("a truncated checkpoint patch never gets review controls", () => {
     const display = turnDisplay(
+      english,
       toolFiles,
       readTurnCheckpoint({
         ...wire(),
@@ -136,6 +141,7 @@ describe("turn checkpoint", () => {
       },
     ] as AcpmuxRow[]);
     const display = turnDisplay(
+      english,
       repeated,
       readTurnCheckpoint({
         ...wire(),
@@ -181,6 +187,7 @@ describe("turn checkpoint", () => {
       },
     ] as AcpmuxRow[]);
     const display = turnDisplay(
+      english,
       repeated,
       readTurnCheckpoint({
         ...wire(),
@@ -218,6 +225,7 @@ describe("turn checkpoint", () => {
       },
     ] as AcpmuxRow[]);
     const display = turnDisplay(
+      english,
       tool,
       readTurnCheckpoint({
         ...wire(),
@@ -243,7 +251,7 @@ describe("turn checkpoint", () => {
       [{ state: "incomplete", checkpointId: "cp-7" }, true],
     ];
     for (const [load, noted] of cases) {
-      const display = turnDisplay(toolFiles, load, false);
+      const display = turnDisplay(english, toolFiles, load, false);
       expect(display.source).toBe("tools");
       expect(display.files).toBe(toolFiles);
       expect(Boolean(display.note)).toBe(noted);
@@ -251,7 +259,7 @@ describe("turn checkpoint", () => {
   });
 
   test("an unsent Undo holds the tool-call view even after the checkpoint loads", () => {
-    const display = turnDisplay(toolFiles, readTurnCheckpoint(wire()), true);
+    const display = turnDisplay(english, toolFiles, readTurnCheckpoint(wire()), true);
     expect(display.source).toBe("tools");
     expect(display.note).toContain("Keep and Undo");
   });

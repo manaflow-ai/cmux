@@ -235,6 +235,10 @@ final class TabCell {
             return TabSymbolCache.shared.image(named: "circle.fill", tint: tint, pointSize: Metrics.smallIconSize * 0.6,
                                                size: metrics.iconSize, scale: scale)
         case .image(let image): return image.cgImage
+        case .agentMark(let brand):
+            return TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: metrics.iconSize, scale: scale)
+                ?? TabSymbolCache.shared.image(named: "terminal", tint: tint, pointSize: Metrics.smallIconSize,
+                                               size: metrics.iconSize, scale: scale)
         case .symbol(let name):
             return TabSymbolCache.shared.image(
                 named: name,
@@ -299,14 +303,22 @@ final class TabCell {
                 : (bounds.width - iconSide) / 2
         }
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
-        let showsIconArt = visibility.showsIcon && spinnerLayer == nil
+        // A working agent keeps its brand mark, with the spinner as a small badge on it.
+        let spinnerBadgesMark = spinnerLayer != nil && { if case .agentMark = item.icon { true } else { false } }()
+        let showsIconArt = visibility.showsIcon && (spinnerLayer == nil || spinnerBadgesMark)
         iconLayer.frame = iconFrame
         layoutThemeBadge(iconFrame: iconFrame, visible: visibility.showsIcon)
         // A hibernated page's icon is dimmed until it is selected.
         iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {
             spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0
-            spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
+            if spinnerBadgesMark {
+                let side = pixel(iconFrame.width * 0.55)
+                spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
+                                            width: side, height: side)
+            } else {
+                spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
+            }
         }
 
         if visibility.showsIcon, badgeColor != nil {

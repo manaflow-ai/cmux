@@ -24,10 +24,10 @@ import { discoverHarnesses } from "./harnesses";
 import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
 import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
-import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
+import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename as pathBasename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename as pathBasename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 function argValue(name: string): string | undefined {
   const eq = Bun.argv.find((arg) => arg.startsWith(`${name}=`));
@@ -116,7 +116,6 @@ export async function writeStateFileForTest(path: string, port: number) {
 initializeAgentPath(process.env, process.platform);
 const ROOT = import.meta.dir;
 const DEFAULT_CWD = `${ROOT}/scratch`;
-const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
 const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
@@ -337,7 +336,6 @@ function providerInfo(p: ProviderDef) {
     // every provider reads as uninstalled under launchd's minimal PATH.
     installed: Boolean(Bun.which(p.cmd?.[0] ?? p.id, { PATH: process.env.PATH })),
     installCommand: p.installCommand,
-    ...(providerIconInfo.get(p.id) ?? {}),
   };
 }
 
@@ -1645,39 +1643,6 @@ async function walkFiles(root: string): Promise<string[]> {
   return out;
 }
 
-function iconFile(provider: string, dark: boolean): string | null {
-  const file = provider === "claude" ? "Claude.imageset/Claude@2x.png"
-    : provider === "codex" ? `Codex.imageset/${dark ? "Codex-dark@2x.png" : "Codex@2x.png"}`
-      : provider === "opencode" ? "OpenCode.imageset/OpenCode@2x.png"
-        : provider === "pi" ? "Pi.imageset/Pi.svg"
-          : null;
-  if (!file) return null;
-  const resolved = resolve(ICON_ROOT, file);
-  const rel = relative(ICON_ROOT, resolved);
-  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
-  return existsSync(resolved) ? resolved : null;
-}
-
-function iconResponse(url: URL): Response {
-  const provider = url.pathname.slice("/icons/".length);
-  if (!/^[a-z0-9_-]+$/i.test(provider)) return new Response("not found", { status: 404 });
-  const file = iconFile(provider, url.searchParams.get("dark") === "1");
-  if (!file) return new Response("not found", { status: 404 });
-  const type = extname(file) === ".svg" ? "image/svg+xml" : "image/png";
-  return new Response(Bun.file(file), {
-    headers: {
-      "content-type": type,
-      "cache-control": "public, max-age=31536000, immutable",
-    },
-  });
-}
-
-const providerIconInfo = new Map(PROVIDERS.map((p) => {
-  const iconUrl = iconFile(p.id, false) ? prefixedPath(`/icons/${p.id}`) : undefined;
-  const iconDarkUrl = p.id === "codex" && iconFile(p.id, true) ? `${prefixedPath(`/icons/${p.id}`)}?dark=1` : undefined;
-  return [p.id, { ...(iconUrl ? { iconUrl } : {}), ...(iconDarkUrl ? { iconDarkUrl } : {}) }];
-}));
-
 const ANSI_NAMES = [
   "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
   "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white",
@@ -2119,7 +2084,6 @@ function startServer() {
         ? undefined
         : new Response("upgrade failed", { status: 400 });
     }
-    if (url.pathname.startsWith("/icons/")) return iconResponse(url);
     if (url.pathname === "/app.js" || url.pathname === "/gallery.js" || /^\/chunk-[\w-]+\.js$/.test(url.pathname)) {
       try {
         const asset = (await buildBundles()).get(url.pathname);

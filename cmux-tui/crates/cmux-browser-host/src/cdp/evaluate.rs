@@ -58,6 +58,10 @@ impl Inner {
                 .map(|(session, id)| Ok(Context { session: session.clone(), id: *id }))
         });
         match known {
+            Ok(context) if world == World::Agent => {
+                self.ensure_agent(session, &context, deadline)?;
+                return Ok(context);
+            }
             Ok(context) => return Ok(context),
             Err(error) if error.code != ErrorCode::Timeout => return Err(error),
             Err(_) => {}
@@ -90,8 +94,55 @@ impl Inner {
         }
         if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
             tab.contexts.insert(key, (owner.clone(), id));
+            if world == World::Agent {
+                tab.agent_ready.insert((owner.clone(), id));
+            }
         }
         Ok(Context { session: owner, id })
+    }
+
+    /// Makes sure a reported agent-world context holds the page agent.
+    /// Chromium can report two isolated contexts with the agent world's name
+    /// for one new document (seen after a cross-site navigation to an http
+    /// page), and the one recorded last may never have run the agent script;
+    /// agent calls there failed with "Cannot read properties of undefined".
+    /// The agent script returns at once where the agent already exists.
+    fn ensure_agent(
+        &self,
+        session: &Session,
+        context: &Context,
+        deadline: Instant,
+    ) -> Result<(), DriverError> {
+        let ready = (context.session.clone(), context.id);
+        let known_ready = self
+            .lock()
+            .tabs
+            .get(&session.target_id)
+            .is_some_and(|tab| tab.agent_ready.contains(&ready));
+        if known_ready {
+            return Ok(());
+        }
+        let probe = self.send_on(
+            &context.session,
+            "Runtime.evaluate",
+            json!({"expression": "typeof globalThis.__cmuxPageAgent === 'object'", "contextId": context.id, "returnByValue": true}),
+            deadline,
+        )?;
+        if probe["result"]["value"].as_bool() != Some(true) {
+            let installed = self.send_on(
+                &context.session,
+                "Runtime.evaluate",
+                json!({"expression": &*self.agent_source, "contextId": context.id, "returnByValue": true}),
+                deadline,
+            )?;
+            if let Some(details) = installed.get("exceptionDetails") {
+                return Err(evaluation_error(details));
+            }
+        }
+        if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
+            tab.agent_ready.insert(ready);
+        }
+        Ok(())
     }
 
     /// Remote object id of an agent handle, in the frame's agent world.

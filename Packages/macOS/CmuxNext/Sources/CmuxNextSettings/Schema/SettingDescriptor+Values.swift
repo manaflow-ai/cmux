@@ -38,6 +38,9 @@ extension SettingDescriptor {
         case .hostList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue != nil }
+        case .folderList:
+            guard case .array(let items) = value else { return false }
+            return items.allSatisfy { $0.stringValue.map { $0.hasPrefix("/") || $0.hasPrefix("~/") } ?? false }
         case .timeRange:
             guard case .object(let members) = value else { return false }
             return members["start"]?.stringValue.flatMap(QuietHours.minutes) != nil

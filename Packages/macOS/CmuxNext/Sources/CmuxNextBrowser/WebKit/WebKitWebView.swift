@@ -42,14 +42,19 @@ final class WebKitWebView: WKWebView {
         lastUserInput.map { ContinuousClock.now - $0 <= window } ?? false
     }
 
-    /// "Open Link in New Window" opens a cmux tab (the request arrives at
-    /// `createWebViewWith`), so it is renamed to match.
+    /// WebKit's "Open … in New Window" items open cmux tabs (the request
+    /// arrives at `createWebViewWith`), so they are renamed to match; the
+    /// link items are routed (`adjustContextMenu`, WebKitTab+LinkClicks).
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
+        adjustContextMenu(menu)
+    }
+
+    /// The renames and the link routing of a WebKit context menu.
+    func adjustContextMenu(_ menu: NSMenu) {
+        if let owner { LinkMenuRoute.install(in: menu, tab: owner) }
         for item in menu.items {
             switch item.identifier?.rawValue {
-            case "WKMenuItemIdentifierOpenLinkInNewWindow":
-                item.title = Strings.openLinkInNewTab
             case "WKMenuItemIdentifierOpenImageInNewWindow":
                 item.title = Strings.openImageInNewTab
             case "WKMenuItemIdentifierOpenMediaInNewWindow":

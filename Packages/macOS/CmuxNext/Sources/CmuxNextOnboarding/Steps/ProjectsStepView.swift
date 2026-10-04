@@ -30,8 +30,7 @@ final class ProjectsStepView: NSView {
         document.addSubview(list)
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
+        SystemScrollers.follow(scroll)
         scroll.documentView = document
         scroll.translatesAutoresizingMaskIntoConstraints = false
         filter.translatesAutoresizingMaskIntoConstraints = false

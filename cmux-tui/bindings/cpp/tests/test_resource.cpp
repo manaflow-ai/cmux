@@ -613,6 +613,27 @@ TEST("generic journal producer contracts stay userland and wire-compatible") {
     CHECK(agent);
     CHECK_EQ(agent.value().source, cmux::AgentSource::plugin);
 
+    const auto viewport = [](std::string_view dock) {
+        return cmux::Json::parse(
+            std::string(R"({"version":1,"screen_id":"screen_44444444444444444444444444444444","active_pane_id":"pane_55555555555555555555555555555555","zoomed_pane_id":null,"root":{"kind":"viewport","base_width":0.5,"columns":[{"column_id":"split_66666666666666666666666666666666","width":0.5,"root":{"kind":"leaf","pane_id":"pane_55555555555555555555555555555555","tab_ids":[]})") +
+            std::string(dock) +
+            R"(},{"column_id":"split_77777777777777777777777777777777","width":0.5,"root":{"kind":"leaf","pane_id":"pane_88888888888888888888888888888888","tab_ids":[]}}]}})");
+    };
+    auto pinned_wire = viewport(R"(,"dock":{"edge":"top","mode":"docked"})");
+    CHECK(pinned_wire);
+    auto pinned = cmux::detail::decode_value<cmux::LayoutDocument>(pinned_wire.value());
+    CHECK(pinned);
+    const auto& columns =
+        std::get<cmux::LayoutViewport>(pinned.value().root.value).columns;
+    CHECK(columns.at(0).dock.has_value());
+    CHECK_EQ(columns.at(0).dock->edge, std::string("top"));
+    CHECK_EQ(columns.at(0).dock->mode, std::string("docked"));
+    CHECK(!columns.at(1).dock.has_value());
+    auto unknown_edge_wire =
+        viewport(R"(,"dock":{"edge":"diagonal","mode":"docked"})");
+    CHECK(unknown_edge_wire);
+    CHECK(!cmux::detail::decode_value<cmux::LayoutDocument>(unknown_edge_wire.value()));
+
     auto screen_wire = cmux::Json::parse(
         R"({"text":"ready","revision":"12","osc_progress":"4;1;50","cols":80,"rows":24,"cursor_row":1,"cursor_col":2,"cursor_visible":true})");
     CHECK(screen_wire);

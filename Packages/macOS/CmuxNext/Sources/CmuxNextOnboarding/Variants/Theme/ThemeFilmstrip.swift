@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// A live preview above a horizontal filmstrip of mini previews, each in
 /// its own theme's colors; the picked one is ringed.
@@ -19,8 +20,7 @@ struct ThemeFilmstrip: OnboardingScreenVariant {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasHorizontalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
+        SystemScrollers.follow(scroll)
         scroll.horizontalScrollElasticity = .allowed
         scroll.verticalScrollElasticity = .none
         // The strip scrolls under the panel's edges; at rest the first ring

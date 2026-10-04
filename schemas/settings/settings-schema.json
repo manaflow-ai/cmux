@@ -169,6 +169,68 @@
     },
     {
       "accepts" : [
+        "hover",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.window.titlebarButtons.help",
+        "text" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "window.titlebarButtons",
+      "keywords" : [
+        "titlebar",
+        "buttons",
+        "back",
+        "forward",
+        "hover",
+        "hide",
+        "traffic lights",
+        "toolbar"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "window",
+        "titlebarButtons"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.window.titlebarButtons",
+        "text" : "Titlebar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "same-kind",
         "terminal",
         "browser",
@@ -257,6 +319,128 @@
       "title" : {
         "key" : "settings.tabs.newTabKind",
         "text" : "New Tab Opens"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "hover",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.plusButton.help",
+        "text" : "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.plusButton",
+      "keywords" : [
+        "plus",
+        "+",
+        "new tab",
+        "button",
+        "hover",
+        "tab bar"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "tabs",
+        "plusButton"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.plusButton",
+        "text" : "New Tab Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.barPosition.help",
+        "text" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.barPosition",
+      "keywords" : [
+        "tab bar",
+        "tabs",
+        "strip",
+        "top",
+        "bottom",
+        "position",
+        "layout",
+        "pane"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "tabs",
+        "barPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.barPosition",
+        "text" : "Tab Bar Position"
       },
       "validation" : "portable"
     },
@@ -612,6 +796,408 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "updates.checkAutomatically",
+      "keywords" : [
+        "update",
+        "sparkle",
+        "check",
+        "automatic"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "updates",
+        "checkAutomatically"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.checkAutomatically",
+        "text" : "Check for Updates Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        900,
+        604800,
+        302850
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "default" : 3600,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "updates.checkIntervalSeconds",
+      "keywords" : [
+        "update",
+        "interval",
+        "frequency",
+        "hourly",
+        "daily"
+      ],
+      "kind" : "number",
+      "path" : [
+        "updates",
+        "checkIntervalSeconds"
+      ],
+      "range" : {
+        "max" : 604800,
+        "min" : 900,
+        "placeholder" : 900,
+        "step" : 900,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -603000,
+        1208700,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.checkInterval",
+        "text" : "Check Every"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.downloadAutomatically.help",
+        "text" : "Off: a found update waits, and one click downloads and installs it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.downloadAutomatically",
+      "keywords" : [
+        "update",
+        "download",
+        "background",
+        "metered"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "updates",
+        "downloadAutomatically"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.downloadAutomatically",
+        "text" : "Download Updates Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "defer-low-data",
+        "defer-expensive",
+        "download"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesDeferLowData",
+            "text" : "Wait in Low Data Mode"
+          },
+          "value" : "defer-low-data"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesDeferExpensive",
+            "text" : "Wait on Cellular and Low Data"
+          },
+          "value" : "defer-expensive"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesDownloadAlways",
+            "text" : "Always Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "defer-low-data",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.meteredNetwork.help",
+        "text" : "While downloads wait, a found update shows as a card and one click downloads it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.meteredNetwork",
+      "keywords" : [
+        "update",
+        "metered",
+        "cellular",
+        "low data",
+        "hotspot"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "updates",
+        "meteredNetwork"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.meteredNetwork",
+        "text" : "On Metered Networks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.installOnQuit.help",
+        "text" : "A downloaded update installs as cmux quits. Terminals keep running."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.installOnQuit",
+      "keywords" : [
+        "update",
+        "install",
+        "quit"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "updates",
+        "installOnQuit"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.installOnQuit",
+        "text" : "Install Updates When Quitting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "card",
+        "badge",
+        "silent"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesCard",
+            "text" : "Show a Card"
+          },
+          "value" : "card"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesBadge",
+            "text" : "Badge Settings Only"
+          },
+          "value" : "badge"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesSilent",
+            "text" : "Install Silently on Quit"
+          },
+          "value" : "silent"
+        }
+      ],
+      "default" : "card",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "updates.notify",
+      "keywords" : [
+        "update",
+        "notify",
+        "card",
+        "badge",
+        "silent"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "updates",
+        "notify"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.notify",
+        "text" : "When an Update Is Ready"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5,
+        2.5
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.keepPreviousVersions.help",
+        "text" : "Earlier builds kept so you can roll back. Uses almost no disk until files change."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.keepPreviousVersions",
+      "keywords" : [
+        "update",
+        "rollback",
+        "previous",
+        "downgrade"
+      ],
+      "kind" : "number",
+      "path" : [
+        "updates",
+        "keepPreviousVersions"
+      ],
+      "range" : {
+        "max" : 5,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -5,
+        10,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.keepPreviousVersions",
+        "text" : "Keep Previous Versions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+          "end" : "07:30",
+          "start" : "22:00"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.off",
+        "text" : "Off"
+      },
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.quietHours.help",
+        "text" : "No update card between these times."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.quietHours",
+      "keywords" : [
+        "update",
+        "quiet",
+        "do not disturb"
+      ],
+      "kind" : "time_range",
+      "path" : [
+        "updates",
+        "quietHours"
+      ],
+      "refuses" : [
+        {
+          "end" : "07:00",
+          "start" : "25:00"
+        },
+        {
+          "start" : "22:00"
+        },
+        "22:00-07:00"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.quietHours",
+        "text" : "Quiet Hours"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -783,16 +1369,16 @@
       },
       "help" : null,
       "kept_on_reset_all" : false,
-      "key" : "layout.stickyColumnEdge",
+      "key" : "layout.dockColumnEdge",
       "keywords" : [
-        "sticky",
+        "dock",
         "pin",
         "column"
       ],
       "kind" : "choice",
       "path" : [
         "layout",
-        "stickyColumnEdge"
+        "dockColumnEdge"
       ],
       "refuses" : [
         "__not_a_choice__",
@@ -801,8 +1387,8 @@
       ],
       "section" : "general",
       "title" : {
-        "key" : "settings.layout.stickyColumnEdge",
-        "text" : "Sticky Column Edge"
+        "key" : "settings.layout.dockColumnEdge",
+        "text" : "Dock Column Edge"
       },
       "validation" : "portable"
     },
@@ -837,9 +1423,8 @@
       },
       "help" : null,
       "kept_on_reset_all" : false,
-      "key" : "layout.stickyColumnMode",
+      "key" : "layout.dockColumnMode",
       "keywords" : [
-        "sticky",
         "floating",
         "overlay",
         "dock"
@@ -847,7 +1432,7 @@
       "kind" : "choice",
       "path" : [
         "layout",
-        "stickyColumnMode"
+        "dockColumnMode"
       ],
       "refuses" : [
         "__not_a_choice__",
@@ -856,8 +1441,8 @@
       ],
       "section" : "general",
       "title" : {
-        "key" : "settings.layout.stickyColumnMode",
-        "text" : "Sticky Column Mode"
+        "key" : "settings.layout.dockColumnMode",
+        "text" : "Dock Column Mode"
       },
       "validation" : "portable"
     },
@@ -897,8 +1482,7 @@
         "dock",
         "frame",
         "orientation",
-        "corner",
-        "sticky"
+        "corner"
       ],
       "kind" : "choice",
       "path" : [
@@ -2033,6 +2617,61 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.picker",
+        "text" : "Folder Picker"
+      },
+      "help" : {
+        "key" : "settings.picker.pinned.help",
+        "text" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "picker.pinned",
+      "keywords" : [
+        "picker",
+        "pinned",
+        "folders",
+        "locations",
+        "open",
+        "save"
+      ],
+      "kind" : "folder_list",
+      "path" : [
+        "picker",
+        "pinned"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.picker.pinned",
+        "text" : "Pinned Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "list",
         "board",
         "inbox"
@@ -3033,6 +3672,84 @@
       "title" : {
         "key" : "settings.ui.animationSpeed",
         "text" : "Animations"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dividers",
+            "text" : "Dividers"
+          },
+          "value" : "dividers"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.borders",
+            "text" : "Borders"
+          },
+          "value" : "borders"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cards",
+            "text" : "Cards"
+          },
+          "value" : "cards"
+        }
+      ],
+      "default" : "borders",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.layout.paneSeparation.help",
+        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.paneSeparation",
+      "keywords" : [
+        "border",
+        "divider",
+        "separator",
+        "gap",
+        "cards",
+        "lines",
+        "seamless",
+        "pane"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "layout",
+        "paneSeparation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneSeparation",
+        "text" : "Separation"
       },
       "validation" : "portable"
     },
@@ -4392,6 +5109,212 @@
       },
       "help" : null,
       "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.internalPage.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "internalPage"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "internalPage",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.internalPage.color",
+        "text" : "Internal Pages Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.internalPage.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "internalPage"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "internalPage",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.internalPage.opacity",
+        "text" : "Internal Pages Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.splitDivider.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "splitDivider"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "splitDivider",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.splitDivider.color",
+        "text" : "Split Divider Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.splitDivider.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "splitDivider"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "splitDivider",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.splitDivider.opacity",
+        "text" : "Split Divider Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
       "key" : "appearance.surfaces.docks.color",
       "keywords" : [
         "background",
@@ -5018,6 +5941,102 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.border.help",
+        "text" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.border",
+      "keywords" : [
+        "sidebar",
+        "border",
+        "edge",
+        "line",
+        "separator",
+        "seam"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "sidebar",
+        "border"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.border",
+        "text" : "Border"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.5,
+        4,
+        2.25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.onePixel",
+        "text" : "One pixel"
+      },
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.borderWidth",
+      "keywords" : [
+        "sidebar",
+        "border",
+        "edge",
+        "line",
+        "width",
+        "thickness"
+      ],
+      "kind" : "number",
+      "path" : [
+        "sidebar",
+        "borderWidth"
+      ],
+      "range" : {
+        "max" : 4,
+        "min" : 0.5,
+        "placeholder" : 1,
+        "step" : 0.5,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -3,
+        7.5,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.borderWidth",
+        "text" : "Border Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "quiet",
         "card",
         "tray",
@@ -5122,7 +6141,7 @@
       "keywords" : [
         "sidebar",
         "sections",
-        "sticky",
+        "pinned",
         "height",
         "scroll"
       ],
@@ -5173,7 +6192,7 @@
       "keywords" : [
         "sidebar",
         "sections",
-        "sticky",
+        "pinned",
         "height",
         "scroll"
       ],
@@ -5215,21 +6234,21 @@
         "text" : "Sidebar"
       },
       "help" : {
-        "key" : "settings.sidebar.stickyBandsScroll.help",
+        "key" : "settings.sidebar.pinnedBandsScroll.help",
         "text" : "Off: the top and bottom sections never scroll and the workspace list gets smaller."
       },
       "kept_on_reset_all" : false,
-      "key" : "sidebar.stickyBandsScroll",
+      "key" : "sidebar.pinnedBandsScroll",
       "keywords" : [
         "sidebar",
         "sections",
-        "sticky",
+        "pinned",
         "scroll"
       ],
       "kind" : "toggle",
       "path" : [
         "sidebar",
-        "stickyBandsScroll"
+        "pinnedBandsScroll"
       ],
       "refuses" : [
         "true",
@@ -5238,7 +6257,7 @@
       ],
       "section" : "appearance",
       "title" : {
-        "key" : "settings.sidebar.stickyBandsScroll",
+        "key" : "settings.sidebar.pinnedBandsScroll",
         "text" : "Scroll Tall Sections"
       },
       "validation" : "portable"
@@ -5323,7 +6342,7 @@
           "value" : "both"
         }
       ],
-      "default" : "off",
+      "default" : "bottom",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -5357,6 +6376,130 @@
       "title" : {
         "key" : "settings.sidebar.minimalMode",
         "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "left",
+        "right"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.left",
+            "text" : "Left"
+          },
+          "value" : "left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.right",
+            "text" : "Right"
+          },
+          "value" : "right"
+        }
+      ],
+      "default" : "left",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.side.help",
+        "text" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.side",
+      "keywords" : [
+        "sidebar",
+        "side",
+        "left",
+        "right",
+        "position",
+        "edge",
+        "layout"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "side"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.side",
+        "text" : "Sidebar Side"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "default" : "bottom",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.spacesPosition.help",
+        "text" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.spacesPosition",
+      "keywords" : [
+        "sidebar",
+        "spaces",
+        "rooms",
+        "profiles",
+        "dots",
+        "top",
+        "bottom",
+        "position",
+        "layout"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "spacesPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.spacesPosition",
+        "text" : "Spaces Position"
       },
       "validation" : "portable"
     },
@@ -5698,6 +6841,415 @@
       "title" : {
         "key" : "settings.browser.remoteLocalhost",
         "text" : "Open localhost on the Workspace's Machine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "backgroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.downloadHelp",
+        "text" : "In Chromium tabs, Download keeps Chrome's default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.cmdClick",
+      "keywords" : [
+        "link",
+        "cmd",
+        "command"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "cmdClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.cmdClick",
+        "text" : "Command-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "foregroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.cmdShiftClick.help",
+        "text" : "Shift-middle-click does the same."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.cmdShiftClick",
+      "keywords" : [
+        "link",
+        "cmd",
+        "shift"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "cmdShiftClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.cmdShiftClick",
+        "text" : "Shift-Command-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "newWindow",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.downloadHelp",
+        "text" : "In Chromium tabs, Download keeps Chrome's default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.shiftClick",
+      "keywords" : [
+        "link",
+        "shift"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "shiftClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.shiftClick",
+        "text" : "Shift-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "download",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.optionClick.help",
+        "text" : "Chromium tabs always download."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.optionClick",
+      "keywords" : [
+        "link",
+        "option",
+        "alt"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "optionClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.optionClick",
+        "text" : "Option-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "backgroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.middleClick.help",
+        "text" : "Chromium tabs use the Command-Click setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.middleClick",
+      "keywords" : [
+        "link",
+        "middle",
+        "wheel"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "middleClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.middleClick",
+        "text" : "Middle-Click"
       },
       "validation" : "portable"
     },
@@ -7027,7 +8579,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e12150f8b61dbf417a3d358a7ee17a2f96a3674fccb9be89af5ddfe4d2796e2e",
+  "schema_hash" : "1246a57c0f306b301fc162f9bf1471cb47558b84697fa935ab11269a8531c4d4",
   "sections" : [
     {
       "id" : "general",

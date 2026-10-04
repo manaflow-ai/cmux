@@ -128,6 +128,7 @@ mod tests {
             display_name: id.to_string(),
             agent_class: None,
             acp_session: None,
+            person: None,
         };
         ConversationHead {
             id: "conv_1".to_string(),
@@ -164,6 +165,7 @@ mod tests {
             edited_at: None,
             retracted_at: None,
             reactions: Vec::new(),
+            origin: None,
         }
     }
 

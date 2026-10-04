@@ -7,7 +7,7 @@ import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider, sampleMachines } from "./mockProvider";
 import { machineTitle } from "./model";
-import { ACTION_RUN, CloudOps } from "./ops";
+import { AccountOps, ACTION_RUN, CloudOps } from "./ops";
 import { CloudStore } from "./store";
 import type { MachineLayout } from "./model";
 
@@ -97,9 +97,9 @@ describe("CloudPage", () => {
     expect($$(".cloud-machine").length).toBe(0);
     expect(provider.calls.filter((call) => call.op.startsWith("cmux.cloud.machine."))).toEqual([]);
     await act(async () => $(".cloud-signin-button")!.click());
-    expect(provider.calls.some((call) => call.op === CloudOps.authSignIn)).toBe(false);
+    expect(provider.calls.some((call) => call.op === AccountOps.signIn)).toBe(false);
     expect(provider.calls.find((call) => call.op === ACTION_RUN)?.params).toMatchObject({
-      action: CloudOps.authSignIn,
+      action: AccountOps.signIn,
     });
     // The server does not serve sign-in yet: the page says so instead of failing.
     expect($(".cloud-signed-out .cloud-unavailable")?.textContent).toBe("Not available yet");
@@ -116,7 +116,7 @@ describe("CloudPage", () => {
     await render(provider);
     await act(async () => $(".cloud-create-button")!.click());
     expect($(".cloud-create-sheet")).not.toBeNull();
-    expect($(".cloud-plan-limit")?.textContent).toBeTruthy();
+    expect($(".cloud-plan-limit")?.textContent).toBe("3 of 5 machines on the go plan");
     await act(async () => typeInto($(".cloud-create-name") as HTMLInputElement, "sheet-box"));
     const submit = $(".cloud-create-submit")!;
     await act(async () => {
@@ -126,7 +126,12 @@ describe("CloudPage", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(provider.calls.filter((call) => call.op === CloudOps.machineCreate).length).toBe(1);
+    expect(provider.calls.filter((call) => call.op === CloudOps.machineCreate)).toEqual([]);
+    expect(
+      provider.calls.filter(
+        (call) => call.op === ACTION_RUN && (call.params as { action: string }).action === CloudOps.machineCreate,
+      ).length,
+    ).toBe(1);
   });
 
   test("the row delete button asks the native confirmation", async () => {
@@ -193,13 +198,13 @@ describe("CloudPage", () => {
     const provider = new MockCloudProvider();
     await render(provider);
     await act(async () => {
-      provider.emitUpsert({ id: "vm-live", provider: "freestyle", status: "running", displayName: "live-box" });
+      provider.emitUpsert({ id: "vm_live", status: "running", name: "live-box", revision: "1" });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect($$(".cloud-machine-title").map((title) => title.textContent)).toContain("live-box");
   });
 
-  test("the detail shows stats and size from the catalog fields and marks sections not available yet", async () => {
+  test("the detail shows the record's size and the snapshots", async () => {
     const provider = new MockCloudProvider();
     await render(provider);
     await act(async () => $$(".cloud-machine")[0].click());
@@ -208,15 +213,15 @@ describe("CloudPage", () => {
     });
     expect($(".cloud-detail")).not.toBeNull();
     expect($(".cloud-size-spec")?.textContent).toBe("4 CPU · 8 GB memory · 64 GB disk");
-    expect($$(".cloud-meter").length).toBe(3);
-    // The Cloud app server serves publications, domains, network and firewall (R71 C6).
     expect($$(".cloud-detail .cloud-unavailable").length).toBe(0);
-    expect($$(".cloud-domain-hostname").map((node) => node.textContent)).toEqual(["example.test"]);
     expect($(".cloud-error")).toBeNull();
     expect($$(".cloud-snapshot").length).toBeGreaterThan(0);
+    // Removed with the classic network model (contract C1): no network, firewall or publication UI.
+    for (const gone of [".cloud-publication-access", ".cloud-domain-hostname", ".cloud-machine-fork", ".cloud-meter"])
+      expect($(`.cloud-detail ${gone}`)).toBeNull();
   });
 
-  test("restore on a snapshot creates a machine with snapshot.restore, no confirmation", async () => {
+  test("restore on a snapshot creates a machine through the native action", async () => {
     const provider = new MockCloudProvider();
     await render(provider);
     await act(async () => $$(".cloud-machine")[0].click());
@@ -225,29 +230,11 @@ describe("CloudPage", () => {
     });
     const before = $$(".cloud-machine").length;
     await act(async () => $(".cloud-snapshot-restore")!.click());
-    expect(provider.calls.some((call) => call.op === ACTION_RUN)).toBe(false);
-    expect(provider.calls.filter((call) => call.op === CloudOps.snapshotRestore).length).toBe(1);
+    expect(provider.calls.filter((call) => call.op === CloudOps.snapshotRestore)).toEqual([]);
+    expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toMatchObject({
+      action: CloudOps.snapshotRestore,
+    });
     expect($$(".cloud-machine").length).toBe(before + 1);
-  });
-
-  test("the publication form shows the access mode that will apply and sends it through the native action", async () => {
-    // The Cloud API's default for a team machine is team access; the form starts there.
-    const provider = new MockCloudProvider();
-    await render(provider);
-    await act(async () => $$(".cloud-machine")[0].click());
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    const access = $(".cloud-publication-access") as HTMLSelectElement;
-    expect(access.value).toBe("team");
-    expect(access.selectedOptions[0].textContent).toBe("Team");
-    await act(async () => typeInto($(".cloud-publication-port") as HTMLInputElement, "5173"));
-    await act(async () => $(".cloud-publication-add")!.click());
-    expect(provider.calls.some((call) => call.op === CloudOps.publicationCreate)).toBe(false);
-    expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toEqual({
-      action: CloudOps.publicationCreate,
-      args: { machine: sampleMachines()[0].id, port: 5173, accessMode: "team", idempotency_key: "k1" },
-    });
   });
 
   test("a port forward shows its 127.0.0.1 local port", async () => {
@@ -278,6 +265,48 @@ describe("CloudPage", () => {
     expect(provider.calls.some((call) => call.op === CloudOps.fsRemove)).toBe(false);
   });
 
+  test("files: a daemon without fs-v1 shows Not available yet and no rows", async () => {
+    const provider = new MockCloudProvider();
+    provider.fsMachines.delete(sampleMachines()[0].id);
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-files-browse")!.click());
+    expect($$(".cloud-file-name").length).toBe(0);
+    expect($$(".cloud-detail .cloud-unavailable").map((node) => node.textContent)).toEqual(["Not available yet"]);
+    expect($(".cloud-error")).toBeNull();
+  });
+
+  test("files: an upload shows running then done; a busy refusal shows Retry", async () => {
+    const provider = new MockCloudProvider({ holdTransfers: true });
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-files-browse")!.click());
+    await act(async () => $(".cloud-files-upload")!.click());
+    expect($$(".cloud-transfer-state").map((node) => node.textContent)).toEqual(["Copying…"]);
+    await act(async () => {
+      provider.finishTransfers();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect($$(".cloud-transfer-state").map((node) => node.textContent)).toEqual(["Copied"]);
+    for (let i = 0; i < 4; i += 1) await act(async () => $(".cloud-file-download")!.click());
+    await act(async () => $(".cloud-files-upload")!.click());
+    expect($(".cloud-transfer-busy")?.textContent).toContain("Too many file transfers are running.");
+    expect($(".cloud-error")).toBeNull();
+    await act(async () => {
+      provider.finishTransfers();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-transfer-retry")!.click());
+    expect($(".cloud-transfer-busy")).toBeNull();
+    expect($$(".cloud-transfer-state").filter((node) => node.textContent === "Copying…").length).toBe(1);
+  });
+
   test("a typed refusal of the proxied browser tab shows the localized message once", async () => {
     const provider = new MockCloudProvider({ unsupported: [] });
     provider.tabError = "cmux.browser.engine_unavailable";
@@ -300,16 +329,111 @@ describe("CloudPage", () => {
     expect($(".cloud-error")).toBeNull();
   });
 
-  test("without a team the publication form offers no team access", async () => {
+  test("the classic migration banner shows once; Later hides it; Move them runs the native action", async () => {
     const provider = new MockCloudProvider();
-    provider.account.team = "";
     await render(provider);
-    await act(async () => $$(".cloud-machine")[0].click());
+    expect($$(".cloud-migration").length).toBe(1);
+    expect($(".cloud-migration-title")?.textContent).toBe("Machines from cmux Cloud classic: 1");
+    await act(async () => $(".cloud-migration-later")!.click());
+    expect($(".cloud-migration")).toBeNull();
+    expect(provider.calls.some((call) => call.op === ACTION_RUN)).toBe(false);
+
+    act(() => root.unmount());
+    root = createRoot(dom.window.document.getElementById("root")!);
+    const second = new MockCloudProvider();
+    await render(second);
+    await act(async () => $(".cloud-migration-move")!.click());
+    expect(second.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toMatchObject({
+      action: CloudOps.migrationStart,
+    });
+    expect($(".cloud-migration")).toBeNull();
+  });
+
+  test("a classic machine shows the Classic badge and no change actions until upgraded", async () => {
+    const provider = new MockCloudProvider();
+    await render(provider);
+    const classic = sampleMachines().find((machine) => machine.classic)!;
+    const row = $$(".cloud-machine").find((node) => node.textContent?.includes(machineTitle(classic)))!;
+    expect(row.querySelector(".cloud-classic-badge")?.textContent).toBe("Classic");
+    expect(row.querySelector(".cloud-machine-toggle")).toBeNull();
+    expect($$(".cloud-classic-badge").length).toBe(1);
+    await act(async () => row.click());
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const access = $(".cloud-publication-access") as HTMLSelectElement;
-    expect(access.value).toBe("personal");
-    expect([...access.options].map((option) => option.value)).toEqual(["personal", "public"]);
+    expect($(".cloud-classic-note")?.textContent).toBe("Read-only until this machine is upgraded.");
+    for (const action of [
+      ".cloud-machine-delete",
+      ".cloud-machine-connect",
+      ".cloud-resize",
+      ".cloud-idle",
+      ".cloud-snapshot-restore",
+      ".cloud-snapshot-create",
+      ".cloud-files-browse",
+      ".cloud-forward-port",
+    ])
+      expect($(`.cloud-detail ${action}`)).toBeNull();
+    // Before the move there is no Upgrade either; plain Return on the row does not connect.
+    expect($(".cloud-machine-upgrade")).toBeNull();
+    await act(async () => key(row, "Enter"));
+    expect(provider.calls.some((call) => call.op === ACTION_RUN)).toBe(false);
+  });
+
+  test("after the move, Upgrade runs cloud.machine.upgrade natively", async () => {
+    const provider = new MockCloudProvider();
+    const classic = sampleMachines().find((machine) => machine.classic)!;
+    provider.account.migration = { state: "moved", classic_count: 1, imported: [classic.id] };
+    await render(provider);
+    const row = $$(".cloud-machine").find((node) => node.textContent?.includes(machineTitle(classic)))!;
+    await act(async () => row.click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-machine-upgrade")!.click());
+    expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toEqual({
+      action: CloudOps.machineUpgrade,
+      args: { machine: classic.id, idempotency_key: "k1" },
+    });
+    expect($$(".cloud-classic-badge").length).toBe(0);
+  });
+
+  test("the create sheet disables locked sizes with the reason", async () => {
+    await render(new MockCloudProvider());
+    await act(async () => $(".cloud-create-button")!.click());
+    const sizes = $$(".cloud-size-choice input") as HTMLInputElement[];
+    expect(sizes.map((input) => [input.value, input.disabled])).toEqual([
+      ["4096", false],
+      ["8192", false],
+      ["16384", true],
+      ["32768", true],
+    ]);
+    expect($$(".cloud-size-locked").map((node) => node.textContent)).toEqual(["Not in your plan", "Not in your plan"]);
+  });
+
+  test("a typed plan refusal shows a localized sentence, and See plans checks out the named plan", async () => {
+    const provider = new MockCloudProvider();
+    provider.planRequired = true;
+    await render(provider);
+    await act(async () => $(".cloud-create-button")!.click());
+    await act(async () => $(".cloud-create-submit")!.click());
+    expect($(".cloud-create-sheet .cloud-plan-notice-text")?.textContent).toBe("Cloud machines need a paid plan.");
+    expect($(".cloud-error")).toBeNull();
+    await act(async () => $(".cloud-see-plans")!.click());
+    expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toMatchObject({
+      action: CloudOps.billingCheckout,
+      args: { plan: "pro" },
+    });
+  });
+
+  test("a quota refusal outside the sheet shows its numbers in Japanese too", async () => {
+    const provider = new MockCloudProvider();
+    provider.account.plan.max_active = 3;
+    await render(provider, { language: "ja" });
+    const paused = sampleMachines().find((machine) => machine.status === "paused")!;
+    const row = $$(".cloud-machine").find((node) => node.textContent?.includes(machineTitle(paused)))!;
+    await act(async () => (row.querySelector(".cloud-machine-toggle") as HTMLElement).click());
+    expect($(".cloud-plan-notice-text")?.textContent).toBe("プランの上限に達しました（3 中 3 を使用中）。");
+    // No plan id is known for a quota refusal: no See plans.
+    expect($(".cloud-see-plans")).toBeNull();
   });
 });

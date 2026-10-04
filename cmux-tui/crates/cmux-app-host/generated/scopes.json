@@ -209,14 +209,6 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.domain.list": {
-      "scope": "cloud:read",
-      "class": "read"
-    },
-    "cloud.domain.verify": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.file.pull": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -225,15 +217,11 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.firewall.create": {
+    "cloud.file.transfer.cancel": {
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.firewall.get": {
-      "scope": "cloud:read",
-      "class": "read"
-    },
-    "cloud.firewall.list": {
+    "cloud.file.transfer.list": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -261,9 +249,9 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.machine.create": {
-      "scope": "cloud:write",
-      "class": "mutation"
+    "cloud.machine.connect_info": {
+      "scope": "cloud:read",
+      "class": "read"
     },
     "cloud.machine.disconnect": {
       "scope": "cloud:write",
@@ -275,6 +263,10 @@
     },
     "cloud.machine.idle_policy.set": {
       "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.link_token": {
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.machine.list": {
@@ -289,23 +281,23 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.machine.resize": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.machine.start": {
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.machine.stats": {
-      "scope": "cloud:read",
-      "class": "read"
+    "cloud.machine.upgrade": {
+      "scope": "cloud:execute",
+      "class": "mutation"
     },
     "cloud.machine.watch": {
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.network.list": {
+    "cloud.migration.start": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.migration.status": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -321,55 +313,15 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.publication.create": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.publication.list": {
-      "scope": "cloud:read",
-      "class": "read"
-    },
-    "cloud.publication.update": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.publication.verify": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.rescue.open": {
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.snapshot.create": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.snapshot.fork": {
-      "scope": "cloud:write",
+    "cloud.shell.open": {
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.snapshot.list": {
-      "scope": "cloud:read",
-      "class": "read"
-    },
-    "cloud.snapshot.restore": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.tunnel.attach": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.tunnel.detach": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.tunnel.rotate_key": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.usage.get": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -1688,12 +1640,15 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
-    "cloud.firewall.delete",
+    "cloud.billing.checkout",
     "cloud.fs.remove",
+    "cloud.machine.create",
     "cloud.machine.delete",
+    "cloud.machine.resize",
     "cloud.port.close",
-    "cloud.publication.delete",
+    "cloud.snapshot.create",
     "cloud.snapshot.delete",
+    "cloud.snapshot.restore",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",
@@ -1706,6 +1661,7 @@
     "install.revoke",
     "install.sign_out",
     "integration.revoke",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",

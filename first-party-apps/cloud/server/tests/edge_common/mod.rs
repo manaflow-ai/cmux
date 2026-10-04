@@ -6,10 +6,14 @@
 
 use crate::attach_common::{FakeSpawner, FakeTransport, attach};
 use crate::common::FakeControlPlane;
+use cmux_cloud::CloudError;
 use cmux_cloud::Server;
-use cmux_cloud::connector::iface::Carrier;
-use cmux_cloud::fs::{Direction, Transfer, TransferError, TransferJob, TransferKey};
+use cmux_cloud::fs::{
+    Cancel, DaemonFiles, DialTarget, Direction, Transfer, TransferError, TransferJob,
+};
+use cmux_cloud::link::Carrier;
 use cmux_cloud::ports::{Edge, PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
+use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
@@ -120,11 +124,17 @@ impl PortTunnel for FakeTunnel {
 #[derive(Default)]
 pub struct TransferLog {
     pub jobs: Vec<TransferJob>,
-    pub public_keys: Vec<String>,
     /// The next run fails with this message.
     pub fail_with: Option<String>,
     /// The next run blocks until the test sends on (or drops) the sender.
     pub hold: Option<std::sync::mpsc::Receiver<()>>,
+    /// Each run takes the next of these and blocks on it like `hold`.
+    pub holds: std::collections::VecDeque<std::sync::mpsc::Receiver<()>>,
+    /// The next run blocks until it is cancelled; it then leaves a partial
+    /// file at a pull's landing name, as a stopped pull would.
+    pub until_cancel: bool,
+    /// Runs that saw their cancel.
+    pub cancelled: usize,
 }
 
 #[derive(Clone, Default)]
@@ -137,14 +147,28 @@ impl FakeTransfer {
 }
 
 impl Transfer for FakeTransfer {
-    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
-        let hold = self.log().hold.take();
+    fn run(&self, job: &TransferJob, cancel: &Cancel) -> Result<u64, TransferError> {
+        let hold = {
+            let mut log = self.log();
+            log.hold.take().or_else(|| log.holds.pop_front())
+        };
         if let Some(hold) = hold {
             let _ = hold.recv();
         }
+        if std::mem::take(&mut self.log().until_cancel) {
+            let (stop, stopped) = std::sync::mpsc::channel();
+            cancel.on_cancel(move || {
+                let _ = stop.send(());
+            });
+            let _ = stopped.recv();
+            if job.direction == Direction::Pull {
+                std::fs::write(&job.local, b"part").unwrap();
+            }
+            self.log().cancelled += 1;
+            return Err(TransferError { message: "killed".into(), retryable: false });
+        }
         let mut log = self.log();
         log.jobs.push(job.clone());
-        log.public_keys.push(key.public_openssh());
         match log.fail_with.take() {
             Some(message) => {
                 if job.direction == Direction::Pull {
@@ -163,11 +187,59 @@ impl Transfer for FakeTransfer {
     }
 }
 
+/// What the fake daemon file ops saw, and what they answer.
+#[derive(Default)]
+pub struct FilesLog {
+    /// Each call: the dial target, the daemon op and its params.
+    pub calls: Vec<(DialTarget, String, Value)>,
+    /// Answers by daemon op (`data`), used for every call of that op.
+    pub answers: std::collections::HashMap<String, Value>,
+    /// Daemon error codes by op.
+    pub errors: std::collections::HashMap<String, String>,
+}
+
+/// A [`DaemonFiles`] that answers from [`FilesLog`]; it dials nothing.
+#[derive(Clone, Default)]
+pub struct FakeFiles(pub Arc<Mutex<FilesLog>>);
+
+impl FakeFiles {
+    pub fn log(&self) -> std::sync::MutexGuard<'_, FilesLog> {
+        self.0.lock().unwrap()
+    }
+
+    pub fn answer(&self, op: &str, data: Value) {
+        self.log().answers.insert(op.to_owned(), data);
+    }
+
+    /// The daemon ops called, in order.
+    pub fn ops(&self) -> Vec<String> {
+        self.log().calls.iter().map(|(_, op, _)| op.clone()).collect()
+    }
+}
+
+impl DaemonFiles for FakeFiles {
+    fn call(
+        &self,
+        target: &DialTarget,
+        op: &str,
+        params: Value,
+        _cancel: &Cancel,
+    ) -> Result<Value, CloudError> {
+        let mut log = self.log();
+        log.calls.push((target.clone(), op.to_owned(), params));
+        if let Some(code) = log.errors.get(op) {
+            return Err(cmux_cloud::fs::link_files::fs_error(code, "refused by the fake"));
+        }
+        Ok(log.answers.get(op).cloned().unwrap_or(Value::Null))
+    }
+}
+
 pub struct Rig {
     pub server: Server<FakeControlPlane>,
     pub spawner: FakeSpawner,
     pub tunnel: FakeTunnel,
     pub transfer: FakeTransfer,
+    pub files: FakeFiles,
 }
 
 /// A server with the fake control plane, link, tunnel and transfer.
@@ -180,11 +252,13 @@ pub fn rig_with_env(fixtures: &[&str], env: cmux_cloud::app_env::AppEnv) -> Rig 
     let spawner = FakeSpawner::default();
     let tunnel = FakeTunnel::default();
     let transfer = FakeTransfer::default();
-    let edge = Edge::new(Arc::new(tunnel.clone()), Box::new(transfer.clone()));
+    let files = FakeFiles::default();
+    let edge = Edge::new(Arc::new(tunnel.clone()), Box::new(transfer.clone()))
+        .with_files(Arc::new(files.clone()));
     let server = Server::with_parts(
         FakeControlPlane::with(fixtures),
         attach(&spawner, &FakeTransport::default()).with_env(env),
         edge,
     );
-    Rig { server, spawner, tunnel, transfer }
+    Rig { server, spawner, tunnel, transfer, files }
 }

@@ -44,7 +44,8 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.openBrowser", defaultValue: "New Browser Tab", bundle: .module),
                 keywords: ["tab", "web", "create"], defaultShortcut: Shortcut("l", modifiers: [.command, .shift]),
                 category: .tab, symbol: "globe.badge.chevron.backward", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice], targets: [.tab], cliName: "tab new-browser"
+                arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice, CatalogArgument.browserProfileString],
+                targets: [.tab], cliName: "tab new-browser"
             ),
             ActionDescriptor(
                 id: "openBrowser.webkit",
@@ -181,7 +182,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "selectSurfaceByNumber",
                 title: String(localized: "action.selectSurfaceByNumber", defaultValue: "Select Tab 1…9", bundle: .module),
-                keywords: ["tab", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control, .option]),
+                keywords: ["tab", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control]),
                 shortcutFamily: .digits, category: .tab, symbol: "number.square", surfaces: [.keyboard],
                 arguments: [CatalogArgument.indexNumber], targets: [.tab], cliName: "tab select-1-9"
             ),

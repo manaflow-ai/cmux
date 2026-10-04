@@ -21,6 +21,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "syntect",
  "thiserror 2.0.19",
  "tokio",
@@ -785,6 +786,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
+name = "cmux-app-host"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rquickjs",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
@@ -856,6 +867,18 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "proptest",
+]
+
+[[package]]
+name = "cmux-link"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-unix-socket",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -948,11 +971,13 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-tui-core",
  "cmux-tui-source-watch",
+ "cmux-unix-socket",
  "cmux-wg",
  "diffy",
  "flate2",
@@ -1073,6 +1098,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-iface"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
 
@@ -1092,6 +1124,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1131,6 +1164,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -1150,11 +1184,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-app-host",
+ "cmux-app-manifest",
  "cmux-conversation",
  "cmux-layout-reducer",
+ "cmux-link",
  "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
+ "cmux-terminal-iface",
  "cmux-tui-cdp",
  "cmux-unix-socket",
  "flate2",
@@ -1165,10 +1203,13 @@ dependencies = [
  "libc",
  "proptest",
  "regex",
+ "reqwest",
  "rusqlite",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
  "tungstenite",
  "uds_windows",
  "url",

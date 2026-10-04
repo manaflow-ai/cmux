@@ -51,7 +51,11 @@ export type DiffPageConfig = DiffViewerConfig & { ops?: string[] };
  * host only fills what it knows.
  */
 export async function loadPageDiffConfig(page: PageClient): Promise<DiffPageConfig> {
-  const value = await page.call<unknown>(DIFF_PAGE_CONFIG_OP, {});
+  return normalizePageDiffConfig(await page.call<unknown>(DIFF_PAGE_CONFIG_OP, {}));
+}
+
+/** Checks a config answer (`cmux.diff.config`, `cmux.diff.open`) and fills the page transport. */
+export function normalizePageDiffConfig(value: unknown): DiffPageConfig {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("cmux diff page config is not an object");
   }

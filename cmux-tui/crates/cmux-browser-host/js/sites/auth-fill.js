@@ -1,14 +1,36 @@
 // Credential fill for sites.browserAuth.request, run by the app (not the
 // REPL) after the user types into cmux's credential sheet: the body of an
-// async function evaluated with WKWebView.callAsyncJavaScript in the agent
-// content world of the frame that holds the fields. Arguments: __fields
-// ([{ id, marker }]) and __values ({ id: value }). The values go into the
-// page's inputs only; the result carries no value.
+// async function evaluated with WKWebView.callAsyncJavaScript in the app's
+// own content world (not the agent world agent code can script) of the
+// frame that holds the fields. Arguments: __fields ([{ id, type, marker }]),
+// __values ({ id: value }) and __origin, the origin the sheet showed the
+// user. WebKit's frame record is taken before the sheet opens, and the frame
+// may load another origin's document while the user types, so the document
+// that receives the values is checked here, at fill time: a different origin
+// gets nothing (origin_changed). Only password, username and one-time-code
+// inputs are filled, by the same rule as sites/browser-auth.js, and a
+// password only into a password input. The result carries no value.
+if (typeof __origin !== "string" || location.origin !== __origin) return { status: "origin_changed" };
+const kindOf = (el) => {
+  if (!(el instanceof HTMLInputElement)) return null;
+  const type = (el.getAttribute("type") || "text").toLowerCase();
+  if (type === "password") return "password";
+  if (!["text", "email", "tel", "number", "url", ""].includes(type)) return null;
+  const tokens = String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
+  if (tokens.includes("one-time-code")) return "one-time-code";
+  if (tokens.some((t) => ["username", "email", "webauthn"].includes(t)) || type === "email") return "username";
+  const hint = (el.getAttribute("name") || "") + " " + (el.id || "");
+  if (/otp|one.?time|passcode|verification.?code|2fa|mfa|totp/i.test(hint)) return "one-time-code";
+  if (/user|login|e-?mail|account/i.test(hint)) return "username";
+  return null;
+};
 const found = [];
 for (const f of __fields) {
   const el = document.querySelector('[data-cmux-auth="' + String(f.marker).replace(/["\\]/g, "") + '"]');
   if (!el) return { status: "page_changed", field: f.id };
-  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) || el.disabled || el.readOnly) return { status: "locator_invalid", field: f.id };
+  if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly) return { status: "locator_invalid", field: f.id };
+  const kind = kindOf(el);
+  if (!kind || (f.type === "password") !== (kind === "password")) return { status: "locator_invalid", field: f.id };
   found.push([f, el]);
 }
 for (const [f, el] of found) {

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646.
+// cmux-tui mux protocol 12, IR 30c200162c793bdda767ca55c44b939a784bb66eceabba2b34b2eac237485988.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -553,7 +553,11 @@ pub struct ConversationAgentTokenRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationAgentTokenResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAgentTokenResult {
+    pub participant: String,
+    pub token: String,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -563,7 +567,10 @@ pub struct ConversationBindRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationBindResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationBindResult {
+    pub participant: String,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -576,7 +583,11 @@ pub struct ConversationCreateRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationCreateResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationCreateResult {
+    pub conversation: T::ConversationSummary,
+    pub replayed: bool,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -587,7 +598,10 @@ pub struct ConversationHistoryRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationHistoryResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationHistoryResult {
+    pub messages: Vec<T::ConversationMessage>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -595,7 +609,10 @@ pub struct ConversationListRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationListResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationListResult {
+    pub conversations: Vec<T::ConversationSummary>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -610,7 +627,16 @@ pub struct ConversationOpRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationOpResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationOpResult {
+    pub change: T::ConversationChange,
+    pub replayed: bool,
+    pub rev: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -620,7 +646,10 @@ pub struct ConversationSearchRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationSearchResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSearchResult {
+    pub hits: Vec<T::ConversationSearchHit>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -630,7 +659,11 @@ pub struct ConversationSnapshotRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationSnapshotResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSnapshotResult {
+    pub conversation: T::ConversationSummary,
+    pub messages: Vec<T::ConversationMessage>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -642,7 +675,7 @@ pub struct ConversationTypingRequest {
 }
 
 #[rustfmt::skip]
-pub type ConversationTypingResult = T::JsonValue;
+pub type ConversationTypingResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1421,13 +1454,13 @@ pub struct MoveTabToColumnRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub after_column: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub dock: Optional<T::ColumnPin>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub respawn: Optional<T::SplitRespawn>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub sticky: Optional<T::ColumnPin>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -1592,7 +1625,14 @@ pub struct NewConversationTabRequest {
 }
 
 #[rustfmt::skip]
-pub type NewConversationTabResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewConversationTabResult {
+    pub content_resource_id: Nullable<String>,
+    pub conversation: T::ConversationTabRecord,
+    pub replayed: bool,
+    pub surface: T::Id,
+    pub tab_resource_id: Nullable<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1654,6 +1694,8 @@ pub struct NewPaneRightRequest {
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
@@ -1661,6 +1703,8 @@ pub struct NewPaneRightRequest {
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -2280,19 +2324,19 @@ pub type SetClientSizingResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetColumnStickyRequest {
+pub struct SetColumnDockRequest {
+    pub dock: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub edge: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<String>,
     pub pane: T::Id,
-    pub sticky: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<u64>,
 }
 
 #[rustfmt::skip]
-pub type SetColumnStickyResult = T::JsonValue;
+pub type SetColumnDockResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -2594,6 +2638,8 @@ pub struct SplitRequest {
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
@@ -2601,6 +2647,8 @@ pub struct SplitRequest {
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -3500,13 +3548,13 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_column(&mut self, request: MoveTabToColumnRequest) -> Result<MoveTabToColumnResult> {
+        if !request.dock.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "dock-columns-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
-        }
-        if !request.sticky.is_missing() {
-            self.require_protocol_field("move-tab-to-column", 12)?;
-            self.require_capability_field("move-tab-to-column", "edge-docks-v1")?;
         }
         self.execute(&MOVE_TAB_TO_COLUMN_METADATA, &request)
     }
@@ -3615,6 +3663,10 @@ impl CmuxClient {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
         }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
@@ -3622,6 +3674,10 @@ impl CmuxClient {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
         }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
@@ -3892,8 +3948,8 @@ impl CmuxClient {
         self.execute(&SET_CLIENT_SIZING_METADATA, &request)
     }
 
-    pub fn set_column_sticky(&mut self, request: SetColumnStickyRequest) -> Result<SetColumnStickyResult> {
-        self.execute(&SET_COLUMN_STICKY_METADATA, &request)
+    pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        self.execute(&SET_COLUMN_DOCK_METADATA, &request)
     }
 
     pub fn set_default_colors(&mut self, request: SetDefaultColorsRequest) -> Result<SetDefaultColorsResult> {
@@ -4046,6 +4102,10 @@ impl CmuxClient {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-reap-v1")?;
         }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-shell-args-v1")?;
@@ -4053,6 +4113,10 @@ impl CmuxClient {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-placement-env-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
         }
         self.execute(&SPLIT_METADATA, &request)
     }

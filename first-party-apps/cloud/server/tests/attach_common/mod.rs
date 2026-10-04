@@ -4,12 +4,12 @@
 #![allow(dead_code)]
 
 use cmux_cloud::app_env::AppEnv;
-use cmux_cloud::connector::iface::CarrierEvent;
+use cmux_cloud::link::CarrierEvent;
 use cmux_cloud::link::{
     Attach, LinkCommand, LinkEvents, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
 };
-use cmux_cloud::rescue::iface::{BackendError, Grid, Signal};
 use cmux_cloud::rescue::{RescueTransport, StreamId, TransportEvent};
+use cmux_terminal_iface::{BackendError, Grid, Signal};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -53,8 +53,19 @@ impl FakeSpawner {
         let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
         let tag = log.tags[index].clone();
         let ready =
-            serde_json::json!({ "event": "connection-snapshot", "local_socket": socket_for(&tag) });
+            serde_json::json!({ "event": "carrier-ready", "local_socket": socket_for(&tag) });
         log.senders[index].send(LinkProcessEvent::Line { tag, line: ready.to_string() }).unwrap();
+    }
+
+    /// A stream of the last carrier of `machine` is refused with this
+    /// `link.dial` error code (as the real carrier reports it).
+    pub fn refuse(&self, machine: &str, code: &str) {
+        let log = self.log();
+        let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
+        let failed = serde_json::json!({ "event": "dial-failed", "error_code": code });
+        log.senders[index]
+            .send(LinkProcessEvent::Line { tag: log.tags[index].clone(), line: failed.to_string() })
+            .unwrap();
     }
 
     /// The last link process of `machine` exits with `code`.
@@ -102,7 +113,7 @@ impl LinkSpawner for FakeSpawner {
             Script::Ready => {
                 events.send(line(r#"{"event":"starting"}"#)).unwrap();
                 let ready = serde_json::json!({
-                    "event": "connection-snapshot",
+                    "event": "carrier-ready",
                     "local_socket": socket_for(&tag),
                 });
                 events.send(line(&ready.to_string())).unwrap();
@@ -123,7 +134,7 @@ impl LinkSpawner for FakeSpawner {
 pub fn paths() -> LinkPaths {
     LinkPaths {
         binary: PathBuf::from("/opt/cmux/bin/cmux-tui"),
-        hub_socket: PathBuf::from("/tmp/cmux-test/wg-hub.sock"),
+        hub_socket: PathBuf::from("/tmp/cmux-test/link.sock"),
         state_dir: PathBuf::from("/tmp/cmux-test/link-state"),
         socket_dir: PathBuf::from("/tmp/cmux-test"),
         device_name: "test-mac".into(),

@@ -37,6 +37,13 @@ pub trait Clock: Send + Sync {
     /// Calls `fire` once after `delay`, on another thread, unless the
     /// returned timer is dropped first. `fire` must not block.
     fn after(&self, delay: Duration, fire: Box<dyn FnOnce() + Send>) -> Timer;
+
+    /// Now, in Unix epoch milliseconds. Tests inject their own time.
+    fn now_unix_ms(&self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    }
 }
 
 /// The real clock: one short-lived thread per timer, blocked on the

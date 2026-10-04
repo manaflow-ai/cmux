@@ -1,0 +1,14 @@
+{
+  "comment": "License review data for rust_notices.py. Owned by the license review: change an entry only with a stated reason. Elections fail the run when the crate's manifest expression changes.",
+  "extra_license_files": {
+    "r-efi": ["AUTHORS"]
+  },
+  "license_texts": {},
+  "elections": {
+    "r-efi": {
+      "declared": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "concluded": "MIT",
+      "reason": "r-efi offers MIT OR Apache-2.0 OR LGPL-2.1-or-later; its AUTHORS file holds the MIT text and the copyright holders, so MIT is the elected license (UEFI targets only)."
+    }
+  }
+}

@@ -5,17 +5,36 @@ public import Foundation
 public nonisolated struct PageCallContext: Sendable, Hashable {
     /// The page id (`cmux.history`).
     public let page: String
-    /// Always `user`: a page is a user surface, and the host refuses an `origin` the page sends.
+    /// `page` for every call a page makes (the host refuses an `origin` the page sends); `user`
+    /// only together with ``confirmed``, after a person approved the call on a native sheet.
     public let origin: String
     /// True after a person approved this call on a native confirmation sheet
     /// (``ConfirmingPageProvider``). Only then may a provider tell an owner the call is the user's
     /// own gesture (for example top-level `origin: "user"` on an app-supervisor command).
     public let confirmed: Bool
+    /// The page's operation id (decision 31, zero-latency.md): the same on a resend after a
+    /// reconnect, so an owner can apply the call once. Checked by the router (1-128 characters of
+    /// `[A-Za-z0-9._:-]`); nil when the page sent none.
+    public let opid: String?
+    /// A real key or mouse event reached the page's view within the last second (the host's
+    /// record, never the page's word): the call is backed by the person's gesture. Only a provider
+    /// that serves the app's own trusted UI (the bundled Settings page) may treat that as the user.
+    public let userGesture: Bool
 
-    public init(page: String, origin: String = "user", confirmed: Bool = false) {
+    /// The user's own call: approved on a native sheet. Nothing a page sends can make this true.
+    public var isConfirmedUser: Bool { origin == "user" && confirmed }
+
+    public init(page: String, origin: String = "page", confirmed: Bool = false, opid: String? = nil, userGesture: Bool = false) {
         self.page = page
         self.origin = origin
         self.confirmed = confirmed
+        self.opid = opid
+        self.userGesture = userGesture
+    }
+
+    /// Whether `text` is a valid operation id: 1-128 characters of `[A-Za-z0-9._:-]`.
+    public static func isValidOpid(_ text: String) -> Bool {
+        (1...128).contains(text.count) && text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || ".:_-".contains($0)) }
     }
 }
 

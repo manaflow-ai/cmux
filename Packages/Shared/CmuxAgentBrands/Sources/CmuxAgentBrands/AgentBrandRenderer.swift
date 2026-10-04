@@ -1,7 +1,8 @@
 import CoreGraphics
 
 /// Draws marks with Core Graphics, so AppKit, UIKit and SwiftUI share one renderer.
-public enum AgentBrandRenderer {
+public struct AgentBrandRenderer {
+    public init() {}
     /// Builds the path for normalized data (absolute M, L, C and Z). Returns nil on malformed data.
     public static func path(_ d: String) -> CGPath? {
         let path = CGMutablePath()
@@ -81,6 +82,9 @@ public enum AgentBrandRenderer {
         context.saveGState()
         defer { context.restoreGState() }
         context.concatenate(transform)
+        // Art may run past its view box (Hermes Agent's portrait is cropped by its owner's framing).
+        let box = tile?.viewBox ?? spec.viewBox
+        context.clip(to: CGRect(x: box.x, y: box.y, width: box.width, height: box.height))
         if let tile {
             let tileRect = CGRect(x: tile.viewBox.x, y: tile.viewBox.y, width: tile.viewBox.width, height: tile.viewBox.height)
             context.addPath(CGPath(roundedRect: tileRect, cornerWidth: tile.radius, cornerHeight: tile.radius, transform: nil))

@@ -9,8 +9,8 @@ import Testing
 @Suite struct AppRefMigrationTests {
     @Test func theDefaultsHoldTheFirstPartyAppsAsAppItems() {
         let top = SidebarLayoutDocument.defaults.sections(in: .top, room: nil).flatMap(\.items)
-        #expect(top.map(\.ref) == [.app("cmux/home"), .app("cmux/app-store"), .app("cmux/coderouter")])
-        #expect(top.map(\.id.rawValue) == ["itm_home", "itm_app_store", "itm_app_coderouter"])
+        #expect(top.map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
+        #expect(top.map(\.id.rawValue) == ["itm_home", "itm_app_store"])
     }
 
     @Test func builtInHomeAndAppStoreBecomeAppItemsInPlace() throws {
@@ -34,7 +34,7 @@ import Testing
     /// current defaults (sections, grid bottom, app refs) in one pass.
     @Test func theOldDefaultsReachTheCurrentDefaults() {
         for old in [SidebarLayoutDocument.railDefaults, SidebarLayoutDocument.inlineBottomDefaults] {
-            #expect(old.layoutMigration.sections == SidebarLayoutDocument.defaults.sections)
+            #expect(old.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
             #expect(old.layoutMigration.layoutMigrationOps.isEmpty)
         }
     }

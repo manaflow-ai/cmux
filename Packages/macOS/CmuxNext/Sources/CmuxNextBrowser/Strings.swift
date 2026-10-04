@@ -78,6 +78,7 @@ nonisolated enum Strings {
 
     // Context menu
     static var openLinkInNewTab: String { String(localized: "browser.menu.openLinkInNewTab", defaultValue: "Open Link in New Tab", bundle: .module) }
+    static var openLinkInNewWindow: String { String(localized: "browser.menu.openLinkInNewWindow", defaultValue: "Open Link in New Window", bundle: .module) }
     static var openImageInNewTab: String { String(localized: "browser.menu.openImageInNewTab", defaultValue: "Open Image in New Tab", bundle: .module) }
     static var openVideoInNewTab: String { String(localized: "browser.menu.openVideoInNewTab", defaultValue: "Open Video in New Tab", bundle: .module) }
 

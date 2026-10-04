@@ -71,11 +71,17 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let browserFocusMode = "browserFocusMode"
     /// The focused terminal is in copy mode.
     public static let terminalCopyMode = "terminal.copyMode"
+    /// A list-like control has the keyboard: a combobox, listbox, menu or
+    /// picker in a page, the sidebar list or its search field (R85).
+    public static let listFocus = "listFocus"
+    /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
+    public static let pageID = "pageId"
     /// The kind of window the key goes to (``WindowKindValue``).
     public static let windowKind = "windowKind"
 
     /// Values of ``windowKind``.
-    public enum WindowKindValue {
+    public struct WindowKindValue {
+        public init() {}
         /// A cmux main window (or a Chromium page window over it).
         public static let main = "main"
         /// A browser popup panel (or its page window).
@@ -93,8 +99,9 @@ extension ActionContext {
         (.textBoxFocused, "textBoxFocused"), (.paletteOpen, "paletteOpen"), (.signedIn, "signedIn"),
         (.signedOut, "signedOut"), (.cloudWorkspace, "cloudWorkspace"), (.agentPaneFocused, "agentPaneFocused"),
         (.checkpointCaptureAvailable, "checkpointCaptureAvailable"), (.recordingShortcut, "recordingShortcut"),
+        (.omnibarFocused, "omnibarFocused"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.
-    public nonisolated static let focusBits: ActionContext = [.terminalFocused, .browserFocused, .agentPaneFocused]
+    public nonisolated static let focusBits: ActionContext = [.terminalFocused, .browserFocused, .agentPaneFocused, .omnibarFocused]
 }

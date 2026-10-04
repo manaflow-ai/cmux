@@ -4,15 +4,14 @@ cmux includes the following third-party software:
 
 ---
 
-## Lobe Icons (selected agent marks)
+## Agent brand marks
 
-- **License:** MIT License
-- **Copyright:** Copyright (c) 2023 LobeHub
-- **Source:** https://github.com/lobehub/lobe-icons/tree/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons
-
-Selected Cursor, Gemini, Kiro, GitHub Copilot, CodeBuddy, Qoder, Kimi, and
-Ollama SVG marks are bundled under `Assets.xcassets/AgentIcons`. The complete
-license text is in `Assets.xcassets/AgentIcons/LOBE-LICENSE.txt`.
+The coding agent and provider marks in `design/agent-icons/svg/` (and the
+catalogs generated from them) are their owners' trademarks; they identify the
+agent a session uses and imply no endorsement. `design/agent-icons/manifest.json`
+records each mark's source and license. Simple Icons path data is CC0-1.0. The
+Rovo Dev mark comes from `@atlaskit/logo` (Apache-2.0, Copyright Atlassian). The
+GitHub Copilot mark is the Primer `copilot-24` octicon (MIT, below).
 
 ---
 
@@ -22,7 +21,8 @@ license text is in `Assets.xcassets/AgentIcons/LOBE-LICENSE.txt`.
 - **Copyright:** Copyright (c) 2026 GitHub Inc.
 - **Source:** https://github.com/primer/octicons (v19.38.0)
 
-Selected 16px path data is embedded in `webviews/src/icons.tsx`.
+Selected 16px path data is embedded in `webviews/src/icons.tsx`; the copilot-24
+mark is in `design/agent-icons/svg/copilot.svg`.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -41,6 +41,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## Emoji data (icon picker)
+
+- **Unicode emoji-test.txt 17.0** and **CLDR annotations 48.2.0** (`en`, `ja`):
+  Unicode License v3, Copyright (c) 2004-2026 Unicode, Inc.
+- **emojibase-data 17.0.0** GitHub shortcodes: MIT License, Copyright (c) 2017-2019 Miles Johnson.
+- **Source:** pinned by URL and SHA-256 in `webviews/scripts/icon-picker/sources.json`.
+
+The derived table is `webviews/src/icon-picker/generated/emoji-data.json`; the full license texts
+are in `webviews/src/icon-picker/generated/LICENSES.md`.
 
 ---
 
@@ -376,6 +388,38 @@ has no runtime CDN dependency.
 - **License:** BSD 2-Clause License
 - **Copyright:** Copyright (c) 2002-2019 K.Kosako
 - **Source:** https://github.com/kkos/oniguruma (bundled as WebAssembly via vscode-oniguruma)
+
+---
+
+## Code Editor Assets
+
+The cmux-next code editor page (`webviews/src/pages/editor`) bundles the Monaco editor into the
+generated `Resources/markdown-viewer/webviews-app/` bundle (lazy chunks loaded only by that page), with
+Shiki's Monaco adapter. It uses the shiki, vscode-textmate and Oniguruma code listed above.
+
+### Monaco Editor
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2016 - present Microsoft Corporation
+- **Source:** https://github.com/microsoft/monaco-editor (0.57.0), including its codicon font (CC-BY-4.0, https://github.com/microsoft/vscode-codicons)
+
+### marked (vendored in Monaco)
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2011-2024, Christopher Jeffrey (marked v14.0.0)
+- **Source:** https://github.com/markedjs/marked
+
+### DOMPurify (vendored in Monaco)
+
+- **License:** Apache License 2.0 or Mozilla Public License 2.0
+- **Copyright:** Copyright (c) Cure53 and other contributors
+- **Source:** https://github.com/cure53/DOMPurify (3.4.15)
+
+### @shikijs/monaco
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2021 Pine Wu; Copyright (c) 2023 Anthony Fu and Shiki contributors
+- **Source:** https://github.com/shikijs/shiki/tree/main/packages/monaco
 
 ---
 

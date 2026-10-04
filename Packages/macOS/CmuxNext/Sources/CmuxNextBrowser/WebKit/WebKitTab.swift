@@ -26,6 +26,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
     @ObservationIgnored private let container: WebKitPageContainer
+    /// Web Inspector's visibility, for the toolbar's DevTools button.
+    @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -37,6 +39,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
     @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
+    /// Where the page the link menu's next pick creates goes
+    /// (WebKitTab+LinkClicks.swift); nil after it is taken.
+    @ObservationIgnored var contextMenuDisposition: BrowserNewTabDisposition?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
@@ -50,6 +55,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.webView = webView
         container = WebKitPageContainer(page: webView)
         super.init()
+        inspectorWatch.attach(webView: webView, container: container)
 
         webView.owner = self
         webView.navigationDelegate = self
@@ -70,6 +76,7 @@ public final class WebKitTab: NSObject, BrowserTab {
             forMainFrameOnly: false
         ))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
+        WebKitPasskeyInstaller.install(self, into: controller)
 
         observeWebView()
         if configuration.zoom != 1 {

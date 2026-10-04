@@ -15,7 +15,8 @@ public import AppKit
 ///   in a web page, when no cmux binding claims them.
 ///
 /// Unbinding `nextSurface` or `prevSurface` in cmux.json removes its entries.
-public nonisolated enum KeyBindingDefaults {
+public nonisolated struct KeyBindingDefaults {
+    public nonisolated init() {}
     static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
     static let left = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey))!))
     public static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
@@ -41,8 +42,24 @@ public nonisolated enum KeyBindingDefaults {
         KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSurface", when: webPage),
     ]
 
-    /// The entries whose action still has a key in `registry`.
+    /// List navigation (R85): Ctrl-N / Ctrl-J move down and Ctrl-P /
+    /// Ctrl-K move up wherever a list-like control has the keyboard
+    /// (`listFocus`: comboboxes, menus, pickers, the sidebar list). Never in
+    /// a terminal or a plain text field, where `listFocus` is unset.
+    public static let listFocus = WhenClause.has(KeyContext.listFocus)
+
+    public static let listNavigation: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("n", modifiers: [.control])], command: "list.next", when: listFocus),
+        KeyBinding(keys: [Shortcut("j", modifiers: [.control])], command: "list.next", when: listFocus),
+        KeyBinding(keys: [Shortcut("p", modifiers: [.control])], command: "list.previous", when: listFocus),
+        KeyBinding(keys: [Shortcut("k", modifiers: [.control])], command: "list.previous", when: listFocus),
+    ]
+
+    /// The entries whose action still has a key in `registry` (tab
+    /// switching follows its actions' keys), then list navigation (removed
+    /// one by one with `-list.next` entries in keybindings.json).
     @MainActor static func entries(registry: ActionRegistry) -> [KeyBinding] {
         tabSwitching.filter { registry.effectiveShortcut(for: $0.command) != nil }
+            + listNavigation.filter { registry.disabledFeature(for: $0.command) == nil }
     }
 }

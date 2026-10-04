@@ -28,7 +28,7 @@ import Testing
     func makeController(bind: (ActionRegistry, Recorder) -> Void) -> (PaletteController, Recorder) {
         let registry = ActionRegistry.standard()
         let recorder = Recorder()
-        registry.refusalObserver = { [weak registry] _ in recorder.refusalsWithCaller.append(registry?.refusalHasCaller ?? false) }
+        registry.refusalObserver = { [weak registry] _, _ in recorder.refusalsWithCaller.append(registry?.refusalHasCaller ?? false) }
         // The App's sheet: the user confirms.
         registry.confirmationPresenter = { _, _, proceed in proceed() }
         bind(registry, recorder)

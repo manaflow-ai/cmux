@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import SwiftUI
 
 /// A person's initial, or an agent mark with its harness initial.
@@ -11,7 +12,7 @@ struct AssigneeBadge: View {
         if let delegate {
             ZStack {
                 RoundedRectangle(cornerRadius: size * 0.3).fill(colors.ansi(5).opacity(0.22))
-                Image(systemName: "sparkle").font(.system(size: size * 0.5, weight: .semibold)).foregroundStyle(colors.ansi(5))
+                AgentBrandMark(agent: delegate.harness, size: size * 0.62).foregroundStyle(colors.ansi(5))
             }
             .frame(width: size, height: size)
             .help(delegate.harness)

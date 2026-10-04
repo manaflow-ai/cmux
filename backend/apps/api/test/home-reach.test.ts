@@ -1,11 +1,13 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { memberUpsert, TABLE_MEMBER } from "../src/domains/team-members.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import { conversationMutate } from "../src/home-routes.ts"
 import { recordingEnv } from "./reach-recorder.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * Human reach through the public API (home-messaging.md sections 4.1 and 16): dm.open by user
@@ -47,16 +49,16 @@ const signIn = async (sub: string, name: string): Promise<Person> => {
 }
 /** Seeds `member` into `owner`'s team (TeamDO knows personal teams only; team invites are not built yet). */
 const joinTeam = async (owner: Person, member: Person) => {
-  // Members are rows ((f)): the member row goes in directly.
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (_instance, state: DurableObjectState) => {
-    state.storage.sql.exec("INSERT OR REPLACE INTO own_rows (tbl, k, n, json) VALUES ('member', ?, NULL, ?)", member.user, JSON.stringify({ user: member.user, role: "member", display_name: member.name }))
+  // Members are rows ((f)): the member row goes in through the engine's row store.
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (instance) => {
+    instance.boundEngine.rows.apply([memberUpsert({ user: member.user, role: "member", display_name: member.name })])
   })
 }
 /** Removes `member` from `owner`'s team (a departure from the team). */
 const leaveTeam = async (owner: Person, member: Person) => {
-  // Members are rows ((f)): the member row goes.
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (_instance, state: DurableObjectState) => {
-    state.storage.sql.exec("DELETE FROM own_rows WHERE tbl = 'member' AND k = ?", member.user)
+  // Members are rows ((f)): the member row goes, through the engine's row store.
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (instance) => {
+    instance.boundEngine.rows.apply([{ table: TABLE_MEMBER, op: "delete", key: member.user }])
   })
 }
 const send = (p: Person, conversation: string, text: string) => {
@@ -68,7 +70,7 @@ const waitPeer = async (who: Person, peer: Person, dm: string) => {
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm))
   for (let attempt = 0; attempt < 100; attempt++) {
     if ((await read(who.token, "inbox.dm_peer", { peer: peer.user })).value?.conversation === dm) return
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   throw new Error("the DM never reached the inbox")
@@ -85,13 +87,23 @@ const becomeContacts = async (inviter: Person, invitee: Person, email: string) =
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm))
   for (let attempt = 0; attempt < 100; attempt++) {
     if ((await read(inviter.token, "inbox.dm_peer", { peer: invitee.user })).value?.conversation === dm) return dm
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   throw new Error("the accepted DM never reached the inviter's inbox")
 }
 
 describe("Home human reach", { timeout: 60_000 }, () => {
+  it("TeamDO homeCoMembers resolves at most 64 targets: a longer list gets no answer", async () => {
+    const ann = await signIn("reach-cap-ann", "Ann")
+    const ben = await signIn("reach-cap-ben", "Ben")
+    await joinTeam(ann, ben)
+    const team = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(ann.team)) as unknown as { homeCoMembers(e: string, a: string, t: ReadonlyArray<string>): Promise<Array<{ user: string }>> }
+    const filler = (n: number) => Array.from({ length: n }, (_, i) => `user_${String(i).padStart(20, "0")}`)
+    expect((await team.homeCoMembers(ann.team, ann.user, [ben.user, ...filler(63)])).map((m) => m.user)).toEqual([ben.user])
+    expect(await team.homeCoMembers(ann.team, ann.user, [ben.user, ...filler(64)])).toEqual([])
+  })
+
   it("dm.open by user id between two users who share a team; the peer's name comes from the team", async () => {
     const alice = await signIn("reach-dm-alice", "Alice")
     const bob = await signIn("reach-dm-bob", "Bob")

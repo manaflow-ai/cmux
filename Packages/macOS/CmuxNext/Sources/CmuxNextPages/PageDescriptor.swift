@@ -81,7 +81,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
 
 /// The native UI ops every page shares (react-pages.md 1.3). The host serves them; a page lists
 /// the ones it uses in ``PageDescriptor/nativeOps``.
-public nonisolated enum PageNativeOp {
+public nonisolated struct PageNativeOp {
+    public nonisolated init() {}
     /// Runs a registry action in the app with origin `user`: `{action, args}`.
     public static let actionRun = "cmux.app.action.run"
     /// Writes text to the pasteboard: `{text}`.
@@ -89,6 +90,9 @@ public nonisolated enum PageNativeOp {
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
     public static let pageCommand = "cmux.page.command"
+    /// Built in for every page (DESKTOP-FEEL, R139): a double-click on a title bar the page draws
+    /// (`data-titlebar`) runs the window's title bar action (System Settings: zoom or minimize).
+    public static let titleBarDoubleClick = "cmux.app.window.title_bar_double_click"
     /// Stream every page may subscribe to: `{connected}`, the page's owner link (the daemon). The
     /// current state arrives as the first event.
     public static let pageConnection = "cmux.page.connection"
@@ -110,6 +114,30 @@ public extension PageDescriptor {
             "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,
             "cmux.cloud.auth.sign_out": .custom, "cmux.cloud.machine.connect": .custom,
         ])
+
+    /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
+    /// preview and sound ops share the namespace; the page may run only the two actions it links to.
+    static let settings = PageDescriptor(
+        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
+        nativeOps: [PageNativeOp.actionRun],
+        actions: ["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
+                  "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
+                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"],
+        dynamicPrefixes: ["backdrop"])
+
+    /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
+    /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page
+    /// runs no registry action yet.
+    static let apps = PageDescriptor(
+        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun])
+
+    /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
+    /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
+    /// the page runs only three account actions. Connect adds a credential, so it is the host op
+    /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
+    static let coderouter = PageDescriptor(
+        id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
+        actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

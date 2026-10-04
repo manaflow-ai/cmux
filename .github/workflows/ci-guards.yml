@@ -486,6 +486,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_package_lane_ghostty_sha.py
 
+      - name: Validate the package test lane's single-suite phase
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_package_lane_suite.py
+
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workflow_run_sources.py

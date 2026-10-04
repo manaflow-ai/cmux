@@ -1,4 +1,4 @@
-//! Restoring a screen's viewport columns, with their `sticky-columns-v1`
+//! Restoring a screen's viewport columns, with their `dock-columns-v1`
 //! flags and `rows-v1` rows, from the workspace registry, and the registry
 //! form of a column's rows.
 
@@ -42,7 +42,7 @@ pub(super) fn restore_registry_viewport(
             })
             .transpose()?;
         let mut restored = LayoutColumn::new(id, column.width, root, zellij_auto_layout);
-        restored.sticky = column.sticky;
+        restored.dock = column.dock;
         restored.rows = restore_rows(&column.rows, splits, allocate)?;
         columns.push(restored);
     }

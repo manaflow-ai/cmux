@@ -1,3 +1,4 @@
+import AppKit
 import os
 
 /// Checks, once layout and presentation settle after a change, that every
@@ -7,7 +8,10 @@ import os
 /// lifecycle bug stays visible instead of being papered over.
 ///
 /// Event-driven: runs only for `settleFrames` display frames after a
-/// presentation change, so an idle app keeps no display link.
+/// presentation change, so an idle app keeps no display link. A window's
+/// occlusion change is such a change: panes in an occluded window are not
+/// judged (they draw nothing by design), so the check after the window is
+/// visible again is the one that proves every surface drew.
 @MainActor
 final class SurfaceInvariantMonitor {
     /// Frames to wait after the last change (layout springs settle in ~250 ms).
@@ -18,6 +22,18 @@ final class SurfaceInvariantMonitor {
     private(set) var violations = 0
     private(set) var checks = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.surfaces")
+    private var occlusionObserver: (any NSObjectProtocol)?
+
+    /// Re-checks after any window's occlusion changes (AppServices wiring).
+    func observeWindowOcclusion() {
+        guard occlusionObserver == nil else { return }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // task-owner: one main-actor hop per occlusion change; noteChange only arms the settle frames.
+            Task { @MainActor in self?.noteChange() }
+        }
+    }
 
     /// A pane showed, hid, moved or released content.
     func noteChange() {

@@ -51,6 +51,48 @@ impl CdpDriver {
         agent_source: impl Into<Arc<str>>,
         events: EventSink,
     ) -> Result<CdpDriver, DriverError> {
+        let inner = Inner::start(conn.clone(), agent_source.into(), events)?;
+        Self::set_up_browser(&inner, &conn)?;
+        Ok(CdpDriver { inner })
+    }
+
+    /// Takes over a page-rooted connection (one in-app CEF tab's DevTools
+    /// relay, [`CdpConnection::page_rooted`]): the page is the driver's only
+    /// tab, under the connection's alias; its out-of-process frames attach
+    /// as flat child sessions. Returns the driver and the page's CDP target id.
+    pub fn attach_page(
+        conn: Arc<CdpConnection>,
+        agent_source: impl Into<Arc<str>>,
+        events: EventSink,
+    ) -> Result<(CdpDriver, String), DriverError> {
+        let alias = conn
+            .root_alias()
+            .map(str::to_owned)
+            .ok_or_else(|| DriverError::invalid("attach_page needs a page-rooted connection"))?;
+        let reply = conn.call(Some(&alias), "Target.getTargetInfo", json!({}), INTERNAL_TIMEOUT)?;
+        let info = reply["targetInfo"].clone();
+        let target_id = info
+            .get("targetId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| DriverError::invalid("Target.getTargetInfo returned no targetId"))?;
+        let inner = Inner::start(conn, agent_source.into(), events)?;
+        // The page is already attached: the relay is its session.
+        inner.handle_event(CdpEvent {
+            session_id: None,
+            method: "Target.attachedToTarget".into(),
+            params: json!({"sessionId": alias, "targetInfo": info, "waitingForDebugger": false}),
+        });
+        Ok((CdpDriver { inner }, target_id))
+    }
+}
+
+impl Inner {
+    fn start(
+        conn: Arc<CdpConnection>,
+        agent_source: Arc<str>,
+        events: EventSink,
+    ) -> Result<Arc<Inner>, DriverError> {
         let (event_tx, event_rx) = mpsc::channel::<DriverEvent>();
         std::thread::Builder::new()
             .name("cmux-browser-host-cdp-events".into())
@@ -64,7 +106,7 @@ impl CdpDriver {
         let paused = super::requests::start_worker(conn.clone(), request_filter.clone())?;
         let inner = Arc::new(Inner {
             conn: conn.clone(),
-            agent_source: agent_source.into(),
+            agent_source,
             events: Mutex::new(event_tx),
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
@@ -85,6 +127,12 @@ impl CdpDriver {
                 inner.changed.notify_all();
             }
         }));
+        Ok(inner)
+    }
+}
+
+impl CdpDriver {
+    fn set_up_browser(inner: &Arc<Inner>, conn: &Arc<CdpConnection>) -> Result<(), DriverError> {
         conn.call(None, "Target.setDiscoverTargets", json!({"discover": true}), INTERNAL_TIMEOUT)?;
         conn.call(
             None,
@@ -117,7 +165,14 @@ impl CdpDriver {
                 INTERNAL_TIMEOUT,
             )?;
         }
-        Ok(CdpDriver { inner })
+        Ok(())
+    }
+}
+
+impl CdpDriver {
+    /// False once the connection closed (a relayed tab went away).
+    pub fn is_open(&self) -> bool {
+        self.inner.conn.closed_reason().is_none()
     }
 }
 
@@ -137,6 +192,7 @@ impl Driver for CdpDriver {
             "tab.setViewport" => inner.set_viewport(params),
             "frames.list" => inner.frames_list(params),
             "frame.evaluate" => inner.evaluate(params),
+            "frame.observe" => inner.evaluate(&crate::observe::evaluate_params(params)?),
             "frame.contentFrame" => inner.content_frame(params),
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),

@@ -15,26 +15,40 @@
 //!   closed a forward or a browser route. Link and port lines go out as soon as the
 //!   loop is free (with no op after the change); while an op runs (a relay call, or a
 //!   connect waiting for the link's ready line) they wait for the end of that op.
-//! - server -> host: `{"type":"relay.request","id","op","method","path","body","idempotency_key"}`
-//! - host -> server: `{"type":"relay.response","id","status","body","error_code"}`
-//!   or `{"type":"relay.error","id","code":"not_signed_in"|"unavailable","message"}`
+//! - server -> host: `{"type":"relay.op","id","op","params","idempotency_key"?,"origin"?}`: one
+//!   `cmux.wire/1` op. The host sends `{op, params, idempotency_key, origin}` to
+//!   `POST /v1/read` (no key) or `POST /v1/ops` with the install token and folds the
+//!   answer into `{"type":"relay.result","id","ok":true,"value","revision"?,"replayed"?}`
+//!   or `{"type":"relay.result","id","ok":false,"error":{"code","message","retryable","details"?}}`
+//!   (a `/v1/ops` `OpResponse` as is; a non-200 HTTP answer's `{code, message}` body
+//!   as the error, retryable on 503).
+//! - host -> server, for any relay call: `{"type":"relay.error","id",
+//!   "code":"not_signed_in"|"unavailable","message"}`
 //! - server -> host: `{"type":"relay.session","id"}`; host -> server:
 //!   `{"type":"relay.session","id","signed_in","team"}`
 //! - host-only ops (`cmux.host.link.get`): `t` frames, see [`super::host`].
-//!   A host frame that arrives during a relay call is queued like an op
-//!   line and applied after the call, on the loop thread.
+//!   A host frame that arrives during a relay call is kept and applied
+//!   after the call, on the loop thread: a `host.event` replaces a waiting
+//!   one of the same op, at most 64 events (distinct ops) and 64 answers
+//!   are kept, other frames are dropped (see `HostRelay::hold`).
 //!
-//! The host adds the bearer when it sends the HTTP call; no line in either
+//! The host adds the install token when it sends the call (never a Stack
+//! bearer, contract 1.1 and state-placement 5.5); no line in either
 //! direction carries a credential. The host answers every relay request,
 //! with `relay.error` when its own HTTP deadline passes; the server has no
 //! timer of its own. Op lines that arrive while a relay call
-//! waits are queued and served in order after it.
+//! waits are queued and served in order after it, at most
+//! [`RELAY_QUEUE_LINES`]; one more gets `cmux.cloud.relay_busy` (retryable)
+//! at once. A `host.event` replaces a waiting one of the same op.
 //!
 //! In the serve loop ([`super::serve`]) a reader thread reads the host
 //! lines into one inbox that link processes also wake, so the loop blocks
 //! on one channel and sends a link change at once, with no op after it.
 
-use super::control_plane::{ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus};
+use super::control_plane::{
+    ControlPlane, RelayError, SessionStatus, WireCall, WireError, WireReply, WireResult,
+};
+use super::error::{CloudError, codes};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::{BufRead, Write};
@@ -56,6 +70,12 @@ pub(crate) enum Next {
     /// Drain the link and forward events; no host message came.
     Wake,
 }
+
+/// Op lines a relay call keeps waiting while it waits for its answer, the
+/// same bound as the inbox. One more op line is answered at once with
+/// `cmux.cloud.relay_busy` (retryable); it never waits and is never dropped
+/// without an answer.
+pub const RELAY_QUEUE_LINES: usize = 64;
 
 /// Host lines the inbox holds before the reader thread waits (the stdin
 /// pipe then pushes back on the host, as before the reader thread).
@@ -120,17 +140,39 @@ pub struct HostRelay<R, W> {
     writer: W,
     next_id: u64,
     queued: VecDeque<Value>,
+    /// Lines in `queued` that get a result line (not host frames).
+    waiting_ops: usize,
+    /// `host.result` and `host.error` frames in `queued`.
+    host_answers: usize,
+    /// `host.event` frames in `queued` (one per op).
+    host_events: usize,
+    /// `team.event` lines in `queued` (they get no result line).
+    team_events: usize,
 }
+
+/// Team wire events a relay call keeps waiting. They are kept in order and
+/// never answered; one more is dropped (the projection compares revisions,
+/// and the next listing repairs a dropped change).
+const TEAM_EVENT_LINES: usize = 256;
 
 impl<R: BufRead, W: Write> HostRelay<R, W> {
     pub fn new(reader: R, writer: W) -> Self {
-        Self { input: Input::Direct(reader), writer, next_id: 0, queued: VecDeque::new() }
+        Self {
+            input: Input::Direct(reader),
+            writer,
+            next_id: 0,
+            queued: VecDeque::new(),
+            waiting_ops: 0,
+            host_answers: 0,
+            host_events: 0,
+            team_events: 0,
+        }
     }
 
     /// The next host message that is not a relay answer: queued ones first.
     /// `None` at end of input. Wakes are skipped (only the serve loop takes them).
     pub fn next_message(&mut self) -> std::io::Result<Option<Value>> {
-        if let Some(m) = self.queued.pop_front() {
+        if let Some(m) = self.pop_queued() {
             return Ok(Some(m));
         }
         self.read_line()
@@ -139,7 +181,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// The serve loop's next step: a queued or new host message, or a wake.
     /// `None` at end of input.
     pub(crate) fn next_step(&mut self) -> std::io::Result<Option<Next>> {
-        if let Some(m) = self.queued.pop_front() {
+        if let Some(m) = self.pop_queued() {
             return Ok(Some(Next::Message(m)));
         }
         match &mut self.input {
@@ -151,6 +193,19 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 Err(_) => Ok(None),
             },
         }
+    }
+
+    /// The oldest kept line, with the counts kept in step.
+    fn pop_queued(&mut self) -> Option<Value> {
+        let m = self.queued.pop_front()?;
+        match m["t"].as_str() {
+            Some("host.result" | "host.error") => self.host_answers -= 1,
+            Some("host.event") => self.host_events -= 1,
+            _ if super::host::is_host_frame(&m) => {}
+            _ if m["type"] == "team.event" => self.team_events -= 1,
+            _ => self.waiting_ops -= 1,
+        }
+        Some(m)
     }
 
     /// Writes one JSON line to the host.
@@ -189,7 +244,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 .ok_or_else(|| RelayError::Unavailable("the host closed the channel".into()))?;
             let is_answer = message["type"].as_str().is_some_and(|t| t.starts_with("relay."));
             if !is_answer {
-                self.queued.push_back(message);
+                self.hold(message).map_err(|e| RelayError::Unavailable(e.to_string()))?;
                 continue;
             }
             if message["id"] != json!(id) {
@@ -204,12 +259,78 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                     ),
                 });
             }
-            let expected = if kind == "relay.session" { "relay.session" } else { "relay.response" };
+            let expected = match kind.as_str() {
+                Some("relay.session") => "relay.session",
+                _ => "relay.result",
+            };
             if message["type"] != expected {
                 return Err(RelayError::Unavailable("unexpected relay answer".into()));
             }
             return Ok(message);
         }
+    }
+}
+
+impl<R: BufRead, W: Write> HostRelay<R, W> {
+    /// Keeps a line that came during a relay call for after it. Host frames
+    /// are answers and events, never op lines: a `host.event` replaces the
+    /// waiting one of the same op in place (only the newest counts), at most
+    /// [`RELAY_QUEUE_LINES`] host answers are kept (the server has far fewer
+    /// waiting), and other host frames are dropped. Every other line gets a
+    /// result line from the loop, so at most [`RELAY_QUEUE_LINES`] of them
+    /// wait; one more is answered now with the retryable
+    /// `cmux.cloud.relay_busy`. When that write fails the channel is dead,
+    /// and the call that waits fails as `relay_unavailable`.
+    fn hold(&mut self, message: Value) -> std::io::Result<()> {
+        if super::host::is_host_frame(&message) {
+            match message["t"].as_str() {
+                Some("host.event") => {
+                    let op = message["op"].clone();
+                    let same = |m: &Value| m["t"] == "host.event" && m["op"] == op;
+                    // In place: the newest event keeps the older one's turn.
+                    if let Some(waiting) = self.queued.iter_mut().find(|m| same(m)) {
+                        *waiting = message;
+                    } else if self.host_events < RELAY_QUEUE_LINES {
+                        self.host_events += 1;
+                        self.queued.push_back(message);
+                    } else {
+                        eprintln!("cmux-cloud: dropped a host event that came during a relay call");
+                    }
+                }
+                Some("host.result" | "host.error") if self.host_answers < RELAY_QUEUE_LINES => {
+                    self.host_answers += 1;
+                    self.queued.push_back(message);
+                }
+                // More host answers than the server ever has waiting, or a
+                // frame type the server does not know: the loop would drop
+                // it anyway.
+                _ => eprintln!("cmux-cloud: dropped a host frame that came during a relay call"),
+            }
+            return Ok(());
+        }
+        if message["type"] == "team.event" {
+            if self.team_events < TEAM_EVENT_LINES {
+                self.team_events += 1;
+                self.queued.push_back(message);
+            } else {
+                eprintln!("cmux-cloud: dropped a team event that came during a relay call");
+            }
+            return Ok(());
+        }
+        if self.waiting_ops < RELAY_QUEUE_LINES {
+            self.waiting_ops += 1;
+            self.queued.push_back(message);
+            return Ok(());
+        }
+        let error = CloudError {
+            retryable: true,
+            ..CloudError::new(
+                codes::RELAY_BUSY,
+                "cmux Cloud is busy with other requests: try again",
+            )
+        };
+        let id = message.get("id").cloned().unwrap_or(Value::Null);
+        self.send(&json!({ "type": "result", "id": id, "ok": false, "error": error }))
     }
 }
 
@@ -264,19 +385,23 @@ fn read_json_line<R: BufRead>(reader: &mut R) -> std::io::Result<Option<Value>> 
 }
 
 impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
-    fn call(&mut self, call: &HttpCall) -> Result<HttpReply, RelayError> {
-        let mut request = serde_json::to_value(call).expect("HttpCall serializes");
-        request["type"] = json!("relay.request");
+    fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError> {
+        let mut request = serde_json::to_value(call).expect("WireCall serializes");
+        request["type"] = json!("relay.op");
         let answer = self.exchange(request)?;
-        let status = answer["status"]
-            .as_u64()
-            .and_then(|s| u16::try_from(s).ok())
-            .ok_or_else(|| RelayError::Unavailable("relay answer has no status".into()))?;
-        Ok(HttpReply {
-            status,
-            body: answer.get("body").cloned().unwrap_or(Value::Null),
-            error_code: answer["error_code"].as_str().map(str::to_owned),
-        })
+        match answer["ok"].as_bool() {
+            Some(true) => Ok(WireReply::Result(WireResult {
+                value: answer.get("value").cloned().unwrap_or(Value::Null),
+                revision: answer["revision"].as_str().map(str::to_owned),
+                replayed: answer["replayed"].as_bool().unwrap_or(false),
+            })),
+            Some(false) => serde_json::from_value::<WireError>(answer["error"].clone())
+                .map(WireReply::Error)
+                .map_err(|e| {
+                    RelayError::Unavailable(format!("relay error has no typed error: {e}"))
+                }),
+            None => Err(RelayError::Unavailable("relay result has no ok".into())),
+        }
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {

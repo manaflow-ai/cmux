@@ -98,6 +98,10 @@ class PaneDirection(str, Enum):
     UP = 'up'
     DOWN = 'down'
 
+class PaneKind(str, Enum):
+    PTY = 'pty'
+    BROWSER = 'browser'
+
 class RenderGraphicFormat(str, Enum):
     RGB = 'rgb'
     RGBA = 'rgba'
@@ -412,6 +416,123 @@ class ColumnPin:
     __cmux_schema_path__: ClassVar[str] = 'types/ColumnPin'
     edge: str
     mode: str
+
+
+@dataclass(frozen=True)
+class ConversationChange:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationChange'
+    kind: str
+    conversation: Union[ConversationSummary, MissingType] = field(default=MISSING)
+    message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+    participant: Union[str, MissingType] = field(default=MISSING)
+    seq: Union[int, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class ConversationMessage:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationMessage'
+    author: str
+    client_msg_id: str
+    conversation: str
+    created_at: str
+    id: str
+    parts: List[ConversationPart]
+    reactions: List[ConversationReaction]
+    seq: int
+    edited_at: Union[str, MissingType] = field(default=MISSING)
+    reply_to: Union[ConversationPartRef, MissingType] = field(default=MISSING)
+    retracted_at: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationPart:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart'
+    type: str
+    host: Union[str, MissingType] = field(default=MISSING)
+    preview: Union[str, MissingType] = field(default=MISSING)
+    runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
+    session: Union[str, MissingType] = field(default=MISSING)
+    status: Union[str, MissingType] = field(default=MISSING)
+    text: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class ConversationPartRef:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationPartRef'
+    message_id: str
+    part_index: int
+
+
+@dataclass(frozen=True)
+class ConversationParticipant:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationParticipant'
+    display_name: str
+    id: str
+    kind: str
+    acp_session: Union[str, MissingType] = field(default=MISSING)
+    agent_class: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationReaction:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationReaction'
+    at: str
+    author: str
+    kind: ConversationReactionKind
+    part_index: int
+
+
+@dataclass(frozen=True)
+class ConversationReactionKind:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationReactionKind'
+    emoji: Union[str, MissingType] = field(default=MISSING)
+    tapback: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class ConversationSearchHit:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationSearchHit'
+    author: str
+    conversation: str
+    created_at: str
+    message_id: str
+    seq: int
+    snippet: str
+    title: str
+
+
+@dataclass(frozen=True)
+class ConversationSummary:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationSummary'
+    created_at: str
+    id: str
+    last_seq: int
+    owner: str
+    participants: List[ConversationParticipant]
+    read_cursors: Dict[str, int]
+    rev: int
+    title: str
+    updated_at: str
+    last_message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationTabRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabRecord'
+    conversation: str
+    owner: str
+
+
+@dataclass(frozen=True)
+class ConversationTextRun:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTextRun'
+    length: int
+    start: int
+    link: Union[str, MissingType] = field(default=MISSING)
+    mention: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1879,10 +2000,23 @@ class ConversationAgentTokenRequest:
 
 
 @dataclass(frozen=True)
+class ConversationAgentTokenResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/result'
+    participant: str
+    token: str
+
+
+@dataclass(frozen=True)
 class ConversationBindRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/request'
     participant: str
     token: str
+
+
+@dataclass(frozen=True)
+class ConversationBindResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/result'
+    participant: str
 
 
 @dataclass(frozen=True)
@@ -1895,6 +2029,13 @@ class ConversationCreateRequest:
 
 
 @dataclass(frozen=True)
+class ConversationCreateResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-create/result'
+    conversation: ConversationSummary
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class ConversationHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/request'
     before_seq: int
@@ -1903,9 +2044,21 @@ class ConversationHistoryRequest:
 
 
 @dataclass(frozen=True)
+class ConversationHistoryResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/result'
+    messages: List[ConversationMessage]
+
+
+@dataclass(frozen=True)
 class ConversationListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/request'
     pass
+
+
+@dataclass(frozen=True)
+class ConversationListResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/result'
+    conversations: List[ConversationSummary]
 
 
 @dataclass(frozen=True)
@@ -1919,6 +2072,16 @@ class ConversationOpRequest:
 
 
 @dataclass(frozen=True)
+class ConversationOpResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-op/result'
+    change: ConversationChange
+    replayed: bool
+    rev: int
+    seq: Union[int, MissingType] = field(default=MISSING)
+    transaction: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationSearchRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-search/request'
     limit: int
@@ -1926,10 +2089,23 @@ class ConversationSearchRequest:
 
 
 @dataclass(frozen=True)
+class ConversationSearchResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-search/result'
+    hits: List[ConversationSearchHit]
+
+
+@dataclass(frozen=True)
 class ConversationSnapshotRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/request'
     conversation: str
     tail: int
+
+
+@dataclass(frozen=True)
+class ConversationSnapshotResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/result'
+    conversation: ConversationSummary
+    messages: List[ConversationMessage]
 
 
 @dataclass(frozen=True)
@@ -2447,8 +2623,8 @@ class MoveTabToColumnRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     screen: Union[Id, None, MissingType] = field(default=MISSING)
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    dock: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
-    sticky: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -2549,6 +2725,16 @@ class NewConversationTabRequest:
 
 
 @dataclass(frozen=True)
+class NewConversationTabResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-conversation-tab/result'
+    surface: Id
+    content_resource_id: Union[str, None]
+    conversation: ConversationTabRecord
+    replayed: bool
+    tab_resource_id: Union[str, None]
+
+
+@dataclass(frozen=True)
 class NewFrontendBrowserTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-frontend-browser-tab/request'
     engine: str
@@ -2585,8 +2771,10 @@ class NewPaneRightRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
 
@@ -3015,10 +3203,10 @@ class SetClientSizingRequest:
 
 
 @dataclass(frozen=True)
-class SetColumnStickyRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/set-column-sticky/request'
+class SetColumnDockRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-column-dock/request'
     pane: Id
-    sticky: bool
+    dock: bool
     edge: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[int, None, MissingType] = field(default=MISSING)
@@ -3226,8 +3414,10 @@ class SplitRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4200,6 +4390,7 @@ __all__ = [
     'NotificationLevel',
     'NotificationSource',
     'PaneDirection',
+    'PaneKind',
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',
@@ -4227,6 +4418,17 @@ __all__ = [
     'ClientSize',
     'CloseTerminalResult',
     'ColumnPin',
+    'ConversationChange',
+    'ConversationMessage',
+    'ConversationPart',
+    'ConversationPartRef',
+    'ConversationParticipant',
+    'ConversationReaction',
+    'ConversationReactionKind',
+    'ConversationSearchHit',
+    'ConversationSummary',
+    'ConversationTabRecord',
+    'ConversationTextRun',
     'CopyResult',
     'DeadPane',
     'DeclarativeLayoutLeaf',
@@ -4385,13 +4587,21 @@ __all__ = [
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
     'ConversationAgentTokenRequest',
+    'ConversationAgentTokenResult',
     'ConversationBindRequest',
+    'ConversationBindResult',
     'ConversationCreateRequest',
+    'ConversationCreateResult',
     'ConversationHistoryRequest',
+    'ConversationHistoryResult',
     'ConversationListRequest',
+    'ConversationListResult',
     'ConversationOpRequest',
+    'ConversationOpResult',
     'ConversationSearchRequest',
+    'ConversationSearchResult',
     'ConversationSnapshotRequest',
+    'ConversationSnapshotResult',
     'ConversationTypingRequest',
     'CopyRequest',
     'CreateBookmarkRequest',
@@ -4465,6 +4675,7 @@ __all__ = [
     'MoveWorkspaceToGroupRequest',
     'NewBrowserTabRequest',
     'NewConversationTabRequest',
+    'NewConversationTabResult',
     'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',
@@ -4518,7 +4729,7 @@ __all__ = [
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',
-    'SetColumnStickyRequest',
+    'SetColumnDockRequest',
     'SetDefaultColorsRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetPersonalTerminalRequest',

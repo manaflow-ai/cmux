@@ -49,6 +49,11 @@ public actor TerminalAttachment: TerminalByteChannel {
         let value: Mutex<SurfaceID>
         init(_ surface: SurfaceID) { value = Mutex(surface) }
     }
+
+    /// Snapshot order of this stream; only the reader thread touches it.
+    private final class SequencerBox: Sendable {
+        let value = Mutex(TerminalSnapshotSequencer())
+    }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
@@ -64,20 +69,32 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private nonisolated let control = Mutex(Control())
 
+    /// The host capability a snapshot attach needs: READY snapshots
+    /// (`terminal-snapshot-v1`) followed by their scrollback as `history`
+    /// snapshots. A READY alone would drop the scrollback at every attach
+    /// and grid change, so a host without it gets a byte replay attach.
+    public static let snapshotCapability = DaemonCapabilities.shared.terminalSnapshotHistory
+
     /// Opens a connection, attaches in byte mode at `size`, and optionally
     /// claims canonical geometry (the focused view in the key window does).
+    ///
+    /// - Parameter snapshotVersion: the view's GHOSTSNP version. When the
+    ///   host has ``snapshotCapability`` the attach asks for snapshots; the
+    ///   host still answers with a byte replay when its version differs.
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
         size: CellSize,
         claimGeometry: Bool,
+        snapshotVersion: UInt16? = nil,
         clientName: String = "cmux-next-terminal"
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         let transport = try LineTransport(path: endpoint.socketPath)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
-            try await attachment.open(target: target, size: size, claimGeometry: claimGeometry, clientName: clientName)
+            try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
+                                      snapshotVersion: snapshotVersion, clientName: clientName)
         } catch {
             transport.close()
             throw error
@@ -96,17 +113,21 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// Output bytes waiting for the consumer (diagnostics, tests).
     public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
-    private func open(target: Target, size: CellSize, claimGeometry: Bool, clientName: String) async throws {
+    private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
+                      clientName: String) async throws {
         let queue = queue
         let resolvedSurface = resolvedSurface
+        let sequencer = SequencerBox()
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
-                if surface == Self.unresolvedSurface, name == "vt-state", let named = Self.vtStateSurface(line) {
+                if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line) {
                     resolvedSurface.value.withLock { $0 = named }
                     surface = named
                 }
-                guard let event = Self.decodeAttachEvent(name: name, line: line, surface: surface) else { return }
+                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
+                      let event = sequencer.value.withLock({ $0.admit(decoded) })
+                else { return }
                 if case .closed = event {
                     queue.finish(event)
                 } else {
@@ -138,7 +159,8 @@ public actor TerminalAttachment: TerminalByteChannel {
             surface: useIdentity ? nil : target.surface,
             expectedGeneration: useIdentity ? target.generation : nil,
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
-            size: size
+            size: size,
+            snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
@@ -262,96 +284,6 @@ public actor TerminalAttachment: TerminalByteChannel {
             }
         } catch {
             logger.debug("\(R.command, privacy: .public) dropped after close")
-        }
-    }
-
-    // MARK: Decoding
-
-    private struct VTState: Decodable {
-        var surface: SurfaceID?
-        var cols: Int
-        var rows: Int
-        var data: Data?
-        var replay: Data?
-        var colors: TerminalColors?
-        var kittyImageAliases: [KittyImageAlias]?
-        var kittyGraphicsState: KittyGraphicsState?
-        var pending: Data?
-
-        enum CodingKeys: String, CodingKey {
-            case surface, cols, rows, data, replay, colors, pending
-            case kittyImageAliases = "kitty_image_aliases"
-            case kittyGraphicsState = "kitty_graphics_state"
-        }
-
-        var terminalReplay: TerminalReplay {
-            TerminalReplay(cols: cols, rows: rows, data: replay ?? data ?? Data(), colors: colors,
-                           kittyImageAliases: kittyImageAliases ?? [], kittyGraphicsState: kittyGraphicsState,
-                           pending: pending ?? Data())
-        }
-    }
-
-    private struct Output: Decodable {
-        var surface: SurfaceID?
-        var data: Data
-        var colors: TerminalColors?
-    }
-
-    private struct SurfaceScoped: Decodable {
-        var surface: SurfaceID?
-        var scope: String?
-        var offset: UInt64?
-        var atBottom: Bool?
-        enum CodingKeys: String, CodingKey {
-            case surface, scope, offset
-            case atBottom = "at_bottom"
-        }
-    }
-
-    /// The surface a `vt-state` line names.
-    static func vtStateSurface(_ line: Data) -> SurfaceID? {
-        try? WireCoding.decoder().decode(VTState.self, from: line).surface
-    }
-
-    /// Maps one attach-connection line to a channel event. Returns nil for
-    /// events that belong to another surface or that views ignore.
-    static func decodeAttachEvent(name: String, line: Data, surface: SurfaceID) -> TerminalChannelEvent? {
-        let decoder = WireCoding.decoder()
-        do {
-            switch name {
-            case "vt-state":
-                let state = try decoder.decode(VTState.self, from: line)
-                guard state.surface == nil || state.surface == surface else { return nil }
-                return .replay(state.terminalReplay)
-            case "output":
-                let output = try decoder.decode(Output.self, from: line)
-                guard output.surface == nil || output.surface == surface else { return nil }
-                return .output(output.data, colors: output.colors)
-            case "resized":
-                let state = try decoder.decode(VTState.self, from: line)
-                guard state.surface == nil || state.surface == surface else { return nil }
-                return .resized(state.terminalReplay)
-            case "colors-changed":
-                let scoped = try decoder.decode(SurfaceScoped.self, from: line)
-                guard scoped.surface == nil || scoped.surface == surface else { return nil }
-                return .colorsChanged(try decoder.decode(TerminalColors.self, from: line))
-            case "scroll-changed":
-                let scoped = try decoder.decode(SurfaceScoped.self, from: line)
-                guard scoped.surface == surface, let offset = scoped.offset else { return nil }
-                return .scrollChanged(offset: offset, atBottom: scoped.atBottom ?? true)
-            case "detached":
-                let scoped = try decoder.decode(SurfaceScoped.self, from: line)
-                guard scoped.surface == nil || scoped.surface == surface else { return nil }
-                return .closed(.surfaceGone)
-            case "overflow":
-                let scoped = try decoder.decode(SurfaceScoped.self, from: line)
-                guard scoped.surface == nil || scoped.surface == surface else { return nil }
-                return .closed(.overflow)
-            default:
-                return nil
-            }
-        } catch {
-            return nil
         }
     }
 }

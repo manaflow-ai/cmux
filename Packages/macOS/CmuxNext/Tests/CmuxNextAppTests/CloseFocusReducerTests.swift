@@ -60,9 +60,9 @@ struct CloseFocusReducerTests {
         #expect(state.pane == "b1")
     }
 
-    // Sticky columns are columns for focus: the right sticky column's left
+    // Docked columns are columns for focus: the right docked column's left
     // neighbor is the strip's last column, the left one's is the first.
-    @Test func closingTheStickyColumnFocusesTheNearestScrollingColumn() {
+    @Test func closingTheDockColumnFocusesTheNearestScrollingColumn() {
         var state = Self.focused(["s1", "R"], in: [["L"], ["s1"], ["s2"], ["R"]])
         state = Self.run([.topology(Self.topology([["L"], ["s1"], ["s2"]]))], from: state)
         #expect(state.pane == "s2")

@@ -20,8 +20,8 @@ struct NewTabPageHandler {
     var open: (String, AgentPaneOpenTab) -> Void
     /// `(page tab, text)`: what `!` typed so far, for the terminal being made.
     var typeAhead: (String, String) -> Void = { _, _ in }
-    /// The screen's mode or agent pick (`mode`, `agent`), remembered on this Mac.
-    var remember: (String?, String?) -> Void = { _, _ in }
+    /// The agent the screen picked, remembered on this Mac.
+    var remember: (String) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
@@ -117,7 +117,7 @@ enum NewTabPage {
             projects: projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
-            mode: services.newTabChoices.mode, lastAgent: services.newTabChoices.agent,
+            lastAgent: services.newTabChoices.agent,
             home: NSHomeDirectory()
         )
     }
@@ -127,8 +127,7 @@ enum NewTabPage {
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
-            layout: NewTabTunables.layout.value.pageLayout, mode: services.newTabChoices.mode,
-            lastAgent: services.newTabChoices.agent, home: NSHomeDirectory()
+            layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory()
         )
     }
 
@@ -144,7 +143,7 @@ enum NewTabPage {
         NewTabPageHandler(
             open: open,
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
-            remember: { [weak services] mode, agent in services?.newTabChoices.remember(mode: mode, agent: agent) },
+            remember: { [weak services] agent in services?.newTabChoices.remember(agent: agent) },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
@@ -167,7 +166,7 @@ enum NewTabPage {
         guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
               let descriptor = SettingsSchema.descriptor(for: NewTabDefaultKind.configPath) else { return }
         Task {
-            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue)) } catch {
+            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue), by: .caller("page")) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
                     .error("new tab kind write failed: \(String(describing: error), privacy: .public)")
             }
@@ -192,7 +191,7 @@ extension PaneController {
         let cwd = selectedTab?.cwd
         let page = NewTabPage.page(services, selected: selectedTab)
         let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, request in
-            if let self { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) }
+            if let self { BenchSpans.measure("newTab.replace") { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) } }
         }
         let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
         let spare = services.newTabSpares.take(for: view.window)
@@ -221,6 +220,9 @@ extension PaneController {
     }
 }
 
+/// Runs a new tab page's close on the frame after its replacement shows.
+@MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
+
 extension NewTabPage {
     /// The page chose a terminal or browser: open it, then close the page,
     /// which held nothing yet (the open-beside rule's one replace case). The
@@ -230,7 +232,11 @@ extension NewTabPage {
     /// responsibility (the godfile limit counts its extensions).
     static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController) {
         let services = pane.services
-        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in pane?.close([StripTabID(key)]) }
+        // The page closes one frame after the new tab shows, so the frame that builds the
+        // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
+        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+            closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+        }
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the

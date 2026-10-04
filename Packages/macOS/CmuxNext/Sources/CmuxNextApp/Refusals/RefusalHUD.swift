@@ -22,8 +22,15 @@ final class RefusalHUD {
 
     /// The message currently shown (tests, `debug.layers` style checks).
     var message: String? { view.isShowing ? view.text : nil }
+    /// Messages asked for so far: a caller that may refuse after another
+    /// layer already did compares it, so one failure shows one reason.
+    private(set) var shownCount = 0
+    /// The window that draws the message (tests: it must sit above
+    /// Chromium page child windows, R84).
+    var hostWindow: NSWindow? { view.window }
 
     func show(_ text: String, in window: NSWindow?) {
+        shownCount += 1
         guard let content = window?.contentView else { return }
         if view.superview !== content { content.addSubview(view, positioned: .above, relativeTo: nil) }
         view.show(text, in: content.bounds)

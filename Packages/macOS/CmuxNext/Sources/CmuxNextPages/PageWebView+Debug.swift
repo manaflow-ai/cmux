@@ -1,5 +1,6 @@
 #if DEBUG
 public import CmuxNextSettings
+import CmuxNextDesign
 public import Foundation
 import AppKit
 import ObjectiveC
@@ -9,8 +10,9 @@ import WebKit
 /// from the DOM, and the page as WebKit rendered it. Absorbed from the Settings lead's
 /// `debug.settings_web` (branch feat-cmux-next-settings-react).
 extension PageWebView {
-    /// URL fragment, visible text (first 400 characters), control count and the computed html and
-    /// body backgrounds (the one-backdrop check).
+    /// URL fragment, visible text (first 400 characters), control count, the computed html and
+    /// body backgrounds (the one-backdrop check), and the focused element with its value (typing
+    /// checks).
     public func debugState() async -> JSONValue {
         let script = """
         return JSON.stringify({
@@ -20,7 +22,11 @@ extension PageWebView {
           text: (document.body && document.body.innerText || '').slice(0, 400),
           controls: document.querySelectorAll('input,select,button,[role=switch],[role=radio],[role=option]').length,
           html: getComputedStyle(document.documentElement).backgroundColor,
-          body: document.body ? getComputedStyle(document.body).backgroundColor : null
+          body: document.body ? getComputedStyle(document.body).backgroundColor : null,
+          painted_ms: document.documentElement.dataset.cmuxPainted ? Number(document.documentElement.dataset.cmuxPainted) : null,
+          active: document.activeElement && document.activeElement !== document.body
+            ? { tag: document.activeElement.tagName.toLowerCase(), value: 'value' in document.activeElement ? String(document.activeElement.value) : null }
+            : null
         });
         """
         guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
@@ -45,6 +51,16 @@ extension PageWebView {
         guard let image, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:]) else { return false }
         return (try? png.write(to: url)) != nil
+    }
+
+    /// Whether pages keep drawing in an occluded window: automation launches only
+    /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`).
+    /// `CMUX_NEXT_PAGES_WEBKIT_OCCLUSION=1` keeps WebKit's own throttling in an automation launch,
+    /// so a live check can prove the user path (a covered window that comes back redraws).
+    nonisolated static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
+        guard environment["CMUX_NEXT_PAGES_WEBKIT_OCCLUSION"] != "1" else { return false }
+        // The one automation rule for every window surface (terminals, pages).
+        return WindowDrawPolicy.isAutomationLaunch(environment)
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged

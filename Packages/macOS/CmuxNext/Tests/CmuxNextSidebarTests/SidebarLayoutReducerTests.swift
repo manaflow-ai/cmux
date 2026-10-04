@@ -21,7 +21,7 @@ import Testing
     // MARK: Defaults
 
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
-        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store"), .app("cmux/coderouter")])
+        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
         #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
@@ -41,7 +41,7 @@ import Testing
     @Test func addPinsAtIndexAndClampsTheIndex() throws {
         let ws = LayoutItem(id: LayoutItemID("itm_ws"), ref: .workspace("local:ws_1"))
         let doc = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, LayoutItemID("itm_app_store"), LayoutItemID("itm_app_coderouter"), ws.id])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, LayoutItemID("itm_app_store"), ws.id])
         let front = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: -3))
         #expect(front.section(SidebarLayoutDocument.topSectionID)?.items.first?.id == ws.id)
     }
@@ -72,7 +72,7 @@ import Testing
     @Test func moveAcrossRegionsKeepsTheItem() throws {
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
         #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store"), LayoutItemID("itm_app_coderouter")])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store")])
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 

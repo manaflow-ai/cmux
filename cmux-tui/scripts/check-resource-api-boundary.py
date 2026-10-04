@@ -2370,7 +2370,7 @@ def _operation_catalog(
                 "value": {"kind": "resource_id", "resource": "pane"},
             }
             or set(types.get("LayoutColumn", {}).get("fields", {}))
-            != {"column_id", "width", "root", "sticky"}
+            != {"column_id", "width", "root", "dock"}
             or screen_layout != {"kind": "ref", "name": "LayoutDocument"}
             or (
                 "screen.create" in operations

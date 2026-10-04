@@ -1,5 +1,5 @@
 //! The compatibility split tree of a layout snapshot whose viewport columns
-//! changed, after the row and `sticky-columns-v1` invariants are restored
+//! changed, after the row and `dock-columns-v1` invariants are restored
 //! ([`crate::model::project_layout_columns`]), and pane removal from such a
 //! snapshot.
 

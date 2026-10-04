@@ -15,7 +15,7 @@ use serve_common::Host;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha", "scp-endpoint"];
+const FIXTURES: &[&str] = &["vm-get", "connect-info-fs"];
 
 fn host(transfer: &FakeTransfer) -> Host {
     let spawner = FakeSpawner::default();
@@ -81,35 +81,66 @@ fn a_push_answers_before_the_copy_ends_and_its_end_is_an_event() {
 }
 
 #[test]
-fn a_push_on_a_connecting_link_waits_off_the_loop_and_then_starts() {
-    use attach_common::Script;
-    use std::time::Duration;
+fn a_push_needs_no_carrier_it_dials_the_daemon_itself() {
     let transfer = FakeTransfer::default();
     let mut host = host(&transfer);
-    let (spawned, held) = channel();
-    host.spawner.log().script.push_back(Script::Hold(spawned));
     host.send(&json!({ "type": "op", "id": "1", "op": "cloud.file.push", "origin": "user",
         "idempotency_key": "p-1",
         "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
-    let mut started = false;
-    for _ in 0..100 {
-        if held.try_recv().is_ok() {
-            started = true;
-            break;
-        }
-        if let Some(line) = host.next_within(Duration::from_millis(50)) {
-            assert_ne!(line["id"], "1", "the push answered before its link: {line}");
-        }
-    }
-    assert!(started, "the link process started");
-    host.send(&json!({ "type": "op", "id": "2", "op": "cloud.port.list", "args": {} }));
-    let read = result_of(&mut host, "2");
-    assert_eq!(read.map(|r| r["ok"].clone()), Some(json!(true)), "the loop serves ops meanwhile");
-    host.spawner.ready("vm-alpha01");
     let pushed = result_of(&mut host, "1");
     assert_eq!(
         pushed.as_ref().map(|r| r["result"]["state"].clone()),
         Some(json!("running")),
-        "the push starts once the link is up: {pushed:?}"
+        "{pushed:?}"
     );
+    assert_eq!(host.spawner.spawns(), 0, "no carrier: each daemon op is its own dial");
+}
+
+#[test]
+fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
+    let transfer = FakeTransfer::default();
+    let mut releases = Vec::new();
+    for _ in 0..cmux_cloud::fs::MAX_TRANSFERS {
+        let (release, hold) = channel();
+        releases.push(release);
+        transfer.log().holds.push_back(hold);
+    }
+    let mut host = host(&transfer);
+    let push = |host: &Host, id: &str| {
+        host.send(&json!({ "type": "op", "id": id, "op": "cloud.file.push", "origin": "user",
+            "idempotency_key": format!("p-{id}"),
+            "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
+    };
+    // The daemon capability gate: one connect_info read, then cached.
+    let endpoints = |host: &Host| {
+        host.cloud.ops().iter().filter(|op| *op == "cloud.machine.connect_info").count()
+    };
+    for id in ["1", "2", "3", "4"] {
+        push(&host, id);
+        let started = result_of(&mut host, id);
+        assert_eq!(started.map(|r| r["result"]["state"].clone()), Some(json!("running")), "{id}");
+    }
+    assert_eq!(endpoints(&host), 1, "one cached capability read for four pushes");
+    push(&host, "5");
+    let busy = result_of(&mut host, "5").expect("the fifth push answers");
+    assert_eq!(busy["ok"], false, "{busy}");
+    assert_eq!(busy["error"]["code"], "cmux.cloud.transfer_busy", "{busy}");
+    assert_eq!(busy["error"]["retryable"], true);
+    assert_eq!(endpoints(&host), 1, "the refused push asked the backend for nothing");
+    // One transfer ends: a new one starts.
+    releases.remove(0).send(()).unwrap();
+    let mut ended = false;
+    while let Some(line) = host.next() {
+        if line["event"] == "cloud.file.transfer.changed" {
+            assert_eq!(line["state"], "done", "{line}");
+            ended = true;
+            break;
+        }
+    }
+    assert!(ended, "one transfer ended");
+    push(&host, "6");
+    let started = result_of(&mut host, "6");
+    assert_eq!(started.map(|r| r["result"]["state"].clone()), Some(json!("running")));
+    assert_eq!(endpoints(&host), 1, "still cached");
+    drop(releases);
 }

@@ -59,6 +59,10 @@ export const CLOUD_REJECT_CODES = [
   /** A delivery report would move the delivery state backwards. */
   "delivery_regression",
   "invalid_settings",
+  /** An attachment part names a hash that was not uploaded (and verified) for this conversation. */
+  "unknown_attachment",
+  /** An attachment part's type or size differs from the uploaded object's record. */
+  "attachment_mismatch",
   /** A human the actor may not reach (no shared team or connection, their settings, or a block); also an unknown account (section 16). */
   "not_reachable"
 ] as const

@@ -1,6 +1,8 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
+import * as quota from "./home-attachment-quota.ts"
+import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
@@ -15,7 +17,7 @@ import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./
 import { SecondaryStream } from "./secondary-stream.ts"
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
-import { HOME_RATE_WINDOW_MS, homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
+import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -94,7 +96,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected override nextWakeAt(): number | null {
     this.boundInbox()
     const inbox = this.inbox.nextWakeAt()
-    const pending = Object.keys(this.boundEngine?.currentState.ssh_revoke_pending ?? {}).length > 0 ? Math.max(Date.now(), this.sshRetryAt ?? 0) : null
+    const pending = krlDueAt(this.boundEngine?.currentState, this.krlRetry, Date.now())
     const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
     const times = [inbox, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
@@ -146,9 +148,8 @@ export class UserDO extends OwnerDO<UserState> {
     return true
   }
 
-  /** Backoff after a failed KRL notice (in memory: a restart retries at once). */
-  private sshRetryAt: number | null = null
-  private sshAttempts = 0
+  /** Backoff after a failed KRL notice (user-krl.ts; in memory: a restart retries at once). */
+  private readonly krlRetry: KrlRetry = { at: null, attempts: 0 }
 
   /**
    * Delivers pending KRL notices for revoked installs to each team's TeamDO and clears each one
@@ -195,32 +196,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   private async deliverKrlNotices(now: number): Promise<void> {
-    const engine = this.existing()
-    const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
-    if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
-    // Every install and team is tried on each pass: one failing team never holds back the others.
-    let failed = false
-    for (const [install, n] of pending) {
-      let all = true
-      for (const team of n.teams) {
-        try {
-          const r = (await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).revokeInstallCerts(team, n.user, install)) as { ok: boolean }
-          if (!r.ok) throw new Error("refused")
-        } catch (e) {
-          all = false
-          console.error(JSON.stringify({ msg: "team ssh krl notice failed", install, team, attempt: this.sshAttempts + 1, error: String(e) }))
-        }
-      }
-      if (all) this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${n.at}`)
-      else failed = true
-    }
-    if (failed) {
-      this.sshAttempts += 1
-      this.sshRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.sshAttempts)
-    } else {
-      this.sshAttempts = 0
-      this.sshRetryAt = null
-    }
+    await deliverKrlNotices(this.env, this.existing()?.currentState, this.krlRetry, now, (install, at) => this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${at}`))
   }
 
   protected override onPrune(): void {
@@ -257,12 +233,12 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
-   * RPC from the Worker before an op that resolves human reach: one attempt from `actor`'s
-   * hourly budget for `op` (home-rate.ts homeRateTakeSql).
+   * RPC from the Worker before an op that resolves human reach: takes one attempt from `actor`'s
+   * hourly budget for `op` (home-rate.ts homeRateTakeSql). An object that never served this user
+   * (no user.ensure yet) creates no storage and answers `not_ready`.
    */
   async homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate> {
-    const bound = this.boundEntity()
-    if (bound !== null && bound !== entity) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+    if (!this.isBound(entity)) return { ok: false, not_ready: true }
     return homeRateTakeSql(this.sqlStore, actor, op, Date.now())
   }
 
@@ -419,6 +395,31 @@ export class UserDO extends OwnerDO<UserState> {
     const res = this.submitSystem("install.revoke_by_team", { install, team, by }, idempotencyKey, `system:team:${team}`)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     return reply && reply.t === "result" ? { ok: true } : { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+  }
+
+  /** Home attachment quota (home-attachment-quota.ts): every upload slot is charged; refunds and stored bytes by key. */
+  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<quota.TakeResult> {
+    return this.attachmentSql(entity) ? quota.take(this.ctx.storage.sql, key, bytes, Date.now()) : quota.FORBIDDEN
+  }
+
+  async refundAttachmentQuota(entity: string, key: string): Promise<void> {
+    if (this.attachmentSql(entity)) quota.refund(this.ctx.storage.sql, key)
+  }
+
+  async recordAttachmentStorage(entity: string, objectKey: string, bytes: number): Promise<void> {
+    if (this.attachmentSql(entity)) quota.recordStored(this.ctx.storage.sql, objectKey, bytes)
+  }
+
+  async releaseAttachmentStorage(entity: string, objectKey: string): Promise<void> {
+    if (this.attachmentSql(entity)) quota.releaseStored(this.ctx.storage.sql, objectKey)
+  }
+
+  /** Attachment counter tables of a bound user; false (no write) for an id this object never served. */
+  private attachmentSql(entity: string): boolean {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return false
+    quota.ensureTables(this.ctx.storage.sql)
+    return true
   }
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */

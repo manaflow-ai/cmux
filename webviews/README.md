@@ -25,6 +25,7 @@ React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. 
 `bun run dev` serves every surface from one Vite+ server with hot reload; `http://127.0.0.1:4200/` lists them (`CMUX_WEBVIEWS_DEV_PORT` moves it):
 
 - `/diff/`: the diff viewer against the real `cmux-diff-sidecar` (`$CMUX_DIFF_SIDECAR`, else the newest one in a built app), on this repo. Query: `?source=branch&base=HEAD~5` (default), `?source=unstaged|staged`, `&layout=unified`.
+- `/diff/?pick` and `/markdown?pick`: the empty states (`src/viewer-empty`): recent repositories or markdown files, a Choose button that opens the in-page fallback picker, drag and drop. Recents live in `viewer-recents.json` in the slot's folder (`CMUX_WEBVIEWS_DEV_STATE_DIR`). The host ops are in plans/cmux-next/diff-host.md, "Empty state".
 - `/markdown?file=<path>`: the markdown editor on a markdown file under the repo (saves write the file; Cmd-S saves at once). Files under `CMUX_MARKDOWN_DEV_READONLY_ROOTS` (colon-separated) open read only.
 - `/markdown/viewer?file=<path>`: the classic markdown viewer shell (`Resources/markdown-viewer/shell.html`). Saving the file or a shell stylesheet updates the page in place.
 - `/agent-pane/` (and `/agent-pane/prototype.html`): the agent pane, `?mock` for the in-page daemon. See [its README](src/agent-session/acpmux/README.md#dev-server); `bun run dev:agent-pane` still serves the pane alone on 4176.
@@ -37,6 +38,13 @@ Static checks run through Vite+ (`vp check`: Oxlint, Oxfmt and a TypeScript Go t
 bun run check      # what CI runs
 bun run check:fix  # format and apply lint fixes
 ```
+
+Interaction latency (plans/cmux-next/zero-latency.md): `bun run latency` builds the harness pages
+(`test/latency/`) for production and measures every page's named actions (input to paint) in
+headless Chromium and WebKit; it fails when a response does not paint within the input's frame or
+the next one, drops a frame, or has a long task on the input path. `--page`, `--action`,
+`--engine`, `--runs`, `--dev`, `--cpu-throttle 4` and `--ci` (a non-blocking scoreboard) narrow or
+change the run.
 
 Large public stress samples are available through:
 

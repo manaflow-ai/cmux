@@ -63,6 +63,8 @@ extension CEFRuntime {
             logger.info("CEF context initialized")
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
+        case .popup(let opener, let url, let disposition):
+            windowRequests.linkClicks.notePopup(opener: opener, disposition: CEFDisposition(raw: disposition), url: url)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
@@ -139,11 +141,13 @@ extension CEFRuntime {
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
+        windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
     }
 
     private func browserClosed(_ browser: Int32) {
+        windowRequests.linkClicks.forget(opener: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
@@ -299,9 +303,10 @@ extension CEFShimEvent {
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _):
+             .navigationReroute(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
+             .devToolsMessage(let b, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .unknown:
             nil
         }
     }

@@ -1,3 +1,4 @@
+import { cleanAttachmentPart } from "./attachments.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
 import { fail } from "./reject.ts"
 import {
@@ -60,9 +61,14 @@ const validAscii = (value: unknown, max: number): boolean => {
  */
 export const validateParticipant = (participant: unknown, cloud: boolean): Participant => {
   if (!isObject(participant) || !isString(participant.id)) return fail("invalid_participant")
-  const { id, kind, agent_class, acp_session } = participant
+  const { id, kind, agent_class, acp_session, person } = participant
   let prefixMatches: boolean
-  if (kind === "human") prefixMatches = id.startsWith("user_") && agent_class === undefined && validParticipantId(id)
+  // A `remote_` device is a local human that names its person (a `user_` id); a cloud head never
+  // has one. Every other participant has no person (Rust `validate_participant`).
+  if (kind === "human" && id.startsWith("remote_")) {
+    prefixMatches = !cloud && agent_class === undefined && isString(person) && person.startsWith("user_") && validParticipantId(person) && validParticipantId(id)
+  } else if (person !== undefined) prefixMatches = false
+  else if (kind === "human") prefixMatches = id.startsWith("user_") && agent_class === undefined && validParticipantId(id)
   else if (kind === "agent") prefixMatches = id.startsWith("agent_") && validParticipantId(id)
   else if (kind === "address" && cloud) prefixMatches = validAddressId(id) && agent_class === undefined && acp_session === undefined
   else prefixMatches = false
@@ -70,7 +76,7 @@ export const validateParticipant = (participant: unknown, cloud: boolean): Parti
   const sessionOk = acp_session === undefined || validAscii(acp_session, 256)
   // A local head has no `owner_user`: Rust's serde drops it, so it is dropped here too.
   const ownerOk =
-    participant.owner_user === undefined || !cloud || (kind === "agent" && isString(participant.owner_user) && validParticipantId(participant.owner_user))
+    participant.owner_user === undefined || !cloud || (kind === "agent" && isString(participant.owner_user) && validParticipantId(participant.owner_user) && !participant.owner_user.startsWith("remote_"))
   if (!prefixMatches || !classOk || !sessionOk || !ownerOk || !validDisplayName(participant.display_name)) fail("invalid_participant")
   return {
     id,
@@ -78,6 +84,7 @@ export const validateParticipant = (participant: unknown, cloud: boolean): Parti
     display_name: participant.display_name as string,
     ...(agent_class === undefined ? {} : { agent_class: agent_class as AgentClass }),
     ...(acp_session === undefined ? {} : { acp_session: acp_session as string }),
+    ...(person === undefined ? {} : { person: person as string }),
     ...(participant.owner_user === undefined || !cloud ? {} : { owner_user: participant.owner_user as string })
   }
 }
@@ -113,7 +120,7 @@ const validShortText = (value: unknown, maxBytes: number): boolean =>
  * Validates parts and returns them with only the known fields, as a serde
  * round trip in the Rust crate would.
  */
-export const validateParts = (parts: unknown): ReadonlyArray<Part> => {
+export const validateParts = (parts: unknown, allowAttachments = false): ReadonlyArray<Part> => {
   if (!Array.isArray(parts) || parts.length === 0 || parts.length > MAX_PARTS) return fail("invalid_parts")
   let textBytes = 0
   const out: Array<Part> = []
@@ -132,7 +139,10 @@ export const validateParts = (parts: unknown): ReadonlyArray<Part> => {
       const cleanRuns: Array<TextRun> = []
       for (const run of runs as Array<unknown>) {
         if (!isObject(run) || !isU32(run.start) || !isU32(run.length)) return fail("invalid_parts")
-        const mentionOk = run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention))
+        // A cloud head has no paired devices, so a `remote_` mention is refused there
+        // (`allowAttachments` is the cloud flag of apply()).
+        const mentionOk =
+          run.mention === undefined || (isString(run.mention) && validParticipantId(run.mention) && !(allowAttachments && run.mention.startsWith("remote_")))
         const linkOk = run.link === undefined || validShortText(run.link, 2048)
         if (run.length === 0 || run.start + run.length > text.length || !mentionOk || !linkOk) fail("invalid_parts")
         cleanRuns.push({
@@ -158,6 +168,11 @@ export const validateParts = (parts: unknown): ReadonlyArray<Part> => {
         status: part.status as WorkStatus,
         ...(part.preview === undefined ? {} : { preview: part.preview as string })
       })
+    } else if (part.type === "attachment" && allowAttachments) {
+      // Cloud heads only: a local head (the Rust crate) has no attachment parts.
+      const clean = cleanAttachmentPart(part)
+      if (!clean) return fail("invalid_parts")
+      out.push(clean)
     } else {
       fail("invalid_parts")
     }

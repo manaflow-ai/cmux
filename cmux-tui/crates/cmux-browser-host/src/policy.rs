@@ -75,6 +75,10 @@ impl DomainPattern {
             if host.is_empty() || host.chars().any(char::is_whitespace) {
                 return Err(PolicyError(format!("{raw:?}: expected a domain")));
             }
+            host = match host.strip_prefix("*.") {
+                Some(base) => format!("*.{}", normalize_host(raw, base)?),
+                None => normalize_host(raw, &host)?,
+            };
         }
         Ok(DomainPattern { raw: raw.to_owned(), scheme, host, port })
     }
@@ -115,6 +119,136 @@ impl DomainPattern {
         // A root domain also covers www.
         self.host.split('.').count() == 2 && host == format!("www.{}", self.host)
     }
+}
+
+/// A host name as URLs carry it: no trailing dot, lower case, and
+/// internationalized labels in Punycode (main's normalizeHost).
+fn normalize_host(raw: &str, host: &str) -> Result<String, PolicyError> {
+    let host = host.trim_end_matches('.');
+    if host.is_empty() {
+        return Err(PolicyError(format!("{raw:?}: expected a domain")));
+    }
+    if host.is_ascii() || host.starts_with('[') {
+        return Ok(host.to_ascii_lowercase());
+    }
+    match Host::parse(host) {
+        Ok(Host::Domain(domain)) => Ok(domain),
+        Ok(other) => Ok(other.to_string()),
+        Err(_) => Err(PolicyError(format!("{raw:?}: expected a domain"))),
+    }
+}
+
+/// Multi-label public suffixes common enough to matter; any other host is
+/// treated as having a one-label suffix. The runtime's compact stand-in
+/// (agent-tools.js registrableDomain) until a Public Suffix List lands
+/// (port plan D6, a slice S1 proposal).
+const MULTI_SUFFIXES: &[&str] = &[
+    "co.uk",
+    "org.uk",
+    "ac.uk",
+    "gov.uk",
+    "me.uk",
+    "ltd.uk",
+    "plc.uk",
+    "net.uk",
+    "co.jp",
+    "ne.jp",
+    "or.jp",
+    "ac.jp",
+    "go.jp",
+    "co.at",
+    "or.at",
+    "com.au",
+    "net.au",
+    "org.au",
+    "edu.au",
+    "gov.au",
+    "co.nz",
+    "org.nz",
+    "govt.nz",
+    "co.in",
+    "net.in",
+    "org.in",
+    "gov.in",
+    "ac.in",
+    "com.br",
+    "net.br",
+    "org.br",
+    "gov.br",
+    "com.cn",
+    "net.cn",
+    "org.cn",
+    "gov.cn",
+    "edu.cn",
+    "com.hk",
+    "org.hk",
+    "com.tw",
+    "org.tw",
+    "co.kr",
+    "or.kr",
+    "com.sg",
+    "edu.sg",
+    "com.mx",
+    "org.mx",
+    "co.za",
+    "org.za",
+    "com.tr",
+    "com.ar",
+    "com.co",
+    "com.pe",
+    "com.my",
+    "com.ph",
+    "com.vn",
+    "co.id",
+    "co.il",
+    "co.th",
+    "com.ua",
+    "com.pl",
+    "com.es",
+    "com.sa",
+    "com.eg",
+    "com.ng",
+    "github.io",
+    "gitlab.io",
+    "pages.dev",
+    "workers.dev",
+    "vercel.app",
+    "netlify.app",
+    "herokuapp.com",
+    "web.app",
+    "firebaseapp.com",
+    "appspot.com",
+    "blogspot.com",
+    "azurewebsites.net",
+    "cloudfront.net",
+    "amazonaws.com",
+    "s3.amazonaws.com",
+    "fly.dev",
+    "onrender.com",
+    "glitch.me",
+    "repl.co",
+    "ngrok.io",
+    "ngrok-free.app",
+    "trycloudflare.com",
+];
+
+/// The site (registrable domain) of a host, for cookie scoping and
+/// storageState; an IP address, a single label or a bracketed IPv6 address
+/// is its own site.
+pub fn site_of(host: &str) -> String {
+    let h = host.trim_start_matches('.').trim_end_matches('.').to_ascii_lowercase();
+    let is_ipv4 = h.split('.').count() == 4
+        && h.split('.').all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_digit()));
+    if h.is_empty() || h.starts_with('[') || is_ipv4 || !h.contains('.') {
+        return h;
+    }
+    let labels: Vec<&str> = h.split('.').collect();
+    for i in 1..labels.len() {
+        if MULTI_SUFFIXES.contains(&labels[i..].join(".").as_str()) {
+            return labels[i - 1..].join(".");
+        }
+    }
+    labels[labels.len() - 2..].join(".")
 }
 
 fn glob_match(pattern: &str, text: &str) -> bool {
@@ -209,6 +343,8 @@ const BROWSER_PAGE_SCHEMES: &[&str] = &[
     "devtools",
     "chrome-devtools",
     "view-source",
+    // cmux's internal pages (cmux://history, cmux://bookmarks, ...).
+    "cmux",
 ];
 
 /// True when `text` names one of Chromium's own pages. Like Chromium, tabs
@@ -217,6 +353,27 @@ const BROWSER_PAGE_SCHEMES: &[&str] = &[
 /// `blob:` and `filesystem:` take the origin of their inner URL.
 pub fn is_browser_page(text: &str) -> bool {
     is_browser_page_within(text, 0)
+}
+
+/// First-party pages (`cmux-page://cmux`, `cmux-page://cmux.<id>`, and
+/// single-label shared hosts such as `cmux-page://shell`) are refused; third-party app pages stay allowed. Fail closed on an empty host
+/// or a percent escape. The same rule as the Swift and C++ copies.
+fn is_reserved_page_host(rest: &str) -> bool {
+    let after = rest.trim_start_matches(['/', '\\']);
+    let mut host = after.split(['/', '\\', '?', '#']).next().unwrap_or("");
+    if host.contains('%') {
+        return true;
+    }
+    if let Some((_, tail)) = host.rsplit_once('@') {
+        host = tail;
+    }
+    if let Some((name, _)) = host.split_once(':') {
+        host = name;
+    }
+    let name = host.to_lowercase();
+    let name = name.trim_end_matches('.');
+    // A third-party app id always has a dot; a single label ("shell") is a shared first-party host.
+    name.is_empty() || name == "cmux" || name.starts_with("cmux.") || !name.contains('.')
 }
 
 /// More nested `blob:`/`filesystem:` wrappers than this are refused (fail
@@ -241,6 +398,9 @@ fn is_browser_page_within(text: &str, wrappers: usize) -> bool {
     }
     if BROWSER_PAGE_SCHEMES.contains(&scheme.as_str()) {
         return true;
+    }
+    if scheme == "cmux-page" {
+        return is_reserved_page_host(rest);
     }
     if matches!(scheme.as_str(), "blob" | "filesystem") {
         return is_browser_page_within(rest, wrappers + 1);
@@ -330,6 +490,8 @@ impl Policy {
         self.base.refusal(url).or_else(|| self.agent.refusal(url))
     }
 }
+
+mod cookies;
 
 /// Parses a list of patterns.
 pub fn parse_patterns(list: &[String]) -> Result<Vec<DomainPattern>, PolicyError> {

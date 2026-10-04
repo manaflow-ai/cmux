@@ -60,6 +60,12 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     /// kitty-replay restore; the session replays the VT part on a fresh
     /// surface until snapshot attach (terminal-snapshot-v1) restores images.
     case kittyReplay(TerminalKittyReplay)
+    /// GHOSTSNP snapshot bytes from the PTY owner's terminal core
+    /// (`ghostty_surface_restore_snapshot`), restored on the live surface in
+    /// stream order. `ready` replaces the terminal state (send the grid as a
+    /// `.resize` first); `history` continues the last READY with its
+    /// scrollback. No surface swap.
+    case snapshot(Data, phase: TerminalSnapshotPhase)
     /// Live PTY output, fed to `ghostty_surface_process_output`.
     case output(Data)
     /// The PTY's grid from this point in the stream (the daemon applied a

@@ -1,43 +1,79 @@
 // An in-memory `cmux.cloud` provider for the browser dev loop (`/cloud/?mock`) and tests. It is not
 // the backend: the Cloud app server (first-party-apps/cloud/server) owns machines, idempotency and
-// the native confirmations. The mock keeps only enough of them to drive the page, and creates no
+// the native confirmations. The mock answers like the server does today (`cmux.wire/1` records, the
+// same fields and error codes, the origin, key and argument guards of `ops/mod.rs`) and creates no
 // real resource.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { sampleAccount, sampleMachines, sampleSnapshots, sampleStats } from "./mockData";
+import { SAMPLE_FS_MACHINES, sampleAccount, sampleMachines, sampleSnapshots } from "./mockData";
 import { joinPath } from "./files";
-import { MockEdge, MockFiles, only } from "./mockEdge";
+import { MockEdge, MockFiles, notFound, only } from "./mockEdge";
 import {
   ACTION_RUN,
+  AccountOps,
+  CloudErrors,
   CloudOps,
   HostActions,
   NATIVE_ACTIONS,
-  type AccessMode,
   type CloudMachine,
-  type CloudPublication,
+  type CloudPlan,
   type CloudSnapshot,
-  type FirewallEndpoint,
   type MachineEvent,
-  type MachineMutationResult,
+  type MachineResult,
+  type TransferChanged,
 } from "./ops";
 
 export { sampleMachines } from "./mockData";
 
 /**
- * Ops the Cloud app server does not serve yet (first-party-apps/cloud/README.md "Gaps"), and host
- * actions the host does not serve yet. The mock answers them like the server: `cmux.cloud.unsupported`
- * for the idle policy, an unknown-op error for the rest. Pass `unsupported: []` to drive the page's
- * full design.
+ * Ops the Cloud app server does not serve (first-party-apps/cloud/README.md "Gaps": no catalog
+ * declares them yet), and host actions the host does not serve yet. The mock answers them like the
+ * server: an unknown-op error. Pass `unsupported: []` to drive the page's full design.
  */
 export const SERVER_GAPS: readonly string[] = [
-  CloudOps.machineIdlePolicySet,
-  CloudOps.authSignIn,
-  CloudOps.authSignOut,
-  CloudOps.teamList,
-  CloudOps.teamSelect,
-  CloudOps.billingOpen,
+  AccountOps.signIn,
+  AccountOps.signOut,
+  AccountOps.teamList,
+  AccountOps.teamSelect,
   // A host action, not a Cloud op: the browser host cannot open a tab through a proxy yet.
   HostActions.browserTabOpen,
 ];
+
+/** Server reads (`Kind::Read`): an idempotency key is refused. */
+const READS = new Set<string>([
+  CloudOps.authStatus,
+  AccountOps.teamList,
+  CloudOps.machineList,
+  CloudOps.machineWatch,
+  CloudOps.snapshotList,
+  CloudOps.planGet,
+  CloudOps.migrationStatus,
+  CloudOps.fsList,
+  CloudOps.fsStat,
+  CloudOps.fsRead,
+  CloudOps.portList,
+]);
+
+/** Server ops for origin `user` only (`Kind::UserOnly`): the page must send them as native actions. */
+const USER_ONLY = new Set<string>([
+  CloudOps.machineCreate,
+  CloudOps.machineResize,
+  CloudOps.machineDelete,
+  CloudOps.machineUpgrade,
+  CloudOps.snapshotCreate,
+  CloudOps.snapshotRestore,
+  CloudOps.snapshotDelete,
+  CloudOps.billingCheckout,
+  CloudOps.migrationStart,
+  CloudOps.fsRemove,
+  CloudOps.filePush,
+  CloudOps.filePull,
+]);
+
+/** Live ops the server never replays from its ledger (forwards and routes are live state). */
+const RERUN = new Set<string>([CloudOps.portForward, CloudOps.browserOpen]);
+
+/** Statuses that count against `max_active`. */
+const ACTIVE = new Set<string>(["provisioning", "starting", "running"]);
 
 export interface MockCall {
   op: string;
@@ -52,6 +88,10 @@ export interface MockOptions {
   confirm?: boolean;
   /** Ops answered as not served (default `SERVER_GAPS`). */
   unsupported?: readonly string[];
+  /** Keep file transfers running until `finishTransfers()` (else each ends right after it starts). */
+  holdTransfers?: boolean;
+  /** Machines per `cloud.machine.list` page (the server's limit is 1 to 100). */
+  pageSize?: number;
 }
 
 type Params = Record<string, unknown>;
@@ -59,8 +99,10 @@ type Params = Record<string, unknown>;
 export class MockCloudProvider implements PageClient {
   readonly calls: MockCall[] = [];
   machines: CloudMachine[] = sampleMachines();
-  snapshots: Array<CloudSnapshot & { machine: string }> = sampleSnapshots();
+  snapshots: CloudSnapshot[] = sampleSnapshots();
   account = sampleAccount();
+  /** Machines whose daemon reports `fs-v1`; file ops on the others answer `unsupported`. */
+  readonly fsMachines = new Set<string>(SAMPLE_FS_MACHINES);
   signedIn: boolean;
   confirm: boolean;
   unsupported: Set<string>;
@@ -74,6 +116,12 @@ export class MockCloudProvider implements PageClient {
   tabError?: string;
   /** The next delete finds the machine already gone: it is removed and answered `not_found`. */
   notFoundOnDelete = false;
+  /** The next call of this op (or native action) runs, then answers `not_found` (already gone). */
+  goneNext?: string;
+  /** The account has no paid plan: create and restore answer `plan_required`. */
+  planRequired = false;
+  holdTransfers: boolean;
+  pageSize: number;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
   renameTransform?: (name: string) => string;
   /** Files of each machine and this Mac's port forwards and browser routes. */
@@ -82,10 +130,12 @@ export class MockCloudProvider implements PageClient {
   /** The projection revision: one step per change, shared by the events of that change. */
   revision = 10;
   private nextId = 1;
-  private readonly memory = new Map<string, number>();
   /** Idempotency ledger: key -> op, args and recorded result (a replay answers it and emits nothing). */
   private readonly ledger = new Map<string, { op: string; args: string; result: unknown }>();
-  private readonly subs = new Map<number, { listener: (data: unknown, seq: number) => void; seq: number }>();
+  private readonly subs = new Map<
+    number,
+    { stream: string; listener: (data: unknown, seq: number) => void; seq: number }
+  >();
   private nextSub = 1;
   private readonly handlers = new Map<string, PageHandler>();
   private held: MachineEvent[] | null;
@@ -95,6 +145,8 @@ export class MockCloudProvider implements PageClient {
     this.confirm = options.confirm ?? true;
     this.unsupported = new Set(options.unsupported ?? SERVER_GAPS);
     this.held = options.holdEvents ? [] : null;
+    this.holdTransfers = options.holdTransfers ?? false;
+    this.pageSize = options.pageSize ?? 100;
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
@@ -102,21 +154,23 @@ export class MockCloudProvider implements PageClient {
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
     if (this.failNext === op) {
       this.failNext = undefined;
-      throw pageError("cmux.cloud.upstream", "The Cloud service did not answer.", true);
+      throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
     }
     const p = (params ?? {}) as Params;
     if (op === CloudOps.authStatus) return this.authStatus() as R;
-    if (op === ACTION_RUN && p.action === CloudOps.authSignIn) return this.runAction(p) as R;
+    if (op === ACTION_RUN && p.action === AccountOps.signIn) return this.runAction(p) as R;
     if (!this.signedIn) throw pageError("cmux.cloud.auth_required", "Sign in to cmux Cloud.");
     if (op === ACTION_RUN) return this.runAction(p) as R;
-    return this.keyed(op, p) as R;
+    return this.keyed(op, p, false) as R;
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
-    if (stream !== CloudOps.machineWatch) throw pageError("cmux.protocol.unknown_op", stream);
+    if (stream !== CloudOps.machineWatch && stream !== CloudOps.fileTransferChanged)
+      throw pageError("cmux.protocol.unknown_op", stream);
+    this.calls.push({ op: `subscribe ${stream}`, params: undefined });
     const sub = this.nextSub++;
-    this.subs.set(sub, { listener: onEvent as (data: unknown, seq: number) => void, seq: 0 });
+    this.subs.set(sub, { stream, listener: onEvent as (data: unknown, seq: number) => void, seq: 0 });
     return () => void this.subs.delete(sub);
   }
 
@@ -135,7 +189,42 @@ export class MockCloudProvider implements PageClient {
   }
 
   get watchers(): number {
-    return this.subs.size;
+    return [...this.subs.values()].filter((sub) => sub.stream === CloudOps.machineWatch).length;
+  }
+
+  /** The plan as the backend reads it: fixed limits, usage from the machines and snapshots. */
+  get plan(): CloudPlan {
+    const p = this.account.plan;
+    return {
+      plan_id: p.plan_id,
+      limits: {
+        max_active: p.max_active,
+        max_saved: p.max_saved,
+        memory_options_mb: p.memory_options_mb,
+        locked_memory_options_mb: p.locked_memory_options_mb,
+        vm_hours_included: p.vm_hours_included,
+      },
+      usage: {
+        active: this.machines.filter((m) => ACTIVE.has(m.status)).length,
+        saved: this.snapshots.length,
+        vm_hours_used: p.vm_hours_used,
+        period_end: p.period_end,
+      },
+    };
+  }
+
+  /** The running copies end now: one `file.transfer.changed` event each (the server's worker woke). */
+  finishTransfers(): TransferChanged[] {
+    const ended = this.fs.finishTransfers();
+    for (const event of ended) this.deliverTo(CloudOps.fileTransferChanged, event);
+    return ended;
+  }
+
+  /** Another client cancelled the running copies: one `cancelled` event each. */
+  cancelTransfers(): TransferChanged[] {
+    const ended = this.fs.cancelTransfers();
+    for (const event of ended) this.deliverTo(CloudOps.fileTransferChanged, event);
+    return ended;
   }
 
   /** The owner changed a machine (or added one) and notifies: one change, one revision. */
@@ -170,7 +259,11 @@ export class MockCloudProvider implements PageClient {
   }
 
   private deliver(event: MachineEvent): void {
-    for (const sub of this.subs.values()) sub.listener(event, ++sub.seq);
+    this.deliverTo(CloudOps.machineWatch, event);
+  }
+
+  private deliverTo(stream: string, event: unknown): void {
+    for (const sub of this.subs.values()) if (sub.stream === stream) sub.listener(event, ++sub.seq);
   }
 
   private authStatus() {
@@ -179,67 +272,64 @@ export class MockCloudProvider implements PageClient {
 
   private machine(params: Params): CloudMachine {
     const machine = this.machines.find((m) => m.id === params.machine);
-    if (!machine) throw pageError("cmux.cloud.not_found", `no machine ${String(params.machine)}`);
+    if (!machine) throw notFound(`no machine ${String(params.machine)}`);
     return machine;
   }
 
-  /** Changes a machine as the owner would: emits the echo, answers the record with its revision. */
-  private change(params: Params, patch: Partial<CloudMachine>): MachineMutationResult {
-    const machine = { ...this.machine(params), ...patch };
+  /** Changes a machine as the owner would: a new record revision, the echo, then the answer. */
+  private change(params: Params, patch: Partial<CloudMachine>): MachineResult {
+    const current = this.machine(params);
+    const machine = { ...current, ...patch, revision: String(Number(current.revision) + 1) };
     this.emitUpsert(machine);
-    return { ...machine, revision: this.revision };
+    return { machine, revision: this.revision };
   }
 
-  private create(displayName: unknown, memoryMb: unknown): MachineMutationResult {
-    const id = `vm-new${this.nextId++}`;
+  /** The backend's plan checks before any provider call (contract 1.5). */
+  private checkPlan(memoryMb: unknown, activeDelta: number): void {
+    if (this.planRequired)
+      throw pageError(CloudErrors.planRequired, "Cloud machines need a paid plan", false, { plan: "pro" });
+    if (typeof memoryMb === "number" && this.account.plan.locked_memory_options_mb.includes(memoryMb))
+      throw pageError(CloudErrors.sizeLocked, "this size needs another plan", false, { memory_mb: memoryMb });
+    const { limits, usage } = this.plan;
+    if (activeDelta > 0 && usage.active + activeDelta > limits.max_active)
+      throw pageError(CloudErrors.quotaExceeded, `this plan allows ${limits.max_active} active machines`, false, {
+        limit: limits.max_active,
+        used: usage.active,
+      });
+  }
+
+  private create(name: unknown, memoryMb: unknown): MachineResult {
     const machine: CloudMachine = {
-      id,
-      provider: "freestyle",
+      id: `vm_new${this.nextId++}`,
+      team: this.account.team,
+      creator: "user_dev1",
+      name: typeof name === "string" && name ? name : null,
+      size: { cpu: 2, memory_mb: typeof memoryMb === "number" ? memoryMb : 4096, disk_mb: 16_384 },
       status: "provisioning",
-      displayName: typeof displayName === "string" ? displayName : null,
-      slug: null,
-      kind: "terminal",
-      image: "cmux-base",
-      imageVersion: "20260902e",
-      createdAt: Date.now(),
-      address: null,
-      createdBy: { userId: "user-dev-1", displayName: "Dev User" },
-      freeAccessExpiresAt: null,
+      image: { id: "img_base1", daemon_version: "0.40.0" },
+      host: null,
+      classic: false,
+      created_at: Date.UTC(2026, 9, 2),
+      last_active_at: null,
+      idle_policy: null,
+      error: null,
+      revision: "1",
     };
-    if (typeof memoryMb === "number") this.memory.set(id, memoryMb);
     this.emitUpsert(machine);
-    return { ...machine, revision: this.revision };
+    return { machine, revision: this.revision };
   }
 
-  /** `cloud.publication.create`: the Cloud API refuses public access without `confirmPublic`. */
-  private publish(p: Params): CloudPublication {
-    only(p, ["machine", "port", "accessMode", "hostname", "teamId", "confirmPublic"]);
-    const machine = this.machine(p);
-    // The Cloud API's default: team access for a team machine, else personal.
-    const accessMode = (p.accessMode ?? (this.account.team ? "team" : "personal")) as AccessMode;
-    if (accessMode === "public" && p.confirmPublic !== true)
-      throw pageError("cmux.cloud.invalid_args", "public access needs confirmPublic: true");
-    const hostname = typeof p.hostname === "string" ? p.hostname : `test-label-${this.nextId++}.cmux.sh`;
-    const publication: CloudPublication = {
-      id: `00000000-0000-4000-8000-${String(this.nextId++).padStart(12, "0")}`,
-      hostname,
-      url: `https://${hostname}`,
-      domainKind: typeof p.hostname === "string" ? "custom" : "generated",
-      vmId: machine.id,
-      port: Number(p.port),
-      accessMode,
-      teamId: typeof p.teamId === "string" ? p.teamId : null,
-      state: "active",
-      routingRevision: 1,
-      verification: null,
-    };
-    this.account.publications = [...this.account.publications, publication];
-    return publication;
-  }
-
-  /** The server's ledger: a mutation key replays its recorded result and changes nothing. */
-  private keyed(op: string, p: Params): unknown {
-    const key = typeof p.idempotency_key === "string" ? p.idempotency_key : undefined;
+  /** The server's guards and ledger: a mutation key replays its recorded result and changes nothing. */
+  private keyed(op: string, p: Params, viaHost: boolean): unknown {
+    const key = typeof p.idempotency_key === "string" ? p.idempotency_key.trim() : undefined;
+    if (USER_ONLY.has(op) && !viaHost)
+      throw pageError("cmux.cloud.origin_refused", `${op.slice("cmux.".length)} needs a person: confirm it in cmux`);
+    if (READS.has(op) && key)
+      throw pageError("cmux.cloud.idempotency_key_forbidden", `${op} is a read and takes no idempotency key`);
+    // Account ops are the host's (no catalog row yet): the server's key rule does not apply.
+    const account = (Object.values(AccountOps) as string[]).includes(op);
+    if (!READS.has(op) && !account && !key && !this.unsupported.has(op))
+      throw pageError("cmux.cloud.idempotency_key_required", `${op} needs an idempotency key`);
     const args = { ...p };
     delete args.idempotency_key;
     const recorded = key ? this.ledger.get(key) : undefined;
@@ -248,170 +338,161 @@ export class MockCloudProvider implements PageClient {
         throw pageError("cmux.cloud.idempotency_conflict", "this key was used for another request");
       return recorded.result;
     }
-    const result = this.serve(op, args);
+    const result = this.serveOp(op, args);
+    if (this.goneNext === op) {
+      this.goneNext = undefined;
+      throw notFound("The Cloud service does not know this item.");
+    }
     if (key && !RERUN.has(op)) this.ledger.set(key, { op, args: JSON.stringify(args), result });
     return result;
   }
 
-  private serve(op: string, p: Params): unknown {
-    if (this.unsupported.has(op)) {
-      if (op === CloudOps.machineIdlePolicySet)
-        throw pageError("cmux.cloud.unsupported", "The cmux Cloud API has no idle policy route yet");
-      throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
-    }
+  private serveOp(op: string, p: Params): unknown {
+    if (this.unsupported.has(op)) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
     const a = this.account;
     switch (op) {
-      case CloudOps.authSignOut:
+      case AccountOps.signOut:
         this.signedIn = false;
         return { ok: true };
-      case CloudOps.teamList:
+      case AccountOps.teamList:
         return a.teams;
-      case CloudOps.teamSelect:
+      case AccountOps.teamSelect:
         a.team = String(p.team);
         return { ok: true };
       case CloudOps.machineList: {
-        const result = { machines: this.machines.slice(), revision: this.revision };
+        only(p, ["cursor", "limit"]);
+        const start = typeof p.cursor === "string" ? Number(p.cursor.slice("cur_".length)) : 0;
+        const size = typeof p.limit === "number" ? p.limit : this.pageSize;
+        const end = start + size;
+        const result = {
+          machines: this.machines.slice(start, end),
+          next_cursor: end < this.machines.length ? `cur_${end}` : null,
+          revision: this.revision,
+        };
         this.onList?.();
         return result;
       }
-      case CloudOps.machineGet:
-        return this.machine(p);
-      case CloudOps.machineCreate:
-        return this.create(p.displayName, p.memoryMb);
+      case CloudOps.machineCreate: {
+        only(p, ["name", "size", "image", "from_snapshot"]);
+        const size = (p.size ?? undefined) as { memory_mb?: unknown } | undefined;
+        if (!size || typeof size !== "object") throw pageError("cmux.cloud.invalid_args", "size is required");
+        if (typeof p.from_snapshot === "string" && !this.snapshots.some((s) => s.id === p.from_snapshot))
+          throw notFound(`no snapshot ${p.from_snapshot}`);
+        this.checkPlan(size.memory_mb, 1);
+        return this.create(p.name, size.memory_mb);
+      }
       case CloudOps.machineRename:
-        return this.change(p, { displayName: (this.renameTransform ?? String)(String(p.displayName)) });
-      case CloudOps.machineStart:
+        only(p, ["machine", "name"]);
+        return this.change(p, { name: (this.renameTransform ?? String)(String(p.name).trim()) });
+      case CloudOps.machineStart: {
+        only(p, ["machine"]);
+        if (!ACTIVE.has(this.machine(p).status)) this.checkPlan(undefined, 1);
         return this.change(p, { status: "running" });
+      }
       case CloudOps.machinePause:
+        only(p, ["machine"]);
         return this.change(p, { status: "paused" });
       case CloudOps.machineResize: {
-        // The answer is the stats with the plan maximums; the record does not change.
+        only(p, ["machine", "size"]);
+        const size = (p.size ?? {}) as { memory_mb?: number };
+        this.checkPlan(size.memory_mb, 0);
+        return this.change(p, { size: { ...this.machine(p).size, ...size } });
+      }
+      case CloudOps.machineIdlePolicySet:
+        only(p, ["machine", "idle_seconds"]);
+        return this.change(p, { idle_policy: { idle_seconds: Number(p.idle_seconds) } });
+      case CloudOps.machineUpgrade: {
+        only(p, ["machine"]);
         const machine = this.machine(p);
-        if (typeof p.memoryMb === "number") this.memory.set(machine.id, p.memoryMb);
-        return { ...sampleStats(machine, this.memory.get(machine.id)), revision: this.revision };
+        if (!machine.classic) throw pageError("cmux.cloud.not_classic", `${machine.id} is not a classic machine`);
+        return this.change(p, {
+          classic: false,
+          host: `host_${machine.id}`,
+          image: { id: "img_base1", daemon_version: "0.40.0" },
+        });
       }
       case CloudOps.machineDelete:
+        only(p, ["machine"]);
         this.machine(p);
         this.emitRemoved(String(p.machine));
         if (this.notFoundOnDelete) {
           this.notFoundOnDelete = false;
-          throw pageError("cmux.cloud.not_found", "The Cloud API does not know this machine.");
+          throw notFound("The Cloud service does not know this machine.");
         }
-        return { ok: true };
-      case CloudOps.machineStats: {
-        const machine = this.machine(p);
-        return sampleStats(machine, this.memory.get(machine.id));
-      }
-      case CloudOps.snapshotList: {
-        if (typeof p.machine !== "string") throw pageError("cmux.cloud.invalid_args", "machine is required");
-        const snapshots = this.snapshots
-          .filter((s) => s.machine === p.machine)
-          .map(({ id, name, createdAt }) => ({ id, name, createdAt }));
-        return { snapshots };
-      }
+        return { deleted: true };
+      case CloudOps.snapshotList:
+        only(p, ["machine"]);
+        return { snapshots: this.snapshots.filter((s) => p.machine === undefined || s.machine === p.machine) };
       case CloudOps.snapshotCreate: {
-        const snapshot = {
-          id: `snap-new${this.nextId++}`,
-          name: typeof p.name === "string" ? p.name : null,
+        only(p, ["machine", "name"]);
+        this.machine(p);
+        const { limits, usage } = this.plan;
+        if (usage.saved >= limits.max_saved)
+          throw pageError(CloudErrors.quotaExceeded, `this plan keeps ${limits.max_saved} saved snapshots`, false, {
+            limit: limits.max_saved,
+            used: usage.saved,
+          });
+        const snapshot: CloudSnapshot = {
+          id: `snap_new${this.nextId++}`,
           machine: String(p.machine),
-          createdAt: new Date().toISOString(),
+          name: typeof p.name === "string" ? p.name : null,
+          size_mb: 1024,
+          status: "ready",
+          created_at: Date.UTC(2026, 9, 2),
+          revision: "1",
         };
         this.snapshots = [snapshot, ...this.snapshots];
-        return { id: snapshot.id, name: snapshot.name, createdAt: snapshot.createdAt };
+        return { snapshot };
       }
       case CloudOps.snapshotRestore: {
+        only(p, ["snapshot", "name"]);
         // A new machine from the snapshot; the source machine does not change.
         const snapshot = this.snapshots.find((s) => s.id === p.snapshot);
-        if (!snapshot) throw pageError("cmux.cloud.not_found", `no snapshot ${String(p.snapshot)}`);
-        return this.create(snapshot.name ?? null, undefined);
-      }
-      case CloudOps.snapshotFork: {
-        const source = this.machine(p);
-        return {
-          ...this.create(`${source.displayName ?? source.slug ?? "machine"}-fork`, undefined),
-          snapshotId: null,
-        };
+        if (!snapshot) throw notFound(`no snapshot ${String(p.snapshot)}`);
+        this.checkPlan(undefined, 1);
+        return this.create(typeof p.name === "string" ? p.name : (snapshot.name ?? null), undefined);
       }
       case CloudOps.snapshotDelete:
+        only(p, ["snapshot"]);
+        if (!this.snapshots.some((s) => s.id === p.snapshot)) throw notFound(`no snapshot ${String(p.snapshot)}`);
         this.snapshots = this.snapshots.filter((s) => s.id !== p.snapshot);
-        return { ok: true };
-      case CloudOps.domainList:
-        only(p, []);
-        return { domains: a.domains };
-      case CloudOps.domainVerify: {
-        only(p, ["domain"]);
-        const domain = a.domains.find((d) => d.hostname === p.domain);
-        if (!domain) throw pageError("cmux.cloud.not_found", `no domain ${String(p.domain)}`);
-        const verified = {
-          ...domain,
-          verificationState: "verified",
-          certificateState: "active",
-          dnsInstructions: null,
-        };
-        a.domains = a.domains.map((d) => (d.id === domain.id ? verified : d));
-        return { domain: verified };
-      }
-      case CloudOps.publicationList:
-        only(p, ["machine"]);
-        return { publications: a.publications.filter((pub) => p.machine === undefined || pub.vmId === p.machine) };
-      case CloudOps.publicationCreate:
-        return { publication: this.publish(p) };
-      case CloudOps.publicationVerify: {
-        only(p, ["publication"]);
-        const publication = a.publications.find((pub) => pub.id === p.publication);
-        if (!publication) throw pageError("cmux.cloud.not_found", `no publication ${String(p.publication)}`);
-        const live = { ...publication, state: "active" };
-        a.publications = a.publications.map((pub) => (pub.id === live.id ? live : pub));
-        return { publication: live };
-      }
-      case CloudOps.publicationDelete:
-        only(p, ["publication"]);
-        a.publications = a.publications.filter((pub) => pub.id !== p.publication);
-        return { ok: true };
-      case CloudOps.networkList:
-        only(p, []);
-        return { networks: a.networks };
-      case CloudOps.tunnelAttach:
-        only(p, ["deviceFingerprint", "network", "tunnelPurpose"]);
-        return { tunnelId: "tun-test01", networkId: String(p.network), addressV4: "10.64.0.9" };
-      case CloudOps.tunnelRotateKey:
-        only(p, ["deviceFingerprint", "clientPublicKey", "tunnelPurpose"]);
-        return { tunnelId: "tun-test01", networkId: "vpc-test01", clientPublicKey: String(p.clientPublicKey) };
-      case CloudOps.firewallList:
-        only(p, ["machine", "network", "tunnel"]);
-        return {
-          rules: a.firewall.filter(
-            (rule) => p.machine === undefined || rule.destination.vmId === p.machine || rule.source.vmId === p.machine,
-          ),
-        };
-      case CloudOps.firewallCreate: {
-        only(p, ["source", "destination", "description"]);
-        const rule = {
-          id: `fw-new${this.nextId++}`,
-          action: "allow" as const,
-          source: endpoint(p.source),
-          destination: endpoint(p.destination),
-          ...(typeof p.description === "string" ? { description: p.description } : {}),
-        };
-        a.firewall = [...a.firewall, rule];
-        return rule;
-      }
-      case CloudOps.firewallDelete:
-        only(p, ["rule"]);
-        a.firewall = a.firewall.filter((rule) => rule.id !== p.rule);
-        return { ok: true };
+        return { deleted: true };
       case CloudOps.planGet:
-        return a.plan;
-      case CloudOps.usageGet:
-        return a.usage;
+        only(p, []);
+        return this.plan;
+      case CloudOps.billingCheckout:
+        only(p, ["plan"]);
+        return { url: `https://checkout.example.test/c/${String(p.plan)}` };
+      case CloudOps.migrationStatus:
+        only(p, []);
+        return { ...a.migration };
+      case CloudOps.migrationStart:
+        only(p, []);
+        if (a.migration.state === "none")
+          throw pageError("cmux.cloud.migration_unavailable", "no classic machines to move");
+        a.migration = { ...a.migration, state: "moving" };
+        return { state: "moving" };
       default:
-        if (MockFiles.serves(op)) return this.fs.serve(op, p, this.machine(p).id);
+        if (MockFiles.serves(op)) return this.files(op, p);
         if (MockEdge.serves(op)) return this.edge.serve(op, p, (params) => this.machine(params).id);
-        throw pageError("cmux.protocol.unknown_op", op);
+        throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
     }
   }
 
-  /** The host's native confirmation: on yes it runs the op as origin user. */
+  /** File ops: the argument checks, then the `fs-v1` gate on the machine's daemon (server link_files.rs). */
+  private files(op: string, p: Params): unknown {
+    this.fs.check(op, p);
+    const machine = this.machine(p);
+    if (!machine.host)
+      throw pageError("cmux.cloud.not_bound", "the machine is still provisioning; it has no host yet", true);
+    if (!this.fsMachines.has(machine.id))
+      throw pageError(CloudErrors.unsupported, "The machine's cmux daemon has no file ops yet (needs fs-v1)");
+    if (machine.status === "paused")
+      throw pageError("cmux.cloud.machine_paused", "The machine is paused: start it to use its files");
+    return this.fs.serve(op, p, machine.id);
+  }
+
+  /** The host's native confirmation: on yes it runs the op as origin user and answers its result. */
   private runAction(p: Params): unknown {
     const action = String(p.action);
     if (action === HostActions.browserTabOpen) {
@@ -421,38 +502,23 @@ export class MockCloudProvider implements PageClient {
     }
     if (!NATIVE_ACTIONS.has(action)) throw pageError("cmux.app.unknown_action", action);
     if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
-    if (action === CloudOps.machineConnect || action === CloudOps.billingOpen) return { confirmed: true };
+    if (action === CloudOps.machineConnect) return { confirmed: true };
     if (!this.confirm) return { confirmed: false };
-    if (action === CloudOps.authSignIn) return ((this.signedIn = true), { confirmed: true });
-    this.keyed(action, hostFields(action, (p.args ?? {}) as Params));
-    return { confirmed: true };
+    if (action === AccountOps.signIn) return ((this.signedIn = true), { confirmed: true });
+    const result = this.keyed(action, hostFields(action, (p.args ?? {}) as Params), true);
+    // A transfer answers `running` at once; its end is a `file.transfer.changed` event.
+    if ((action === CloudOps.filePush || action === CloudOps.filePull) && !this.holdTransfers)
+      queueMicrotask(() => this.finishTransfers());
+    return { confirmed: true, ...(result as object) };
   }
 }
 
-/** Live ops the server never replays from its ledger (verify reads fresh state; forwards are live). */
-const RERUN = new Set<string>([
-  CloudOps.domainVerify,
-  CloudOps.publicationVerify,
-  CloudOps.portForward,
-  CloudOps.browserOpen,
-]);
-
-function endpoint(value: unknown): FirewallEndpoint {
-  if (!value || typeof value !== "object") throw pageError("cmux.cloud.invalid_args", "an endpoint must be an object");
-  return value as FirewallEndpoint;
-}
-
 /**
- * What the host adds after its native confirmation, before it runs the op as origin user: the
- * device fingerprint and public key of this install (cmux link owns them) and the local path the
- * person picked in the file panel. The page never sends these.
+ * What the host adds after its native confirmation, before it runs the op as origin user: the local
+ * path the person picked in the file panel. The page never sends it.
  */
 function hostFields(action: string, args: Params): Params {
   switch (action) {
-    case CloudOps.tunnelAttach:
-      return { deviceFingerprint: "mock-device", ...args };
-    case CloudOps.tunnelRotateKey:
-      return { deviceFingerprint: "mock-device", clientPublicKey: `${"A".repeat(43)}=`, ...args };
     case CloudOps.filePush:
       return { ...args, localPath: "/Users/dev/upload.txt", path: joinPath(String(args.path), "upload.txt") };
     case CloudOps.filePull:

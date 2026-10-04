@@ -3,11 +3,10 @@
 //!
 //! The server reads only `CMUX_APP_ID`, `CMUX_APP_DATA_DIR`, `TMPDIR` and
 //! `LANG` ([`AppEnv::from_process`] is the only environment read in this
-//! crate). Every child (the link, `ssh`, `scp`, `ssh-agent`, `ssh-add`)
-//! starts from an empty environment plus [`AppEnv::child_env`]: `TMPDIR`
-//! and `LANG` when set, and `HOME` = an owner-only folder under the app's
-//! data folder, so no child reads the user's home (`~/.ssh` included).
-//! OpenSSH files live in `<data>/ssh` ([`AppEnv::ssh_files`]).
+//! crate). Every child (each `cmux link dial`) starts from an empty
+//! environment plus [`AppEnv::child_env`]: `TMPDIR` and `LANG` when set,
+//! and `HOME` = an owner-only folder under the app's data folder, so no
+//! child reads the user's home.
 
 use std::ffi::OsStr;
 use std::io;
@@ -24,20 +23,6 @@ pub struct AppEnv {
     tmpdir: Option<String>,
     lang: Option<String>,
 }
-
-/// The OpenSSH files of this app: a server-owned config and the pinned
-/// host keys. Every `ssh` and `scp` invocation names both.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SshFiles {
-    /// `<data>/ssh/config` (`-F`).
-    pub config: PathBuf,
-    /// `<data>/ssh/known_hosts` (`UserKnownHostsFile`).
-    pub known_hosts: PathBuf,
-}
-
-/// Content of `<data>/ssh/config`: every option is on the command line,
-/// so the file only stops OpenSSH from reading any other config.
-const SSH_CONFIG: &str = "# Owned by the cmux Cloud app. Options are passed on the command line.\n";
 
 impl AppEnv {
     /// Reads the allowlisted variables of this process. The only
@@ -107,22 +92,10 @@ impl AppEnv {
         }
         Ok(env)
     }
-
-    /// `<data>/ssh` (owner-only) with the server-owned `config` (written
-    /// each time, so its content is always this server's) and the path of
-    /// `known_hosts`.
-    pub fn ssh_files(&self) -> io::Result<SshFiles> {
-        let dir = self.require_data_dir()?.join("ssh");
-        private_dir(&dir)?;
-        let config = dir.join("config");
-        write_private(&config, SSH_CONFIG.as_bytes())?;
-        Ok(SshFiles { config, known_hosts: dir.join("known_hosts") })
-    }
 }
 
-/// An absolute path that OpenSSH option values can carry: `"` would end
-/// the quoting and `$` starts `${VAR}` expansion (OpenSSH 8.4+), so both
-/// are refused, as are control characters.
+/// An absolute path with no `"`, `$` or control characters (it reaches
+/// child environments and argv).
 fn usable_path(path: &Path) -> bool {
     let text = path.to_string_lossy();
     path.is_absolute() && !text.contains(['"', '$']) && !text.chars().any(char::is_control)
@@ -141,25 +114,4 @@ pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
     }
     Ok(())
-}
-
-/// Replaces `path` with `bytes` (owner read and write only): written to a
-/// sibling, then renamed, so a reader sees the old file or the new one.
-pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    use std::io::Write as _;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let staging = path.with_file_name(format!(".{name}.cmux-{}", std::process::id()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&staging).and_then(|mut file| {
-        file.write_all(bytes)?;
-        file.sync_all()
-    });
-    let renamed = written.and_then(|()| std::fs::rename(&staging, path));
-    if renamed.is_err() {
-        let _ = std::fs::remove_file(&staging);
-    }
-    renamed
 }

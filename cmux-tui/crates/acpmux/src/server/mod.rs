@@ -30,6 +30,8 @@ pub struct SubOpts {
 
 pub struct Conn {
     pub id: String,
+    /// The listener this connection came in on.
+    pub origin: Origin,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
@@ -213,7 +215,23 @@ fn tune_ws_socket(stream: &tokio::net::TcpStream) {
 }
 
 pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Result<()> {
+    serve_ws_with(hub, listener, token, None).await
+}
+
+/// How long a connection may wait before its first frame decides whether it
+/// is the local app (`local_app.rs`); after it, it is remote-origin.
+const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `serve_ws` with this launch's LocalApp token: a connection that meets
+/// every LocalApp condition is served as `Origin::LocalApp`.
+pub async fn serve_ws_with(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    local_app: Option<Arc<local_app::LocalAppAuth>>,
+) -> Result<()> {
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
+    let bound = listener.local_addr()?;
     let (extra_origins, extra_hosts) = {
         let config = hub.config.read().await;
         let (mut origins, hosts) = config
@@ -238,6 +256,7 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
         let hub = hub.clone();
         let token = token.clone();
         let policy = policy.clone();
+        let local_app = local_app.clone();
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(
@@ -258,6 +277,9 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                 return;
             }
             let expected = token.clone();
+            // The upgrade request's Origin headers, for the LocalApp check.
+            let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
+            let record_origins = seen_origins.clone();
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -276,6 +298,8 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                 if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
                     return Err(refuse(refusal));
                 }
+                *record_origins.lock().unwrap_or_else(|e| e.into_inner()) =
+                    values("origin").into_iter().map(str::to_owned).collect();
                 let header = req
                     .headers()
                     .get("authorization")
@@ -296,6 +320,39 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
             let (mut sink, mut source) = ws.split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
             let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
+            // The first frame decides LocalApp; it reaches the protocol
+            // handler without the token.
+            let mut origin = Origin::Web;
+            let mut first = None;
+            if let Some(auth) = &local_app {
+                let frame = tokio::time::timeout(FIRST_FRAME, async {
+                    while let Some(Ok(frame)) = source.next().await {
+                        if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
+                            return Some(t.to_string());
+                        }
+                    }
+                    None
+                })
+                .await
+                .ok()
+                .flatten();
+                let origins = seen_origins.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let hello = local_app::Hello {
+                    listener: bound,
+                    peer,
+                    origins: &origins,
+                    first_frame: frame.as_deref(),
+                };
+                if auth.is_local_app(&hello) {
+                    origin = Origin::LocalApp;
+                }
+                first = frame.map(|f| local_app::strip_token(&f));
+            }
+            if let Some(first) = first
+                && in_tx.send(first).await.is_err()
+            {
+                return;
+            }
             tokio::spawn(async move {
                 while let Some(Ok(frame)) = source.next().await {
                     if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
@@ -317,7 +374,7 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                     }
                 }
             });
-            serve_connection(hub, in_rx, out_tx).await;
+            serve_connection_with(hub, in_rx, out_tx, origin).await;
         });
     }
 }
@@ -426,13 +483,43 @@ async fn serve_http(
 
 // ------------------------------------------------------------ connection
 
+/// Where a connection came from. A `Web` connection (the WebSocket
+/// listener: peer daemons, remote clients, relays) is remote-origin: remote
+/// chains build their settings from scratch, so it never starts or sets a
+/// preset that carries harness args or a system prompt, and the session
+/// pool never serves it. `LocalApp` is the app's own agent pane, proven by
+/// every condition in `local_app.rs`: the pool serves it, it may start any
+/// configured preset, and like `Web` it never sets a preset's harness args
+/// or system prompt and never reads a token back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Origin {
+    /// The local Unix socket.
+    #[default]
+    Local,
+    /// The WebSocket listener.
+    Web,
+    /// The app's agent pane over the WebSocket listener (`local_app.rs`).
+    LocalApp,
+}
+
+/// A connection from the local Unix socket.
 pub async fn serve_connection(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+) {
+    serve_connection_with(hub, inbound, out, Origin::Local).await
+}
+
+pub async fn serve_connection_with(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
+    origin: Origin,
 ) {
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
+        origin,
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),
@@ -683,6 +770,8 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+pub mod local_app;
+mod redact;
 mod requests;
 mod wait;
 use requests::{handle_notification, handle_request};

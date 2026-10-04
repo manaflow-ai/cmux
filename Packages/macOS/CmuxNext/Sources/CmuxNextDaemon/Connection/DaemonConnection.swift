@@ -244,12 +244,13 @@ public actor DaemonConnection {
     /// `identify`, `set-client-info` and `subscribe` go out together (one
     /// round trip); the identity is checked before the connection is used.
     /// Against the wrong or an incompatible daemon the other two are
-    /// harmless, and the socket closes.
+    /// harmless, and the socket closes. The page relay has its own (`PageRelayHandshake`).
     private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
+        if configuration.role == .pageRelay { return try await PageRelayHandshake.run(transport, configuration: configuration) }
         let replies = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
             PipelinedLine(SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
-                                               capabilities: configuration.advertisedCapabilities)),
+                                               capabilities: configuration.handshakeCapabilities)),
             PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
         ], timeout: configuration.requestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
@@ -267,8 +268,7 @@ public actor DaemonConnection {
             transport.close()
             throw DaemonError.missingCapabilities(missing)
         }
-        _ = try replies[1].get()
-        _ = try replies[2].get()
+        _ = try (replies[1].get(), replies[2].get())
         return identity
     }
 

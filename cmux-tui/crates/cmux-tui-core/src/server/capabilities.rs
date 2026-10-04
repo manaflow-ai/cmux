@@ -24,9 +24,10 @@ pub(super) fn advertised_capabilities(
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-        STICKY_COLUMNS_CAPABILITY,
+        DOCK_COLUMNS_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
         ROWS_CAPABILITY,
+        PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -41,6 +42,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
+        terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -83,6 +85,7 @@ pub(super) fn advertised_capabilities(
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
         TERMINAL_SHELL_ARGS_CAPABILITY,
+        TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
@@ -93,11 +96,15 @@ pub(super) fn advertised_capabilities(
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
+        crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities.extend(crate::apps::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::fs_ops::advertised());
     capabilities
 }
