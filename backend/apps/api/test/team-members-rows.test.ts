@@ -96,8 +96,42 @@ describe("UserDO membership index", { timeout: 60_000 }, () => {
     const ensured = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value
     const team = ensured.personal_team as string
     const user = ensured.id as string
-    await runDurableObjectAlarm(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)))
+    const teamStub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
     const userStub = (env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO.get((env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO.idFromName(user)) as unknown as { homeTeamsOf(entity: string): Promise<Array<{ team: string; role: string; kind: string }>> }
-    expect(await userStub.homeTeamsOf(user)).toEqual([{ team, role: "owner", kind: "personal" }])
+    // The TeamDO outbox delivers the index item from its alarm (it may already be running).
+    let teams: Array<unknown> = []
+    for (let i = 0; i < 50 && teams.length === 0; i++) {
+      await runDurableObjectAlarm(teamStub)
+      teams = await userStub.homeTeamsOf(user)
+      if (teams.length === 0) await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(teams).toEqual([{ team, role: "owner", kind: "personal" }])
+  })
+})
+
+describe("row-mode team events carry no admin state", { timeout: 60_000 }, () => {
+  it("a plain member's event frame has no policy history, tokens, SSO, domains or audit head", async () => {
+    const t = await token("team-rows-4")
+    const ensured = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value
+    const team = ensured.personal_team as string
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as any
+    const member = "user_00000000000000000077"
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec("INSERT INTO own_rows (tbl, k, n, json) VALUES ('member', ?, NULL, ?)", member, JSON.stringify({ user: member, role: "member", display_name: "M" }))
+    })
+    const res = await stub.fetch("https://do/", { headers: { Upgrade: "websocket", "x-cmux-entity": team, "x-cmux-principal": JSON.stringify({ identity: `session:${member}`, kind: "session", user: member, team }) } })
+    const ws = res.webSocket as WebSocket
+    const frames: Array<any> = []
+    ws.addEventListener("message", (e) => frames.push(JSON.parse(e.data as string)))
+    ws.accept()
+    ws.send(JSON.stringify({ t: "subscribe", pending: [] }))
+    for (let i = 0; i < 50 && !frames.some((f) => f.t === "snapshot"); i++) await new Promise((r) => setTimeout(r, 10))
+    const version = (await post("/v1/read", t, { op: "team.policy.get", params: {} })).value.policy.version
+    expect((await post("/v1/ops", t, { op: "team.policy.update", params: { changes: [{ key: "updates.minimumVersion", value: { value: "0.0.9", mode: "enforced" } }], expected_version: version, reason: "t" }, idempotency_key: "p", origin: "user" })).ok).toBe(true)
+    for (let i = 0; i < 50 && !frames.some((f) => f.t === "event"); i++) await new Promise((r) => setTimeout(r, 10))
+    const event = frames.find((f) => f.t === "event")
+    expect(event).toBeDefined()
+    const st = event.effects?.state ?? {}
+    for (const k of ["policy_history", "enrollment_tokens", "sso_connections", "domains", "audit_head", "audit_count"]) expect(st[k], k).toBeUndefined()
   })
 })
