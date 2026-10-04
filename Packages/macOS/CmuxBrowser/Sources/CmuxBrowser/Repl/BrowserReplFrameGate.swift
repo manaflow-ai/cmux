@@ -261,6 +261,7 @@ public final class BrowserReplFrameGate {
     /// a blocked frame whose box cannot be found refuses every point.
     public func checkPointer(at points: [CGPoint], in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
         guard policy.isActive, !points.isEmpty else { return }
+        try await requireWholeTree(frames, in: webView)
         let tops = try blockedTops(frames, in: webView)
         guard !tops.isEmpty else { return }
         let found = try await boxes(of: tops, in: webView, frames: frames, effects: false)
@@ -280,6 +281,7 @@ public final class BrowserReplFrameGate {
     /// element). A frame that cannot answer counts as focused.
     public func checkFocus(in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
         guard policy.isActive else { return }
+        try await requireWholeTree(frames, in: webView)
         let blockedFrames = blocked(frames, in: webView)
         guard !blockedFrames.isEmpty else { return }
         let byID = Dictionary(frames.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
@@ -413,6 +415,7 @@ public final class BrowserReplFrameGate {
     /// Makes the element of each blocked frame without a blocked ancestor
     /// inert in its parent; see ``guardingInput(in:frames:checkFocusAfter:_:)``.
     private func installInputGuards(in webView: WKWebView, frames: [BrowserReplFrame]) async throws -> [InputGuard] {
+        try await requireWholeTree(frames, in: webView)
         let blockedFrames = blocked(frames, in: webView)
         guard !blockedFrames.isEmpty else { return [] }
         let blockedIDs = Set(blockedFrames.map(\.frame.frameID))
@@ -517,6 +520,9 @@ public final class BrowserReplFrameGate {
     /// Throws `blocked` when any frame of the tab shows a page the policy
     /// blocks: a screenshot or PDF would show it.
     public func checkCapture(in webView: WKWebView, frames: [BrowserReplFrame]) throws {
+        if policy.isActive, let unread = frames.first(where: \.childFramesUnread) {
+            throw Self.incompleteTree(unread, documentCount: nil, treeCount: nil)
+        }
         guard let entry = blocked(frames, in: webView).first else { return }
         throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.frame.url), which the domain policy blocks: \(entry.reason); a capture would show it")
     }
@@ -648,6 +654,7 @@ public final class BrowserReplFrameGate {
         alsoBlocked: [String: String] = [:],
         requireAlsoBlocked: Bool = false
     ) async throws -> [CGRect] {
+        try await requireWholeTree(frames, in: webView)
         let tops = try blockedTops(frames, in: webView, alsoBlocked: alsoBlocked, requireAlsoBlocked: requireAlsoBlocked)
         guard !tops.isEmpty else { return [] }
         let found = try await boxes(of: tops, in: webView, frames: frames, effects: true)
@@ -958,6 +965,46 @@ public final class BrowserReplFrameGate {
         let top: BrowserReplFrame
         let blocked: BrowserReplFrame
         let reason: String
+    }
+
+    /// Throws `stale` when `frames` may lack frames the page has: the main
+    /// frame's document, or that of a frame whose child frames the read
+    /// could not describe (``BrowserReplFrame/childFramesUnread``), holds
+    /// more child frames (`window.frames`, read in the gate's world) than
+    /// the tree has under it. A frame missing from the tree would look like
+    /// no blocked frame at all, so the checks fail closed instead. The tree
+    /// can hold more than `window.frames` (frames in shadow trees).
+    private func requireWholeTree(_ frames: [BrowserReplFrame], in webView: WKWebView) async throws {
+        guard let main = frames.first else { return }
+        for frame in frames where frame.frameID == main.frameID || frame.childFramesUnread {
+            let treeCount = frames.filter { $0.parentFrameID == frame.frameID }.count
+            let documentCount: Int
+            do {
+                let value = try await probe(
+                    "return window.frames.length;", arguments: [:], in: webView, frame: frame.info,
+                    what: "frame \(frame.url) did not report its child frames"
+                )
+                guard let count = (value as? NSNumber)?.intValue else { throw Self.incompleteTree(frame, documentCount: nil, treeCount: treeCount) }
+                documentCount = count
+            } catch let error as BrowserReplDriverError {
+                throw error
+            } catch {
+                // A frame that has gone took its child frames with it.
+                if frame.info != nil, Self.isGoneFrame(error) { continue }
+                throw Self.incompleteTree(frame, documentCount: nil, treeCount: treeCount)
+            }
+            if documentCount > treeCount {
+                throw Self.incompleteTree(frame, documentCount: documentCount, treeCount: treeCount)
+            }
+        }
+    }
+
+    private static func incompleteTree(_ frame: BrowserReplFrame, documentCount: Int?, treeCount: Int?) -> BrowserReplDriverError {
+        let counts = documentCount.map { " (its document has \($0) child frames, the tree \(treeCount ?? 0))" } ?? ""
+        return BrowserReplDriverError(
+            code: "stale",
+            message: "WebKit's frame tree of this tab came back without some child frames of frame \(frame.url)\(counts), so input and captures are refused while the domain policy is on; try again"
+        )
     }
 
     /// The main frame's child frames that are or hold a blocked frame, one

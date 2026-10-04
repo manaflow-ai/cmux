@@ -342,8 +342,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   nothing in another: a frame keeps its id when it navigates, so a frame
   looked up from an earlier tree read is judged again. A frame that shows a
   blocked page fails with `blocked` (`snapshot()` marks its iframe
-  `[not read: blocked by the domain policy]`). On a fresh tree read the
-  driver refuses `input.mouse` and `input.drag` at a point inside the box
+  `[not read: blocked by the domain policy]`). A tree read can lack frames
+  (WebKit gives no tree, or cannot describe a child): while the policy is
+  on, input and captures fail with `stale` when the main frame's document,
+  or that of a frame with a child WebKit could not describe, holds more
+  child frames (`window.frames`, read in the driver's world) than the tree
+  has under it, and a PDF when any child could not be described. On a
+  fresh tree read the driver refuses `input.mouse` and `input.drag` at a point inside the box
   of the main frame's child frame that is or holds a blocked frame (overlap
   is not subtracted, and a blocked frame whose box it cannot find refuses
   every point), `input.key` and `input.insertText` while a blocked frame
