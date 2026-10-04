@@ -68,9 +68,10 @@ struct BrowserHostProviderReviewTests {
         host.send(.lease(targetID: "w1", lease: ProviderLease(session: "s", actor: "agent", origin: "cli", label: "L", sinceMs: 1)))
         host.send(.call(id: 1, method: "input.key", params: .object(["targetId": .string("w1"), "type": .string("down"), "key": .string("a")])))
         host.send(.call(id: 2, method: "tabs.list", params: .object([:])))
-        // Only the two results: driver input is not a person's input.
-        #expect(await host.next() == .result(id: 1, result: .null, error: nil))
-        #expect(await host.next() == .result(id: 2, result: .null, error: nil))
+        // Only the two results: driver input is not a person's input. (A
+        // null result travels as `"result": null`, which decodes as absent.)
+        #expect(await host.next() == .result(id: 1, result: nil, error: nil))
+        #expect(await host.next() == .result(id: 2, result: nil, error: nil))
         #expect(h.provider.reportUserInput(event: Self.key(.keyUp), targetID: "w1") == false)
         #expect(h.provider.reportUserInput(event: Self.key(.keyDown), targetID: "w1"))
         #expect(await host.next() == .userInput(targetID: "w1"))
@@ -129,7 +130,7 @@ struct BrowserHostProviderReviewTests {
         host.ack()
         host.sendRaw(#"{"t":"cdp","targetId":"w1"}"#)
         host.send(.call(id: 3, method: "tabs.list", params: .object([:])))
-        #expect(await host.next() == .result(id: 3, result: .null, error: nil))
+        #expect(await host.next() == .result(id: 3, result: nil, error: nil))
     }
 
     @Test func aOneShotWaitEndsOnCancelOrResolve() async {
