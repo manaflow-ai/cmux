@@ -24,12 +24,11 @@ pub(super) const USER_ONLY: &str = "setting_user_only";
 /// `--confirm` anywhere after the verb.
 pub(super) fn parse(verb: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
-    // RED stub: --confirm is not known yet (an extra argument).
-    let confirm = 0;
+    let confirm = args.iter().filter(|arg| *arg == "--confirm").count();
     if confirm > 1 {
         return Err(UsageError::new(messages.settings_usage));
     }
-    let positional: Vec<&String> = args.iter().collect();
+    let positional: Vec<&String> = args.iter().filter(|arg| *arg != "--confirm").collect();
     let (method, mut params) = match (verb, positional.as_slice()) {
         ("set", [path, value]) => {
             // A JSON value when it parses as one, else the literal string.
@@ -52,8 +51,7 @@ pub(super) fn parse(verb: &str, args: &[String]) -> Result<AppCommand, UsageErro
 /// What to tell the person about a refused settings write, if anything:
 /// run again with `--confirm`, or the sheet was declined.
 pub(super) fn refusal_hint(error: &Value) -> Option<&'static str> {
-    // RED stub: no hint yet.
-    if error.get("code").is_some() || USER_ONLY.is_empty() {
+    if error.get("code").and_then(Value::as_str) != Some(USER_ONLY) {
         return None;
     }
     let messages = &crate::localization::catalog().app_control;
