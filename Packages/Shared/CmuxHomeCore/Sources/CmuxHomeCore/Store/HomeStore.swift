@@ -38,7 +38,14 @@ public final class HomeStore {
     @ObservationIgnored private var refetching: Set<HomeStream> = []
     @ObservationIgnored private var olderLoading: Set<ConversationID> = []
     /// Views showing each conversation's transcript now (`open` minus `close`).
-    @ObservationIgnored private var viewers: [ConversationID: Int] = [:]
+    @ObservationIgnored private(set) var viewers: [ConversationID: Int] = [:]
+    /// Bumps each time a conversation goes from shown nowhere to shown. A
+    /// page read under an older epoch was read before a close: the close
+    /// ended what the source kept for it (a cloud subscription), so the
+    /// page is dropped and, when the conversation is shown again, read again.
+    @ObservationIgnored private var openEpochs: [ConversationID: UInt64] = [:]
+    /// The transcript read running per conversation (one at a time).
+    @ObservationIgnored private var loads: [ConversationID: Task<Void, Never>] = [:]
     @ObservationIgnored private var stopped = false
     /// Where prepared attachments live (`<root>/<hash>/data.<ext>`).
     @ObservationIgnored public let blobCacheDirectory: URL
@@ -207,10 +214,24 @@ public final class HomeStore {
     /// `close`. Loads the newest messages the first time it opens. Events
     /// committed while the page loads are buffered and kept.
     public func open(_ id: ConversationID) async {
+        await beginOpen(id).value
+    }
+
+    /// `open` without waiting: the view counts as shown when this returns,
+    /// so a `close` right after pairs with it. The task ends when the first
+    /// page is in (at once when it already was).
+    @discardableResult
+    public func beginOpen(_ id: ConversationID) -> Task<Void, Never> {
+        if viewers[id] == nil { openEpochs[id, default: 0] += 1 }
         viewers[id, default: 0] += 1
-        guard mirror.windows[id] == nil else { return }
+        if let running = loads[id] {
+            // A read that started before a close reads again for this open.
+            mirror.beginLoading(id)
+            return running
+        }
+        guard mirror.windows[id] == nil else { return Task {} }
         mirror.beginLoading(id)
-        await refetch(.conversation(id))
+        return load(id)
     }
 
     /// A view of the conversation's transcript went away; pairs with one
@@ -1112,37 +1133,78 @@ public final class HomeStore {
     }
 
     private func scheduleRefetch(_ stream: HomeStream) {
-        guard !refetching.contains(stream), !stopped else { return }
-        Task { await self.refetch(stream) }
+        guard !stopped else { return }
+        switch stream {
+        case .inbox:
+            guard !refetching.contains(stream) else { return }
+            Task { await self.refetchInbox() }
+        case .conversation(let id):
+            load(id)
+        }
     }
 
-    /// Fetches a stream until it is caught up (at most three tries per call).
-    /// A failure leaves it stale; the next reconnect fetches it again.
-    private func refetch(_ stream: HomeStream) async {
+    /// Fetches the inbox. A failure leaves it stale; the next reconnect
+    /// fetches it again.
+    private func refetchInbox() async {
+        let stream = HomeStream.inbox
         guard !refetching.contains(stream), !stopped else { return }
         refetching.insert(stream)
         defer { refetching.remove(stream) }
-        for _ in 0..<3 where !stopped {
-            switch stream {
-            case .inbox:
-                guard let snapshot = try? await source.inbox() else { mirror.markStale(stream); return }
-                let behind = mirror.apply(inbox: snapshot)
-                me = snapshot.me
+        guard let snapshot = try? await source.inbox() else { mirror.markStale(stream); return }
+        let behind = mirror.apply(inbox: snapshot)
+        me = snapshot.me
+        settle()
+        rebuildRows()
+        for next in behind { scheduleRefetch(next) }
+    }
+
+    /// The conversation's transcript read, or the one already running.
+    @discardableResult
+    private func load(_ id: ConversationID) -> Task<Void, Never> {
+        if let running = loads[id] { return running }
+        let task = Task {
+            await self.readTranscript(id)
+            self.loads[id] = nil
+        }
+        loads[id] = task
+        return task
+    }
+
+    /// Reads the conversation's tail until it is caught up (at most three
+    /// gaps per call), only while a view shows it. A failure leaves it
+    /// stale; the next reconnect reads it again.
+    ///
+    /// Shown nowhere, nothing is read: a read would set up what only a
+    /// `close` ends (a cloud subscription). Without a window a stale mark
+    /// only holds intents back, and the inbox carries the summary, so it
+    /// is cleared. A page that comes back after its transcript closed is
+    /// dropped (the close ended the window and told the source); one that
+    /// comes back after a close and a new open is read again, so the source
+    /// sets up again what the close ended.
+    private func readTranscript(_ id: ConversationID) async {
+        let stream = HomeStream.conversation(id)
+        var gaps = 0
+        while gaps < 3, !stopped {
+            guard viewers[id] != nil else {
+                mirror.endTranscript(id)
                 settle()
                 rebuildRows()
-                for next in behind { scheduleRefetch(next) }
                 return
-            case .conversation(let id):
-                guard let page = try? await source.snapshot(of: id, tail: Self.tailSize) else {
-                    mirror.markStale(stream)
-                    return
-                }
-                let outcome = mirror.apply(page: page)
-                bumpTranscript(id)
-                settle()
-                rebuildRows()
-                if outcome == .applied { return }
             }
+            let epoch = openEpochs[id]
+            let page = try? await source.snapshot(of: id, tail: Self.tailSize)
+            guard !stopped, viewers[id] != nil else { return }
+            guard openEpochs[id] == epoch else { continue }
+            guard let page else {
+                mirror.markStale(stream)
+                return
+            }
+            let outcome = mirror.apply(page: page)
+            bumpTranscript(id)
+            settle()
+            rebuildRows()
+            if outcome == .applied { return }
+            gaps += 1
         }
     }
 
