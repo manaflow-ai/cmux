@@ -73,6 +73,9 @@ final class TabHoverCardController: HoverCardSource {
 
     isolated deinit { memoryPressure?.cancel() }
 
+    /// The image the card body shows now (`debug.hover_sweep`).
+    var shownThumbnail: CGImage? { body?.thumbnailImage }
+
     static func targetID(_ id: TabID) -> HoverTargetID {
         HoverTargetID("tab:\(id.rawValue)")
     }
