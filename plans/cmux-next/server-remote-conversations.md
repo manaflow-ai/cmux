@@ -133,7 +133,7 @@ crashed, slow or unsure, the tool does not run.
    `fork()` copies the harness, argv, permission policy, modes, config options and models, and
    `--resume --fork-session` brings the whole local transcript with its tool results). It starts
    fresh, always, with only the **remote projection** of the conversation's messages (section 8
-   structs) as context; it does not resume earlier remote-chain sessions either (P2-N). Revocation
+   structs) as context; it does not resume earlier remote-chain sessions either (P2-N, D-L decided). Revocation
    archives that install's remote-chain sessions for good, so a re-paired device starts from the
    remote projection only. Its configuration is built from scratch (rule 4): pinned `claude`, empty extra argv,
    policy `daemon`, no copied modes, config options or models. Cancel and revocation kill its
@@ -146,7 +146,9 @@ crashed, slow or unsure, the tool does not run.
    bypass disabled per session (`permissions.disableBypassPermissionsMode: "disable"`,
    `permissions.defaultMode: "default"`), the daemon's fast-allow PreToolUse hook and the cmux-tui
    status hooks; they set no `enabledPlugins` and no MCP-enable keys. The MCP config names only the
-   daemon's servers. **Every tool goes through the daemon (P1-M, DECISION, proposal yes):** in
+   daemon's servers. **Every tool goes through the daemon (P1-M, D-K decided):** the daemon auto-answers reads inside
+   the read root with no human round trip, denies the deny paths, and asks the human (with a
+   presence proof) only for side effects. In
    `default` mode Claude Code runs Read, Glob and Grep inside the working folder, Task, Skill and
    TodoWrite with no permission step, so the inline settings also carry:
    - `permissions.deny` for every rule 2 deny path (as `Read(...)`, `Edit(...)`, `Write(...)`,
