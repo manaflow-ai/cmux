@@ -460,6 +460,105 @@ import Testing
         #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) })
         #expect(daemon.subscribed.contains(dm), "B's subscription ended: \(daemon.calls)")
     }
+
+    func listed(_ source: CloudHomeSource, _ id: String) -> Bool {
+        source.currentInbox().conversations.contains { $0.id.rawValue == id }
+    }
+
+    /// An inbox list reply is UserDO's inbox at its revision (the inbox
+    /// stream seq). An inbox event past that revision is newer: a reply
+    /// that arrives after it never undoes it (a new DM stays listed, an
+    /// archive stays archived).
+    @Test func aStaleInboxListNeverUndoesANewerInboxEvent() async throws {
+        let fresh = "conv_dm_01J0000000000000000000000H"
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm), fresh: F.head(fresh)]))
+        #expect(await signedIn(tape))
+
+        let first = Gate()
+        daemon.script.withLock { $0.inboxGate = first; $0.revision = .string("12") }
+        let list = Task { try await source.inbox() }
+        await first.arrived()
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 13, entries: [F.entry(fresh)])))
+        first.open()
+        _ = try await list.value
+        #expect(listed(source, fresh), "a list older than the inbox event removed the new DM")
+
+        let second = Gate()
+        daemon.script.withLock { script in
+            script.inboxGate = second
+            script.entries = [F.entry(fresh), F.entry(dm)]
+            script.revision = .string("14")
+        }
+        let relist = Task { try await source.inbox() }
+        await second.arrived()
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 15, entries: [F.entry(fresh, rev: 4, archived: true)])))
+        second.open()
+        _ = try await relist.value
+        #expect(!listed(source, fresh), "a list older than the archive listed it again")
+        #expect(listed(source, dm))
+
+        // A list at or past the event's seq is current again.
+        daemon.script.withLock { script in
+            script.inboxGate = nil
+            script.entries = [F.entry(fresh, rev: 5)]
+            script.revision = .number(15)
+        }
+        _ = try await source.inbox()
+        #expect(listed(source, fresh))
+        #expect(!listed(source, dm))
+    }
+
+    /// The daemon names the account whose lease an event came through.
+    /// An event for another account (a late one from before a switch) is
+    /// dropped; an event that names none is kept, as before.
+    @Test func anEventForAnotherAccountIsDropped() async throws {
+        let theirs = "conv_dm_01J0000000000000000000000F"
+        let mine = "conv_dm_01J0000000000000000000000J"
+        let (source, _, tape) = await configured(.init(heads: [dm: F.head(dm)]))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        let decoder = JSONDecoder()
+        func entry(_ id: String) -> String {
+            #"{"conversation":"\#(id)","rev":3,"kind":"dm","title":"","last_seq":1,"last_at":"\#(F.at)","preview":"Bob: hi","dm_peer":"user_bob"}"#
+        }
+        let lateInbox = try decoder.decode(CloudInboxChanged.self, from: Data(#"{"seq":5,"account":"user_stack-other","entries":[\#(entry(theirs))]}"#.utf8))
+        let lateCursor = try decoder.decode(CloudConversationChanged.self, from: Data(#"""
+        {"conversation":"\#(dm)","rev":9,"seq":20,"account":"user_stack-other","change":{"kind":"read-cursor","participant":"user_bob","seq":1}}
+        """#.utf8))
+        let lateResync = try decoder.decode(CloudConversationResynced.self, from: Data(#"""
+        {"conversation":"\#(dm)","rev":9,"seq":20,"account":"user_stack-other","summary":{"id":"\#(dm)","owner":"cloud","kind":"dm","title":"",
+         "participants":[],"last_seq":1,"rev":9,"created_at":"\#(F.at)","updated_at":"\#(F.at)","read_cursors":{}},"messages":[]}
+        """#.utf8))
+        let ownInbox = try decoder.decode(CloudInboxChanged.self, from: Data(#"{"seq":6,"account":"user_stack-me","entries":[\#(entry(mine))]}"#.utf8))
+        source.handle(.inboxChanged(lateInbox))
+        source.handle(.changed(lateCursor))
+        source.handle(.resynced(lateResync))
+        source.handle(.inboxChanged(ownInbox))
+        // An event that names no account is kept.
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 7, entries: [F.entry(dm)])))
+        #expect(await tape.wait { !summaries($0, mine).isEmpty && !summaries($0, dm).isEmpty })
+        #expect(summaries(tape.all, theirs).isEmpty, "another account's inbox event listed its conversation")
+        #expect(!tape.all.contains { if case .conversationPage = $0 { true } else { false } }, "another account's resync reached the store")
+        #expect(!tape.all.contains { if case .conversationChanged(_, stream: .conversation, rev: 9) = $0 { true } else { false } },
+                "another account's cursor reached the store")
+    }
+
+    /// While the daemon holds no lease for this account (it may still hold
+    /// the previous one's, when clearing it failed), no read goes out: a
+    /// reply could be the previous account's.
+    @Test func noReadGoesOutWithoutTheLease() async throws {
+        let theirs = "conv_dm_01J0000000000000000000000F"
+        let daemon = FakeCloudDaemon(.init(heads: [theirs: F.head(theirs)], inboxBySubject: ["a": [F.entry(theirs)]]))
+        _ = try await daemon.setSession(CloudSessionSetRequest(apiBaseURL: "https://cloud-api.test", accessToken: F.jwt(sub: "a"),
+                                                               expiresAt: 1, clientVersion: nil))
+        let source = CloudHomeSource(me: Participant(id: F.localMe, kind: .human, displayName: "Me"))
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity, leased: false)
+        _ = try? await source.inbox()
+        #expect(!listed(source, theirs), "the previous account's inbox shown")
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.snapshot(of: ConversationID(theirs), tail: 10) }
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.history(of: ConversationID(theirs), before: 2, limit: 10) }
+        #expect(!daemon.calls.contains { if case .snapshot = $0 { true } else if case .history = $0 { true } else { false } })
+    }
 }
 
 /// The token lease the app gives the daemon (home-cloud-proxy.md section 2).

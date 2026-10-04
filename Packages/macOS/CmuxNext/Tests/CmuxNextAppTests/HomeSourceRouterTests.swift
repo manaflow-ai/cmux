@@ -178,10 +178,10 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         #expect(!store.log.entries.contains { $0.intent.key == keyA })
     }
 
-    /// A cloud conversation that only its stream showed (opened by a deep
-    /// link, never in the cloud inbox) leaves the merged inbox with the next
-    /// cloud inbox, like any conversation the cloud inbox does not list.
-    @Test func aConversationOnlyItsStreamShowedLeavesWithTheNextCloudInbox() async throws {
+    /// A cloud conversation the cloud inbox does not list, opened from a
+    /// deep link, a notification or the archive, stays in the merged inbox
+    /// while it is open, and its ops keep reaching the cloud.
+    @Test func anOpenConversationTheCloudInboxDoesNotListStaysAndReachesTheCloud() async throws {
         let unlisted = "conv_dm_01J0000000000000000000000G"
         let local = FakeLocalHomeSource()
         let daemon = FakeCloudDaemon(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm), unlisted: F.head(unlisted)]))
@@ -199,7 +199,7 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
                 return summary.id.rawValue == dm && summary.participants.contains { $0.displayName == "Bob" }
             }
         })
-        // Opened on the cloud source: the router routes an id the cloud inbox does not list to the local owner.
+        // Opened on the cloud source: its stream shows it in the merged inbox.
         _ = try await cloud.snapshot(of: ConversationID(unlisted), tail: 10)
         cloud.handle(.changed(CloudConversationChanged(conversation: unlisted, rev: 5, seq: 9, change: .conversation(F.head(unlisted, rev: 5)))))
         let mark = tape.all.count
@@ -209,7 +209,27 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         var mirror = HomeMirror()
         for event in tape.all { mirror.apply(event) }
         #expect(mirror.conversations[ConversationID(dm)] != nil)
-        #expect(mirror.conversations[ConversationID(unlisted)] == nil, "a conversation the cloud inbox does not list stays listed")
+        #expect(mirror.conversations[ConversationID(unlisted)] != nil, "an open conversation left the inbox while open")
+        let send = HomeIntent(key: IdempotencyKey("cmk_o"), op: .sendMessage(conversation: ConversationID(unlisted), parts: [.text("x")]))
+        _ = try? await router.submit(send)
+        #expect(local.intents.isEmpty, "a cloud conversation's send reached the local daemon")
+        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_o"])
+    }
+
+    /// The owner is a property of the id: a cloud conversation the cloud
+    /// inbox no longer lists still routes to the cloud (which refuses what
+    /// the account may not do), never to the local daemon.
+    @Test func aConversationTheCloudInboxDropsStillReachesTheCloud() async throws {
+        let (router, local, daemon, cloud) = await router()
+        let tape = await EventTape(router)
+        #expect(await tape.wait { $0.contains { if case .conversationChanged(let summary, stream: .inbox, rev: _) = $0 { summary.id.rawValue == dm } else { false } } })
+        daemon.script.withLock { $0.entries = [] }
+        cloud.handle(.inboxReset(seq: 9))
+        #expect(await tape.wait { $0.contains(where: { if case .conversationRemoved(let id, _) = $0 { id.rawValue == dm } else { false } }) })
+        let send = HomeIntent(key: IdempotencyKey("cmk_d"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
+        _ = try? await router.submit(send)
+        #expect(local.intents.isEmpty, "a cloud conversation's send reached the local daemon")
+        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_d"])
     }
 
     /// Yields until `condition` holds; the suite's time limit bounds it.

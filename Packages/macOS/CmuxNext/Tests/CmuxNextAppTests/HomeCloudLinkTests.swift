@@ -81,4 +81,57 @@ import Testing
         _ = try? await source.submit(start)
         #expect(!second.sentOps.contains { $0.key.hasPrefix("cmk_a") && $0.subject != "a" }, "sent under another lease: \(second.sentOps)")
     }
+
+    /// The lease fails at sign-in, and the daemon's one `missing` request
+    /// fails too. An op refused while there is no lease must ask for one:
+    /// the daemon asks only when a command reaches it, and none does.
+    @Test func anOpRefusedForAMissingLeaseLeasesAgainAfterAFailedRenew() async throws {
+        let opened = opened
+        let daemon = FakeCloudDaemon(.init(op: { _ in CloudConversationOpResult(conversation: F.head(opened, rev: 1, lastSeq: 0)) }))
+        let (linker, source, tokens) = make()
+        tokens.user = "a"
+        tokens.failing = ["a"]
+        await linker.apply(link(daemon, "a"))
+        linker.sessionNeeded(reason: "missing")
+        await linker.settle()
+        #expect(!daemon.calls.contains(.setSession("a")))
+
+        tokens.failing = []
+        let invite = HomeIntent(key: IdempotencyKey("cmk_a"), op: .invite(contact: .email("z@y.com")))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(invite) }
+        #expect(await daemon.wait { $0.contains(.setSession("a")) }, "no lease after a refused op: \(daemon.calls)")
+        await linker.settle()
+        _ = try await source.submit(invite)
+        #expect(daemon.sentOps.map(\.subject) == ["a"])
+    }
+
+    /// A new display name is the same account: the lease is not taken
+    /// again, so a token read failing at that moment never ends a good lease.
+    @Test func aNewDisplayNameKeepsTheLease() async throws {
+        let opened = opened
+        let daemon = FakeCloudDaemon(.init(op: { _ in CloudConversationOpResult(conversation: F.head(opened, rev: 1, lastSeq: 0)) }))
+        let (linker, source, tokens) = make()
+        tokens.user = "a"
+        await linker.apply(link(daemon, "a"))
+        tokens.failing = ["a"]
+        await linker.apply(HomeCloudLink.Link(endpoint: daemon, id: ObjectIdentifier(daemon), userID: "a", displayName: "A Renamed"))
+        await linker.settle()
+        #expect(daemon.calls.filter { if case .setSession = $0 { true } else { false } } == [.setSession("a")])
+        #expect(!daemon.calls.contains(.clearSession))
+        _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_n"), op: .invite(contact: .email("z@y.com"))))
+        #expect(daemon.sentOps.map(\.subject) == ["a"])
+    }
+
+    /// A token without a `sub` claim names no account: it is never leased,
+    /// and the daemon's lease is cleared.
+    @Test func aTokenWithoutASubjectIsNeverLeased() async throws {
+        let daemon = FakeCloudDaemon()
+        let tokens = FakeTokens()
+        tokens.user = "a"
+        tokens.withoutSubject = true
+        let lease = HomeCloudLease(tokens: tokens, apiBaseURL: URL(string: "https://cloud-api.test")!, clientVersion: nil,
+                                   logger: Logger(subsystem: "cmux-next-tests", category: "lease"))
+        #expect(await lease.sync(daemon, expectedUserID: "a") == .failed)
+        #expect(daemon.calls == [.clearSession])
+    }
 }

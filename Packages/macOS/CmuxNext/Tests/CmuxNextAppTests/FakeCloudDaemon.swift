@@ -43,6 +43,10 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
         /// When set, the inbox is the leased account's, and listing without a
         /// lease is refused (`cloud_signed_out`).
         var inboxBySubject: [String: [CloudInboxEntry]]?
+        /// Holds every inbox list reply until the test opens it.
+        var inboxGate: Gate?
+        /// The inbox list's revision (UserDO's inbox stream seq).
+        var revision: JSONValue?
     }
 
     private struct Daemon {
@@ -107,14 +111,15 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
 
     func inboxList(limit: Int) async throws -> CloudInboxList {
         record(.inboxList)
-        let (entries, error, bySubject) = script.withLock { ($0.entries, $0.inboxError, $0.inboxBySubject) }
+        if let gate = script.withLock({ $0.inboxGate }) { await gate.pass() }
+        let (entries, error, bySubject, revision) = script.withLock { ($0.entries, $0.inboxError, $0.inboxBySubject, $0.revision) }
         if let error { throw error }
-        guard let bySubject else { return CloudInboxList(entries: entries) }
+        guard let bySubject else { return CloudInboxList(entries: entries, revision: revision) }
         guard let session = daemon.withLock({ $0.session }) else {
             throw DaemonError.command(cmd: "cloud-inbox-list", message: "signed out", code: "cloud_signed_out",
                                       details: .object(["reason": .string("missing")]), retryable: false)
         }
-        return CloudInboxList(entries: bySubject[session] ?? [])
+        return CloudInboxList(entries: bySubject[session] ?? [], revision: revision)
     }
 
     func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot {
@@ -187,13 +192,15 @@ final class FakeTokens: CloudLeaseTokens {
     /// Holds every token read until the test opens it; the token names the
     /// user signed in when it passes.
     var gate: Gate?
+    /// Tokens carry no `sub` claim.
+    var withoutSubject = false
 
     var isSignedIn: Bool { user != nil }
 
     func accessToken(forceRefresh: Bool) async throws -> String {
         if let gate { await gate.pass() }
         guard let user, !failing.contains(user) else { throw URLError(.notConnectedToInternet) }
-        return CloudFixtures.jwt(sub: user)
+        return withoutSubject ? CloudFixtures.jwt(claims: #"{"exp":4102444800}"#) : CloudFixtures.jwt(sub: user)
     }
 }
 
@@ -264,7 +271,12 @@ nonisolated enum CloudFixtures {
     /// An unsigned JWT for `sub` that expires in an hour.
     static func jwt(sub: String) -> String {
         let exp = Int(Date().timeIntervalSince1970) + 3600
-        let body = Data(#"{"sub":"\#(sub)","exp":\#(exp)}"#.utf8).base64EncodedString()
+        return jwt(claims: #"{"sub":"\#(sub)","exp":\#(exp)}"#)
+    }
+
+    /// An unsigned JWT with these claims.
+    static func jwt(claims: String) -> String {
+        let body = Data(claims.utf8).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         return "eyJhbGciOiJIUzI1NiJ9.\(body).sig"
     }
