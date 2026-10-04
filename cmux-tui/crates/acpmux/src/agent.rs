@@ -77,6 +77,9 @@ struct Hosted {
     link: std::sync::RwLock<Arc<crate::agent_host::link::Link>>,
     inbound: mpsc::Sender<Inbound>,
     exited: std::sync::atomic::AtomicBool,
+    /// Set as soon as the Exit entry is logged (before its ack is written):
+    /// the agent is no longer alive, though `exited` waits for the ack.
+    exit_seen: std::sync::atomic::AtomicBool,
     /// Set before a detach: the connection's end is a hand-off, not the
     /// agent's death, so pending requests stay open for the next daemon.
     detached: Arc<std::sync::atomic::AtomicBool>,
@@ -517,7 +520,7 @@ impl ChildAgent {
 
     pub async fn is_alive(&self) -> bool {
         if let Some(h) = &self.hosted {
-            return !h.exited.load(Ordering::SeqCst)
+            return !h.exit_seen.load(Ordering::SeqCst)
                 && !h.broken.load(Ordering::SeqCst)
                 && !h.link().is_closed();
         }
@@ -749,6 +752,7 @@ impl ChildAgent {
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
+                exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
         });
@@ -859,6 +863,11 @@ impl ChildAgent {
                 let note = Message::notification(HOST_EXIT, serde_json::json!({"code": code}));
                 if !(self.tap)(Direction::In, &note, Some(h)) {
                     return false;
+                }
+                // Not alive from here: no turn may set the session ready on
+                // a harness that is gone while the ack is still being written.
+                if let Some(hosted) = &self.hosted {
+                    hosted.exit_seen.store(true, Ordering::SeqCst);
                 }
                 let mut p = self.pending.lock().await;
                 for (_, tx) in p.map.drain() {

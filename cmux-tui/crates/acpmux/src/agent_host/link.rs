@@ -267,13 +267,17 @@ impl Link {
     /// socket (or the connection closed), at most `budget`.
     pub async fn ack_written(&self, h: u64, budget: std::time::Duration) -> Result<()> {
         let (written, done) = oneshot::channel();
-        self.tx
-            .send((ControllerFrame::Ack { h }, Some(written)))
-            .await
-            .map_err(|_| anyhow!("agent host connection closed"))?;
-        within("ack", budget, done)
-            .await?
-            .map_err(|_| anyhow!("agent host connection closed before the ack was written"))
+        // The whole wait is bounded: a writer stuck on a full socket also
+        // fills the queue, so the send itself can wait.
+        within("ack", budget, async {
+            self.tx
+                .send((ControllerFrame::Ack { h }, Some(written)))
+                .await
+                .map_err(|_| anyhow!("agent host connection closed"))?;
+            done.await
+                .map_err(|_| anyhow!("agent host connection closed before the ack was written"))
+        })
+        .await?
     }
 
     pub async fn terminate(&self, grace: std::time::Duration) -> Result<()> {
