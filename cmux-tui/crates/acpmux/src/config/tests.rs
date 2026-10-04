@@ -288,3 +288,19 @@ fn codex_without_its_acp_adapter_runs_through_the_pinned_adapter_package() {
     assert!(codex_through_adapter_package(None, Some("/opt/bin/npx")).is_none());
     assert!(codex_through_adapter_package(Some("/u/.local/bin/codex"), None).is_none());
 }
+
+#[test]
+fn websocket_allow_lists_read_in_either_spelling() {
+    let camel: WebSocketConfig = serde_json::from_str(
+        r#"{"listen":"127.0.0.1:0","allowedOrigins":["http://127.0.0.1:5173"],"allowedHosts":["box.local"]}"#,
+    )
+    .unwrap();
+    // The spelling the docs and scripts use (websocket.allowed_origins).
+    let snake: WebSocketConfig = serde_json::from_str(
+        r#"{"listen":"127.0.0.1:0","allowed_origins":["http://127.0.0.1:5173"],"allowed_hosts":["box.local"]}"#,
+    )
+    .unwrap();
+    assert_eq!(camel, snake);
+    assert_eq!(snake.allowed_origins, vec!["http://127.0.0.1:5173".to_owned()]);
+    assert_eq!(snake.allowed_hosts, vec!["box.local".to_owned()]);
+}
