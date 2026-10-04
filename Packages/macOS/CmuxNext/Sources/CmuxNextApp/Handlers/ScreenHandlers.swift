@@ -97,7 +97,7 @@ enum ScreenHandlers {
 
     private static func adjacent(_ offset: Int, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let content = ctx.content(invocation) else { return }
-        guard content.layoutModel.screens.count > 1 else { return ctx.refuse(RefusalStrings.workspaceHasOneScreen) }
+        guard content.layoutModel.screens.count > 1 else { return ctx.refuseQuietly(RefusalStrings.workspaceHasOneScreen) }
         ScreenCommands.selectAdjacent(offset, in: content)
     }
 

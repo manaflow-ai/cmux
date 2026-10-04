@@ -20,9 +20,10 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
-        registry.refusalObserver = { reason in
+        registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
-            guard !registry.refusalHasCaller else { return }
+            // A navigation no-op (R136) shows nothing; a caller shows or returns the reason itself.
+            guard !quiet, !registry.refusalHasCaller else { return }
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }
@@ -33,6 +34,19 @@ extension AppActionContext {
     func refuse<T>(_ reason: String) -> T? {
         registry.refuse(reason)
         return nil
+    }
+
+    /// A navigation or focus move with no target (R136): callers get the
+    /// reason, a keyboard or menu run shows nothing.
+    @discardableResult
+    func refuseQuietly<T>(_ reason: String) -> T? {
+        registry.refuse(reason, quiet: true)
+        return nil
+    }
+
+    /// Statement form of ``refuseQuietly(_:)-generic``.
+    func refuseQuietly(_ reason: String) {
+        registry.refuse(reason, quiet: true)
     }
 
     /// An explicit target that names nothing (`not_found` on the socket).
@@ -96,7 +110,7 @@ extension AppActionContext {
     func tab(_ invocation: ActionInvocation) -> (pane: PaneController, id: StripTabID)? {
         guard let pane = paneController(invocation) else { return nil }
         if let target = explicitTarget(invocation, kinds: [.tab]) { return (pane, StripTabID(target.id)) }
-        guard let id = pane.stripModel.selectedID else { return refuse(RefusalStrings.focusedPaneHasNoTab) }
+        guard let id = pane.stripModel.selectedID else { return refuseQuietly(RefusalStrings.focusedPaneHasNoTab) }
         return (pane, id)
     }
 
