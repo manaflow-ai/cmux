@@ -626,8 +626,8 @@ struct NewMachineSheet: View {
             }
             if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
                 Button(upgradeTitle) {
-                    model.selectedUpgradePlanId = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
-                    model.showsMaxUpgrade = true
+                    let planID = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
+                    ProUpgradePresenter.presentPricing(source: .newMachineSheetMaxUpgrade, plan: planID == "pro" ? .pro : .max)
                 }
                 .buttonStyle(.link)
                 .cmuxFont(size: 11)
