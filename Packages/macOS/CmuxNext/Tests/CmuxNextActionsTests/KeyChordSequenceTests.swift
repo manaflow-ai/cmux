@@ -67,16 +67,16 @@ import Testing
         ])
         for id: ActionID in ["save", "mine", "theirs"] { registry.bind(id, invoke: { _ in }) }
         let all = { (_: ActionID) in true }
-        registry.keyBindingLayers = KeyBindingLayers(
+        registry.setKeyBindingLayers(KeyBindingLayers(
             app: [KeyBinding(keys: [Self.ctrlK], command: "theirs", source: .app),
                   KeyBinding(keys: [Self.ctrlK, Self.x, Self.y], command: "theirs", source: .app)],
-            user: [KeyBinding(keys: [Self.ctrlK, Self.x, Self.y], command: "mine", source: .user)])
+            user: [KeyBinding(keys: [Self.ctrlK, Self.x, Self.y], command: "mine", source: .user)]))
         let table = RegistryKeyBindings(registry).table
         #expect(table.resolve([Self.ctrlK], in: Self.page, isRunnable: all).winner?.command == "theirs")
         let sequence = table.resolve([Self.ctrlK, Self.x, Self.y], in: Self.page, isRunnable: all)
         #expect(sequence.winner?.command == "mine")
         #expect(sequence.candidates.map(\.verdict) == [.won, .shadowed])
-        registry.keyBindingLayers = KeyBindingLayers()
+        registry.setKeyBindingLayers(KeyBindingLayers())
         #expect(RegistryKeyBindings(registry).table.resolve([Self.ctrlK], in: Self.page, isRunnable: all).winner?.command == "save",
                 "a layer change rebuilds the table")
     }
