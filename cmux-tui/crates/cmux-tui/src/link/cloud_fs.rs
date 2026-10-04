@@ -74,7 +74,11 @@ pub(super) fn install_if_cloud_host() -> bool {
         crate::coderouter_usage::resolve_source(|key| std::env::var(key).ok(), env_file.as_deref())
             .is_some();
     let linux = cfg!(target_os = "linux");
-    if !is_cloud_host(linux, linux && trusted_stamp(Path::new(IMAGE_STAMP), Path::new("/"), 0), identity) {
+    if !is_cloud_host(
+        linux,
+        linux && trusted_stamp(Path::new(IMAGE_STAMP), Path::new("/"), 0),
+        identity,
+    ) {
         return false;
     }
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return false };
