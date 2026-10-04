@@ -88,7 +88,17 @@ public import WebKit
 /// tab's pasteboard (and does not reach the system clipboard); the command
 /// then fails. A web content process the app granted read access on its own turn
 /// without a `+generalPasteboard` read first would read the tab's pasteboard;
-/// WebKit 26 has no such grant. A paste in another web view that starts
+/// WebKit 26 has no such grant; a page's script paste
+/// (`execCommand("paste")`) asks for its grant through WebKit's DOM paste
+/// access, which reads `+generalPasteboard` before it grants a page its own
+/// origin's data without asking (a diversion) and otherwise shows a callout
+/// only the person answers. WebKit keeps one grant per pasteboard name, the
+/// processes granted at one change count, and extends it to a process
+/// granted at an equal count: a process granted during an earlier command
+/// or quarantine at a private pasteboard whose count equals this command's
+/// keeps that grant, and could read the tab's pasteboard without asking
+/// again within a gesture it already holds access in. So can another page
+/// in the commanded tab's own process. A paste in another web view that starts
 /// during the command reads nothing. The same holds after a
 /// `timedOutStillRunning` until WebKit finishes, at most one more timeout.
 /// The caller test errs toward WebKit: should WebKit's pasteboard code move,
