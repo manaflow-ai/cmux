@@ -42,7 +42,7 @@ extension CloudTreeOutlineView.Coordinator {
         }
         let lifted = outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: parent.children,
-            isPeer: isPeer, closes: { machineLiftClosesOpenRows && isPeer($0) },
+            isPeer: isPeer, closes: { self.machineLiftClosesOpenRows && isPeer($0) },
             onLeave: { [weak self, weak outline] in
                 guard let self, let outline else { return }
                 finishMachineLift()
