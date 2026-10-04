@@ -33,6 +33,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// mandatory Sparkle update-choice reply) before the task drops its capture.
     private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
+    /// Sparkle can ask to postpone again after the user explicitly chooses Install Now or
+    /// Restart Now. Allow that one continuation through so the confirmation does not reopen the
+    /// same relaunch prompt indefinitely.
+    var allowNextRelaunch = false
     private(set) var lastFeedURLString: String?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
@@ -78,6 +82,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
         log.append("show user-initiated update check")
+        allowNextRelaunch = false
         beginChecking(cancel: cancellation)
     }
 
@@ -110,6 +115,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        allowNextRelaunch = false
         relaunchGate.cancel()
         setState(.error(.init(
             error: error,
@@ -180,6 +186,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Restart Now on the install-on-quit prompt, and a resumed install after Later. Returns
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
     func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
+        if allowNextRelaunch {
+            allowNextRelaunch = false
+            log.append("update relaunch allowed after explicit confirmation")
+            return false
+        }
         guard !currentRelaunchBlockers().isEmpty else { return false }
         var isAutoUpdate = false
         if case .installing(let installing) = model.state { isAutoUpdate = installing.isAutoUpdate }
@@ -192,8 +203,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     /// Holds `install` while relaunching would interrupt a busy agent or a running command.
-    /// Later leaves the downloaded update on "Restart to Complete Update"; Sparkle still
-    /// installs it when cmux quits.
+    /// Later leaves the downloaded update ready; Sparkle still installs it when cmux quits.
     private func holdRelaunch(isAutoUpdate: Bool, install: @escaping () -> Void) {
         relaunchGate.hold(
             isAutoUpdate: isAutoUpdate,
@@ -203,26 +213,26 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                 return installing.relaunchBlockers != nil
             },
             publish: { [weak self] state in self?.setState(state) },
-            relaunch: install,
+            relaunch: { [weak self] in
+                self?.allowNextRelaunch = true
+                install()
+            },
             later: { [weak self] in self?.showRestartToComplete(install: install) }
         )
     }
 
     /// The postponed Sparkle session stays open until `install` runs, so this state keeps it
     /// reachable: Restart Later only closes the popover (dropping `install` would leave every
-    /// later check waiting on a session that never ends), and Restart Now goes through the
-    /// gate again and installs at most once.
+    /// later check waiting on a session that never ends). Restart Now is an explicit confirmation,
+    /// so it continues through Sparkle once without reopening the relaunch gate.
     private func showRestartToComplete(install: @escaping () -> Void) {
-        let once = InstallOnce(install)
+        let once = InstallOnce { [weak self] in
+            self?.allowNextRelaunch = true
+            install()
+        }
         setState(.installing(.init(
             isAutoUpdate: true,
-            retryTerminatingApplication: { [weak self] in
-                guard let self else {
-                    once.run()
-                    return
-                }
-                self.holdRelaunch(isAutoUpdate: true, install: once.run)
-            },
+            retryTerminatingApplication: { once.run() },
             dismiss: {}
         )))
     }
@@ -230,7 +240,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         log.append("show installing update")
         setState(.installing(.init(
-            retryTerminatingApplication: retryTerminatingApplication,
+            retryTerminatingApplication: { [weak self] in
+                self?.allowNextRelaunch = true
+                retryTerminatingApplication()
+            },
             dismiss: { [weak self] in
                 self?.model.setState(.idle)
             }
@@ -239,6 +252,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         log.append("show update installed (relaunched=\(relaunched))")
+        allowNextRelaunch = false
         relaunchGate.cancel()
         setState(.idle)
         acknowledgement()

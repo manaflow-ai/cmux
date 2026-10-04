@@ -155,7 +155,7 @@ def seed_terminal(ready, directory):
         # starts; a create sent then waits for the daemon and adds a second
         # workspace beside the adopted one.
         if not terminal and answered:
-            result = tui("workspace", "create", "--name", "Cloud", "--json")
+            result = tui("workspace", "create", "--name", "workspace-1", "--json")
             if result.returncode == 0:
                 try:
                     value = json.loads(result.stdout)

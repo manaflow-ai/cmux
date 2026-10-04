@@ -94,7 +94,7 @@ struct CloudSidebarNativeDropTests {
         coordinator.apply(nodes: nodes)
         let outline = try #require(coordinator.outlineView)
         let parent = try #require(CloudTreeNodeBuilder.flattened(coordinator.nodes).first { $0.id == fixture.folderID("ws_1") })
-        let ids = parent.children.map(\.id)
+        let ids = parent.children.filter(\.canOrganize).map(\.id)
         #expect(ids.count == 2)
         let source = try #require(parent.children.last)
         let board = NSPasteboard.withUniqueName()
@@ -112,7 +112,7 @@ struct CloudSidebarNativeDropTests {
         #expect(host.subviews.compactMap { $0 as? FileDropHintBadgeView }.isEmpty)
         expectNoSidebarHints(outline)
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
-        #expect(parent.children.map(\.id) == Array(ids.reversed()))
+        #expect(parent.children.filter(\.canOrganize).map(\.id) == Array(ids.reversed()))
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
         coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: .move)
         #expect(fixture.transferRegistry.resolve(from: board) == nil)
@@ -182,9 +182,11 @@ struct CloudSidebarNativeDropTests {
         #expect(writer.sourceViewForDrag == nil)
         #expect(coordinator.deferredNodes == nil)
         let current = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
-        #expect(current.children.map(\.searchableTitle) == (accepted ? ["fresh-2", "fresh-1"] : ["fresh-1", "fresh-2"]))
-        let indicators = outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }
-        #expect(indicators.isEmpty)
+        #expect(current.children.filter(\.canOrganize).map(\.searchableTitle) == (accepted ? ["fresh-2", "fresh-1"] : ["fresh-1", "fresh-2"]))
+        let visibleIndicators = outline.subviews.filter {
+            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+        }
+        #expect(visibleIndicators.isEmpty)
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
     }
 
@@ -275,6 +277,7 @@ struct CloudSidebarNativeDropTests {
             organization: fixture.catalog.sidebarOrganization,
             tabDragTransferRegistry: { Issue.record("Folder drags cannot request pane capabilities"); return nil }
         )
+        coordinator.machineLiftEnabled = false
         let container = CloudTreeContainerView(coordinator: coordinator)
         // Empty daemon records are deliberately hidden by the catalog builder.
         // Exercise the writer's resource-independent contract directly.
@@ -313,7 +316,7 @@ struct CloudSidebarNativeDropTests {
         coordinator.apply(nodes: fixture.nodes(titles: titles))
         let outline = try #require(coordinator.outlineView)
         let parent = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1")))
-        let ids = parent.children.map(\.id)
+        let ids = parent.children.filter(\.canOrganize).map(\.id)
         let source = parent.children[2]
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
@@ -328,7 +331,7 @@ struct CloudSidebarNativeDropTests {
         let acceptedAt = ContinuousClock.now
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
         let optimistic = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
-        #expect(optimistic.children.map(\.id) == [ids[2], ids[0], ids[1]], "Accepted drops update the outline before endedAt")
+        #expect(optimistic.children.filter(\.canOrganize).map(\.id) == [ids[2], ids[0], ids[1]], "Accepted drops update the outline before endedAt")
         let displayedFolders = (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CloudTreeNode }
             .filter { ids.contains($0.id) }.map(\.id)
         #expect(displayedFolders == [ids[2], ids[0], ids[1]], "Native rows must match before the source completes")
@@ -341,11 +344,11 @@ struct CloudSidebarNativeDropTests {
         coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: .move)
         #expect(!coordinator.isDragging)
         let current = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
-        #expect(current.children.map(\.id) == [ids[2], ids[0], ids[1]])
-        #expect(current.children.map(\.searchableTitle) == ["new-3", "new-1", "new-2"])
+        #expect(current.children.filter(\.canOrganize).map(\.id) == [ids[2], ids[0], ids[1]])
+        #expect(current.children.filter(\.canOrganize).map(\.searchableTitle) == ["new-3", "new-1", "new-2"])
         let restored = CloudSidebarOrganizationStore(defaults: fixture.defaults)
         let refreshed = CloudSidebarOrganizationTree(nodes: fixture.nodes(titles: titles)).arrange(using: restored.state)
-        #expect(CloudSidebarOrganizationTree(nodes: refreshed).parent(of: source.id)?.children.map(\.id) == [ids[2], ids[0], ids[1]])
+        #expect(CloudSidebarOrganizationTree(nodes: refreshed).parent(of: source.id)?.children.filter(\.canOrganize).map(\.id) == [ids[2], ids[0], ids[1]])
         #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty && fixture.provider.projected.isEmpty)
     }
 
@@ -375,13 +378,13 @@ struct CloudSidebarNativeDropTests {
         #expect(fixture.catalog.sidebarOrganization.state.groups.isEmpty, "Validation cannot mutate saved order")
         // AppKit delivers the retargeted insertion to acceptDrop.
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: after ? 2 : 0))
-        #expect(parent.children.map(\.id) == [fixture.folderID("ws_2"), fixture.folderID("ws_1")])
+        #expect(parent.children.filter(\.canOrganize).map(\.id) == [fixture.folderID("ws_2"), fixture.folderID("ws_1")])
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == source.id)
         #expect(!outline.isItemExpanded(target))
         coordinator.apply(nodes: fixture.nodes(titles: ["renamed", "renamed"]))
         let restored = CloudSidebarOrganizationStore(defaults: fixture.defaults)
         let refreshed = CloudSidebarOrganizationTree(nodes: fixture.nodes()).arrange(using: restored.state)
-        #expect(CloudSidebarOrganizationTree(nodes: refreshed).parent(of: source.id)?.children.map(\.id)
+        #expect(CloudSidebarOrganizationTree(nodes: refreshed).parent(of: source.id)?.children.filter(\.canOrganize).map(\.id)
             == [fixture.folderID("ws_2"), fixture.folderID("ws_1")])
         #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty && fixture.provider.projected.isEmpty)
         #expect(fixture.provider.refreshCount == 0)
@@ -403,7 +406,7 @@ struct CloudSidebarNativeDropTests {
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: target, proposedChildIndex: 0) == .move)
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 2))
-        #expect(parent.children.map(\.id) == [target.id, source.id])
+        #expect(parent.children.filter(\.canOrganize).map(\.id) == [target.id, source.id])
     }
 
     @Test("Native destination rejects other outlines, parents, pins, and deleted sources")

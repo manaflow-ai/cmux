@@ -439,7 +439,7 @@ struct SubrouterClaudeRestoreRoutingTests {
         let request = resumeRequest(
             environment: [
                 "ANTHROPIC_BASE_URL": localPoolBaseURL,
-                "CLAUDE_CONFIG_DIR": "/Users/daniel/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a",
+                "CLAUDE_CONFIG_DIR": "/Users/dev/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a",
             ]
         )
 

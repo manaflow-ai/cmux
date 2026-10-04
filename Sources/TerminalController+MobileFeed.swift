@@ -19,6 +19,10 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Expected item_id and a nonnegative offset", data: nil)
         }
         let item = FeedCoordinator.shared.snapshot(pendingOnly: false).first(where: { $0.id == id })
+        // Older phones can retain a notification row from the former mixed
+        // Feed after this Mac stops listing notification history. Keep the
+        // text read compatible with those cached rows; new list responses
+        // never create or refresh them.
         let notification = item == nil
             ? TerminalNotificationStore.shared.notificationFeedHistory.notifications.first(where: { $0.id == id })
             : nil
@@ -54,12 +58,14 @@ extension TerminalController {
     ) async -> V2CallResult {
         let pendingOnly = params["pending_only"] as? Bool ?? false
         let workstreamRevision = FeedCoordinator.shared.store?.revision ?? 0
-        let notificationHistory = TerminalNotificationStore.shared.notificationFeedHistory
-        notificationHistory.reconcileActiveNotifications(TerminalNotificationStore.shared.notifications)
-        let notificationSnapshot = notificationHistory.snapshot
+        // Keep the preexisting wire revision namespace for phones that may
+        // still have a combined revision cached from an older Mac. This is
+        // only a compatibility lane; notification history never becomes a
+        // Feed row and never invalidates the Agent Feed.
         let revision = FeedCoordinator.combinedMobileFeedRevision(
             workstream: workstreamRevision,
-            notifications: notificationSnapshot.revision
+            notifications: TerminalNotificationStore.shared
+                .notificationFeedHistory.revision
         )
         let items = FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly)
 
@@ -89,30 +95,10 @@ extension TerminalController {
         // The store appends chronologically; encode the newest rows first so
         // the frame-fitting cut drops the oldest rows.
         var datedRows: [(date: Date, id: String, row: [String: Any])] = []
-        datedRows.reserveCapacity(min(
-            visibleItems.count + notificationSnapshot.notifications.count,
-            Self.mobileFeedMaximumItemCount
-        ))
+        datedRows.reserveCapacity(min(visibleItems.count, Self.mobileFeedMaximumItemCount))
         var resolvedTargets: [String: FeedJumpResolver.Target?] = [:]
-        let workstreamIDs = Set(visibleItems.map { $0.id })
         for item in visibleItems {
             datedRows.append((item.createdAt, item.id.uuidString, mobileFeedRow(for: item, resolvedTargets: &resolvedTargets)))
-        }
-        if !pendingOnly {
-            // Agent-hook notifications (permission, plan, question, and
-            // turn-completion banners) mirror workstream rows the Feed already
-            // shows, so only notifications explicitly known to be human-facing
-            // (cmux notify, watchers) join as their own rows. Records from
-            // before the flag existed (nil) are excluded too: they are mostly
-            // agent echoes, and every notification stays in the Notifications
-            // tab regardless.
-            for notification in notificationSnapshot.notifications
-            where !workstreamIDs.contains(notification.id) && notification.isAgentEvent == false {
-                let hasText = [notification.title, notification.subtitle, notification.body]
-                    .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                guard hasText else { continue }
-                datedRows.append((notification.createdAt, notification.id.uuidString, mobileNotificationFeedRow(notification)))
-            }
         }
         datedRows.sort {
             if $0.date != $1.date { return $0.date > $1.date }
@@ -129,33 +115,6 @@ extension TerminalController {
             "revision": revision,
             "items": fittedRows,
         ])
-    }
-
-    private func mobileNotificationFeedRow(
-        _ notification: NotificationFeedHistoryRecord
-    ) -> [String: Any] {
-        let fullText = [notification.title, notification.subtitle, notification.body]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        var row: [String: Any] = [
-            "id": notification.id.uuidString,
-            "event_id": notification.id.uuidString,
-            "workstream_id": "notification-\(notification.id.uuidString)",
-            "source": "notification",
-            "kind": "assistantMessage",
-            "status": "telemetry",
-            "created_at": ISO8601DateFormatter().string(from: notification.createdAt),
-            "updated_at": ISO8601DateFormatter().string(from: notification.createdAt),
-            "title": notification.title,
-            "text": fullText,
-            "workspace_id": notification.tabId.uuidString,
-            "full_text_preview": fullText,
-            "full_text_truncated": false,
-        ]
-        if let surfaceID = notification.surfaceId {
-            row["surface_id"] = surfaceID.uuidString
-        }
-        return row
     }
 
     /// One wire row: the control-socket item encoding plus the mobile-only

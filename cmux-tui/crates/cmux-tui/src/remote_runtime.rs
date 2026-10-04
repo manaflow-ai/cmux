@@ -351,6 +351,18 @@ pub struct DaemonRuntimeHandle {
     info: DaemonRuntimeInfo,
     shutdown: watch::Sender<bool>,
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
+    finished: Arc<AtomicBool>,
+}
+
+/// Marks the daemon runtime finished and wakes the headless owner loop when
+/// the runtime thread's work ends.
+struct FinishedSignal(Arc<AtomicBool>);
+
+impl Drop for FinishedSignal {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+        crate::wake_headless();
+    }
 }
 
 impl DaemonRuntimeHandle {
@@ -359,7 +371,7 @@ impl DaemonRuntimeHandle {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
+        self.finished.load(Ordering::Acquire)
     }
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
@@ -1167,24 +1179,42 @@ fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
     error.downcast_ref::<BootstrapError>().is_some_and(BootstrapError::is_retryable_carrier_failure)
 }
 
+/// Returns when the owner asks the runtime to stop or a termination signal
+/// arrives. Both are events; this used to re-check them every 50 ms.
 async fn wait_for_shutdown_request(mut shutdown: Option<watch::Receiver<bool>>) {
+    let mut signal_available = true;
     loop {
         if crate::shutdown_requested()
             || shutdown.as_ref().is_some_and(|receiver| *receiver.borrow())
         {
             return;
         }
-        if let Some(receiver) = &mut shutdown {
-            tokio::select! {
-                result = receiver.changed() => {
-                    if result.is_err() {
-                        shutdown = None;
-                    }
-                }
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        let owner = async {
+            match &mut shutdown {
+                Some(receiver) => receiver.changed().await.is_err(),
+                None => std::future::pending().await,
             }
-        } else {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        let signal = async {
+            if signal_available {
+                crate::wait_for_shutdown_signal_peek_async().await.is_err()
+            } else {
+                std::future::pending().await
+            }
+        };
+        let (owner_closed, signal_unavailable) = tokio::select! {
+            owner_closed = owner => (owner_closed, false),
+            signal_unavailable = signal => (false, signal_unavailable),
+        };
+        if owner_closed {
+            shutdown = None;
+        }
+        if signal_unavailable {
+            signal_available = false;
+        }
+        if shutdown.is_none() && !signal_available {
+            // Nothing left that can request a stop.
+            std::future::pending::<()>().await;
         }
     }
 }
@@ -1981,9 +2011,14 @@ fn start_daemon_runtime_with_timeout(
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let owner_shutdown = shutdown_tx.clone();
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let finished = Arc::new(AtomicBool::new(false));
+    let thread_finished = finished.clone();
     let thread = thread::Builder::new()
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
+            // The headless owner loop blocks until this runtime ends, on
+            // every return path including a failed runtime build.
+            let _finished = FinishedSignal(thread_finished);
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
             let result = runtime.block_on(run_daemon(
                 mux_socket,
@@ -2013,7 +2048,7 @@ fn start_daemon_runtime_with_timeout(
             return Err(anyhow!("remote daemon did not become ready: {error}"));
         }
     };
-    Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread) })
+    Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread), finished })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5233,6 +5268,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
+                maximum_duration: None,
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
@@ -5396,6 +5432,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
+                maximum_duration: None,
             },
             startup_timeout: Duration::from_secs(2),
             state_dir: directory.path().join("client"),
@@ -5471,6 +5508,7 @@ mod tests {
                 heartbeat_interval: None,
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
+                maximum_duration: None,
             },
             startup_timeout: Duration::from_secs(1),
             state_dir: directory.path().join("client"),

@@ -68,15 +68,26 @@ struct CloudTreeNodeActions {
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    /// Presents an inline Cloud action explanation without starting a remote operation.
+    var showHint: @MainActor (_ message: String) -> Void = { _ in }
+    /// Explains why a display cannot open in the currently selected workspace.
+    var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Y.
     var newMachine: @MainActor () -> Void = {}
-    /// Creates a workspace on the remembered/selected Cloud machine, falling back to the existing machine-selection flow when none is available.
+    /// Creates a workspace on the remembered or selected Cloud machine.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
+    /// Pops up a row's context menu from its trailing "⋯" button. The outline
+    /// coordinator binds it per cell, so the button and a right-click show the
+    /// same menu.
+    var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a machine's detail tab, or closes it when it is open. Bound per
+    /// cell by the outline coordinator.
+    var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
-    /// Binds the existing resolved-machine Cloud workspace creation flow to a tree action.
+    /// Binds the resolved-machine Cloud workspace creation flow to a tree action.
     @MainActor
     static func resolvedWorkspaceCreationAction(tabManager: TabManager?) -> @MainActor () -> Void {
         { [weak tabManager] in
@@ -208,19 +219,22 @@ struct CloudTreeNodeActions {
                         workspaceID = capturedWorkspaceID
                     }
                     let opened: (projection: SurfaceProjection, reused: Bool)
-                    if let port = resource.forwardedPort {
-                        opened = try await catalog.openCloudPort(
-                            machine: resource.machine,
-                            port: port,
-                            into: .workspace(id: workspaceID, placement: placement),
-                            focus: true,
-                            reuseExisting: reuseExisting,
-                            reuseInWorkspace: workspaceID
-                        )
-                    } else {
-                        opened = try await catalog.project(
+                    opened = try await SurfacePaneFactory.openPreferringSplit(
+                        at: .workspace(id: workspaceID, placement: placement)
+                    ) { target in
+                        if let port = resource.forwardedPort {
+                            return try await catalog.openCloudPort(
+                                machine: resource.machine,
+                                port: port,
+                                into: target,
+                                focus: true,
+                                reuseExisting: reuseExisting,
+                                reuseInWorkspace: workspaceID
+                            )
+                        }
+                        return try await catalog.project(
                             resource,
-                            into: .workspace(id: workspaceID, placement: placement),
+                            into: target,
                             focus: true,
                             reuseExisting: reuseExisting,
                             reuseInWorkspace: resource.kind == .display ? workspaceID : nil
@@ -512,6 +526,23 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.showHint = onFailure
+        actions.showDisplayOpenHint = { resource in
+            guard let workspaceID = selectedWorkspaceID(),
+                  let workspace = Workspace.liveWorkspace(id: workspaceID) else {
+                // A display must never open until the selected destination's
+                // ownership is known. This also covers a stale selection while
+                // the Cloud workspace list is switching machines.
+                onFailure(SurfaceTransferRejection.cloudMachineMismatch.message)
+                return true
+            }
+            guard let rejection = workspace.surfaceOwnershipPolicy.rejection(
+                for: resource.machine,
+                kind: resource.kind
+            ) else { return false }
+            onFailure(rejection.message)
+            return true
+        }
         actions.openWorkspace = { machine, workspace, group in
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
                 .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
@@ -565,6 +596,12 @@ struct CloudTreeNodeActions {
         actions.discoverPorts = refreshMachine
         actions.newDisplay = { machine in
             let target = try? destination(.split)
+            if let target,
+               let workspace = Workspace.liveWorkspace(id: target.workspaceID),
+               let rejection = workspace.surfaceOwnershipPolicy.rejection(for: machine, kind: .display) {
+                onFailure(rejection.message)
+                return
+            }
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
                 do {
                     try await catalog.createDisplay(on: machine, into: target)

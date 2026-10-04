@@ -114,13 +114,9 @@ trap cleanup EXIT INT TERM
 say "Warming a box from main"
 echo "The workflow refuses any ref but main: it is the trust boundary, because"
 echo "the CLI resolves the workflow definition from the same ref it hydrates."
-# Snapshot the gates already waiting before dispatching. Set difference against
-# this identifies our run exactly; a time window cannot, because another agent
-# dispatching seconds later lands inside any window we pick.
-lane_runs_url="repos/manaflow-ai/cmux/actions/workflows/$(basename "$WORKFLOW")/runs?event=workflow_dispatch&status=waiting"
-waiting_before="$(mktemp)"
-waiting_now="$(mktemp)"
-gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_before"
+# The dispatch time bounds which run can be ours; the run id itself comes from
+# Blacksmith's record of the box (scripts/blacksmith-testbox-approve.sh).
+dispatched_at="$(date +%s)"
 warmup_log="$(mktemp)"
 printf '\033[2m$ blacksmith testbox warmup %s --ref main --job %s --idle-timeout %s\033[0m\n' \
   "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
@@ -135,32 +131,14 @@ say "Approving the deployment gate"
 echo "The run parks before its first step until a reviewer approves. Self-"
 echo "approval is allowed on this environment."
 if (( APPROVE )); then
-  approved=0
-  for _ in $(seq 1 30); do
-    # Our run is the one that appeared since the snapshot. Kept portable to bash
-    # 3.2, which is what macOS ships: no mapfile, no process substitution.
-    gh api "$lane_runs_url" --jq '.workflow_runs[].id' 2>/dev/null | sort >"$waiting_now" || true
-    candidates="$(comm -13 "$waiting_before" "$waiting_now")"
-    candidate_count="$(printf '%s' "$candidates" | grep -c . || true)"
-    if (( candidate_count > 1 )); then
-      echo "$candidate_count runs appeared at once; approve yours in the GitHub UI, or rerun this script" >&2
-      break
-    fi
-    if (( candidate_count == 1 )); then
-      run_id="$candidates"
-      env_id="$(gh api "repos/manaflow-ai/cmux/actions/runs/$run_id/pending_deployments" --jq '.[0].environment.id')"
-      gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$run_id/pending_deployments" \
-        --input - >/dev/null <<JSON
-{"environment_ids": [$env_id], "state": "approved", "comment": "blacksmith-testbox-demo"}
-JSON
-      echo "approved run $run_id"
-      RUN_ID="$run_id"
-      approved=1
-      break
-    fi
-    sleep 5
-  done
-  (( approved )) || echo "not approved automatically; approve the run in the GitHub UI now" >&2
+  # Approves only the run Blacksmith records for this box, after checking it
+  # on GitHub; never a run picked from the shared list of waiting runs.
+  if approve_out="$(./scripts/blacksmith-testbox-approve.sh "$TBX" "$dispatched_at" blacksmith-testbox-demo)"; then
+    RUN_ID="$(printf '%s\n' "$approve_out" | tail -1)"
+    echo "approved run $RUN_ID"
+  else
+    echo "not approved automatically; approve only the run shown for $TBX by 'blacksmith testbox status --id $TBX'" >&2
+  fi
 else
   echo "approve the waiting run in the GitHub UI now"
 fi

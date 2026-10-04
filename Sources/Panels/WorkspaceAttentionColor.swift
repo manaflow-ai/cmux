@@ -4,6 +4,9 @@ import SwiftUI
 
 /// The resolved color shared by pane flashes and unread notification rings.
 ///
+/// A configured color paints both. Without one, both signals use the existing
+/// cmux accent, preserving the established blue default.
+///
 /// The setting store remains the only owner of the configured string. This
 /// value validates one immutable snapshot before it reaches a renderer, so
 /// AppKit layers and SwiftUI canvases never read ambient defaults or parse the
@@ -12,21 +15,41 @@ struct WorkspaceAttentionColor: Hashable, Sendable {
     private let rgb: UInt32?
     /// The resolved cmux accent used when no valid color is configured.
     private let accent: CmuxAccentColor
-
-    init(configuredHex: String?, accent: CmuxAccentColor = CmuxAccentColor()) {
+    private let themeForegroundHex: String?
+    private let useThemeForeground: Bool
+    init(
+        configuredHex: String?,
+        accent: CmuxAccentColor = CmuxAccentColor(),
+        themeForeground: NSColor? = nil,
+        useThemeForeground: Bool = false
+    ) {
         self.rgb = Self.strictRGB(configuredHex)
         self.accent = accent
+        self.themeForegroundHex = themeForeground?.hexString()
+        self.useThemeForeground = useThemeForeground
     }
 
     var nsColor: NSColor {
         guard let rgb else {
             return WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor(accent: accent)
         }
-        return NSColor(
+        return Self.color(rgb: rgb, alpha: 1)
+    }
+
+    /// The pane flash keeps the configured color or the existing cmux accent.
+    var flashNSColor: NSColor {
+        guard rgb == nil, useThemeForeground,
+              let themeForegroundHex,
+              let themeForeground = NSColor(hex: themeForegroundHex) else { return nsColor }
+        return themeForeground
+    }
+
+    private static func color(rgb: UInt32, alpha: CGFloat) -> NSColor {
+        NSColor(
             red: CGFloat((rgb >> 16) & 0xFF) / 255,
             green: CGFloat((rgb >> 8) & 0xFF) / 255,
             blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1
+            alpha: alpha
         )
     }
 

@@ -40,6 +40,19 @@ struct CloudDisplayCatalogTests {
         #expect(service.snapshot?.displays.first?.id == "display:1")
     }
 
+    @Test("Creation sends one guest exec without a discovery round trip first")
+    func creationNeedsNoPriorDiscovery() async throws {
+        var commands: [String] = []
+        let service = CloudDisplayCoordinator { command, _ in
+            commands.append(command)
+            return .init(exitCode: 0, stdout: Self.isCreate(command) ? created : initial, stderr: "")
+        }
+        let result = try await service.create()
+        #expect(commands.count == 1 && Self.isCreate(commands[0]))
+        #expect(result.created == "display:2")
+        #expect(service.isAvailable)
+    }
+
     @Test("Account/provider retirement prevents a delayed display reply from publishing")
     func retiredCreationCannotPublish() async throws {
         let started = CloudLinkFirstValue<Bool>()

@@ -242,6 +242,31 @@ struct CodexAutoNamingArguments: Sendable {
         return arguments
     }
 
+    static func removingComment(from rawLine: Substring) -> Substring {
+            var quote: Character?
+            var escaped = false
+            for index in rawLine.indices {
+                let character = rawLine[index]
+                if quote == "\"" {
+                    if escaped {
+                        escaped = false
+                    } else if character == "\\" {
+                        escaped = true
+                    } else if character == "\"" {
+                        quote = nil
+                    }
+                } else if quote == "'" {
+                    if character == "'" {
+                        quote = nil
+                    }
+                } else if character == "\"" || character == "'" {
+                    quote = character
+                } else if character == "#" {
+                    return rawLine[..<index]
+                }
+            }
+            return rawLine
+    }
     private static func providerOverrides(
         from toml: String,
         usesTemporaryConfig: Bool
@@ -250,8 +275,15 @@ struct CodexAutoNamingArguments: Sendable {
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
         var section = ""
+        var multilineStringDelimiter: String?
         for rawLine in toml.split(whereSeparator: \.isNewline) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            let line = removingComment(from: rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let delimiter = multilineStringDelimiter {
+                if line.range(of: delimiter) != nil {
+                    multilineStringDelimiter = nil
+                }
+                continue
+            }
             guard !line.isEmpty, !line.hasPrefix("#") else { continue }
             if line.first == "[", line.last == "]" {
                 section = String(line.dropFirst().dropLast())
@@ -260,6 +292,13 @@ struct CodexAutoNamingArguments: Sendable {
             guard let equals = line.firstIndex(of: "=") else { continue }
             let key = line[..<equals].trimmingCharacters(in: .whitespacesAndNewlines)
             let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            for delimiter in ["\"\"\"", "'''"] {
+                let occurrenceCount = value.components(separatedBy: delimiter).count - 1
+                if occurrenceCount.isMultiple(of: 2) == false {
+                    multilineStringDelimiter = delimiter
+                    break
+                }
+            }
             if section.isEmpty {
                 if key == "model" { model = String(value) }
                 if key == "model_provider" { modelProvider = String(value) }
@@ -275,11 +314,12 @@ struct CodexAutoNamingArguments: Sendable {
         var result = ["model_provider=\(modelProvider)"]
         if let model { result.append("model=\(model)") }
         guard !usesTemporaryConfig else { return result }
+        let providerPrefix = "model_providers.\(providerName)"
         result.append(contentsOf: providerEntries
-            .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
-            .filter { !isCredentialBearingKey($0.key) }
+            .filter { $0.section == providerPrefix || $0.section.hasPrefix(providerPrefix + ".") }
+            .filter { !isCredentialBearingKey(section: $0.section, key: $0.key) }
             .map {
-                let prefix = "model_providers.\(providerName)"
+                let prefix = providerPrefix
                 let nestedPath = String($0.section.dropFirst(prefix.count))
                     .trimmingCharacters(in: CharacterSet(charactersIn: "."))
                 let keyPath = nestedPath.isEmpty ? $0.key : "\(nestedPath).\($0.key)"
@@ -288,8 +328,66 @@ struct CodexAutoNamingArguments: Sendable {
         return result
     }
 
-    private static func isCredentialBearingKey(_ key: String) -> Bool {
-        let normalized = key.lowercased().replacingOccurrences(of: "-", with: "_")
+    private static func isCredentialBearingKey(section: String, key: String) -> Bool {
+        func normalizeComponent(_ raw: String) -> String {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let unquoted = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            var decoded = ""
+            var index = unquoted.startIndex
+            while index < unquoted.endIndex {
+                guard unquoted[index] == "\\" else {
+                    decoded.append(unquoted[index])
+                    index = unquoted.index(after: index)
+                    continue
+                }
+                let escapeStart = index
+                index = unquoted.index(after: index)
+                guard index < unquoted.endIndex else {
+                    decoded.append("\\")
+                    break
+                }
+                let escape = unquoted[index]
+                index = unquoted.index(after: index)
+                switch escape {
+                case "u", "U":
+                    let length = escape == "u" ? 4 : 8
+                    guard unquoted.distance(from: index, to: unquoted.endIndex) >= length else {
+                        decoded.append(contentsOf: unquoted[escapeStart..<index])
+                        continue
+                    }
+                    let end = unquoted.index(index, offsetBy: length)
+                    let hex = String(unquoted[index..<end])
+                    if let scalarValue = UInt32(hex, radix: 16),
+                       let scalar = UnicodeScalar(scalarValue) {
+                        decoded.unicodeScalars.append(scalar)
+                        index = end
+                    } else {
+                        decoded.append(contentsOf: unquoted[escapeStart..<index])
+                    }
+                case "b": decoded.append("\u{8}")
+                case "t": decoded.append("\t")
+                case "n": decoded.append("\n")
+                case "f": decoded.append("\u{c}")
+                case "r": decoded.append("\r")
+                case "\\": decoded.append("\\")
+                case "\"": decoded.append("\"")
+                default: decoded.append(contentsOf: unquoted[escapeStart..<index])
+                }
+            }
+            return decoded.lowercased().replacingOccurrences(of: "-", with: "_")
+        }
+        let sectionComponents = section.split(separator: ".").map { normalizeComponent(String($0)) }
+        if sectionComponents.contains(where: { $0 == "headers" || $0 == "http_headers" || $0 == "env_http_headers" }) {
+            return true
+        }
+        let keyComponents = key.split(separator: ".").map { normalizeComponent(String($0)) }
+        let normalized = keyComponents.joined(separator: ".")
+        if let firstKeyComponent = keyComponents.first,
+           firstKeyComponent == "headers"
+            || firstKeyComponent == "http_headers"
+            || firstKeyComponent == "env_http_headers" {
+            return true
+        }
         return normalized.contains("token")
             || normalized.contains("secret")
             || normalized.contains("password")

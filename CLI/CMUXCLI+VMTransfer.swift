@@ -595,6 +595,7 @@ extension CMUXCLI {
             cliWriteStderr("watching \(localPath) (\(last.count) files) — every change is pushed to \(vmID):\(remotePath); Ctrl-C stops\n")
         }
         var syncs = 0
+        var retryDelaySeconds = 1.0
         let clock = DateFormatter()
         clock.dateFormat = "HH:mm:ss"
         while true {
@@ -611,17 +612,42 @@ extension CMUXCLI {
             }
             // A transient edit may disappear while settling.
             guard current != last else { continue }
-            let outcome = try performVMPush(
-                vmID: vmID,
-                localURL: localURL,
-                localPath: localPath,
-                isDirectory: isDirectory,
-                remotePath: remotePath,
-                excludes: excludes,
-                client: client
-            )
+            let outcome: VMPushOutcome
+            do {
+                outcome = try performVMPush(
+                    vmID: vmID,
+                    localURL: localURL,
+                    localPath: localPath,
+                    isDirectory: isDirectory,
+                    remotePath: remotePath,
+                    excludes: excludes,
+                    client: client
+                )
+            } catch let error as VMSCPGrantTransportFailure {
+                // A dropped grant request is recoverable while watching: keep
+                // the settled local snapshot pending and retry without making
+                // the user edit the file again. Other failures remain fatal so
+                // host-key, policy, and malformed-response errors stay visible.
+                let delay = retryDelaySeconds
+                let errorDescription = String(describing: error)
+                if jsonOutput {
+                    print(jsonString([
+                        "event": "retrying",
+                        "error": errorDescription,
+                        "files": current.count,
+                        "delay_seconds": delay,
+                    ], prettyPrinted: false))
+                    fflush(stdout)
+                } else {
+                    cliWriteStderr("Cloud transfer failed (\(errorDescription)); retrying in \(String(format: "%.1f", delay))s.\n")
+                }
+                Thread.sleep(forTimeInterval: delay)
+                retryDelaySeconds = min(delay * 2, 10.0)
+                continue
+            }
             last = current
             syncs += 1
+            retryDelaySeconds = 1.0
             if jsonOutput {
                 var payload = outcome.jsonPayload
                 payload["event"] = "synced"
@@ -1398,6 +1424,7 @@ extension CMUXCLI {
 
     private static let vmRunCreateIdempotencyTTLSeconds: TimeInterval = 30 * 60
 
+    /// Provisions a pool VM and retains its idempotency key across ambiguous replies.
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
         let idempotency = try activeVMRunCreateIdempotency(memoryMb: memoryMb)
         var params: [String: Any] = [
@@ -1432,7 +1459,14 @@ extension CMUXCLI {
             throw error
         }
         guard let id = response["id"] as? String, !id.isEmpty else {
-            throw CLIError(message: "vm run: create returned no machine id")
+            // The provider may have created the machine despite the missing id.
+            // Keep the key reusable even while this process is still alive.
+            markVMRunCreateIdempotencyUncertain(idempotency)
+            let message = CMUXDiffViewerLocalization.string(
+                "cli.vm.run.createMissingMachineID",
+                defaultValue: "vm run: create returned no machine id"
+            )
+            throw CLIError(message: message)
         }
         // Membership is recorded before anything else can fail: this is what
         // makes the machine eligible for reuse by later runs.
