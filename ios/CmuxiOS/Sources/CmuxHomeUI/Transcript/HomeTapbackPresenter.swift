@@ -12,7 +12,7 @@ import UIKit
 /// reaches the core (no local state).
 @MainActor
 final class HomeTapbackPresenter {
-    var onChoose: (HomeTapbackTarget, Reaction.Tapback) -> Void = { _, _ in }
+    var onChoose: (HomeReactionTarget, Reaction.Tapback) -> Void = { _, _ in }
 
     private weak var container: UIView?
     private weak var rowHost: HomeRowHostView?
@@ -31,7 +31,7 @@ final class HomeTapbackPresenter {
 
     var isShown: Bool { picker != nil }
 
-    func show(_ target: HomeTapbackTarget) {
+    func show(_ target: HomeReactionTarget) {
         dismiss(animated: false)
         guard let container, let hit = bubble(for: target) else { return }
         let scrim = UIControl(frame: container.bounds)
@@ -83,7 +83,7 @@ final class HomeTapbackPresenter {
     }
 
     /// The target's bubble on screen now (row host points), if visible.
-    private func bubble(for target: HomeTapbackTarget) -> HomeHit? {
+    private func bubble(for target: HomeReactionTarget) -> HomeHit? {
         guard let controller, controller.size.width > 0 else { return nil }
         return controller.hits(in: CGRect(origin: .zero, size: controller.size)).first {
             $0.item == target.item && $0.partIndex == target.partIndex

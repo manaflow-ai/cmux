@@ -107,9 +107,11 @@ final class ConversationViewController: UIViewController {
         self.view.addSubview(view)
         transcript = view
         view.scroll.rowHost.failureActions = { [weak self] key in self?.failureActions(for: key) ?? [] }
-        view.scroll.rowHost.tapbackTarget = { [weak self] hit in self?.tapbackTarget(item: hit.item, partIndex: hit.partIndex) }
-        view.scroll.rowHost.canReact = { [weak self] key in self?.canReact(key) ?? false }
-        view.tapbacks.onChoose = { [weak self] target, tapback in self?.react(target, tapback) }
+        view.scroll.rowHost.isOnline = { [weak self] in self?.store.isOnline ?? false }
+        // The core emits addReaction through onIntent; the binding performs
+        // it with the intent's idempotency key. The badge appears when the
+        // owner's update reaches the transcript (store -> binding -> core).
+        view.tapbacks.onChoose = { [weak view] target, tapback in _ = view?.controller.react(tapback, to: target) }
         view.onRowsChange = { [weak self] in self?.revealFocus() }
         view.scroll.panGestureRecognizer.addTarget(self, action: #selector(userScrolled))
         // Sends, refusals (the draft comes back through `onRestoreDraft`),
@@ -166,41 +168,6 @@ final class ConversationViewController: UIViewController {
         ]
     }
 
-    // MARK: Tapbacks
-
-    private func tapbackTarget(item key: IdempotencyKey, partIndex: Int) -> HomeTapbackTarget? {
-        guard let me = store.me?.id,
-              let item = store.transcript(for: conversation).first(where: { $0.key == key }) else { return nil }
-        return HomeTapbackTarget(item: item, partIndex: partIndex, conversation: conversation, me: me, isOnline: store.isOnline)
-    }
-
-    private func canReact(_ key: IdempotencyKey) -> Bool {
-        guard store.isOnline, let item = store.transcript(for: conversation).first(where: { $0.key == key }) else { return false }
-        return HomeTapbackTarget.accepts(item)
-    }
-
-    /// Sends the reaction with a fresh idempotency key. The badge appears when
-    /// the owner's update reaches the transcript (store -> binding -> core).
-    /// A refusal shows an alert; an offline refusal is covered by the banner.
-    private func react(_ target: HomeTapbackTarget, _ tapback: Reaction.Tapback) {
-        guard let op = target.op(tapback) else { return }
-        let store = self.store
-        Task { [weak self] in
-            do {
-                try await store.perform(op)
-            } catch let rejection as HomeRejection {
-                if rejection != .ownerUnreachable { self?.showReactionFailure(rejection) }
-            } catch {}
-        }
-    }
-
-    private func showReactionFailure(_ rejection: HomeRejection) {
-        let alert = UIAlertController(title: HomeText.tapbackFailedTitle, message: HomeText.explanation(for: rejection),
-                                      preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: HomeText.ok, style: .default))
-        present(alert, animated: true)
-    }
-
     // MARK: Rendering
 
     /// Reads the title row, the connection and the transcript version, so a
@@ -249,19 +216,22 @@ final class ConversationViewController: UIViewController {
         guard let transcript else { return }
         let controller = transcript.controller
         let hits = controller.hits(in: CGRect(origin: .zero, size: controller.size)).filter { !$0.isMine }
-        guard var target = hits.reversed().lazy.compactMap({ self.tapbackTarget(item: $0.item, partIndex: $0.partIndex) }).first
-        else { return }
-        if let choose {
-            react(target, choose)
-            let id = conversation
-            let key = target.item
-            await HomeGallery.waitUntil(store) { store in
-                _ = store.transcriptVersion[id]
-                return store.transcript(for: id).first { $0.key == key }?.reactions.contains { $0.kind == .tapback(choose) } ?? false
-            }
-            await rendered()
-            target = tapbackTarget(item: target.item, partIndex: target.partIndex) ?? target
+        guard let hit = hits.reversed().first(where: { controller.reactionTarget(for: $0, isOnline: store.isOnline) != nil }),
+              let first = controller.reactionTarget(for: hit, isOnline: store.isOnline) else { return }
+        guard let choose else { return transcript.tapbacks.show(first) }
+        controller.react(choose, to: first)
+        let id = conversation
+        let key = first.item
+        await HomeGallery.waitUntil(store) { store in
+            _ = store.transcriptVersion[id]
+            return store.transcript(for: id).first { $0.key == key }?.reactions.contains { $0.kind == .tapback(choose) } ?? false
         }
+        await rendered()
+        // The store has the reaction; build the target from it so the choice
+        // shows selected even before the core's next update.
+        guard let item = store.transcript(for: id).first(where: { $0.key == key }),
+              let target = HomeReactionTarget(item: item, partIndex: first.partIndex, conversation: id, me: controller.me,
+                                              isOnline: store.isOnline) else { return }
         transcript.tapbacks.show(target)
     }
     #endif

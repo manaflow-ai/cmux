@@ -74,7 +74,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxHomeUITests",
-            dependencies: ["CmuxHomeUI", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+            dependencies: [
+                "CmuxHomeUI",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(

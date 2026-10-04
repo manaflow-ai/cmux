@@ -1,58 +1,59 @@
 import CmuxHomeCore
+import CmuxHomeRender
 import Foundation
 import Testing
+import UIKit
 @testable import CmuxHomeUI
 
-/// When the tapback picker may open, and the op a choice sends.
+/// The iOS tapback picker over the shared reaction model: one button per
+/// tapback in the shared order, with the shared names, my tapbacks selected,
+/// and no target (so no picker) for a message without the owner's id. The
+/// target rules themselves are tested in CmuxHomeRender (ReactionTargetTests).
+@MainActor
 @Suite struct HomeTapbackTests {
     let me = ParticipantID("user_me")
     let leo = ParticipantID("user_leo")
     let conversation = ConversationID("conv_group")
+    let style = HomeReactionStyle()
 
-    func item(messageID: MessageID? = MessageID("msg_7"), delivery: TranscriptItem.Delivery = .committed,
-              retracted: Bool = false, reactions: [Reaction] = []) -> TranscriptItem {
-        TranscriptItem(key: IdempotencyKey("key_7"), seq: 7, author: leo, parts: [.text("Ship it."), .text("Now.")],
-                       createdAt: Date(timeIntervalSince1970: 1_800_000_000), delivery: delivery,
-                       reactions: reactions, isRetracted: retracted, messageID: messageID)
+    func item(messageID: MessageID? = MessageID("msg_7"), reactions: [Reaction] = []) -> TranscriptItem {
+        TranscriptItem(key: IdempotencyKey("key_7"), seq: 7, author: leo, parts: [.text("Ship it.")],
+                       createdAt: Date(timeIntervalSince1970: 1_800_000_000), delivery: .committed,
+                       reactions: reactions, isRetracted: false, messageID: messageID)
     }
 
-    func target(_ item: TranscriptItem, part: Int = 0, online: Bool = true) -> HomeTapbackTarget? {
-        HomeTapbackTarget(item: item, partIndex: part, conversation: conversation, me: me, isOnline: online)
+    func target(_ item: TranscriptItem) -> HomeReactionTarget? {
+        HomeReactionTarget(item: item, partIndex: 0, conversation: conversation, me: me, isOnline: true)
     }
 
-    @Test func committedMessageWithAnIdBuildsTheAddReactionOp() throws {
-        let target = try #require(target(item(), part: 1))
-        #expect(target.op(.love) == .addReaction(message: MessageID("msg_7"), conversation: conversation,
-                                                 reaction: .tapback(.love), partIndex: 1))
-        #expect(target.op(.love)?.stream == .conversation(conversation))
+    @Test func buttonsFollowTheSharedOrderAndNames() throws {
+        let picker = HomeTapbackPicker(target: try #require(target(item())))
+        #expect(picker.buttons.map(\.accessibilityLabel) == style.tapbacks.map { style.accessibilityName($0) })
+        #expect(picker.accessibilityLabel == style.pickerLabel)
+        #expect(picker.intrinsicContentSize.width
+            == CGFloat(style.tapbacks.count) * HomeTapbackPicker.buttonSize + 2 * HomeTapbackPicker.padding)
     }
 
-    @Test func noPickerWithoutAMessageId() {
-        #expect(target(item(messageID: nil)) == nil)
-        #expect(!HomeTapbackTarget.accepts(item(messageID: nil)))
-    }
-
-    @Test func noPickerForPendingRefusedOrRetractedMessages() {
-        #expect(target(item(delivery: .sending)) == nil)
-        #expect(target(item(delivery: .notDelivered(.notAuthorized))) == nil)
-        #expect(target(item(retracted: true)) == nil)
-    }
-
-    @Test func noPickerOfflineOrForAMissingPart() {
-        #expect(target(item(), online: false) == nil)
-        #expect(target(item(), part: 2) == nil)
-    }
-
-    @Test func myTapbackOnThisPartIsChosenAndSendsNothing() throws {
+    @Test func myTapbackIsSelected() throws {
         let reactions = [
             Reaction(author: me, partIndex: 0, kind: .tapback(.like)),
-            Reaction(author: me, partIndex: 1, kind: .tapback(.laugh)),
             Reaction(author: leo, partIndex: 0, kind: .tapback(.love)),
-            Reaction(author: me, partIndex: 0, kind: .emoji("🎉")),
         ]
-        let target = try #require(target(item(reactions: reactions)))
-        #expect(target.chosen == [.like])
-        #expect(target.op(.like) == nil)
-        #expect(target.op(.love) != nil)
+        let picker = HomeTapbackPicker(target: try #require(target(item(reactions: reactions))))
+        let selected = zip(style.tapbacks, picker.buttons).filter { $0.1.accessibilityTraits.contains(.selected) }.map(\.0)
+        #expect(selected == [.like])
+    }
+
+    @Test func aChoiceReachesOnChoose() throws {
+        let picker = HomeTapbackPicker(target: try #require(target(item())))
+        var chosen: [Reaction.Tapback] = []
+        picker.onChoose = { chosen.append($0) }
+        let index = try #require(style.tapbacks.firstIndex(of: .laugh))
+        picker.buttons[index].sendActions(for: .primaryActionTriggered)
+        #expect(chosen == [.laugh])
+    }
+
+    @Test func noTargetWithoutAMessageId() {
+        #expect(target(item(messageID: nil)) == nil)
     }
 }
