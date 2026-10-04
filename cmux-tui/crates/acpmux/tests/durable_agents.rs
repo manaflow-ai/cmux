@@ -603,5 +603,8 @@ async fn a_reattached_host_restarts_the_idle_period() {
     tokio::time::sleep(past_first_deadline).await;
     assert!(alive(harness_pid), "the reaper ended the agent at its pre-reattach deadline");
     // The reaper still ends it once the new idle period passes.
-    assert!(gone_within(harness_pid, Duration::from_secs(20)), "the reattached agent was never reaped");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(20)),
+        "the reattached agent was never reaped"
+    );
 }
