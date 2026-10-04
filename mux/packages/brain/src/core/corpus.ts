@@ -2,6 +2,8 @@ import { ArrayMemoryStore, decompose, key, type Range, toLines, wake, wakeCover,
 import { Core, type Effect, type Input } from "./core.ts";
 import type { HostStateData } from "./state.ts";
 import { plain } from "./text.ts";
+import { AGENT_MUX, USER_LOCAL } from "./conversation.ts";
+import { CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME } from "./rules.ts";
 
 export { plain };
 
@@ -47,6 +49,12 @@ export interface MemoryCase {
 export interface Corpus {
   format: string;
   notes?: string[];
+  /**
+   * The wire constants both hosts use (rules.ts / rules.rs): the default
+   * conversation's create key, title and Chief name (the app's Home Chief
+   * conversation, decision c), the session name and the participant ids.
+   */
+  rules?: Record<string, string>;
   cases: CorpusCase[];
   memory: MemoryCase[];
 }
@@ -140,6 +148,7 @@ export async function runMemoryCase(c: MemoryCase): Promise<string | undefined> 
 export async function runCorpus(corpus: Corpus): Promise<string[]> {
   if (corpus.format !== CORPUS_FORMAT) return [`format ${corpus.format} is not ${CORPUS_FORMAT}`];
   const failures: string[] = [];
+  if (!jsonEqual(corpus.rules, corpusRules())) failures.push(`rules differ: want ${JSON.stringify(corpus.rules)} got ${JSON.stringify(corpusRules())}`);
   for (const c of corpus.cases) {
     const failure = runCase(c);
     if (failure) failures.push(failure);
@@ -149,4 +158,16 @@ export async function runCorpus(corpus: Corpus): Promise<string[]> {
     if (failure) failures.push(failure);
   }
   return failures;
+}
+
+/** The wire constants the corpus pins (`rules`), from rules.ts. */
+export function corpusRules(): Record<string, string> {
+  return {
+    agent_mux: AGENT_MUX,
+    chief_conversation_title: CHIEF_CONVERSATION_TITLE,
+    chief_display_name: CHIEF_DISPLAY_NAME,
+    default_conversation_key: DEFAULT_CONVERSATION_KEY,
+    mux_session_name: MUX_SESSION_NAME,
+    user_local: USER_LOCAL,
+  };
 }

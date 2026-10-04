@@ -1070,6 +1070,45 @@ function promptRetryCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("prompts: a retry timer that fires after acpmux accepted the prompt, or while its turn runs, sends nothing; a refusal of a running prompt is ignored");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
+    c.step(live(m1), ["persist", "prompt"]);
+    c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true, error: "busy" } as Input, ["conversation_op", "arm_timer"]);
+    // The resend from the next connect (or a duplicate) was accepted; its turn runs.
+    c.step(mux(ev(1, "user_message", { promptId: m1.id })), []);
+    c.step({ kind: "timer", key: `prompt:${m1.id}` }, [], undefined, 1_000);
+    c.step(mux(ev(2, "turn_started")), ["typing"]);
+    // Late refusals of the running prompt: no retry, no failure post (11 of them).
+    for (let i = 0; i < 11; i++) c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true, error: "" } as Input, []);
+    c.step({ kind: "timer", key: `prompt:${m1.id}` }, []);
+    c.step(mux(chunk(3, "real answer")), []);
+    c.step(mux(ev(4, "turn_end")), ["persist", "conversation_op", "typing"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "real answer", "the real reply posts");
+    });
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("prompts: an empty refusal text reads as refused");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
+    c.step(live(m1), ["persist", "prompt"]);
+    const refused = { kind: "prompt_settled", prompt_id: m1.id, rejected: true, error: "" } as Input;
+    c.step(refused, ["conversation_op", "arm_timer"]);
+    for (let retry = 1; retry <= 10; retry++) {
+      c.step({ kind: "timer", key: `prompt:${m1.id}` }, ["prompt"], undefined, 30_000);
+      if (retry < 10) c.step(refused, ["arm_timer"]);
+    }
+    c.step(refused, ["persist", "conversation_op"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "(turn failed: refused)", "empty text is refused");
+    });
+    cases.push(c.end());
+  }
+
+  {
     // An agent start failure is a recorded failed turn (turn_error); the resend's answer is that
     // failure. The turn's end is final: the failure posts once and nothing retries.
     const c = new CaseBuilder("prompts: a recorded failed turn is final; a refused answer after it does not retry");
