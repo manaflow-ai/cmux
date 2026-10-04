@@ -26,6 +26,9 @@ final class CloudMachineSession {
     @ObservationIgnored private var appTicket: UInt64?
     /// An app-link connect hop is queued or running.
     @ObservationIgnored private var appConnecting = false
+    /// Counts suspends: a connect that a pause overtook opens no connection
+    /// (not `isLive`: a click connects a paused machine on purpose).
+    @ObservationIgnored private var suspends = 0
     @ObservationIgnored private var linkTransition: Task<Void, Never>?
     @ObservationIgnored private var disconnected = false
     /// Repairs an empty workspace on this machine (never on another).
@@ -84,6 +87,7 @@ final class CloudMachineSession {
         appTicket = nil
         daemon.shutdownConnection()
         linkEnded = nil
+        let suspendsBefore = suspends
         let ticket: CloudLinkTicket
         do {
             ticket = try await appLink.connect(origin: origin)
@@ -92,7 +96,7 @@ final class CloudMachineSession {
             showEnded(error)
             return
         }
-        guard !disconnected else { return }
+        guard !disconnected, suspends == suspendsBefore else { return }
         appTicket = ticket.id
         daemon.start(remote: { [weak self] in
             do {
@@ -152,6 +156,7 @@ final class CloudMachineSession {
     /// Drops the daemon connection while keeping the link reusable after a
     /// provider pause/resume transition.
     func suspend() {
+        suspends += 1
         appTicket = nil
         daemon.shutdownConnection()
         let previous = linkTransition
