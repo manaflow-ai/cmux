@@ -8,7 +8,8 @@ conversations of a paired Mac mini over lane 12's `cmux link` overlay; the serve
 `skills/cmux-socket-policy/references/remote-relay-authorization.md` requires before code.
 Decided: D-A, the remote approval minimum with no waiver (section 6); D-B, a distinct
 `remote_<install>` participant added at pairing (section 5); D-C, a paired device is the same
-person; D-D, offline revocation limits 24 h / 72 h; D-E, the daemon-side PreToolUse hook.
+person; D-D, offline revocation limits 24 h / 72 h; D-E, the daemon decides every tool call (the PreToolUse fast-allow hook was dropped after the
+probes, rev 10).
 
 ## 1. Threat model
 
@@ -160,8 +161,9 @@ crashed, slow or unsure, the tool does not run.
    `--setting-sources ""`, `--settings` and `--mcp-config` passed as **inline JSON** (never as
    files a same-uid tool could rewrite), and `--strict-mcp-config`. The settings carry only:
    bypass disabled per session (`permissions.disableBypassPermissionsMode: "disable"`,
-   `permissions.defaultMode: "default"`), the daemon's fast-allow PreToolUse hook and the cmux-tui
-   status hooks; they set no `enabledPlugins` and no MCP-enable keys. The MCP config names only the
+   `permissions.defaultMode: "default"`, `permissions.ask: ["*"]`) and the cmux-tui status hooks.
+   There is no fast-allow hook (probe, Claude Code 2.1.289: `ask` beats a hook allow, so such a hook
+   is dead code); the daemon auto-answers reads through the permission step. They set no `enabledPlugins` and no MCP-enable keys. The MCP config names only the
    daemon's servers. **Every tool goes through the daemon (P1-M, D-K decided):** the daemon auto-answers reads inside
    the read root with no human round trip, denies the deny paths, and asks the human (with a
    presence proof) only for side effects. In
@@ -218,8 +220,10 @@ crashed, slow or unsure, the tool does not run.
    - the built-in general subagent cannot call `Skill`, cannot read the deny paths, and sends its
      permission requests to the daemon; `--setting-sources ""` hides user and project agent types.
    - no user or project `CLAUDE.md` loads (its `@` imports would pull files with no tool call).
-   - at spawn the daemon reads the `tools` list from Claude's `system/init` and refuses the chain if
-     any tool is not in its classified table (P2-R: this catches version drift and tools such as
+   - a **closed `--tools` list** per pinned Claude version, with `permissions.ask: ["*"]`; new tools
+     are not offered until vetted (Claude Code 2.1.289 has no Glob, Grep, TodoWrite or Task tool).
+     As a backstop, at spawn the daemon reads the `tools` list from Claude's `system/init` and
+     refuses the chain if any tool is not in its classified table (P2-R: this catches version drift and tools such as
      `ListMcpResources` and `ReadMcpResource`). Every MCP call (cmux screen reads, terminal and
      workspace state included) asks the human, except a reviewed list of read tools.
    - the Claude ACP adapter is pinned with Claude; its handling of embedded resources, slash
@@ -228,13 +232,13 @@ crashed, slow or unsure, the tool does not run.
      and custom subagent types are denied by the daemon (only built-in tools and the built-in
      general subagent with no `permissionMode`), **and** the probe runs; at spawn, managed settings
      that add allow rules, hooks or MCP servers refuse the remote chain unless they are named on a
-     reviewed list.
+     reviewed list. This check is **mandatory**: the probe showed managed settings still load and
+     managed hooks still run under `--setting-sources ""`.
 6. **The decision is the daemon's (P1-H).** For a remote or unknown prompt, acpmux sends every
    `session/request_permission` to the daemon and **ignores** the session policy and rules
    (`MUX_POLICY`, which defaults to approve-all in the mux host, `--policy`, `acpmux session
    rules`, `/policy`, `/mode`). `--policy` is ignored on spawns in a remote chain, and policy or
-   rules changes are refused while a remote chain runs. The PreToolUse hook is only a fast allow
-   for reads inside the read root; it never allows anything else.
+   rules changes are refused while a remote chain runs.
 7. **Allow once only (acpmux design 4).** In remote turns acpmux offers only `allow_once`. No daemon
    answer, a broken socket, or 10 minutes without an approval: deny, and the chain is cancelled.
    After a daemon or acpmux restart, pending remote approvals are denied and the chain is
@@ -251,22 +255,16 @@ crashed, slow or unsure, the tool does not run.
    message is remote. The mark covers the prompt, its tool calls, its child sessions and its
    `[mux-event]` follow-ups; a later local message starts a new chain and never clears a running
    one.
-10. **Remote text is data (P2-E, P2-M).** Remote text is never prompt text: the agent host sends
-    it as an ACP **embedded resource** block (`mimeType text/plain`, an origin-tagged URI), next to
-    a fixed instruction text written by the agent host. So `/cmd`, `!x`, `@path` anywhere in it, a
-    fake `[mux-event]` line or a fake "Message from user_local:" line stay data. If the pinned
-    version does not keep an embedded resource out of prompt parsing, the fallback is a random
-    per-prompt nonce delimiter, and remote text that contains the nonce is refused.
-    The resource `uri` is built from ids only (conversation, message, install), never names.
-    Code fact (P2-M): acpmux's `claude_stdio/outbound.rs` `resource_text` turns every ACP resource
-    block into plain text `<resource uri="...">\n{text}\n</resource>` with no escaping, so remote
-    text could close it. Rule: for remote text acpmux uses a random per-prompt delimiter instead of
-    the `<resource>` tags, and refuses remote text that contains the delimiter; until then it escapes
-    `</resource` (any case or spacing) in the text. The adapter version is pinned with Claude, and a
-    probe checks that a later stream-json text block that starts with `/` or contains `@path` is not
-    parsed as a command or an import.
+10. **Remote text is data (P2-E, P2-M; probe results).** Remote text never goes as prompt text and
+    never as an ACP embedded resource (acpmux's `claude_stdio` inlines resources as text, and `@path`
+    in text is read with no tool call). It goes as a Claude **`document` content block** with a text
+    source, next to a fixed instruction text written by the agent host. The fixed prefix stays (a
+    bare `/clear` as text runs as a command). The document title is built from ids only
+    (conversation, message, install), never names. A probe on the pinned version shows that `/cmd`,
+    `!x`, `@path`, a fake `[mux-event]` line and a fake "Message from user_local:" line inside a
+    document block stay data; if a later version breaks this, the chain is refused until vetted.
 11. **Hooks (D-H).** Only the injected hooks run (rule 4): the cmux-tui status hooks (journal events,
-    no command built from the text) and the daemon's fast-allow hook. No hook gets remote text as
+    no command built from the text) and the remote-log hooks (rule 4). No hook gets remote text as
     shell input. The mux host's memory hooks do not write `LOG.txt` or `TREE/` for a remote chain:
     the message and the reply go to a separate **origin-tagged remote log** (by file, no shell),
     which the memory view marks as remote and later local turns treat as untrusted. Moving any of
@@ -293,8 +291,9 @@ crashed, slow or unsure, the tool does not run.
     - `allow_always` is refused;
     - `updatedInput` is stripped, except the schema-checked answer field of interactive tools
       (`AskUserQuestion`); an `updatedInput` that differs from the shown input is refused.
-12b. **Remote taint (P1-b).** A session started for a remote chain is **remote-tainted for its
-    whole life**: every prompt into it, or into any fork, handoff, transfer or adopt of it, is
+12b. **Remote taint (P1-b, decided: permanent).** A session started for a remote chain is
+    **remote-tainted for its whole life**, and the taint is stored durably (acpmux session metadata
+    and the daemon store) and survives restarts; an agent-host adopt keeps it: every prompt into it, or into any fork, handoff, transfer or adopt of it, is
     remote, whatever its origin field says. acpmux refuses a fork or handoff of a tainted session
     into a local one (the copy of policy, argv, modes and transcript in `hub/turns.rs` `fork()`
     would make a local approve-all session with a remote transcript). "Absent `_meta.origin` means
@@ -314,14 +313,15 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - remote text that contains a fake closing delimiter, a fake `[mux-event]` line, or `@/etc/hosts`
   in mid-text stays data.
 - `_meta.origin` set on any path other than the daemon-only socket is stripped.
-- with the PreToolUse hook MISSING: a Read of `state/x` and of a `*.token` file is denied, `Skill` is
-  denied, and a Read inside the read root still reaches the daemon.
+- deny paths hold: a Read of `state/x` and of a `*.token` file is denied, `Skill` is denied, and a
+  Read inside the read root still reaches the daemon.
 - revoke, re-pair, and the next chain starts fresh (no earlier remote-chain session is resumed).
 - the spawn argv contains no value from the secrets list.
 - an answer from a WebSocket, peer or CLI client for a tainted session is refused; `allow_always`
   is refused; an `updatedInput` that differs from the shown input is refused; an answer without
   the daemon approval id is refused.
-- a fork of a remote-chain session, prompted locally, still asks the daemon; a handoff of a tainted
+- a fork of a remote-chain session, prompted locally, is refused or still asks the daemon; an
+  agent-host adopt keeps the taint across a daemon restart; a handoff of a tainted
   session into a local one is refused; a local session without `_meta.origin` keeps local origin.
 - a read of a raw conversation file asks; the read root holds only projections (no `work.preview`,
   no `acp_session`, no other cursors, no non-owned conversation).
@@ -331,7 +331,12 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
   inline settings; this one covers hook commands).
 - the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
   message with a fake delimiter in it stays inside its block.
-- remote text `</resource>` followed by a fake `[mux-event]` line stays inside the block.
+- remote text in a `document` block with `</resource>`, a fake `[mux-event]` line, `@/etc/hosts`
+  or `/clear` stays data; a bare `/clear` without the prefix would run (so the prefix stays).
+- only the closed `--tools` list is offered; an extra tool in `system/init` refuses the chain.
+- managed settings with hooks, allow rules or MCP servers refuse the chain at spawn.
+- the subrouter route comes from the process environment (`--setting-sources ""` drops the
+  settings env).
 - path tricks are denied: a symlink in the read root to `state/x`, `.ENV` in upper case,
   `/private/var/...` against `/var/...`, `a/../state/x`; a Grep at the read root returns no
   `state/` content.
@@ -344,7 +349,6 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - the remote-chain process starts in the narrow working folder; Read deny rules also stop Grep
   and Glob on the deny paths.
 - bypass refused from `--settings` (gate, rule 5); `--dangerously-skip-permissions` refused.
-- a missing, crashing or slow PreToolUse hook ends in the daemon's decision.
 - a user `Bash(*)` allow rule does not skip the daemon; `MUX_POLICY=approve-all`, `--policy`,
   `acpmux session rules`, `/policy` and `/mode` do not change a remote decision; rules changes
   during a remote chain are refused.
@@ -437,7 +441,7 @@ Turns and revocation:
 - a prompt with one remote and one local message is fully remote; a local message during a running
   remote chain does not clear its mark; a bypass-mode child of a remote chain still asks.
 - no setting, `CLAUDE.md`, hook config or permission mode lowers the minimum; an unclassified tool
-  asks; the hook's timeout or a daemon error denies.
+  asks; a daemon error or timeout denies.
 - revocation recheck with an injected clock: 24 hours -> new streams refused, 72 hours -> existing
   closed, unreachable cloud before that closes nothing.
 - revocation cancels the turn, its children, its open approvals and its outbox, and closes the
