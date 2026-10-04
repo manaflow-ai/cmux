@@ -4,6 +4,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
+import { runStream, type StreamOptions } from "./streamDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 
@@ -44,6 +45,8 @@ export type AcpmuxDebug = {
   openChanges(): Record<string, unknown>;
   setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
   models(): Record<string, unknown>;
+  /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
+  stream(options?: StreamOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -77,7 +80,9 @@ export function createAcpmuxDebug(
     async seedRows(count = 5000, fixture) {
       acpmuxPerf.enable();
       const rows =
-        fixture === "worked-turn" ? workedTurnRows(Date.now() - 60_000) : syntheticRows(Math.max(3, Math.floor(count)));
+        fixture === "worked-turn"
+          ? workedTurnRows(Date.now() - 60_000)
+          : syntheticRows(Math.max(3, Math.floor(count)));
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
@@ -145,7 +150,11 @@ export function createAcpmuxDebug(
 
     perfStats(options = {}) {
       acpmuxPerf.enable();
-      return { running, ...acpmuxPerf.stats(options.raw === true), agent: acpmuxPerf.agentLatency() };
+      return {
+        running,
+        ...acpmuxPerf.stats(options.raw === true),
+        agent: acpmuxPerf.agentLatency(),
+      };
     },
 
     agentLatency() {
@@ -165,7 +174,8 @@ export function createAcpmuxDebug(
 
     // Not a measurement, so it leaves acpmuxPerf off.
     async openMenu(label) {
-      if (!openPicker(label)) return { error: `no menu labelled ${JSON.stringify(label)}`, menus: pickerLabels() };
+      if (!openPicker(label))
+        return { error: `no menu labelled ${JSON.stringify(label)}`, menus: pickerLabels() };
       await nextFrame();
       await nextFrame();
       const button = [...document.querySelectorAll<HTMLElement>("button[data-menu]")].find(
@@ -188,16 +198,22 @@ export function createAcpmuxDebug(
       return host.automation ? automation.automationState(host.automation) : NO_AUTOMATION;
     },
     async sendPrompt(text) {
-      return host.automation ? automation.sendPrompt(host.automation, String(text ?? "")) : NO_AUTOMATION;
+      return host.automation
+        ? automation.sendPrompt(host.automation, String(text ?? ""))
+        : NO_AUTOMATION;
     },
     async newChat(harness, cwd) {
       return host.automation ? automation.newChat(host.automation, harness, cwd) : NO_AUTOMATION;
     },
     selectSession(sessionId) {
-      return host.automation ? automation.selectSession(host.automation, String(sessionId ?? "")) : NO_AUTOMATION;
+      return host.automation
+        ? automation.selectSession(host.automation, String(sessionId ?? ""))
+        : NO_AUTOMATION;
     },
     async answerPermission(options = {}) {
-      return host.automation ? automation.answerPermission(host.automation, options) : NO_AUTOMATION;
+      return host.automation
+        ? automation.answerPermission(host.automation, options)
+        : NO_AUTOMATION;
     },
     openChanges() {
       return host.automation ? automation.openChanges(host.automation) : NO_AUTOMATION;
@@ -209,6 +225,9 @@ export function createAcpmuxDebug(
     },
     models() {
       return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
+    },
+    stream(options = {}) {
+      return runStream(host.replaceRows, options);
     },
   };
 }
