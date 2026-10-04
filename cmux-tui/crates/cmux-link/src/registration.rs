@@ -48,11 +48,16 @@ pub fn path(state_dir: &Path) -> PathBuf {
 /// temp file in the same directory and a rename, so a reader sees the old
 /// file or the new one, never a partial one.
 pub fn write(state_dir: &Path, registration: &Registration) -> io::Result<()> {
-    // RED stub: written in place with the default mode.
     let text = serde_json::to_vec(registration)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     std::fs::create_dir_all(state_dir)?;
-    std::fs::write(path(state_dir), text)
+    let temporary = state_dir.join(format!(".{FILE_NAME}.{}.tmp", std::process::id()));
+    let result = write_private(&temporary, &text)
+        .and_then(|()| std::fs::rename(&temporary, path(state_dir)));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 /// Remove the file when it still names `pid` (a clean exit of that link).
@@ -72,9 +77,9 @@ pub fn read(state_dir: &Path) -> Option<Registration> {
 /// The registration only while its link is running: the pid is alive and
 /// the socket accepts a connection.
 pub fn read_live(state_dir: &Path) -> Option<Registration> {
-    // RED stub: no liveness check yet.
-    let _ = (process_alive, socket_accepts, write_private);
-    read(state_dir)
+    let registration = read(state_dir)?;
+    (process_alive(registration.pid) && socket_accepts(&registration.socket))
+        .then_some(registration)
 }
 
 #[cfg(unix)]
