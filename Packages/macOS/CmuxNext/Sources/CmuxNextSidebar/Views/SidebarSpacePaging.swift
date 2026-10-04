@@ -112,7 +112,8 @@ import QuartzCore
         list.frame = container.bounds
         list.autoresizingMask = [.width, .height]
         container.addSubview(list)
-        host.addSubview(container, positioned: .above, relativeTo: page)
+        // The list sits in the edge fade view: pages are its siblings there.
+        (page.superview ?? host).addSubview(container, positioned: .above, relativeTo: page)
         list.reload(animated: false)
         neighbor = (index, container, list)
     }
@@ -155,7 +156,7 @@ import QuartzCore
     /// (+1: the trailing edge, a later dot); reduced motion cross-fades.
     func slide(direction: Int) {
         guard let snapshot, direction != 0 else { return finishSlide() }
-        host.addSubview(snapshot, positioned: .above, relativeTo: page)
+        (page.superview ?? host).addSubview(snapshot, positioned: .above, relativeTo: page)
         host.clipsToBounds = true
         page.wantsLayer = true
         CATransaction.begin()
