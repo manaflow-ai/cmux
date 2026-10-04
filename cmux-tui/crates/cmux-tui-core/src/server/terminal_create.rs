@@ -104,8 +104,8 @@ impl PrelaunchRequest {
             self.env,
             self.size,
         )
-            .ok()
-            .flatten()
+        .ok()
+        .flatten()
     }
 }
 
