@@ -381,6 +381,10 @@ extension RemoteTmuxControlConnection {
         case let .rawQuery(token):
             rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
             rawQueryCompletions.removeValue(forKey: token)?(.lines(lines))
+        case let .paneTitleReconciliation(paneId):
+            if updatePaneTitleMetadata(paneId: paneId, wireValue: lines.first ?? "") {
+                observers.emitPaneTitleChanged(paneId)
+            }
         case let .activityQuery(token):
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]

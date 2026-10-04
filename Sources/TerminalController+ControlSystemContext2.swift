@@ -149,6 +149,14 @@ extension TerminalController {
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
             workspace.setPanelCustomTitle(panelId: panelId, title: trimmedTitle)
+            // `controlTabTarget` intentionally maps a projected tmux split back
+            // to its window-container panel for generic tab operations. Preserve
+            // the original surface identity here so a rename reaches its actual
+            // tmux pane rather than being treated as a container/window rename.
+            if resolvesMirroredTab,
+               let remotePane = workspace.remoteTmuxControlPane(surfaceID: surfaceId) {
+                _ = remotePane.requestRename(title: trimmedTitle)
+            }
             return finish(.title(trimmedTitle))
 
         case "clear_name":

@@ -83,6 +83,12 @@ else
   lipo -create -output "$output_binary" "${binaries[@]}"
 fi
 chmod +x "$output_binary"
+# macOS 27 rejects the malformed proc-macro dylibs produced when Rust strips
+# symbols itself. Keep that workaround opt-in: build unstripped, then let
+# Apple's strip produce the final sidecar artifact.
+if [[ "${CMUX_DIFF_SIDECAR_APPLE_STRIP:-0}" == "1" ]]; then
+  /usr/bin/strip -s /dev/null "$output_binary"
+fi
 "${ROOT}/scripts/verify-diff-sidecar-artifact.sh" "$output_binary" --archs "$requested_archs"
 
 if [[ -z "${TARGET_BUILD_DIR:-}" ]]; then
