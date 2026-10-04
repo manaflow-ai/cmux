@@ -89,7 +89,18 @@ pub(super) fn args_for(
         (global.output == OutputMode::Quiet, "--quiet"),
     ];
     if let Some((_, option)) = refused.iter().find(|(set, _)| *set) {
-        return refuse(catalog.server_global_option_refused.replace("{option}", option));
+        let mut error = catalog.server_global_option_refused.replace("{option}", option);
+        // `--session`/`--socket` with an old lifecycle verb (`cmux --session
+        // agents server status`) meant the daemon: say where it moved.
+        if matches!(*option, "--session" | "--socket")
+            && let Some(verb) = rest.first().filter(|verb| {
+                verb.as_str() == "status" || MOVED_LIFECYCLE_VERBS.contains(&verb.as_str())
+            })
+        {
+            error.push_str("; ");
+            error.push_str(&catalog.daemon_lifecycle_moved.replace("{verb}", verb));
+        }
+        return refuse(error);
     }
     if let Some(verb) = rest.first().filter(|verb| MOVED_LIFECYCLE_VERBS.contains(&verb.as_str())) {
         return refuse(catalog.daemon_lifecycle_moved.replace("{verb}", verb));
@@ -104,10 +115,22 @@ pub(super) fn args_for(
     Some(Ok(out))
 }
 
-/// Whether the first word that is not an option is `server` (for a global
-/// option error before the noun is known).
+/// Global options whose value is the next word (`--session NAME`).
+const VALUE_OPTIONS: &[&str] =
+    &["--socket", "--session", "--machine", "--app-socket", "--idempotency-key"];
+
+/// Whether the first word that is neither an option nor an option's value
+/// is `server` (for a global option error before the noun is known).
 fn names_server(args: &[String]) -> bool {
-    args.iter().find(|arg| !arg.starts_with('-')).is_some_and(|word| word == "server")
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if VALUE_OPTIONS.contains(&word.as_str()) {
+            words.next();
+        } else if !word.starts_with('-') {
+            return word == "server";
+        }
+    }
+    false
 }
 
 /// Runs `cmux server …` and returns its exit code. A usage error is
@@ -115,6 +138,9 @@ fn names_server(args: &[String]) -> bool {
 pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<i32> {
     match args_for(args, surface)? {
         Ok(server_args) => {
+            if let Err(code) = end_on_termination_signals() {
+                return Some(code);
+            }
             let guard = std::env::var(cmux_server_core::reexec::GUARD_ENV).ok();
             Some(i32::from(cmux_server::cli::run_code(&server_args, guard, release_version())))
         }
@@ -129,6 +155,24 @@ pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<i32>
             Some(super::wire::print_local_error(&body, output, 2))
         }
     }
+}
+
+/// `main` has set SIGTERM, SIGINT and SIGHUP to only request a mux
+/// shutdown, and `cmux_server` never reads that request. Give them back
+/// their default action so Ctrl-C or a service manager's SIGTERM ends an
+/// install, upgrade or backup. `Err`: the exit code when a signal already
+/// arrived (130) or the reset failed (1).
+pub(super) fn end_on_termination_signals() -> Result<(), i32> {
+    #[cfg(unix)]
+    match crate::restore_default_termination_signals() {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => return Err(130),
+        Err(error) => {
+            eprintln!("cmux: {error}");
+            return Err(1);
+        }
+    }
+    Ok(())
 }
 
 /// This binary's release version, compared with a manifest's

@@ -307,6 +307,46 @@ fn cmux_daemon_and_cmux_tui_server_are_the_lifecycle() {
     assert!(catalog.local_server.help.contains("cmux daemon ensure"));
 }
 
+/// Review P2 (17011): `main` sets SIGTERM, SIGINT and SIGHUP to a handler
+/// that only requests a mux shutdown, which `cmux_server` never reads. The
+/// mount must give them back their default action so a signal ends it.
+#[cfg(unix)]
+#[test]
+fn cmux_server_runs_with_default_termination_signals() {
+    extern "C" fn only_flag(_: libc::c_int) {}
+    let disposition = |signal| unsafe {
+        let mut current = std::mem::zeroed::<libc::sigaction>();
+        assert_eq!(libc::sigaction(signal, std::ptr::null(), &mut current), 0);
+        current.sa_sigaction
+    };
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        unsafe { libc::signal(signal, only_flag as *const () as libc::sighandler_t) };
+        assert_ne!(disposition(signal), libc::SIG_DFL);
+    }
+    assert_eq!(machine_server::end_on_termination_signals(), Ok(()));
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        assert_eq!(disposition(signal), libc::SIG_DFL, "signal {signal}");
+    }
+}
+
+/// Review P3 (17011): an option value is not the noun, and the old
+/// `--session NAME server status` spelling points to `cmux daemon`.
+#[test]
+fn cmux_server_option_values_and_old_lifecycle_routing() {
+    let refused = |line: &[&str]| match machine_server::args_for(&strings(line), Surface::Cmux) {
+        Some(Err((error, _))) => error.0,
+        other => panic!("{line:?}: {other:?}"),
+    };
+    let error = refused(&["--session", "agents", "server", "status"]);
+    assert!(error.contains("--session") && error.contains("cmux daemon status"), "{error}");
+    let error = refused(&["--socket", "/tmp/s.sock", "server", "stop"]);
+    assert!(error.contains("cmux daemon stop"), "{error}");
+    let error = refused(&["--session", "agents", "server", "install"]);
+    assert!(!error.contains("cmux daemon"), "{error}");
+    // `server` here is the value of --session, not the noun.
+    assert!(machine_server::args_for(&strings(&["--session", "server", "--bogus"]), Surface::Cmux).is_none());
+}
+
 #[test]
 fn cmux_server_is_the_machine_server() {
     // Decision D1: on `cmux`, `server …` goes to cmux_server::cli.

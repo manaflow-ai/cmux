@@ -503,7 +503,7 @@ producers each one is a lost event.
 
 Errors: `bad request: ...`.
 
-CLI mapping: `cmux server stats [--session <name>] [--socket <path>]`; plain
+CLI mapping: `cmux daemon stats [--session <name>] [--socket <path>]`; plain
 stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
@@ -3867,7 +3867,7 @@ object{terminal_id:string, idle_close_seconds:uint64|null}
 Marks (`keep:true`) or unmarks one hosted terminal as kept. Closing a tab,
 pane, screen, or workspace detaches a PTY terminal without ending it. Reaping
 is opt-in per daemon: an owner started with `--terminal-reap-grace-seconds <n>`
-(`cmux server ensure --terminal-reap-grace-seconds <n>` passes it to the owner it spawns)
+(`cmux daemon ensure --terminal-reap-grace-seconds <n>` passes it to the owner it spawns)
 ends a terminal that is not kept once it has had no tab placement for `n`
 seconds (0 ends it at once). Without that option no terminal is reaped, so
 clients that rely on detached terminals surviving a close keep working, and
