@@ -945,3 +945,76 @@ fn the_relay_detaches_from_browser_page_targets() {
     let tabs = h.call("tabs.list", json!({}));
     assert!(!tabs.to_string().contains("TPM"), "{tabs}");
 }
+
+fn receive(h: &Harness, event: Value) {
+    h._conn.receive(&event.to_string());
+}
+
+fn wait_until(mut done: impl FnMut() -> bool, what: &str) {
+    for _ in 0..2000 {
+        if done() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    panic!("{what}");
+}
+
+#[test]
+fn a_pending_url_does_not_unlock_a_committed_browser_page() {
+    let h = Harness::new();
+    let target = privileged_tab(&h);
+    // A slow navigation away is still pending: Chromium reports its URL in
+    // targetInfoChanged before anything commits.
+    receive(&h, json!({"method": "Target.targetInfoChanged", "params": {"targetInfo": {
+        "targetId": target, "type": "page", "url": "https://b.test/slow", "title": "Password Manager"}}}));
+    wait_until(
+        || h.call("tabs.list", json!({})).to_string().contains("https://b.test/slow"),
+        "targetInfoChanged was not applied",
+    );
+    for (method, params) in [
+        ("frame.evaluate", json!({"targetId": target, "world": "page", "source": "() => 1", "args": []})),
+        ("cdp", json!({"targetId": target, "method": "Runtime.evaluate", "params": {"expression": "1"}})),
+        ("tab.reload", json!({"targetId": target})),
+    ] {
+        let error = h.driver.call(method, &params).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Forbidden, "{method}");
+    }
+}
+
+#[test]
+fn frames_that_show_browser_pages_are_refused_and_released() {
+    let h = Harness::new();
+    let target = h.open(Some("https://a.test/"));
+    let session = target.replacen('T', "S", 1);
+    // An in-process child frame commits an extension page.
+    receive(&h, session_event(&session, "Page.frameNavigated", json!({"frame": {
+        "id": "XF", "parentId": format!("F-{target}"), "loaderId": "LX", "url": "chrome-extension://abc/menu.html"}, "type": "Navigation"})));
+    wait_until(
+        || h.events.lock().unwrap().iter().any(|e| e.payload.to_string().contains("chrome-extension://abc/menu.html")),
+        "the frame navigation was not applied",
+    );
+    let error = h
+        .driver
+        .call("frame.evaluate", &json!({"targetId": target, "frameId": "XF", "world": "page", "source": "() => 1", "args": []}))
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    // The page itself stays usable.
+    assert_eq!(h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []})), "ok");
+
+    // An out-of-process child frame attached at a web URL, then committed an
+    // extension page: the relay detaches it through its parent session.
+    receive(&h, json!({"sessionId": session, "method": "Target.attachedToTarget", "params": {
+        "sessionId": "CX", "targetInfo": {"targetId": "OOP", "type": "iframe", "url": "https://x.test/"}, "waitingForDebugger": true}}));
+    let mark = h.mark();
+    receive(&h, session_event("CX", "Page.frameNavigated", json!({"frame": {
+        "id": "OOP", "parentId": format!("F-{target}"), "loaderId": "LO", "url": "chrome-extension://abc/menu.html"}, "type": "Navigation"})));
+    wait_until(
+        || h.methods_since(mark).iter().any(|m| m == "Target.detachFromTarget"),
+        "the extension frame was not detached",
+    );
+    let browser = h.wire.browser.lock().unwrap();
+    let detach = browser.sent[mark..].iter().find(|m| m["method"] == "Target.detachFromTarget").unwrap();
+    assert_eq!(detach["params"]["sessionId"], "CX");
+    assert_eq!(detach["sessionId"], json!(session), "a child session is detached through its parent");
+}
