@@ -13,7 +13,7 @@ extension PickerSession {
     func locationItems(_ state: FolderPickerState, rows: PickerPageRows) -> [PaletteItem] {
         guard state.isAtStart else { return [] }
         var items: [PaletteItem] = []
-        if !environment.recents.isEmpty {
+        if !recents.isEmpty {
             var recent = PaletteItem(id: Self.recentLocationID, title: PaletteStrings.sectionRecent, symbol: "clock",
                                      section: Self.locationsSection,
                                      primary: PaletteCommand(id: "enter", title: PickerStrings.openFolder, symbol: "chevron.right",
@@ -54,7 +54,7 @@ extension PickerSession {
     func recentPage(_ origin: FolderPickerState) -> PalettePageSpec {
         let rows = PickerPageRows()
         var items: [PaletteItem] = []
-        for raw in environment.recents {
+        for raw in recents {
             let isFolder = raw.hasSuffix("/")
             let path = isFolder && raw.count > 1 ? String(raw.dropLast()) : raw
             let url = URL(fileURLWithPath: path, isDirectory: isFolder)

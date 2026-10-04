@@ -96,7 +96,15 @@ final class CmuxPicker {
         let filter = options.filter ?? PickerFilter(types: options.types.map(PickerFilter.FileType.init),
                                                     allowsAllFiles: options.allowsAllFiles)
         let mode = PickerMode(kind: .open(options.choose), allowsMultiple: options.allowsMultiple, filter: filter)
-        let session = PickerSession(environment: environment(recents: recents.pickerPaths(options.recents)),
+        var environment = environment(recents: recents.pickerPaths(options.recents))
+        if options.recents.contains(.diff) {
+            // The diff host keeps the repositories it opened (DiffRecents,
+            // `cmux.diff.recents`); the picker reads that one store.
+            let diffRecents = services.diffPages.recents
+            let others = environment.recents
+            environment.loadRecents = { await diffRecents.list().map { $0.path + "/" } + others }
+        }
+        let session = PickerSession(environment: environment,
                                     title: options.title, prompt: options.prompt, onFinish: onFinish)
         return session.page(for: FolderPickerState(mode: mode, start: options.startDirectory ?? home))
     }

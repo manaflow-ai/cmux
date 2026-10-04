@@ -10569,6 +10569,52 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "browser choose-profile",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.profile.choose",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Choose Browser Profile…",
+      "title_key" : "action.browser.profile.choose",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser more-actions",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.overflow.menu",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "More Browser Actions…",
+      "title_key" : "action.browser.overflow.menu",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "browser open-diff-viewer",
       "context_menu" : "noTargetSurface",
@@ -10643,52 +10689,6 @@
       "title" : "Open Markdown File…",
       "title_key" : "action.openMarkdownFile",
       "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "browser choose-profile",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "browser.profile.choose",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Choose Browser Profile…",
-      "title_key" : "action.browser.profile.choose",
-      "title_table" : "BrowserToolbarActions"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "browser more-actions",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "browser.overflow.menu",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "More Browser Actions…",
-      "title_key" : "action.browser.overflow.menu",
-      "title_table" : "BrowserToolbarActions"
     },
     {
       "cli" : "guiOnly",

@@ -41,7 +41,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `screen`: 62
 - `tab`: 80
 - `terminal`: 36
-- `browser`: 116
+- `browser`: 117
 - `sidebar`: 56
 - `notifications`: 19
 - `agents`: 33
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 7
 - `settings`: 64
 
-## Counts (775 actions)
+## Counts (776 actions)
 
-Palette 771, CLI verbs 441, right-click 427, MCP tools 387.
+Palette 772, CLI verbs 444, right-click 427, MCP tools 390.
 
 ## Menus
 

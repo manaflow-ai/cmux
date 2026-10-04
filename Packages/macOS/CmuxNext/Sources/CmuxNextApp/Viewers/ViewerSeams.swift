@@ -2,22 +2,11 @@ import AppKit
 import CmuxNextActions
 
 /// Opens a diff tab for a folder: the seam to the diff host (diff-host.md
-/// S4, `DiffPageService.open(directory:in:window:focus:)`). S4 has not
-/// landed on feat-cmux-next, so ``UnavailableDiffViewer`` refuses; when it
-/// lands, `DiffPageService` conforms and `ViewerService.diffViewer` is set
-/// to it, and the open actions here call it unchanged.
+/// S4), which `DiffPageService` fills (`DiffPageService+Viewers.swift`).
 @MainActor
 protocol DiffViewerOpening: AnyObject {
     /// Throws when nothing opens (no repository there, no diff host).
     func openDiff(directory: String, in pane: PaneController, focus: Bool) async throws
-}
-
-/// Until S4: says why no diff opens.
-@MainActor
-final class UnavailableDiffViewer: DiffViewerOpening {
-    func openDiff(directory: String, in pane: PaneController, focus: Bool) async throws {
-        throw ActionFailure(message: ViewerStrings.noDiffViewer)
-    }
 }
 
 /// Opens a chosen file: the seam to the code editor page (cmux.editor,
