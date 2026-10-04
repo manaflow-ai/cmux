@@ -108,7 +108,7 @@ import Testing
         #expect(settings.fileRoot.value(at: ["ui", "animationSpeed"]) == "fast")
 
         let descriptor = try #require(SettingsSchema.descriptor(for: ["ui", "animationSpeed"]))
-        await #expect(throws: SettingManaged(key: Self.speed, source: .device)) { try await settings.setSetting(descriptor, to: "normal") }
+        await #expect(throws: SettingManaged(key: Self.speed, source: .device)) { try await settings.setSetting(descriptor, to: "normal", by: .user) }
         // The control socket's settings.set writes through the file directly; the same guard refuses it.
         await #expect(throws: SettingManaged.self) { try await settings.file.set("normal", at: ["ui", "animationSpeed"]) }
         await #expect(throws: SettingManaged.self) { try await settings.file.set(.object(["animationSpeed": "normal"]), at: ["ui"]) }
@@ -116,7 +116,7 @@ import Testing
         await #expect(throws: SettingManaged.self) { try await settings.file.apply([(path: ["ui", "animationSpeed"], value: nil)]) }
         // Unmanaged neighbors stay writable.
         try await settings.file.set("auto", at: ["layout", "stripScrollbar"])
-        try await settings.resetAllSettings()
+        try await settings.resetAllSettings(by: .user)
         let after = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
         #expect(after.value(at: ["ui", "animationSpeed"]) == "fast")
         #expect(after.value(at: ["layout", "stripScrollbar"]) == nil)
@@ -130,7 +130,7 @@ import Testing
         #expect(settings.snapshot.animationSpeed == .normal)
         #expect(settings.managedKeys == [Self.speed: .team("Acme")])
         let descriptor = try #require(SettingsSchema.descriptor(for: ["ui", "animationSpeed"]))
-        await #expect(throws: SettingManaged(key: Self.speed, source: .team("Acme"))) { try await settings.setSetting(descriptor, to: "off") }
+        await #expect(throws: SettingManaged(key: Self.speed, source: .team("Acme"))) { try await settings.setSetting(descriptor, to: "off", by: .user) }
     }
 
     @Test(.timeLimit(.minutes(1))) func aProfileChangeReloadsThroughTheFileWatcher() async throws {

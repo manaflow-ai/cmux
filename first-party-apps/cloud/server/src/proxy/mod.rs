@@ -17,7 +17,7 @@
 //! because the browser helpers are not its children. The browser host lead
 //! owns the follow-up (a per-tab route with fd passing or a credential).
 
-use crate::connector::iface::Carrier;
+use crate::link::Carrier;
 use crate::ports::listener::{Handler, Session};
 use crate::ports::tunnel::PortTunnel;
 use std::io::{Read, Write};

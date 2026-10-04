@@ -35,10 +35,12 @@ import Testing
     @Test func everySettingSetsReadsAndResetsOverTheSocket() async throws {
         let (router, settings, directory) = try make()
         defer { try? FileManager.default.removeItem(at: directory) }
+        // User-only keys need `confirm: true` and the person's approval (the sheet approves here).
+        settings.userOnlyConfirmation = { _, _ in true }
         for descriptor in SettingsSchema.all {
             let key = JSONValue.string(descriptor.id)
             let before = settings.validatedWrites[descriptor.id, default: 0]
-            let set = await call(router, "settings.set", ["path": key, "value": descriptor.sampleValue])
+            let set = await call(router, "settings.set", ["path": key, "value": descriptor.sampleValue, "confirm": true])
             #expect((try? set.get()) != nil, "\(descriptor.id): \(set)")
             #expect(settings.validatedWrites[descriptor.id, default: 0] == before + 1, "\(descriptor.id) skipped the settings owner")
             let read = try await settings.file.value(at: descriptor.path)
@@ -48,8 +50,47 @@ import Testing
                 continue
             }
             #expect(refused.code == "invalid_params", "\(descriptor.id)")
-            _ = try await call(router, "settings.reset", ["path": key]).get()
+            _ = try await call(router, "settings.reset", ["path": key, "confirm": true]).get()
             #expect(try await settings.file.value(at: descriptor.path) == nil, "\(descriptor.id)")
+        }
+    }
+
+    /// SECURITY (agent_settable): a socket caller is never the user. A user-only key is refused
+    /// with `setting_user_only` (naming --confirm), written only after the person approves the
+    /// native sheet, and refused when the sheet is declined; agent-settable keys need no sheet.
+    @Test func aUserOnlyKeyNeedsThePersonsApproval() async throws {
+        let (router, settings, directory) = try make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var asked: [String] = []
+        var approve = false
+        settings.userOnlyConfirmation = { key, _ in asked.append(key); return approve }
+        let path: JSONValue = "history.terminalCommands"
+        guard case .failure(let refused) = await call(router, "settings.set", ["path": path, "value": false]) else {
+            Issue.record("a socket write of a user-only key went through")
+            return
+        }
+        #expect(refused.code == "setting_user_only")
+        #expect(refused.message.contains("--confirm"))
+        #expect(asked.isEmpty, "no sheet without --confirm")
+        guard case .failure(let declined) = await call(router, "settings.set", ["path": path, "value": false, "confirm": true]) else {
+            Issue.record("a declined sheet wrote the key")
+            return
+        }
+        #expect(declined.code == "setting_user_only")
+        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == nil)
+        approve = true
+        _ = try await call(router, "settings.set", ["path": path, "value": false, "confirm": true]).get()
+        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == .bool(false))
+        #expect(asked == ["history.terminalCommands", "history.terminalCommands"])
+        _ = try await call(router, "settings.set", ["path": "appearance.density", "value": "compact"]).get()
+        #expect(asked.count == 2, "an agent-settable key needs no sheet")
+        // A socket connection cannot claim user (only in-process callers may).
+        let socket = await router.handle(ControlRequest(id: "9", method: "settings.set",
+                                                        params: ["path": path, "value": true, "origin": "user"]),
+                                         connection: ControlConnectionID(rawValue: 7))
+        guard case .failure = socket else {
+            Issue.record("a socket caller claimed user")
+            return
         }
     }
 

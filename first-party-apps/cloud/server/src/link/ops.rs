@@ -3,14 +3,14 @@
 //! only for origin `user` or an explicit `focus: true` (OWNERSHIP-PRINCIPLES).
 
 use super::argv::link_command;
+use super::channel::{Carrier, CarrierEvent};
 use super::dial::DialCode;
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
 use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes};
-use crate::connector::iface::{Carrier, CarrierEvent};
 use crate::ops::Server;
-use crate::rescue::iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
+use cmux_terminal_iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
 use serde_json::{Value, json};
 
 pub const LINK_REVOKED: &str = "cmux.cloud.link_revoked";

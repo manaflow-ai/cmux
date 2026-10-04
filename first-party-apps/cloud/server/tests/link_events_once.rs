@@ -7,10 +7,9 @@ mod common;
 
 use attach_common::{FakeSpawner, FakeTransport, attach};
 use cmux_cloud::Server;
-use cmux_cloud::connector::iface::{
-    CarrierEvent, ConnectRequest, ConnectorEvent, Lost, TerminalConnector,
-};
-use cmux_cloud::rescue::iface::OpenToken;
+use cmux_cloud::connector::ConnectorEvent;
+use cmux_cloud::link::CarrierEvent;
+use cmux_terminal_iface::{ConnectRequest, Lost, OpenToken, TerminalConnector};
 use common::FakeControlPlane;
 
 const CHANNEL: &str = "cloud-vm/vm-alpha01#1";

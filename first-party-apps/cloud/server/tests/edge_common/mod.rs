@@ -8,10 +8,10 @@ use crate::attach_common::{FakeSpawner, FakeTransport, attach};
 use crate::common::FakeControlPlane;
 use cmux_cloud::CloudError;
 use cmux_cloud::Server;
-use cmux_cloud::connector::iface::Carrier;
 use cmux_cloud::fs::{
     Cancel, DaemonFiles, DialTarget, Direction, Transfer, TransferError, TransferJob,
 };
+use cmux_cloud::link::Carrier;
 use cmux_cloud::ports::{Edge, PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
 use serde_json::Value;
 use std::io::{Read, Write};

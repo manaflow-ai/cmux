@@ -79,7 +79,9 @@ import Testing
         } catch let error as PageError {
             #expect(error.code == "cmux.settings.invalid")
         }
-        let wrongType = try #require(SettingsSchema.all.first { $0.id != "appearance.density" && !$0.accepts(.object(["x": 1])) })
+        let wrongType = try #require(SettingsSchema.all.first {
+            $0.id != "appearance.density" && SettingsSchema.agentSettableKeys.contains($0.id) && !$0.accepts(.object(["x": 1]))
+        })
         do {
             _ = try await provider.call("cmux.settings.set", params: ["key": .string(wrongType.id), "value": .object(["x": 1])], context: context)
             Issue.record("a value the schema refuses was written")
@@ -99,7 +101,7 @@ import Testing
         defer { subscription.cancel() }
         await Task.yield()
         let descriptor = try #require(SettingsSchema.all.first { $0.id == "appearance.density" })
-        try await settings.setSetting(descriptor, to: "compact")
+        try await settings.setSetting(descriptor, to: "compact", by: .user)
         await settings.reload()
         for _ in 0..<200 where events.isEmpty { await Task.yield() }
         #expect(events.first?["keys"] == ["appearance.density"])
@@ -172,6 +174,30 @@ import Testing
             Issue.record("a managed key was previewed")
         } catch let error as PageError {
             #expect(error.code == "cmux.settings.managed")
+        }
+    }
+
+    /// SECURITY (agent_settable): the Settings page writes a user-only key only for a call backed
+    /// by a real gesture in its view; a script call with no gesture is a page write and is refused.
+    @Test func userOnlyKeysNeedAGestureFromTheSettingsPage() async throws {
+        let (provider, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let params: JSONValue = ["key": "history.terminalCommands", "value": false, "idempotency_key": "g1"]
+        do {
+            _ = try await provider.call("cmux.settings.set", params: params, context: context)
+            Issue.record("a page write with no gesture changed a user-only key")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.user_only")
+        }
+        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == nil)
+        let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
+        _ = try await provider.call("cmux.settings.set", params: ["key": "history.terminalCommands", "value": false, "idempotency_key": "g2"],
+                                    context: gesture)
+        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == .bool(false))
+        let otherPage = PageCallContext(page: "cmux.cloud", userGesture: true)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.set", params: ["key": "history.terminalCommands", "value": true, "idempotency_key": "g3"],
+                                        context: otherPage)
         }
     }
 }

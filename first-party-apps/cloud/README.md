@@ -92,6 +92,8 @@ Ports: `cloud.port.forward {machine, port}` listens on 127.0.0.1 and a port the 
 
 ## Test notes: rescue backend rules under mutation
 
+Since C13 the backend uses the shared `cmux-terminal-iface` crate: input and output are data frames with the shared credit rule (`ReceiveWindow`, `SendWindow`). The input `seq` rules R1, R1b, R7 and R8 are gone (a gap, an overlap or data past the credit ends the terminal with `lost`, tests in `rescue_conformance.rs` and `rescue_rules.rs`), and R17 and R21 now live in the shared crate. The table and its file:line references describe the mirror-era backend at 097f7941743; the mutation run was not repeated after C13.
+
 Each rule of the rescue backend (`server/src/rescue/backend.rs`, the local id and kind rules in `rescue/iface.rs`) was removed one at a time on a Testbox pinned to 097f7941743 (never committed; restored with `git checkout -- <file>`), and the rescue tests (`attach_rescue`, `rescue_conformance`, `rescue_rules`) ran. Every mutation fails at least one test on its assertion. The tests in `rescue_rules.rs` were added because no test failed under their mutation in the first run (bdc94453583); in that run the first R1 mutation (drop the stale-seq check) failed only on an integer overflow panic in the backend, not on an assertion, so the R1 MUTATION (not the rule) was changed: it now answers `Ok` for a stale seq.
 
 | Rule | Mutation | Fails (test, file:line) |

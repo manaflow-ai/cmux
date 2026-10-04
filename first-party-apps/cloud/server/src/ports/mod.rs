@@ -19,8 +19,8 @@ pub mod tunnel;
 pub use loopback::LoopbackTunnel;
 pub use tunnel::{PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
 
-use crate::connector::iface::Carrier;
 use crate::fs::transfer::{DaemonTransfer, Transfer};
+use crate::link::Carrier;
 use crate::link::LinkSupervisor;
 use listener::{Handler, Listener, Session};
 use std::collections::BTreeMap;

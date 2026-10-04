@@ -1,17 +1,42 @@
 //! `cmux.terminal.connector/1` for kind `cloud-vm` (cloud-app.md 3.3): a
 //! Cloud machine runs its own session host; the connector gives the daemon
 //! one channel to it. The link supervisor (`crate::link`) does the work.
+//!
+//! The interface types and traits are the shared `cmux-terminal-iface`
+//! crate. Local adapters, on purpose:
+//! - [`ConnectorEvent`] and [`CloudConnector::take_events`]: the shared
+//!   trait has no event queue; a channel's `end` reaches its [`HostLink`]
+//!   as a frame, and the server keeps this queue for callers that hold no
+//!   link handle (the serve loop, `cmux.terminal.connector.close`).
+//! - [`CloudConnector::close`]: close by channel id (the shared trait closes
+//!   through the link handle).
+//! - [`CloudConnector::open_link`] and [`CloudHostLink::carrier`]: GAP(data
+//!   plane). The app host has no frame stream for this server yet, so the
+//!   link's bytes move on the [`Carrier`] (the link's local socket, which
+//!   the daemon dials). Until that pump exists, data and credit frames on a
+//!   link are `unsupported`.
 
-pub mod iface;
+mod link;
 
 use crate::api::{ControlPlane, Origin, codes};
-use crate::link::CONNECTOR_KIND;
 use crate::link::ops::connect;
+use crate::link::{Attach, CONNECTOR_KIND, CarrierEvent, channel_id};
 use crate::ops::Server;
-use iface::{
-    BackendError, BackendId, Carrier, CarrierEvent, ConnectRequest, ConnectorEvent,
-    DEFAULT_WINDOW_BYTES, HostLink, LocalId, Lost, TerminalConnector, allow_kind, channel_id,
+use cmux_terminal_iface::{
+    BackendError, BackendId, ConnectRequest, HostLink, LocalId, Lost, TerminalConnector, allow_kind,
 };
+use std::collections::BTreeMap;
+
+pub use link::CloudHostLink;
+pub(crate) use link::LinkHandle;
+
+/// The connector's events (`end` of each channel a connect answered).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectorEvent {
+    /// `end {channel, lost}`: exactly once per channel, after its last data.
+    /// Nothing queues for the channel after it; reconnect is one `connect`.
+    End { channel: String, lost: Lost },
+}
 
 /// The connector, borrowed from the server for one call (the server is the
 /// only writer of link state; the connector is its interface view).
@@ -19,34 +44,10 @@ pub struct CloudConnector<'a, C> {
     server: &'a mut Server<C>,
 }
 
-impl<'a, C> CloudConnector<'a, C> {
-    pub(crate) fn new(server: &'a mut Server<C>) -> Self {
-        Self { server }
-    }
-}
-
 impl<C> Server<C> {
     /// The `cmux.terminal.connector/1` view of this server.
     pub fn connector(&mut self) -> CloudConnector<'_, C> {
-        CloudConnector::new(self)
-    }
-}
-
-struct CloudHostLink {
-    carrier: Carrier,
-}
-
-impl HostLink for CloudHostLink {
-    fn channel(&self) -> &str {
-        &self.carrier.id
-    }
-
-    fn window_bytes(&self) -> u32 {
-        DEFAULT_WINDOW_BYTES
-    }
-
-    fn carrier(&self) -> &Carrier {
-        &self.carrier
+        CloudConnector { server: self }
     }
 }
 
@@ -57,17 +58,27 @@ fn channel_machine(channel: &str) -> Option<&str> {
     link.strip_prefix(CONNECTOR_KIND)?.strip_prefix('/')
 }
 
-impl<C: ControlPlane> TerminalConnector for CloudConnector<'_, C> {
-    fn id(&self) -> &BackendId {
-        &self.server.attach().connector_id
+/// Ends the open link of `channel`; its `end` follows in the link events.
+/// A channel that is not open is `invalid`.
+fn close_channel(attach: &mut Attach, channel: &str) -> Result<(), BackendError> {
+    let supervisor = attach.supervisor_mut();
+    supervisor.pump();
+    let open = channel_machine(channel)
+        .filter(|machine| supervisor.carrier(machine).is_some_and(|c| c.id == channel));
+    match open {
+        Some(machine) => {
+            supervisor.disconnect(machine);
+            Ok(())
+        }
+        None => Err(BackendError::not_open()),
     }
+}
 
-    fn kinds(&self) -> &[LocalId] {
-        &self.server.attach().connector_kinds
-    }
-
-    fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
-        allow_kind(self.kinds(), &request.kind)?;
+impl<C: ControlPlane> CloudConnector<'_, C> {
+    /// `connect` with the concrete link (its channel id and carrier).
+    pub fn open_link(&mut self, request: ConnectRequest) -> Result<CloudHostLink, BackendError> {
+        let attach = self.server.attach();
+        allow_kind(&attach.connector_kinds, &request.kind)?;
         // The host issues the token after the user's gesture; this server
         // only checks that it is there (the host checks expiry and reuse)
         // and keeps it out of logs (`Debug` hides it).
@@ -82,27 +93,62 @@ impl<C: ControlPlane> TerminalConnector for CloudConnector<'_, C> {
                 _ => BackendError::Unavailable { reason: e.message, retryable: e.retryable },
             }
         })?;
-        Ok(Box::new(CloudHostLink { carrier }))
+        let handles = &mut self.server.attach_mut().link_handles;
+        let handle = handles.entry(carrier.id.clone()).or_default().clone();
+        Ok(CloudHostLink::new(carrier, handle))
+    }
+}
+
+impl<C> CloudConnector<'_, C> {
+    /// Ends a channel by id; its `end` follows. A channel that is not open
+    /// is `invalid`.
+    pub fn close(&mut self, channel: &str) -> Result<(), BackendError> {
+        close_channel(self.server.attach_mut(), channel)
     }
 
-    fn close(&mut self, channel: &str) -> Result<(), BackendError> {
-        let supervisor = self.server.attach_mut().supervisor_mut();
-        supervisor.pump();
-        let open = channel_machine(channel)
-            .filter(|machine| supervisor.carrier(machine).is_some_and(|c| c.id == channel));
-        match open {
-            Some(machine) => {
-                supervisor.disconnect(machine);
-                Ok(())
-            }
-            None => Err(BackendError::invalid("the channel is not open")),
-        }
-    }
-
-    fn take_events(&mut self) -> Vec<ConnectorEvent> {
+    /// `end` events since the last call, in order.
+    pub fn take_events(&mut self) -> Vec<ConnectorEvent> {
         // The connector reads its own side of the one drain: the host lines
         // keep every event this takes (crate::link::Attach::drain_link_events).
         self.server.attach_mut().take_connector_events()
+    }
+}
+
+impl<C: ControlPlane + Send> TerminalConnector for CloudConnector<'_, C> {
+    fn id(&self) -> &BackendId {
+        &self.server.attach().connector_id
+    }
+
+    fn kinds(&self) -> &[LocalId] {
+        &self.server.attach().connector_kinds
+    }
+
+    /// At most one channel per target: a second call while it is up answers
+    /// the same channel. A kind not in `kinds` fails with `denied`.
+    fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
+        Ok(Box::new(self.open_link(request)?))
+    }
+}
+
+/// Applies the closes that link handles asked for (part of the one drain).
+pub(crate) fn apply_link_closes(attach: &mut Attach) {
+    let asked: Vec<String> = attach
+        .link_handles
+        .iter()
+        .filter(|(_, handle)| link::take_close(handle))
+        .map(|(channel, _)| channel.clone())
+        .collect();
+    for channel in asked {
+        // A link that ended meanwhile gets its `end` from the event anyway.
+        let _gone = close_channel(attach, &channel);
+    }
+}
+
+/// Gives a channel's `end` to its link handle, once; the handle leaves the table.
+pub(crate) fn end_link_handle(handles: &mut BTreeMap<String, LinkHandle>, end: &ConnectorEvent) {
+    let ConnectorEvent::End { channel, lost } = end;
+    if let Some(handle) = handles.remove(channel) {
+        link::end(&handle, lost.clone());
     }
 }
 
@@ -114,13 +160,13 @@ pub(crate) fn end_event(event: &CarrierEvent) -> Option<ConnectorEvent> {
         CarrierEvent::Down { target, generation, retryable, reason, opened: true } => {
             Some(ConnectorEvent::End {
                 channel: channel_id(CONNECTOR_KIND, target, *generation),
-                lost: Lost { reason: reason.clone(), retryable: *retryable },
+                lost: Lost::new(reason.clone(), *retryable),
             })
         }
         CarrierEvent::Revoked { target, reason, generation: Some(generation) } => {
             Some(ConnectorEvent::End {
                 channel: channel_id(CONNECTOR_KIND, target, *generation),
-                lost: Lost { reason: reason.clone(), retryable: false },
+                lost: Lost::new(reason.clone(), false),
             })
         }
         CarrierEvent::Revoked { generation: None, .. } => None,

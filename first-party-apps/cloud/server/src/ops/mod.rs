@@ -14,7 +14,7 @@ pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
-use crate::rescue::iface::OpenToken;
+use cmux_terminal_iface::OpenToken;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -345,7 +345,7 @@ impl<C: ControlPlane> Server<C> {
 
     /// Link events for the host lines (`cloud.link.changed`) since the
     /// last call, in order.
-    pub fn take_link_events(&mut self) -> Vec<crate::connector::iface::CarrierEvent> {
+    pub fn take_link_events(&mut self) -> Vec<crate::link::CarrierEvent> {
         self.attach.take_host_link_events()
     }
 

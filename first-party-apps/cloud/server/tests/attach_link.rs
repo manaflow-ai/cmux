@@ -5,7 +5,7 @@ mod attach_common;
 mod common;
 
 use attach_common::{FakeSpawner, FakeTransport, Script, attach, link_events, socket_for};
-use cmux_cloud::connector::iface::CarrierEvent;
+use cmux_cloud::link::CarrierEvent;
 use cmux_cloud::link::{LinkState, LinkTag};
 use cmux_cloud::{Origin, Request, Server};
 use common::FakeControlPlane;

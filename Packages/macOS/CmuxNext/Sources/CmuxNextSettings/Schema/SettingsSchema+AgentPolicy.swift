@@ -3,8 +3,10 @@
 /// is in exactly one of the two tables, with no default (the 18 surface
 /// background rows join the settable table as one decided group, R55):
 /// `SettingsSchemaExportTests` fails on a key in neither or both, so a new
-/// setting cannot reach agents without a decision. The daemon's config actor
-/// enforces the exported flag; MCP only forwards.
+/// setting cannot reach agents without a decision. Enforced at the one write
+/// path, `SettingsController.setSetting(_:to:by:)` (`SettingWriter`): every
+/// caller that is not the user (socket cli/mcp/script/remote, palette actions
+/// run from the socket, pages without a user gesture) may change only these keys.
 extension SettingsSchema {
     /// Why an agent may not change a key.
     public nonisolated enum AgentRefusal: String, Sendable, Hashable {

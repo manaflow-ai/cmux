@@ -87,11 +87,12 @@ enum SettingsHandlers {
         }
         try AppearanceHandlers.requireUnmanaged(path, context)
         let explicit = invocation["on"]?.boolValue
+        let writer = SettingWriter(invocation.origin)
         Task {
             do {
                 let root = try await settings.file.document()
                 if let descriptor {
-                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true))
+                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true), by: writer)
                 } else {
                     try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
                 }
