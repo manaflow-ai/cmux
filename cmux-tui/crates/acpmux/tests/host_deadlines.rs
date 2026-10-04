@@ -45,9 +45,12 @@ async fn spawn_gives_up_on_a_host_that_never_reports_ready() {
         prefix: vec!["-c".into(), "exec sleep 20".into(), "silent-host".into()],
     };
     let budget = Duration::from_millis(300);
-    let out = tokio::time::timeout(Duration::from_secs(20), link::spawn_within(&launcher, &spec(&dir), budget))
-        .await
-        .expect("spawn never gave up on a host that did not report ready");
+    let out = tokio::time::timeout(
+        Duration::from_secs(20),
+        link::spawn_within(&launcher, &spec(&dir), budget),
+    )
+    .await
+    .expect("spawn never gave up on a host that did not report ready");
     let err = out.expect_err("a silent host is not ready");
     assert!(err.downcast_ref::<HostTimeout>().is_some(), "not a typed timeout: {err:#}");
 }
@@ -92,9 +95,12 @@ async fn a_query_the_host_never_answers_times_out() {
     let Connect::Ready(link, _) = link::connect(record, 0).await.expect("connect") else {
         panic!("the fake host is compatible");
     };
-    let out = tokio::time::timeout(Duration::from_secs(20), link.query_within(Duration::from_millis(300)))
-        .await
-        .expect("query never gave up on a host that does not answer");
+    let out = tokio::time::timeout(
+        Duration::from_secs(20),
+        link.query_within(Duration::from_millis(300)),
+    )
+    .await
+    .expect("query never gave up on a host that does not answer");
     let err = out.expect_err("no answer is no reply");
     assert!(err.downcast_ref::<HostTimeout>().is_some(), "not a typed timeout: {err:#}");
 }

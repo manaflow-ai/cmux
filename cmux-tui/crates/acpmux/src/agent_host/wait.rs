@@ -99,8 +99,7 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
 pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget: Duration) -> bool {
     let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
     let state = w.state.lock().unwrap();
-    let (state, _) =
-        w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting).unwrap();
+    let (state, _) = w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting).unwrap();
     *state == Watch::Dead
 }
 

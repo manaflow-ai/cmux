@@ -73,7 +73,8 @@ impl Hub {
         // caller start a fresh agent), or the link alone was lost while the
         // host lives on (another owner took it over and left): reconnect to
         // it like a broken link, so the session is never locked.
-        if let Some(child) = current.as_ref().filter(|c| c.host_record().is_some() && !c.is_broken())
+        if let Some(child) =
+            current.as_ref().filter(|c| c.host_record().is_some() && !c.is_broken())
             && let Some(record) = child.host_record()
         {
             let dead = agent_host::wait_dead_async(
