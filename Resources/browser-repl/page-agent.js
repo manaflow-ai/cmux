@@ -659,6 +659,34 @@
   // it, never raise it.
   const MAX_SIZE = 2000000;
   const NODE_SIZE = 32;
+  // The page-read budget: every read that sends page-controlled values to
+  // the host (the snapshot walk and what it reads beside it, Markdown,
+  // extraction, drop-down options, composer text) reads at most MAX_NODES
+  // nodes and returns at most MAX_SIZE characters, for MAX_WALK_MS; past
+  // any of them it stops and says why (`truncated`: "nodes", "size" or
+  // "time"), and the host prints a note. A caller can lower a bound, never
+  // raise it. `spend`, `chargeSize` and `fit` charge it.
+  function readBudget(opts) {
+    const o = opts || {};
+    const nodes = Math.min(MAX_NODES, o.maxNodes > 0 ? Math.floor(o.maxNodes) : MAX_NODES);
+    const size = Math.min(MAX_SIZE, o.maxSize > 0 ? Math.floor(o.maxSize) : MAX_SIZE);
+    return { left: nodes, sizeLeft: size, nodes, size, deadline: now() + MAX_WALK_MS, ticks: 0, truncated: undefined };
+  }
+  // The budget for page functions the runtime runs in this world
+  // (agent-tools.js): A.budget(opts).
+  function budget(opts) {
+    const b = readBudget(opts);
+    return {
+      spend: (count) => spend(b, count === undefined ? 1 : count),
+      charge: (count) => chargeSize(b, count),
+      fit: (s) => fit(b, s),
+      get truncated() {
+        return b.truncated;
+      },
+      // What the host needs for its note and for the budget it passes on.
+      report: () => ({ visited: b.nodes - b.left, size: b.size - b.sizeLeft, maxNodes: b.nodes, maxSize: b.size, truncated: b.truncated }),
+    };
+  }
   // Reading the clock every node costs; every 256th is enough.
   function spend(ctx, count) {
     if (ctx.truncated) return false;
@@ -961,7 +989,7 @@
     pruneHandles();
     const root = opts.root ? element(opts.root) : document.body || document.documentElement;
     if (!root || !root.isConnected) throw agentError("stale", "The snapshot root was removed from the page");
-    const ctx = {
+    const ctx = Object.assign(readBudget(opts), {
       showHidden: !!opts.showHidden,
       focus: deepActiveElement(document),
       visited: new Set(),
@@ -973,22 +1001,15 @@
       screen: { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight },
       allOptions: !!opts.options,
       offscreen: 0,
-      left: Math.min(MAX_NODES, opts.maxNodes > 0 ? Math.floor(opts.maxNodes) : MAX_NODES),
-      sizeLeft: Math.min(MAX_SIZE, opts.maxSize > 0 ? Math.floor(opts.maxSize) : MAX_SIZE),
       countLeft: 0,
       offscreenMore: false,
-      deadline: started + MAX_WALK_MS,
-      ticks: 0,
-      truncated: undefined,
-    };
-    const budget = ctx.left;
-    ctx.countLeft = budget;
-    const sizeBudget = ctx.sizeLeft;
+    });
+    ctx.countLeft = ctx.nodes;
     const out = [];
     if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     const nodes = normalizeChildren(out);
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, offscreenMore: ctx.offscreenMore || undefined, ms: now() - started, visited: budget - ctx.left, size: sizeBudget - ctx.sizeLeft, truncated: ctx.truncated };
+    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, offscreenMore: ctx.offscreenMore || undefined, ms: now() - started, visited: ctx.nodes - ctx.left, size: ctx.size - ctx.sizeLeft, truncated: ctx.truncated };
   }
 
   // Table sizes, for leak checks (tests/browser-parity/perf).
@@ -1522,6 +1543,7 @@
     ownerPoint,
     annotate,
     clearAnnotations,
+    budget,
     injected,
   };
   Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });

@@ -3190,8 +3190,23 @@
     return MIME[ext] || "application/octet-stream";
   }
 
+  // The note for a page read cut at the page-read budget (page-agent.js,
+  // readBudget): `cut` is { truncated: "nodes" | "size" | "time" |
+  // "frames", maxNodes, maxSize, frames }. Every read that stops there says
+  // so in these words.
+  const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  function readCutNote(what, cut) {
+    const why =
+      cut.truncated === "time" ? "after 8 s of reading"
+      : cut.truncated === "size" ? `after ${groupDigits(cut.maxSize)} characters`
+      : cut.truncated === "frames" ? `after ${groupDigits(cut.frames)} frames`
+      : `after ${groupDigits(cut.maxNodes)} nodes`;
+    return `the page is too large to read whole: ${what} stopped ${why}`;
+  }
+
   ns.core = {
     Session,
+    readCutNote,
     Page,
     Frame,
     Locator,
