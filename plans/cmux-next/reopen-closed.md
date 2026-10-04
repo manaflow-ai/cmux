@@ -351,6 +351,22 @@ New when-clause context keys (KeyContext): `pane.tabCount`, `pane.unpinnedRight`
 exists for Cmd-Shift-T), `layout.kind` (`split|columns|canvas`). They are computed from the store
 mirror (no polling), so menus disable items correctly and the palette hides unavailable rows.
 
+### 5.4 Shortcuts (against the current KeyboardShortcutSettings, 86fd13ce03c)
+
+This design adds NO new default shortcut. It keeps two existing ones:
+
+| Shortcut | Action | Status |
+|---|---|---|
+| Cmd-Shift-T | history.reopenClosed (alias of reopenClosedBrowserPanel, TabActionCatalog) | exists; same key, wider behavior |
+| Opt-Cmd-T | closeOtherTabsInPane | exists, unchanged |
+
+Every new action in 5.3 has no default key. Each one is bindable in Settings and in `cmux.json`
+like every catalog action. This design does not use Ctrl-1..9 (Lawrence 2026-10-04: Select Tab N
+by default) or Ctrl-Opt-1..9 (Spaces). Note for R59: on this base, Ctrl-1..6 are still right-sidebar
+switches (SidebarActionCatalog), Ctrl-Opt-1 is a tab select (TabActionCatalog:184), and a space
+switch in ProfileActionCatalog:166 uses a Cmd/Ctrl digit. R59 owns that remap; this lane does not
+touch it.
+
 ## 6. Cmd-Shift-T for each bulk action
 
 | Closing action | One group with | Cmd-Shift-T restores |
