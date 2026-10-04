@@ -62,8 +62,8 @@ nonisolated struct FocusTopology: Hashable, Sendable, Codable {
 
     var workspace: String?
     var panes: [Pane]
-    /// Every screen's columns in visual order (left sticky, strip, right
-    /// sticky; a split screen is one column). The close-focus rule reads
+    /// Every screen's columns in visual order (left docked, strip, right
+    /// docked; a split screen is one column). The close-focus rule reads
     /// them (close-focus.md). Empty means one screen with one column
     /// holding `panes` in order.
     var screens: [[Column]]

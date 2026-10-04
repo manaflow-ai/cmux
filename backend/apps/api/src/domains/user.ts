@@ -19,6 +19,8 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
+  /** Home settings (home-messaging.md section 4.2), absent until the first home.settings.set. */
+  readonly home_settings?: homeUser.HomeSettings
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
   /**
@@ -248,6 +250,13 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         const cur = p.install ? state.installs[p.install] : undefined
         if (!cur || p.kind !== "install") return reject("auth.forbidden", "only an install signs itself out")
         return revokeInstall(state, cur, ctx.now)
+      }
+      case "home.settings.set": {
+        if (p.kind !== "session") return reject("auth.forbidden", "home.settings.set needs a user session")
+        const r = homeUser.reduceHomeSettings(state.home_settings, params)
+        if (!r.ok) return reject("validation.invalid", r.code)
+        if (JSON.stringify(state.home_settings) === JSON.stringify(r.settings)) return { ok: true, state, value: r.settings, changed: false }
+        return { ok: true, state: { ...state, home_settings: r.settings }, value: r.settings }
       }
       case "push.target.register":
       case "push.target.remove":

@@ -29,6 +29,8 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+#[cfg(unix)]
+mod link;
 mod local_owner;
 mod localization;
 mod machine;
@@ -493,65 +495,7 @@ fn harden_provider_secret_process() -> io::Result<()> {
     Ok(())
 }
 
-const USAGE: &str = "\
-cmux - terminal multiplexer and resource client
-
-USAGE
-  cmux [OPTIONS]           Start a session
-{lifecycle_usage}
-  cmux attach [OPTIONS]    Attach to a session or one terminal
-  cmux relay [OPTIONS]     Relay protocol bytes over stdio
-  {machine_agent_usage}
-  cmux <scope> --help      Discover resource commands
-
-START OPTIONS
-  --session <name>   Session name (default: main). Determines the socket path.
-  --socket <path>    Explicit control socket path.
-  --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
-  --state <path>     Durable session-state root (default: platform state dir).
-  --ephemeral        Keep workspace state in memory for this run only.
-  --machine-provider <path>
-                     Use a dynamic machine provider Unix socket.
-  --machine-provider-command <program> [arg ...] --
-                     Run a provider command directly, appending control or stream.
-  --cloud            Connect through the built-in cmux.cloud SSH provider.
-  --cloud-host <host>       Cloud SSH host (default: cmux.cloud).
-  --cloud-user <user>       Cloud SSH user.
-  --cloud-port <port>       Cloud SSH port.
-  --cloud-identity <path>   Cloud SSH identity file.
-  --headless         Run only the control socket, no TUI.
-  --ws <addr>        Also listen for WebSocket clients (default: off).
-  --ws-token <token> Allow a static-token bypass for interactive pairing.
-  --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
-  --ws-allow-origin <origin>  Also accept this browser Origin (repeatable).
-  --ws-allow-host <host>      Also accept this Host name, e.g. a tailnet name.
-  --remote          Run the authenticated remote daemon with this session.
-  --remote-ws <addr> Listen for direct remote WebSocket links.
-  --remote-ws-insecure-bind  Allow plaintext remote WebSocket off loopback.
-  --remote-ws-trusted-carrier  Grant every remote WebSocket link carrier auth (no
-                    enrollment): only behind a private network whose members are
-                    all authorized. Also CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1.
-  --remote-http <addr> Listen for bearer-authenticated workspace HTTP RPC on loopback.
-  --remote-state-dir <path>  Override remote identity and runtime state.
-  --remote-link-socket <path> Override the local authenticated link socket.
-  --remote-admin-socket <path> Override the owner-only admin socket.
-  --remote-resume-lease-seconds <seconds>
-                    Retain crashed-client replay state for 1-86400 seconds.
-  --relay <url> --relay-slot <routing-key>
-                    Register with a relay; repeat up to four groups.
-  --relay-ticket-file <path>  Refresh the relay ticket from a file.
-  --relay-ticket-command <program> [--relay-ticket-command-arg <arg>]
-                    Refresh the relay ticket from an argv-based command.
-  --iroh            Publish an Iroh route for NAT traversal and mobile use.
-  --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: keep the outer terminal's
-                     xterm-ghostty, else xterm-256color).
-  --terminal-reap-grace-seconds <seconds>
-                     End a terminal with no tab after this long unless it is
-                     kept (default: never; 0 ends it at once; at most 604800).
-  -h, --help         Show this help.
-  -V, --version      Print the cmux version.
-";
+const USAGE: &str = include_str!("usage.txt");
 
 fn usage_for(catalog: &localization::Catalog) -> String {
     usage_for_platform(catalog, cfg!(unix))
@@ -593,6 +537,7 @@ struct Args {
     ws_token: Option<String>,
     ws_insecure_bind: bool,
     ws_access: cmux_tui_core::server::WebSocketAccess,
+    link_entry: bool,
     remote: bool,
     remote_ws: Option<String>,
     remote_ws_insecure_bind: bool,
@@ -642,6 +587,7 @@ impl Args {
             && ws_addr.is_none()
             && ws_token.is_none()
             && !self.ws_insecure_bind
+            && !self.link_entry
             && self.ws_access.origins.is_empty()
             && self.ws_access.hosts.is_empty()
             && !self.remote
@@ -702,6 +648,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         ws_token: None,
         ws_insecure_bind: false,
         ws_access: Default::default(),
+        link_entry: false,
         remote: false,
         remote_ws: None,
         remote_ws_insecure_bind: false,
@@ -815,6 +762,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().ok_or_else(|| "--ws-token needs a value".to_string())?);
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
+            "--link-entry" => out.link_entry = true,
             "--ws-allow-origin" => {
                 let origin = args.next().ok_or("--ws-allow-origin needs a value")?;
                 let origin = cmux_tui_core::server::parse_websocket_origin(&origin).ok_or(
@@ -1384,6 +1332,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.ws_insecure_bind {
         conflicts.push("--ws-insecure-bind");
     }
+    if args.link_entry {
+        conflicts.push("--link-entry");
+    }
     if !args.ws_access.origins.is_empty() || !args.ws_access.hosts.is_empty() {
         conflicts.push("--ws-allow-origin/--ws-allow-host");
     }
@@ -1551,6 +1502,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--cloud"
             | "--headless"
             | "--ws-insecure-bind"
+            | "--link-entry"
             | "--remote"
             | "--remote-ws-insecure-bind"
             | "--remote-ws-trusted-carrier"
@@ -1758,6 +1710,11 @@ fn run_main() {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(2).collect();
         client_log::exit(acp::run(args));
+    }
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("link") {
+        discard_provider_secret_environment();
+        client_log::exit(link::run(&raw_args[1..]));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -2400,6 +2357,10 @@ fn run_server(
             return Err(error);
         }
     };
+    // Kept alive until this function returns; dropping it removes the socket.
+    #[cfg(unix)]
+    let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
+        .inspect_err(|_| mux.shutdown())?;
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {

@@ -76,17 +76,97 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
     public var name: String
     public var mimeType: String
     public var byteCount: Int
-    /// Pixel size for images and video, for layout before the bytes arrive.
+    /// Display pixel size for images and video, for layout before the bytes
+    /// arrive: EXIF orientation is applied for images and the track's
+    /// preferred transform for video (a portrait phone photo is taller than wide).
     public var width: Int?
     public var height: Int?
+    /// Playback length of video and audio, in milliseconds.
+    public var durationMs: Int?
+    /// The poster frame of a video: a separate blob in the same part (one
+    /// part per attachment). Fetch it with `AttachmentVariant.poster`.
+    public var poster: AttachmentPoster?
+    /// An image's preview (JPEG, at most 1024 px and 512 KB): readers load
+    /// it first with `AttachmentVariant.preview` and the original on tap.
+    /// Best effort: a small image, or one whose preview failed, has none.
+    public var preview: AttachmentDerivedImage?
 
-    public init(hash: String, name: String, mimeType: String, byteCount: Int, width: Int? = nil, height: Int? = nil) {
+    /// Content hash of the poster blob, when the part has one.
+    public var posterHash: String? { poster?.hash }
+
+    public init(hash: String, name: String, mimeType: String, byteCount: Int, width: Int? = nil, height: Int? = nil,
+                durationMs: Int? = nil, poster: AttachmentPoster? = nil, preview: AttachmentDerivedImage? = nil) {
         self.hash = hash
         self.name = name
         self.mimeType = mimeType
         self.byteCount = byteCount
         self.width = width
         self.height = height
+        self.durationMs = durationMs
+        self.poster = poster
+        self.preview = preview
+    }
+
+    /// The owner's attachment part fields (snake_case); absent optionals are
+    /// omitted. This is the ref's own body only: `MessagePart` uses
+    /// synthesized Codable, which wraps it as `{"attachment":{"_0":{...}}}`,
+    /// not the owner's `{"type":"attachment",...}`. A cloud source maps parts
+    /// to and from the owner's shape itself.
+    enum CodingKeys: String, CodingKey {
+        case hash, name, width, height, poster, preview
+        case mimeType = "mime_type"
+        case byteCount = "byte_count"
+        case durationMs = "duration_ms"
+    }
+
+    /// Keys an earlier client build encoded before the wire keys.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case mimeType, byteCount
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        hash = try container.decode(String.self, forKey: .hash)
+        name = try container.decode(String.self, forKey: .name)
+        mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+            ?? legacy.decode(String.self, forKey: .mimeType)
+        byteCount = try container.decodeIfPresent(Int.self, forKey: .byteCount)
+            ?? legacy.decode(Int.self, forKey: .byteCount)
+        width = try container.decodeIfPresent(Int.self, forKey: .width)
+        height = try container.decodeIfPresent(Int.self, forKey: .height)
+        durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+        poster = try container.decodeIfPresent(AttachmentPoster.self, forKey: .poster)
+        preview = try container.decodeIfPresent(AttachmentDerivedImage.self, forKey: .preview)
+    }
+}
+
+/// A small image stored with an attachment's record, equal to what the
+/// owner recorded (home-messaging.md 10.1): a video's poster frame, or an
+/// image's preview. Wire shape `{hash, mime_type, byte_count}`. It has no
+/// record or part of its own and the owner chooses its storage key, so a
+/// client fetches it only as `AttachmentVariant.poster` or `.preview` of
+/// its part.
+public typealias AttachmentPoster = AttachmentDerivedImage
+
+/// See `AttachmentPoster`.
+public struct AttachmentDerivedImage: Hashable, Sendable, Codable {
+    /// SHA-256 of the image bytes.
+    public var hash: String
+    /// `image/jpeg` or `image/webp` (`HomeAttachmentPolicy.posterTypes`).
+    public var mimeType: String
+    public var byteCount: Int
+
+    public init(hash: String, mimeType: String, byteCount: Int) {
+        self.hash = hash
+        self.mimeType = mimeType
+        self.byteCount = byteCount
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case hash
+        case mimeType = "mime_type"
+        case byteCount = "byte_count"
     }
 }
 

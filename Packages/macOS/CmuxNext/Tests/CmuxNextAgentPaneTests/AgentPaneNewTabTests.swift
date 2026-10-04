@@ -101,9 +101,9 @@ import Testing
         #expect(request("tab.typeAhead", [:]) == .unsupported("tab.typeAhead"))
         let long = String(repeating: "a", count: AgentPaneRequest.maximumOpenTabText + 1)
         #expect(request("tab.typeAhead", ["text": long]) == .typeAhead(String(long.prefix(AgentPaneRequest.maximumOpenTabText))))
-        #expect(request("newTab.remember", ["mode": "search"]) == .rememberNewTab(mode: "search", agent: nil))
-        #expect(request("newTab.remember", ["agent": "codex"]) == .rememberNewTab(mode: nil, agent: "codex"))
-        #expect(request("newTab.remember", ["mode": "loud"]) == .unsupported("newTab.remember"))
+        // One input (R86): only the agent pick is remembered; a page's old `mode` is refused.
+        #expect(request("newTab.remember", ["agent": "codex"]) == .rememberNewTab(agent: "codex"))
+        #expect(request("newTab.remember", ["mode": "search"]) == .unsupported("newTab.remember"))
         #expect(request("newTab.remember", ["agent": String(repeating: "a", count: 200)]) == .unsupported("newTab.remember"))
     }
 
@@ -114,24 +114,24 @@ import Testing
         var opened: [AgentPaneOpenTab] = []
         model.onOpenTab = { opened.append($0) }
         model.onTypeAhead = { typed.append($0) }
-        model.onRememberNewTab = { remembered.append("\($0 ?? "-"):\($1 ?? "-")") }
+        model.onRememberNewTab = { remembered.append($0) }
         #expect(await model.respond(to: .openTab(.terminal, text: "", run: false))["ok"] as? Bool == true)
         #expect(await model.respond(to: .typeAhead("ls"))["ok"] as? Bool == true)
-        #expect(await model.respond(to: .rememberNewTab(mode: "search", agent: nil))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .rememberNewTab(agent: "codex"))["ok"] as? Bool == true)
         #expect(opened == [AgentPaneOpenTab(kind: .terminal, text: "", run: false)])
         #expect(typed == ["ls"])
-        #expect(remembered == ["search:-"])
+        #expect(remembered == ["codex"])
         // The type-ahead outlives the page's switch to a chat only until a session exists.
         _ = await model.respond(to: .persistSession("s-1"))
         #expect(await model.respond(to: .typeAhead("x"))["ok"] as? Bool == false)
         #expect(typed == ["ls"])
     }
 
-    @Test func theHandshakeCarriesLayoutModeAgentAndHome() throws {
-        let page = AgentPaneNewTab(kind: .agent, layout: .a, mode: .search, lastAgent: "codex", home: "/Users/me")
+    @Test func theHandshakeCarriesLayoutAgentAndHome() throws {
+        let page = AgentPaneNewTab(kind: .agent, layout: .a, lastAgent: "codex", home: "/Users/me")
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any]
         #expect(json?["layout"] as? String == "a")
-        #expect(json?["mode"] as? String == "search")
+        #expect(json?["mode"] == nil)
         #expect(json?["lastAgent"] as? String == "codex")
         #expect(json?["home"] as? String == "/Users/me")
     }

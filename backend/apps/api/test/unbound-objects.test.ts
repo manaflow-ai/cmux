@@ -55,4 +55,15 @@ describe("no storage for objects that do not exist", { timeout: 60_000 }, () => 
     expect(JSON.stringify(invite)).toContain("forbidden")
     expect(await tables(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id)))).toEqual([])
   })
+
+  it("attachment intents and URL mints on an unknown conversation write nothing", async () => {
+    const t = await token("unbound-4")
+    await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })
+    const id = "conv_2222222222222222222222ZZZZ"
+    const intent = await post("/v1/home/attachments/intent", t, { conversation: id, sha256: "a".repeat(64), byte_count: 10, mime_type: "image/png", name: "a.png" })
+    expect(intent.error.code).toBe("auth.forbidden")
+    const url = await post("/v1/home/attachments/url", t, { conversation: id, hash: "a".repeat(64) })
+    expect(url.error.code).toBe("auth.forbidden")
+    expect(await tables(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id)))).toEqual([])
+  })
 })

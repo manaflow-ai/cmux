@@ -3,14 +3,15 @@
 
 #![allow(dead_code)]
 
+use cmux_cloud::app_env::AppEnv;
+use cmux_cloud::connector::iface::CarrierEvent;
 use cmux_cloud::link::{
-    Attach, LinkCommand, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
+    Attach, LinkCommand, LinkEvents, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
 };
 use cmux_cloud::rescue::iface::{BackendError, Grid, Signal};
 use cmux_cloud::rescue::{RescueTransport, StreamId, TransportEvent};
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 /// What the next spawned link does right away.
@@ -20,13 +21,16 @@ pub enum Script {
     Ready,
     /// Exits with this code before it is ready.
     ExitEarly(i32),
+    /// Prints nothing until [`FakeSpawner::ready`]; sends its tag on the
+    /// channel once spawned.
+    Hold(std::sync::mpsc::Sender<LinkTag>),
 }
 
 #[derive(Default)]
 pub struct SpawnLog {
     pub commands: Vec<LinkCommand>,
     pub tags: Vec<LinkTag>,
-    pub senders: Vec<Sender<LinkProcessEvent>>,
+    pub senders: Vec<LinkEvents>,
     pub terminated: Vec<LinkTag>,
     pub script: VecDeque<Script>,
 }
@@ -41,6 +45,16 @@ impl FakeSpawner {
 
     pub fn spawns(&self) -> usize {
         self.log().commands.len()
+    }
+
+    /// The last link process of `machine` prints its ready line.
+    pub fn ready(&self, machine: &str) {
+        let log = self.log();
+        let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
+        let tag = log.tags[index].clone();
+        let ready =
+            serde_json::json!({ "event": "connection-snapshot", "local_socket": socket_for(&tag) });
+        log.senders[index].send(LinkProcessEvent::Line { tag, line: ready.to_string() }).unwrap();
     }
 
     /// The last link process of `machine` exits with `code`.
@@ -77,7 +91,7 @@ impl LinkSpawner for FakeSpawner {
         &mut self,
         tag: LinkTag,
         command: &LinkCommand,
-        events: Sender<LinkProcessEvent>,
+        events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>> {
         let mut log = self.0.lock().unwrap();
         log.commands.push(command.clone());
@@ -97,6 +111,9 @@ impl LinkSpawner for FakeSpawner {
                 events
                     .send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(code) })
                     .unwrap();
+            }
+            Script::Hold(spawned) => {
+                let _ = spawned.send(tag.clone());
             }
         }
         Ok(Box::new(FakeProcess { tag, log: Arc::clone(&self.0) }))
@@ -188,7 +205,68 @@ impl RescueTransport for FakeTransport {
     }
 }
 
-/// Attach with the fake spawner, test paths and the fake transport.
+/// Link events of the server's supervisor since the last call (what the
+/// serve loop sends as `cloud.link.changed`).
+pub fn link_events<C: cmux_cloud::ControlPlane>(
+    server: &mut cmux_cloud::Server<C>,
+) -> Vec<CarrierEvent> {
+    server.take_link_events()
+}
+
+/// An app environment with its own data folder under the test temp
+/// folder (one per call).
+pub fn test_env() -> AppEnv {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let data = std::env::temp_dir().join(format!("cmux-cloud-data-{}-{n}", std::process::id()));
+    AppEnv::from_vars([
+        ("CMUX_APP_ID", "cmux/cloud"),
+        ("CMUX_APP_DATA_DIR", data.to_str().unwrap()),
+    ])
+}
+
+/// Attach with the fake spawner, test paths, the fake transport and a
+/// test app environment.
 pub fn attach(spawner: &FakeSpawner, transport: &FakeTransport) -> Attach {
     Attach::new(Box::new(spawner.clone()), Some(paths()), Box::new(transport.clone()))
+        .with_env(test_env())
+}
+
+/// A clock the test fires by hand: `after` records the callback, a dropped
+/// timer marks it cancelled.
+#[derive(Clone, Default)]
+pub struct ManualClock(Arc<Mutex<Vec<ManualTimer>>>);
+
+/// A recorded timer: still live (not cancelled), and its callback.
+type ManualTimer = (Arc<std::sync::atomic::AtomicBool>, Option<Box<dyn FnOnce() + Send>>);
+
+impl ManualClock {
+    /// Fires every timer that was not cancelled; returns how many fired.
+    pub fn fire_all(&self) -> usize {
+        let timers: Vec<_> = std::mem::take(&mut *self.0.lock().unwrap());
+        let mut fired = 0;
+        for (live, fire) in timers {
+            if live.load(std::sync::atomic::Ordering::SeqCst)
+                && let Some(fire) = fire
+            {
+                fire();
+                fired += 1;
+            }
+        }
+        fired
+    }
+}
+
+impl cmux_cloud::clock::Clock for ManualClock {
+    fn after(
+        &self,
+        _delay: std::time::Duration,
+        fire: Box<dyn FnOnce() + Send>,
+    ) -> cmux_cloud::clock::Timer {
+        let live = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        self.0.lock().unwrap().push((Arc::clone(&live), Some(fire)));
+        cmux_cloud::clock::Timer::new(Box::new(move || {
+            live.store(false, std::sync::atomic::Ordering::SeqCst);
+        }))
+    }
 }

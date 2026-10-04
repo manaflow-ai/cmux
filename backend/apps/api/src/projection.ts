@@ -23,6 +23,11 @@ const rawStatements: Record<string, (p: Record<string, unknown>, stream: string,
   "home.message.delete": (p, stream, seq) => [
     `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq = $2 AND source_stream = $3 AND source_seq <= $4`,
     [p.conversation_id, p.seq, stream, seq]
+  ],
+  // Retention (conversation.sweep): every row of the conversation up to `seq`, one statement per sweep.
+  "home.message.delete_through": (p, stream, seq) => [
+    `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq <= $2 AND source_stream = $3 AND source_seq <= $4`,
+    [p.conversation_id, p.seq, stream, seq]
   ]
 }
 
@@ -39,20 +44,30 @@ export interface PgQuery {
   query(sql: string, values?: Array<unknown>): Promise<unknown>
 }
 
+/** MySQL server errors that mean "try again later": lock wait, deadlock, too many connections,
+ * server shutdown, gone away / lost, read-only during failover, query interrupted by the server. */
+const MYSQL_TRANSIENT_ERRNO = new Set([1040, 1053, 1205, 1213, 1290, 1317, 1836, 2002, 2003, 2006, 2013, 2055, 3024])
+
 /**
  * True when the error says PlanetScale or Hyperdrive is unreachable or overloaded, not that the
- * row is bad: Postgres classes 08 (connection), 40 (rollback, deadlock), 53 (resources),
- * 57 (operator intervention, shutdown), 58 (system), and network errors without a SQLSTATE.
- * Such a batch backs off and retries forever; it never dead-letters (home-scale review P1).
+ * row is bad. Postgres: SQLSTATE classes 08 (connection), 40 (rollback, deadlock), 53 (resources),
+ * 57 (operator intervention, shutdown), 58 (system). MySQL (mysql2): the same SQLSTATE classes in
+ * `sqlState`, plus the transient server errno list above. Network errors without a SQL code count
+ * too. Such a batch backs off and retries forever; it never dead-letters (home-scale review P1).
  */
 export const isTransientError = (e: unknown): boolean => {
-  const code = (e as { code?: unknown } | null)?.code
+  const err = (e ?? {}) as { code?: unknown; sqlState?: unknown; errno?: unknown; fatal?: unknown }
+  if (typeof err.errno === "number" && MYSQL_TRANSIENT_ERRNO.has(err.errno)) return true
+  if (typeof err.sqlState === "string" && /^[0-9A-Z]{5}$/.test(err.sqlState) && err.sqlState !== "HY000") return /^(08|40|53|57|58)/.test(err.sqlState)
+  const code = err.code
   if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return /^(08|40|53|57|58)/.test(code)
-  // Node-style socket codes from the pg client (ECONNRESET, ETIMEDOUT, EPIPE, ...).
-  if (typeof code === "string" && /^E[A-Z]+$/.test(code)) return true
+  // Node-style socket codes (ECONNRESET, ETIMEDOUT, EPIPE, ...) and mysql2 protocol losses.
+  if (typeof code === "string" && (/^E[A-Z]+$/.test(code) || /^PROTOCOL_(CONNECTION_LOST|SEQUENCE_TIMEOUT)$/.test(code))) return true
+  // A fatal mysql2 error with no server errno is a dead connection.
+  if (err.fatal === true && typeof err.errno !== "number") return true
   // The pg client's own connection errors carry no code; nothing else is matched by text.
   const text = e instanceof Error ? e.message : String(e)
-  return /^(Connection terminated|Connection terminated unexpectedly|connection timeout|timeout expired|HYPERDRIVE binding missing|Network connection lost)/i.test(text)
+  return /^(Connection terminated|Connection terminated unexpectedly|connection timeout|timeout expired|HYPERDRIVE binding missing|PS_MYSQL binding missing|Network connection lost)/i.test(text)
 }
 
 const describeError = (e: unknown): string => {
@@ -67,7 +82,15 @@ const describeError = (e: unknown): string => {
  * off). Upserts are guarded by (source_stream, source_seq), so a later replay of the dead row
  * cannot move a newer row backwards.
  */
-export const applyProjectionRows = async (client: PgQuery, stream: string, rows: ReadonlyArray<OutboxRow>): Promise<{ sent: Array<number>; dead: Array<{ id: number; error: string }> }> => {
+export const applyProjectionRows = (client: PgQuery, stream: string, rows: ReadonlyArray<OutboxRow>) => applyRows(client, stream, rows, projectionStatement)
+
+/** applyProjectionRows for any SQL dialect: the statement renderer is the only difference. */
+export const applyRows = async (
+  client: PgQuery,
+  stream: string,
+  rows: ReadonlyArray<OutboxRow>,
+  statementOf: (kind: string, payload: unknown, stream: string, seq: number) => [string, Array<unknown>] | undefined
+): Promise<{ sent: Array<number>; dead: Array<{ id: number; error: string }> }> => {
   const sent: Array<number> = []
   const dead: Array<{ id: number; error: string }> = []
   await client.query("BEGIN")
@@ -75,7 +98,7 @@ export const applyProjectionRows = async (client: PgQuery, stream: string, rows:
     for (const row of rows) {
       let statement: [string, Array<unknown>] | undefined
       try {
-        statement = projectionStatement(row.kind, row.payload, stream, row.seq)
+        statement = statementOf(row.kind, row.payload, stream, row.seq)
       } catch (e) {
         // A payload that cannot even be rendered is poison for this row only.
         dead.push({ id: row.id, error: describeError(e) })

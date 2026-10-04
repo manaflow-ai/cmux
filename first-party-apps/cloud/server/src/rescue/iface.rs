@@ -9,6 +9,8 @@
 //! backend part only: the rescue shell uses no `connection.channel.*` host
 //! ops), so both swap to the real crate the same way: delete this file and
 //! import the real types. Keep the names, and keep the two copies equal.
+//! The connector mirror ([`crate::connector::iface`]) re-exports the shared
+//! types from here (local ids, registry ids, errors, `open_token`).
 //!
 //! Differences from the real shape, on purpose:
 //! - Synchronous. The real traits are `async fn`; each method here maps 1:1.
@@ -205,8 +207,24 @@ impl fmt::Debug for ResumeToken {
 /// `open_token`: issued by the host for one open or resume of one terminal
 /// after the user's gesture. The backend passes it on and never mints it.
 /// `Debug` hides the value so it never reaches a log.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(transparent)]
 pub struct OpenToken(pub String);
+
+impl OpenToken {
+    /// The host's token is present: not empty and not only spaces. The
+    /// server checks presence only. LIMIT: the server cannot check expiry
+    /// or reuse; this is safe only while the host stamps `open_token`
+    /// itself and drops any `open_token` a client sends.
+    pub fn check(&self) -> Result<(), BackendError> {
+        if self.0.trim().is_empty() {
+            return Err(BackendError::Invalid {
+                reason: "open_token is missing: cmux issues one for each open".into(),
+            });
+        }
+        Ok(())
+    }
+}
 
 impl fmt::Debug for OpenToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

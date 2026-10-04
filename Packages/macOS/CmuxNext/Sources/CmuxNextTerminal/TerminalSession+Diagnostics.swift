@@ -23,6 +23,10 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var viewSize: CGSize
     /// Backing layer bounds in points (Ghostty's IOSurface layer).
     public var layerSize: CGSize
+    /// READY snapshots restored in place on this session's surfaces.
+    public var restoredSnapshots: Int
+    /// Surfaces swapped in for a later VT replay (byte-replay attach only).
+    public var swappedSurfaces: Int
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -45,7 +49,9 @@ extension TerminalSession {
             inWindow: surface.window != nil,
             hidden: surface.isHiddenOrHasHiddenAncestor,
             viewSize: surface.bounds.size,
-            layerSize: surface.layer?.bounds.size ?? .zero
+            layerSize: surface.layer?.bounds.size ?? .zero,
+            restoredSnapshots: restoredSnapshots,
+            swappedSurfaces: swappedSurfaces
         )
     }
 }

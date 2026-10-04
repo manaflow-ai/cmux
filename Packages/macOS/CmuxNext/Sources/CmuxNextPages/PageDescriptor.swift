@@ -30,10 +30,14 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
     /// build (the diff viewer in the one webviews-app build) names its own entry html.
     public let entry: String
+    /// First path components the page instance's ``PageDynamicResourceSource`` answers
+    /// (`__patch`); the scheme handler never serves a static file under one.
+    public let dynamicPrefixes: Set<String>
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
-                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html") {
+                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
+                dynamicPrefixes: Set<String> = []) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -46,6 +50,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.csp = PageID.isFirstParty(id) ? csp : .strict
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
+        self.dynamicPrefixes = dynamicPrefixes
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -76,7 +81,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
 
 /// The native UI ops every page shares (react-pages.md 1.3). The host serves them; a page lists
 /// the ones it uses in ``PageDescriptor/nativeOps``.
-public nonisolated enum PageNativeOp {
+public nonisolated struct PageNativeOp {
+    public nonisolated init() {}
     /// Runs a registry action in the app with origin `user`: `{action, args}`.
     public static let actionRun = "cmux.app.action.run"
     /// Writes text to the pasteboard: `{text}`.
@@ -105,6 +111,15 @@ public extension PageDescriptor {
             "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,
             "cmux.cloud.auth.sign_out": .custom, "cmux.cloud.machine.connect": .custom,
         ])
+
+    /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
+    /// preview and sound ops share the namespace; the page may run only the two actions it links to.
+    static let settings = PageDescriptor(
+        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
+        nativeOps: [PageNativeOp.actionRun],
+        actions: ["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
+                  "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
+                  "browserProfile.manageExtensions", "browserProfile.delete"])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

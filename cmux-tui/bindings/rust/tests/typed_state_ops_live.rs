@@ -1,7 +1,8 @@
 //! The typed state calls against a real cmux-tui daemon: `workspace.update`,
 //! `tab.pin`/`tab.unpin`/`tab.update`, `column.update`, `window_record.*`,
-//! keyed `new-frontend-browser-tab` and `update-frontend-browser-tab`, and a
-//! protocol/2 error through `request_raw`.
+//! keyed `new-frontend-browser-tab` and `update-frontend-browser-tab`, a
+//! protocol/2 error through `request_raw`, and the personal workspace groups
+//! (`workspace_group.*`, `workspace.place`, `workspace.placement.list`).
 //!
 //! Runs when `CMUX_SDK_LIVE_TUI_BIN` names a built `cmux-tui` binary (the
 //! `cmux-tui-sdks.yml` live conformance job sets it). Without the variable the
@@ -12,7 +13,8 @@ use cmux::raw::{
 };
 use cmux::{
     ColumnEdge, ColumnMode, ColumnUpdateOptions, Config, Direction, Error, LayoutNode,
-    SplitOptions, TabUpdateOptions, Update, WorkspaceUpdateOptions,
+    SplitOptions, TabUpdateOptions, Update, WorkspaceGroupCreateOptions,
+    WorkspaceGroupUpdateOptions, WorkspacePlaceOptions, WorkspaceUpdateOptions,
 };
 use serde_json::json;
 use std::os::unix::net::UnixStream;
@@ -34,13 +36,15 @@ impl Drop for Daemon {
     }
 }
 
-fn start_daemon(binary: &Path) -> (Daemon, PathBuf) {
-    let dir = std::env::temp_dir().join(format!("cmux-sdk-state-live-{}", std::process::id()));
+/// A headless daemon in its own state directory; `name` keeps the tests of
+/// this binary, which run in parallel, apart.
+fn start_daemon(binary: &Path, name: &str) -> (Daemon, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("cmux-sdk-{name}-live-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("s.sock");
     let child = Command::new(binary)
-        .args(["--headless", "--session", "sdk-typed-state", "--socket"])
+        .args(["--headless", "--session", &format!("sdk-{name}"), "--socket"])
         .arg(&socket)
         .arg("--state")
         .arg(dir.join("state"))
@@ -64,7 +68,7 @@ fn typed_state_ops_live_daemon() {
         eprintln!("skipped: set CMUX_SDK_LIVE_TUI_BIN to a cmux-tui binary to run");
         return;
     };
-    let (_daemon, socket) = start_daemon(Path::new(&binary));
+    let (_daemon, socket) = start_daemon(Path::new(&binary), "state");
     let config = Config::from_socket_path(&socket).with_timeout(Duration::from_secs(10));
     let client = cmux::Client::connect(config).unwrap();
     let session = client.current_session();
@@ -108,6 +112,12 @@ fn typed_state_ops_live_daemon() {
     screen.update_column(column.clone(), ColumnUpdateOptions::width(0.6)).unwrap();
     let pin = ColumnUpdateOptions::pin(ColumnEdge::Right, ColumnMode::Docked);
     screen.update_column(column.clone(), pin).unwrap();
+    // The layout document carries the flag (sticky-columns-v1).
+    let LayoutNode::Viewport(pinned) = screen.refresh().unwrap().layout.root else {
+        panic!("still a viewport");
+    };
+    let sticky = pinned.columns.iter().find(|c| c.column_id.as_str() == column).unwrap().sticky;
+    assert_eq!(sticky.map(|s| (s.edge, s.mode)), Some((ColumnEdge::Right, ColumnMode::Docked)));
     screen.update_column(column, ColumnUpdateOptions::unpin()).unwrap();
 
     // window_record.*: compare-and-swap on the record's own revision.
@@ -169,4 +179,92 @@ fn typed_state_ops_live_daemon() {
     }
     raw.close();
     created.resource.close().unwrap();
+}
+
+#[test]
+fn workspace_groups_live_daemon() {
+    let Some(binary) = std::env::var_os("CMUX_SDK_LIVE_TUI_BIN") else {
+        eprintln!("skipped: set CMUX_SDK_LIVE_TUI_BIN to a cmux-tui binary to run");
+        return;
+    };
+    let (_daemon, socket) = start_daemon(Path::new(&binary), "groups");
+    let config = Config::from_socket_path(&socket).with_timeout(Duration::from_secs(10));
+    let client = cmux::Client::connect(config).unwrap();
+    let session = client.current_session();
+    let a = session.create_workspace(Some("group-a".into())).unwrap();
+    let b = session.create_workspace(Some("group-b".into())).unwrap();
+    let a_id = a.value.workspace_id().clone();
+    let b_id = b.value.workspace_id().clone();
+
+    // Create two groups; the second goes first.
+    let work = WorkspaceGroupCreateOptions {
+        color: Some("#225588".into()),
+        ..WorkspaceGroupCreateOptions::new("Work")
+    };
+    let work = session.create_workspace_group(work).unwrap().value;
+    assert_eq!(
+        (work.name.as_str(), work.color.as_deref(), work.index),
+        ("Work", Some("#225588"), 0)
+    );
+    let play =
+        WorkspaceGroupCreateOptions { index: Some(0), ..WorkspaceGroupCreateOptions::new("Play") };
+    let play = session.create_workspace_group(play).unwrap().value;
+    let names = |session: &cmux::Session| {
+        session.workspace_groups().unwrap().into_iter().map(|g| g.name).collect::<Vec<_>>()
+    };
+    assert_eq!(names(&session), ["Play", "Work"]);
+
+    // Move, rename, recolor, collapse.
+    session.move_workspace_group(&work.id, 0).unwrap();
+    assert_eq!(names(&session), ["Work", "Play"]);
+    let update = WorkspaceGroupUpdateOptions {
+        name: Some("Deep work".into()),
+        color: Update::Clear,
+        collapsed: Some(true),
+        room: None,
+    };
+    let updated = session.update_workspace_group(&work.id, update).unwrap().value;
+    assert_eq!(
+        (updated.name.as_str(), updated.color, updated.collapsed),
+        ("Deep work", None, true)
+    );
+    let in_room = session.workspace_groups_in_room(work.room_id.clone()).unwrap();
+    assert_eq!(in_room.len(), 2);
+
+    // Place b into the group at the top, then a into it after b.
+    let into = |group: &str, index| WorkspacePlaceOptions {
+        group: Update::Set(group.to_string()),
+        index: Some(index),
+    };
+    let placed = session.workspace(b_id.clone()).place(into(&work.id, 0)).unwrap().value;
+    assert_eq!(placed.group_id.as_deref(), Some(work.id.as_str()));
+    assert_eq!(placed.workspace.workspace_id.as_ref(), Some(&b_id));
+    session.workspace(a_id.clone()).place(into(&work.id, 1)).unwrap();
+    let placements = session.workspace_placements().unwrap();
+    let position = |id: &cmux::WorkspaceId| {
+        placements.iter().find(|p| p.workspace.workspace_id.as_ref() == Some(id)).unwrap()
+    };
+    assert!(position(&b_id).index < position(&a_id).index, "{placements:?}");
+    assert_eq!(position(&a_id).group_id.as_deref(), Some(work.id.as_str()));
+
+    // Ungroup a (keeps its position), then delete the group: b is ungrouped.
+    let out = WorkspacePlaceOptions { group: Update::Clear, index: None };
+    assert_eq!(session.workspace(a_id).place(out).unwrap().value.group_id, None);
+    let deleted = session.delete_workspace_group(&work.id).unwrap().value;
+    assert_eq!(deleted.id, work.id);
+    assert!(
+        deleted.ungrouped.iter().any(|w| w.workspace_id.as_ref() == Some(&b_id)),
+        "{deleted:?}"
+    );
+    assert_eq!(names(&session), ["Play"]);
+    assert!(session.workspace_placements().unwrap().iter().all(|p| p.group_id.is_none()));
+
+    // An unknown group is a typed protocol error.
+    match session.delete_workspace_group(&work.id).unwrap_err() {
+        Error::Protocol { code, .. } => assert_eq!(code, "resource.not_found"),
+        other => panic!("expected resource.not_found, got {other:?}"),
+    }
+    session.delete_workspace_group(&play.id).unwrap();
+    a.resource.close().unwrap();
+    b.resource.close().unwrap();
 }

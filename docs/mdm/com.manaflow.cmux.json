@@ -241,6 +241,18 @@
       "title" : "Home Opacity",
       "type" : "number"
     },
+    "appearance.surfaces.internalPage.color" : {
+      "description" : "appearance.surfaces.internalPage.color",
+      "title" : "Internal Pages Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.internalPage.opacity" : {
+      "description" : "appearance.surfaces.internalPage.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Internal Pages Opacity",
+      "type" : "number"
+    },
     "appearance.surfaces.newTabPage.color" : {
       "description" : "appearance.surfaces.newTabPage.color",
       "title" : "New Tab Page Color",
@@ -275,6 +287,18 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Sidebar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.splitDivider.color" : {
+      "description" : "appearance.surfaces.splitDivider.color",
+      "title" : "Split Divider Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.splitDivider.opacity" : {
+      "description" : "appearance.surfaces.splitDivider.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Split Divider Opacity",
       "type" : "number"
     },
     "appearance.surfaces.tabBar.color" : {
@@ -518,6 +542,29 @@
       "title" : "Fixed Column Width",
       "type" : "number"
     },
+    "layout.dockColumnEdge" : {
+      "default" : "nearest",
+      "description" : "layout.dockColumnEdge",
+      "enum" : [
+        "nearest",
+        "right",
+        "left",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Column Edge",
+      "type" : "string"
+    },
+    "layout.dockColumnMode" : {
+      "default" : "docked",
+      "description" : "layout.dockColumnMode",
+      "enum" : [
+        "docked",
+        "overlay"
+      ],
+      "title" : "Dock Column Mode",
+      "type" : "string"
+    },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
       "description" : "layout.frameOrientation",
@@ -605,29 +652,6 @@
         "halve"
       ],
       "title" : "Split Sizing",
-      "type" : "string"
-    },
-    "layout.stickyColumnEdge" : {
-      "default" : "nearest",
-      "description" : "layout.stickyColumnEdge",
-      "enum" : [
-        "nearest",
-        "right",
-        "left",
-        "top",
-        "bottom"
-      ],
-      "title" : "Sticky Column Edge",
-      "type" : "string"
-    },
-    "layout.stickyColumnMode" : {
-      "default" : "docked",
-      "description" : "layout.stickyColumnMode",
-      "enum" : [
-        "docked",
-        "overlay"
-      ],
-      "title" : "Sticky Column Mode",
       "type" : "string"
     },
     "layout.stripScrollbar" : {
@@ -995,6 +1019,12 @@
       "title" : "Minimal Mode",
       "type" : "string"
     },
+    "sidebar.pinnedBandsScroll" : {
+      "default" : true,
+      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+      "title" : "Scroll Tall Sections",
+      "type" : "boolean"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -1012,12 +1042,6 @@
       "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
-      "type" : "boolean"
-    },
-    "sidebar.stickyBandsScroll" : {
-      "default" : true,
-      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
-      "title" : "Scroll Tall Sections",
       "type" : "boolean"
     },
     "sidebar.topBandMaxShare" : {
@@ -1057,7 +1081,7 @@
       "type" : "boolean"
     },
     "tabs.newTabKind" : {
-      "default" : "same-kind",
+      "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
       "enum" : [
         "same-kind",

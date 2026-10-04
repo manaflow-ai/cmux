@@ -8,7 +8,7 @@ export const PAGE_CONNECTION = "cmux.page.connection";
 /** The error code of a lost link to the owner or the host. */
 export const LINK_CLOSED = "cmux.protocol.closed";
 
-export type PageCommandName = "find" | "focusSearch" | "back" | "forward" | "reset";
+export type PageCommandName = "find" | "focusSearch" | "back" | "forward" | "reset" | "save" | "link";
 
 export interface PageCommand {
   command: PageCommandName;

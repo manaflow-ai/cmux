@@ -10,7 +10,7 @@ use super::argv::LinkCommand;
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{SendError, Sender};
 use std::sync::{Arc, Mutex};
 
 /// One link process: the machine and the supervisor's generation for it.
@@ -26,6 +26,35 @@ pub enum LinkProcessEvent {
     Line { tag: LinkTag, line: String },
     /// The process ended (`None`: killed by a signal).
     Exited { tag: LinkTag, code: Option<i32> },
+    /// The link's ready deadline passed (sent by the supervisor's clock).
+    Deadline { tag: LinkTag },
+}
+
+/// Wakes the owner of the link state (the serve loop) after an event was
+/// queued. Called on the thread that sent the event; it must not block.
+pub type LinkWake = Arc<dyn Fn() + Send + Sync>;
+
+/// Where a link process sends its events: the supervisor's queue, then a
+/// wake for the serve loop, so a link change reaches the host at once.
+#[derive(Clone)]
+pub struct LinkEvents {
+    sender: Sender<LinkProcessEvent>,
+    wake: Option<LinkWake>,
+}
+
+impl LinkEvents {
+    pub(crate) fn new(sender: Sender<LinkProcessEvent>, wake: Option<LinkWake>) -> Self {
+        Self { sender, wake }
+    }
+
+    /// Queues `event` for the supervisor. `Err` when the supervisor is gone.
+    pub fn send(&self, event: LinkProcessEvent) -> Result<(), SendError<LinkProcessEvent>> {
+        self.sender.send(event)?;
+        if let Some(wake) = &self.wake {
+            wake();
+        }
+        Ok(())
+    }
 }
 
 /// A running link process.
@@ -40,15 +69,12 @@ pub trait LinkSpawner: Send {
         &mut self,
         tag: LinkTag,
         command: &LinkCommand,
-        events: Sender<LinkProcessEvent>,
+        events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>>;
 }
 
 /// The real spawner: one child process and one reader thread per link.
 pub struct ProcessSpawner;
-
-/// Variables the child keeps from this process; everything else is cleared.
-const KEPT_ENV: &[&str] = &["HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL"];
 
 fn private_dir(path: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
@@ -63,7 +89,7 @@ impl LinkSpawner for ProcessSpawner {
         &mut self,
         tag: LinkTag,
         command: &LinkCommand,
-        events: Sender<LinkProcessEvent>,
+        events: LinkEvents,
     ) -> std::io::Result<Box<dyn LinkProcess>> {
         private_dir(&command.state_dir)?;
         if let Some(dir) = command.local_socket.parent() {
@@ -75,13 +101,13 @@ impl LinkSpawner for ProcessSpawner {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),
         }
+        // The binary by absolute path; the child's environment is exactly
+        // the command's (nothing of this process's environment).
+        if !command.binary.is_absolute() {
+            return Err(std::io::Error::other("the link binary is not an absolute path"));
+        }
         let mut process = Command::new(&command.binary);
         process.args(&command.args).env_clear();
-        for key in KEPT_ENV {
-            if let Some(value) = std::env::var_os(key) {
-                process.env(key, value);
-            }
-        }
         process.envs(command.env.iter().map(|(k, v)| (k, v)));
         // The link's stderr goes to the server's stderr (the host's log); it
         // carries no credential because none is given to the link.

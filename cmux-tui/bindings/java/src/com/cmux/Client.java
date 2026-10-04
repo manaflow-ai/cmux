@@ -2647,13 +2647,32 @@ public final class Client implements AutoCloseable {
             "layout column",
             "column_id",
             Wire.WIDTH,
-            "root"
+            "root",
+            "sticky"
         );
         return new Layout.Column(
             requiredExactId(fields, "column_id", Ids.SplitId::new),
             finiteDouble(fields.get(Wire.WIDTH), "layout column width"),
-            decodeLayoutNode(fields.get("root"))
+            decodeLayoutNode(fields.get("root")),
+            decodeLayoutColumnSticky(fields.get("sticky"))
         );
+    }
+
+    /** An omitted or null flag is empty (the column scrolls). */
+    private static Optional<Layout.Sticky> decodeLayoutColumnSticky(Object value) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        Map<String, Object> fields = Wire.object(value, "layout column sticky");
+        requireExactFields(fields, "layout column sticky", "edge", "mode");
+        try {
+            return Optional.of(new Layout.Sticky(
+                Wire.string(fields.get("edge"), "layout column sticky edge"),
+                Wire.string(fields.get("mode"), "layout column sticky mode")
+            ));
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError(error.getMessage());
+        }
     }
 
     static ResourceSnapshot decodeResourceSnapshot(Object value) {

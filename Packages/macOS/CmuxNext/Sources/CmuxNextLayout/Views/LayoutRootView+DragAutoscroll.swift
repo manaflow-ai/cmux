@@ -30,7 +30,7 @@ extension ScreenContentView {
 
     func edgeAutoscroll(localX: CGFloat, dt: Double) -> Bool {
         // The bands sit at the edges of the strip's uncovered range, so a
-        // drag next to a sticky column scrolls and one over it drops.
+        // drag next to a docked column scrolls and one over it drops.
         let range = uncoveredRect
         guard acceptsHorizontalScroll, !isUserScrolling, localX >= range.minX, localX <= range.maxX else { return false }
         let x = localX - range.minX

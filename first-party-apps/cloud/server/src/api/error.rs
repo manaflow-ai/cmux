@@ -1,6 +1,8 @@
 //! Typed op errors. Codes are `cmux.cloud.<reason>`; `message` is display
-//! text (the Cloud API's `ui.message` when it sent one).
+//! text. A backend error keeps its `cmux.wire/1` code in `upstream_code`
+//! and its `details` (for example `{limit, used}` of a quota).
 
+use super::control_plane::WireError;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -10,7 +12,27 @@ pub mod codes {
     pub const FORBIDDEN: &str = "cmux.cloud.forbidden";
     pub const NOT_FOUND: &str = "cmux.cloud.not_found";
     pub const CONFLICT: &str = "cmux.cloud.conflict";
-    pub const PLAN_LIMIT: &str = "cmux.cloud.plan_limit";
+    /// `cloud.plan.required`: the op needs a paid plan.
+    pub const PLAN_REQUIRED: &str = "cmux.cloud.plan_required";
+    /// `cloud.quota.exceeded`: `details` carries `{limit, used}`.
+    pub const QUOTA_EXCEEDED: &str = "cmux.cloud.quota_exceeded";
+    /// `cloud.size.locked`: the size needs another plan.
+    pub const SIZE_LOCKED: &str = "cmux.cloud.size_locked";
+    /// `cloud.provider.unavailable` (retryable).
+    pub const PROVIDER_UNAVAILABLE: &str = "cmux.cloud.provider_unavailable";
+    /// `cloud.machine.not_bound`: still provisioning, no host yet.
+    pub const NOT_BOUND: &str = "cmux.cloud.not_bound";
+    /// `cloud.machine.paused`.
+    pub const MACHINE_PAUSED: &str = "cmux.cloud.machine_paused";
+    /// `cloud.migration.unavailable`.
+    pub const MIGRATION_UNAVAILABLE: &str = "cmux.cloud.migration_unavailable";
+    /// `cloud.machine.not_classic`.
+    pub const NOT_CLASSIC: &str = "cmux.cloud.not_classic";
+    /// `cloud.upgrade.failed`: the classic machine still works.
+    pub const UPGRADE_FAILED: &str = "cmux.cloud.upgrade_failed";
+    /// `mutation.indeterminate`: the backend cannot tell whether the call
+    /// acted. Retry with the SAME key; never make a new one.
+    pub const INDETERMINATE: &str = "cmux.cloud.indeterminate";
     pub const RATE_LIMITED: &str = "cmux.cloud.rate_limited";
     pub const UNSUPPORTED: &str = "cmux.cloud.unsupported";
     pub const UPSTREAM: &str = "cmux.cloud.upstream_error";
@@ -22,35 +44,94 @@ pub mod codes {
     pub const IDEMPOTENCY_KEY_FORBIDDEN: &str = "cmux.cloud.idempotency_key_forbidden";
     pub const IDEMPOTENCY_CONFLICT: &str = "cmux.cloud.idempotency_conflict";
     pub const RELAY_UNAVAILABLE: &str = "cmux.cloud.relay_unavailable";
-    /// A same-key retry of a create the Cloud API does not dedup, after an
-    /// attempt that got no answer: list first, then use a new key.
-    pub const OUTCOME_UNKNOWN: &str = "cmux.cloud.outcome_unknown";
+    /// An op line arrived while a relay call waited and the queue of
+    /// waiting lines was full (`api::RELAY_QUEUE_LINES`): retry it.
+    pub const RELAY_BUSY: &str = "cmux.cloud.relay_busy";
 }
+
+/// `cmux.wire/1` codes and the server code each maps to. Any other code is
+/// `upstream_error` with the wire code kept in `upstream_code`.
+const WIRE_CODES: &[(&str, &str)] = &[
+    ("auth.unauthenticated", codes::AUTH_REQUIRED),
+    ("auth.forbidden", codes::FORBIDDEN),
+    ("auth.sso_required", codes::FORBIDDEN),
+    ("client.too_old", codes::FORBIDDEN),
+    ("policy.denied", codes::FORBIDDEN),
+    ("validation.invalid", codes::INVALID_ARGS),
+    ("selector.not_found", codes::NOT_FOUND),
+    ("cloud.machine.not_found", codes::NOT_FOUND),
+    ("cloud.snapshot.not_found", codes::NOT_FOUND),
+    ("idempotency.conflict", codes::IDEMPOTENCY_CONFLICT),
+    ("revision.conflict", codes::CONFLICT),
+    ("mutation.indeterminate", codes::INDETERMINATE),
+    ("owner.unreachable", codes::UPSTREAM),
+    ("cloud.plan.required", codes::PLAN_REQUIRED),
+    ("cloud.quota.exceeded", codes::QUOTA_EXCEEDED),
+    ("cloud.size.locked", codes::SIZE_LOCKED),
+    ("cloud.provider.unavailable", codes::PROVIDER_UNAVAILABLE),
+    ("cloud.machine.not_bound", codes::NOT_BOUND),
+    ("cloud.machine.paused", codes::MACHINE_PAUSED),
+    ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
+    ("cloud.machine.not_classic", codes::NOT_CLASSIC),
+    ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
+];
 
 /// A typed op failure.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CloudError {
     pub code: &'static str,
     pub message: String,
-    /// HTTP status of the Cloud API answer, when there was one.
+    /// HTTP status of a classic route answer, when there was one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
-    /// The Cloud API's own error code (`error` field or `x-cmux-vm-error`).
+    /// The backend's own code (`cmux.wire/1` code, or a classic route's).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_code: Option<String>,
+    /// The backend's `details` (for example `{limit, used}` of a quota).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
     pub retryable: bool,
 }
 
 impl CloudError {
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), status: None, upstream_code: None, retryable: false }
+        Self {
+            code,
+            message: message.into(),
+            status: None,
+            upstream_code: None,
+            details: None,
+            retryable: false,
+        }
     }
 
     pub fn invalid(message: impl Into<String>) -> Self {
         Self::new(codes::INVALID_ARGS, message)
     }
 
-    /// Maps a non-2xx Cloud API answer (`{error, message, ui: {message}}`).
+    /// Maps a typed `cmux.wire/1` error. `mutation.indeterminate` is
+    /// retryable here (with the same key), whatever the backend says;
+    /// `cloud.provider.unavailable` and `owner.unreachable` are too.
+    pub fn from_wire(error: &WireError) -> Self {
+        let code = WIRE_CODES
+            .iter()
+            .find(|(wire, _)| *wire == error.code)
+            .map_or(codes::UPSTREAM, |(_, code)| code);
+        let retryable = error.retryable
+            || matches!(code, codes::INDETERMINATE | codes::PROVIDER_UNAVAILABLE)
+            || error.code == "owner.unreachable";
+        Self {
+            code,
+            message: error.message.clone(),
+            status: None,
+            upstream_code: Some(error.code.clone()),
+            details: error.details.clone(),
+            retryable,
+        }
+    }
+
+    /// TRANSITIONAL: maps a non-2xx classic route answer
+    /// (`{error, message, ui: {message}}`) of the link and file routes.
     pub fn from_http(status: u16, body: &Value, header_code: Option<&str>) -> Self {
         let upstream = header_code
             .map(str::to_owned)
@@ -61,16 +142,11 @@ impl CloudError {
             .or_else(|| body.get("message").and_then(Value::as_str))
             .map(str::to_owned)
             .unwrap_or_else(|| format!("cmux Cloud answered HTTP {status}"));
-        let plan = upstream.as_deref().is_some_and(|c| {
-            c.contains("requires_pro") || c.contains("exceeds_plan") || c.contains("limit")
-        });
         let code = match status {
             401 => codes::AUTH_REQUIRED,
-            402 => codes::PLAN_LIMIT,
-            403 if plan => codes::PLAN_LIMIT,
+            402 => codes::PLAN_REQUIRED,
             403 => codes::FORBIDDEN,
             404 => codes::NOT_FOUND,
-            409 if plan => codes::PLAN_LIMIT,
             409 => codes::CONFLICT,
             429 => codes::RATE_LIMITED,
             501 => codes::UNSUPPORTED,
@@ -81,7 +157,14 @@ impl CloudError {
             .get("retryable")
             .and_then(Value::as_bool)
             .unwrap_or(matches!(status, 429 | 502..=504));
-        Self { code, message, status: Some(status), upstream_code: upstream, retryable }
+        Self {
+            code,
+            message,
+            status: Some(status),
+            upstream_code: upstream,
+            details: None,
+            retryable,
+        }
     }
 }
 

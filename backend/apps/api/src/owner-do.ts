@@ -5,6 +5,8 @@ import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.t
 import { DEAD_REPLAY_MS, drainOutboxChannels } from "./owner-outbox.ts"
 import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./owner-preflight.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
+import { AlarmSerial } from "./alarm-serial.ts"
+import { earliest, recordWakeFailure } from "./owner-wake.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
@@ -109,6 +111,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
+  private readonly alarmSerial = new AlarmSerial()
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
   })
@@ -200,8 +203,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     }
   }
 
-  /** Hook after each committed op (for example: close a revoked install's sockets). */
-  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>) {}
+  /** Hook after each committed op (close a revoked install's sockets); `params` only for outbox-delivered system ops. */
+  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {}
 
   /**
    * When this owner next needs its alarm for its own work (for example the next
@@ -283,7 +286,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       )
       const reject = frames.find((f) => f.t === "reject")
       if (reject && reject.t === "reject") console.warn(JSON.stringify({ msg: "system op refused", target: engine.stream, source, op: item.op, code: reject.code }))
-      this.afterOp(principal, item.op, frames)
+      this.afterOp(principal, item.op, frames, item.params)
       done.push(item.id)
     }
     this.afterCommit()
@@ -337,7 +340,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // Per channel: a backed-off channel waits, a healthy one drains now (outbox.ts).
     const outboxAt = this.engine.outbox.nextDueAt(now)
     const wake = this.wakeAt(now)
-    const want = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
+    const want = earliest(outboxAt, wake)
     if (want === null) return
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
   }
@@ -468,7 +471,10 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * (stream, seq), then runs the owner's own wake work, then sets the alarm to
    * the earlier of the drain retry and the owner's next wake.
    */
-  override async alarm() {
+  override alarm(): Promise<void> { return this.alarmSerial.run(() => this.alarmOnce()) }
+  /** Resolves when no alarm run is in flight (test hook, see AlarmSerial). */
+  get alarmIdle(): Promise<void> { return this.alarmSerial.idle }
+  private async alarmOnce() {
     this.gate.sweep(Date.now())
     if (!this.engine) return
     await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c))
@@ -482,16 +488,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       await this.onWake(Date.now())
       this.store.exec(`DELETE FROM do_wake`)
     } catch (e) {
-      const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_wake WHERE id = 1`)[0]?.attempts ?? 0) + 1
-      this.store.exec(`INSERT INTO do_wake (id, attempts) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET attempts = excluded.attempts`, attempts)
-      wakeRetryAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
-      console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, attempts, error: String(e) }))
+      wakeRetryAt = recordWakeFailure(this.store, this.engine.stream, e, MAX_BACKOFF_MS)
     }
     // Includes rows committed during the wake (their afterCommit saw the running alarm).
     const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const due = this.wakeAt(Date.now())
-    const wake = wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due
-    const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
+    const at = earliest(outboxAt, wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due)
     if (at !== null) await this.ctx.storage.setAlarm(at)
   }
 }

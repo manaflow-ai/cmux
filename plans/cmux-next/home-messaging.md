@@ -34,7 +34,7 @@ from `cmux-conversation::encode_id` unless stated).
 | --- | --- | --- |
 | Conversation head | `conv_<26>` (group, chief); `conv_dm_<26>` = base32(sha256("dm\0" + lo + "\0" + hi))[0..26] where lo/hi are the two sorted participant ids (a user id or an address id) | `kind`, `title`, `team?` (the team whose policy applies; null for personal), `created_by`, `created_at`, `updated_at`, `last_seq`, `rev`, `participants[]`, `invites[]`, `settings {wake_policy, agent_budget {turns, gap_ms}, history_visible: "all"|"since_join"}`, `retention_days?` (from team policy), `state: "active"|"archived"` |
 | Participant | `user_<id>`, `agent_<id>`, `addr_<26>` | `kind: human|agent|address`, `display_name`, `agent_class?: mux|agent`, `owner_user?` (agents), `role: owner|member`, `joined_seq` (last_seq when added), `added_by`, `left_at?` |
-| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, mime, size, name}`, refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
+| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, name, mime_type, byte_count, width?, height?, duration_ms?, poster? {hash, mime_type, byte_count}, preview? {hash, mime_type, byte_count}}` (cloud heads only; see section 10.1), refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
 | Read cursor | (conversation, participant) | `last_read_seq` (monotonic, written only by that participant) |
 | Invite | `inv_<26>` inside its conversation | `address` (`addr_<26>`), `channel: email|sms`, `display_name`, `invited_by`, `created_at`, `expires_at` (14 days), `token_hash` (sha256 of sha256 of the 128-bit secret), `status: pending|accepted|revoked|expired`, `accepted_by?`, `accepted_at?`, `delivery {state: queued|sent|delivered|bounced|complained|failed|suppressed|refused_env, provider_id?, at}`, `copy_variant`, `locale` |
 | Inbox entry | (user, conversation) | owner-projected (from ConversationDO, guarded by conversation `rev`): `kind`, `title`, `last_seq`, `last_at`, `preview` (240 chars, author + text), `unread` (count after the user's cursor, excluding own messages), `mentions` (unread mentions of the user), `dm_peer?`, `rev`; user-owned: `pinned`, `pin_position`, `muted_until?`, `archived`, `marked_unread` |
@@ -78,7 +78,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `reaction.add` / `reaction.remove` | `{message_id, part_index, reaction}` | client key | participants | one per (author, part, kind) |
 | `read_cursor.set` | `{seq}` | client key (`read:<seq>` recommended) | humans | monotonic, `<= last_seq` |
 | `title.set` | `{title}` | client key | members (group) | not for `dm`, `chief` |
-| `participants.add` | `{participant: user or chief}` | client key | members | a human may be added only when they share a team with the adder or already share a conversation with them; anyone else needs `invite.create`. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
+| `participants.add` | `{participant: user or chief}` | client key | members | 120 per hour per actor and `conversation.create` 60 per hour, checked before any reach lookup (section 9); a human may be added only when they share a team with the adder or are connected to them (a shared group is no connection), and their `allow_requests_from` allows it (section 16.10); anyone else needs `invite.create` (later a message request). A chief adds the humans its owner could add, under its owner's reach. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
 | `participants.remove` | `{participant}` | client key | self (leave), conversation owner, chief owner (for their chief) | removing the last human archives the conversation |
 | `invite.create` | `{invite_id, address, channel, display_name, locale, copy_variant}` | `invite_id` (the Worker derives it from the client key) | members | Worker first runs `address.ensure` and `invite.quota.take`; commit emits outbox `address.deliver` (send happens after commit); max 20 pending invites per conversation |
 | `invite.revoke` | `{invite_id}` | client key | inviter, conversation owner | pending only |
@@ -94,15 +94,16 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | Op | Params | Key | Callers | Rules |
 | --- | --- | --- | --- | --- |
 | `inbox.bump` | `{conversation, rev, kind, title, last_seq, last_at, preview, unread, mentions, dm_peer?, removed?}` | `bump:<conversation>:<rev>` | system (ConversationDO outbox) | applies only when `rev` is newer (max merge, so duplicates and reordering are harmless) |
-| `inbox.pin` | `{conversation, pinned, position?}` | client key | session, install | user-owned |
+| `inbox.reindex` | `{conversations[], done}` | `inbox-reindex:<sha256 of the batch>` | system (the UserDO itself) | one-time migration: writes the order rows of entries stored before `entry_order` existed and releases a peer row that points at a left DM to a live DM with that peer; an id that is not valid is skipped, so `done` always sets the head flag `ordered` |
+| `inbox.pin` | `{conversation, pinned, position?}` | client key | session, install | user-owned; a position (given or automatic) past 2^53 - 2 is `invalid_params` |
 | `inbox.mute` | `{conversation, until?}` | client key | session, install | approvals still notify (spec) |
 | `inbox.archive` | `{conversation, archived}` | client key | session, install | a new message un-archives (bump rule) |
 | `inbox.mark_unread` | `{conversation, unread}` | client key | session, install | flag only; the read cursor stays |
-| `inbox.list` (read) | `{after_rev?, limit}` | n/a | session, install | pinned first, then `last_at` desc |
+| `inbox.list` (read) | `{cursor?, limit, include_archived?}` | n/a | session, install | pinned first by position, then `last_at` desc, ties by conversation id; pages of at most 200 by a keyset `cursor` (the `next_cursor` of the previous page, null on the last); an index table `entry_order` keeps the order, so a page reads about one page of rows. Changes after a snapshot come from the `inbox:` stream (`after_seq`), not from this read, so the earlier `after_rev` param is dropped |
 | `chief.create` | `{name, parent?, avatar?, brain}` | client key | session | creates the agent principal, its grant (class `mux`), its `MuxDO` and its `chief` conversation (outbox, system ops with derived keys); the first chief is pinned |
 | `chief.update` / `chief.archive` | `{agent, ...}` | client key | session (owner) | archive keeps history read-only |
 | `invite.quota.take` | `{invite_id, channel}` | `quota:<invite_id>` | system (Worker on the inviter's behalf) | per-user windows (section 9); a refused take refuses the invite |
-| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_dm_from: anyone|teams|contacts}` | client key | session | |
+| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_requests_from?: anyone|teams|nobody, email_requests?}` | client key | session | at least one field. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`, `discoverable_by_phone: false`, `email_requests: true`. `allow_requests_from` limits `dm.open`, group creation and `participants.add` of this user (section 16.10): `anyone` = a shared team or a connection (interim, until message requests exist), `teams` = a shared team or a connection (a connected contact never needs a request), `nobody` = no new reach, also from contacts (an existing DM keeps working). `email_requests` is stored but not read yet (16.10 item 9) |
 
 ### 4.3 MuxDO, TeamDO, AddressDO
 
@@ -127,7 +128,8 @@ Send in a group (N humans, K chiefs):
 3. The outbox holds: one `inbox.bump` per human participant (coalesced: one per user per drain,
    latest `rev` wins), one `mux.wake` per chief that should wake (wake rules in home.md section 5),
    one `search.upsert` row, and nothing else. Push is decided by each UserDO from the bump (not
-   muted, not the author, an install with a push token, no foreground socket).
+   muted, not the author, an install with a push token, no foreground socket, Mac not active;
+   limits and follow-ups in section 9).
 4. Drains: DO-to-DO items go by RPC with the item key (at-least-once, idempotent at the target);
    Postgres items go through the existing `drainOutbox` (upserts guarded by `source_seq`).
 
@@ -253,9 +255,10 @@ CREATE INDEX home_invites_address ON home_invites (address_id, created_at DESC);
 ```
 
 Outbox kinds (drain statements in `projection.ts`): `home.conversation.upsert`,
-`home.participant.upsert`, `home.message.upsert`, `home.message.delete`, `home.invite.upsert`.
-A retraction or retention delete sends `home.message.delete`; an edit sends an upsert with the
-new body. No raw address, token or token hash is ever projected.
+`home.participant.upsert`, `home.message.upsert`, `home.message.delete`,
+`home.message.delete_through`, `home.invite.upsert`. A retraction sends `home.message.delete`; a
+retention sweep sends one `home.message.delete_through {conversation_id, seq}` per batch; an edit
+sends an upsert with the new body. No raw address, token or token hash is ever projected.
 
 ## 8. Search (Home messages only)
 
@@ -295,6 +298,13 @@ new body. No raw address, token or token hash is ever projected.
   all future sends.
 - Per conversation: 20 pending invites; 10 failed `invite.accept` attempts per hour lock invite
   acceptance for that conversation for an hour (secret guessing; secrets are 128-bit).
+- Reach (built 2026-10-04, `home-rate.ts`): `conversation.create` 60 per hour and
+  `participants.add` 120 per hour per acting principal (a user, or each of the user's chiefs),
+  counted in the user's UserDO (private table `home_rate`). The Worker takes the attempt before
+  the member check and before any reach RPC, so a flood never fans out to TeamDOs, other users'
+  UserDOs or ConversationDOs; every attempt counts, also a refused one. A spent budget is
+  `home.rate_limited`, retryable, `details.retry_after_ms` (until the oldest counted attempt
+  leaves the hour). Reach lookups are capped at 64 targets per op after the gate.
 - Per network: Cloudflare rate limiting on `invite.create`, `dm.open` with an address, and
   `invite.preview`: 30 per minute per IP.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account
@@ -308,18 +318,123 @@ new body. No raw address, token or token hash is ever projected.
 - Every email has a one-click unsubscribe (List-Unsubscribe and List-Unsubscribe-Post headers)
   and a "report spam" link (routes `/u/<token>` and `/r/<token>` on the accept origin); the first
   SMS to a number carries "Reply STOP to opt out." before the link (D-H5); inbound STOP suppresses.
+- Home push (UserDO, decided from each `inbox.bump`, section 5 step 3). Accepted in review: a
+  plain push is also held while the user's Mac is active (FeedDO presence), in addition to "no
+  foreground socket"; this is the same rule as the feed's `feed.prefs.push_skip_when_mac_active`
+  (`user-do.ts` `homePushQuiet`). A held push is dropped after 30 minutes
+  (`FOREGROUND_MAX_WAIT_MS`), so a stale message never notifies later. Approvals bypass the hold
+  and the cap. Per-user cap: 60 plain pushes per hour (B10); an over-cap push waits for the
+  window. Known follow-ups: the cap counts a send before the APNs call, so an APNs
+  `retry_later` that is sent again counts twice (`recordSend` in `home-push-drain.ts`); collapsed or
+  capped pushes do not update the app badge (B10).
 
 ## 10. Retention
 
 - Messages: kept until the team policy `home.retention_days` (minimum 30) or user deletion;
-  default keep. The ConversationDO alarm deletes expired message rows in batches and emits
-  `home.message.delete` projection rows. Retraction removes the body at once (DO and search).
+  default keep. The ConversationDO alarm runs the system op `conversation.sweep`: it deletes
+  expired message rows oldest first, 500 per commit, and emits one `home.message.delete_through`
+  projection row per batch; when the newest message expires, inbox previews are cleared, and expired
+  messages a human had not read leave that human's unread and mention counts (read, retracted and
+  own messages never counted). A stored count can be a lower bound (a recount reads at most 1000
+  messages), so a lowered count is never below what one scan of at most 1000 remaining messages
+  holds. The stored counts of a human who left are dropped; a rejoin recounts from the remaining
+  messages. The same op expires pending invites past `expires_at`. Retraction removes the body at once (DO and search).
+- DM consent markers (2026-10-04, home-core `consent.ts`): retention deletes `msg` and `msgkey`
+  rows, but connection proof (16.7) must outlive the messages. Each human author of a DM has one
+  private `consent` row (key = author, `{at}`), written in the commit of their first message
+  there. No sweep, retention pass or purge deletes `consent` rows; they go only with the DO
+  storage when the conversation itself is deleted. Any commit in a DM that writes or deletes a
+  human author's `msgkey` row adds that author's missing marker in the same commit, so a
+  retention batch over a DM from before the markers leaves the markers behind (the sweep must
+  stay inside the wrapped domain reduce). The table is in `PRIVATE_TABLES` (never in
+  subscriber effects).
 - Ledger: 7 days (engine default). Events (`own_events`): keep the last 30 days or 10,000 events,
   whichever is more; older resumes take a snapshot (engine need E3).
 - Invites: pending ones expire after 14 days; records are kept 90 days, then reduced to counts.
 - Addresses: suppression is kept forever (a suppressed address must stay suppressed); the raw
   address is deleted after 180 days without an invite unless suppressed.
 - A conversation with no human participant for 30 days deletes its DO storage.
+
+### 10.1 Attachments (feat-cmux-next-home-attachments, revised after the backend lead's review, 2026-10-03)
+
+- Intent: `POST /v1/home/attachments/intent` (current participant; allow list jpeg, png, gif,
+  webp, heic, pdf, text/plain, markdown, csv, json, zip, mp4, mov, m4a, mp3, aac, wav; never svg,
+  html or xml; 100 MB per file; per user 300 intents and 2 GB declared per rolling day, 10 GB
+  stored; 60 intents per minute). It answers `exists` only for a hash the caller can already use
+  here, otherwise a single-use slot recorded in the ConversationDO.
+- Up to 32 MB the bytes stream through the Worker (`PUT /v1/home/attachments/upload/<conv>/<slot>.<kid>.<mac>`),
+  which hashes them. From 32 to 100 MB the client PUTs to a presigned R2 URL (15 min, signs
+  `content-length` and `x-amz-checksum-sha256`), then `POST /v1/home/attachments/commit`, which HEADs
+  size and checksum. Either way the object is usable only after verification; the recorded etag
+  pins downloads to that version.
+- Presigned overwrite (answered 2026-10-04): no. The presigned PUT signs `content-length`,
+  `x-amz-checksum-sha256` and `if-none-match: *`. R2 refuses bytes that do not match the signed
+  checksum, and refuses any PUT to a key that already holds an object (412), so once the bytes are
+  there (and so after commit) the URL cannot write again; a client that retries a PUT whose first
+  attempt landed gets 412 and calls commit. The header is signed, so the client cannot drop it.
+  Downloads also read only the etag recorded at commit. Stream slots are single use through the
+  Worker. The conditional PUT against real R2 is still to be checked on staging.
+- Video posters: one poster per video, part of the same attachment (never a separate part or
+  record). The intent of a video may declare `poster {sha256, byte_count, mime_type}` (image/jpeg
+  or image/webp, 2 MB; `attachment.poster_refused` for any other class, 415 for other types, 413
+  over the cap). The answer adds `poster_upload {method: PUT, upload_url, headers}`, always through
+  the Worker (`PUT /v1/home/attachments/poster/<conv>/<slot>.<kid>.<mac>`), which hashes the bytes
+  and stores them at `<object key>.poster`, a key derived from the slot. The poster PUT works once
+  while the slot is open; the video's own PUT or commit answers 409 `attachment.poster_missing`
+  until it is stored (the slot stays usable). Commit writes `poster {hash, mime_type, byte_count,
+  etag}` on the video's record and answers it; the slot's quota charge includes the poster bytes.
+  With an `exists` commit the first record wins, also for its poster. Expiry, refusals, the sweep
+  and conversation deletion delete the poster key with its object.
+- Image previews (Lawrence's decision, 2026-10-04): readers get small image previews through a
+  server preview variant, built on the poster machinery (one "derived image" per attachment, its
+  variant chosen by class: `poster` for a video, `preview` for an image). The intent of an image
+  may declare `preview {sha256, byte_count, mime_type}` (image/jpeg or image/webp, 512 KB,
+  `ATTACHMENT_LIMITS.previewMaxBytes`; `attachment.preview_refused` for any other class, so a
+  video uses `poster`, never `preview`). The answer adds `preview_upload`
+  (`PUT /v1/home/attachments/preview/<conv>/<slot>.<kid>.<mac>`, a token purpose of its own),
+  stored at `<object key>.preview`, hash-checked, once while the slot is open; the image's PUT or
+  commit answers 409 `attachment.preview_missing` until then. Commit writes `preview {hash,
+  mime_type, byte_count, etag}` on the image's record; quota, expiry, refusals, the sweep and
+  conversation deletion treat it exactly like a poster. The client makes the preview; the server
+  never decodes images. The derived PUT also checks that the slot's own type names the URL's
+  variant, behind the per-variant token purpose; a mismatch is 403 and stores nothing.
+- First upload wins, including its derived image; a client adopts the stored ref. An intent for a
+  hash already recorded here answers `exists` with the stored record as it is: when that record
+  has no preview (or poster), the answer has none and no `preview_upload` (`poster_upload`), and
+  the preview the new intent declared is dropped. No path attaches a derived image to an existing
+  record. The client uses the returned attachment (with or without a preview) as its part's ref.
+- Use in messages: `message.send`/`message.edit` accept a hash only when the author uploaded it
+  here or a message above the author's history floor references it; every other case is the same
+  `unknown_attachment`. A part's `poster` is valid only on a video part and its `preview` only on
+  an image part (`invalid_parts` otherwise); each must equal its record's (`attachment_mismatch`).
+- Downloads: `POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?, variant?}`
+  mints a 10-minute bearer-less URL bound to key id, method, conversation, object id, part,
+  variant, actor and expiry; each GET rechecks membership and floor; the file name comes from the
+  message part; text is served as `text/plain` attachments, only images inline; out-of-range
+  `Range` is 416. `variant: "poster"` signs the poster recorded on the video's record, for a video
+  record and, with `message_id`, a video part; `variant: "preview"` signs the preview recorded on
+  an image's record, for an image record and part (anything else is 400). Without one it is 404
+  `attachment.no_poster` or `attachment.no_preview`, never the original. The GET reads only the
+  record's derived key, type, size and etag (nothing from the request) and serves it inline; the
+  variant is part of the signature, with the same membership and floor checks.
+- No URL carries user content: object and slot ids are random; names stay in message parts.
+- Inbox: bumps carry `preview_attachments {kind: photo|video|audio|file, count}` (preview text
+  empty for attachment-only messages); clients localize.
+- Slots: every slot is charged its declared bytes at intent; its row lives until the alarm deletes
+  its object key at expiry (refunding a slot that never committed). An `exists` commit deletes the
+  slot's object at once and refunds; a presigned slot that did not keep its object stays a
+  tombstone until its URL expires, so a later PUT to the key is deleted too. A presigned URL ends
+  exactly at the slot's stored `expires_at`; presigned slots (open or tombstone) and `uploading`
+  slots are reaped only one hour (`UPLOADING_GRACE_MS`) after it, because S3 checks expiry only when
+  a PUT starts: one hour covers a 100 MB PUT down to about 230 kbit/s.
+- Retention: `attref` rows are written in each message's commit; the ConversationDO alarm sweeps
+  uploads unreferenced for 24 h in batches with a persistent (created_at, hash) cursor (a long run
+  of referenced records costs one pass, never a hot loop) and releases the uploader's stored bytes.
+  A batch holds a `running` mark until `markSwept`, so a retract or edit that lands while the batch
+  awaits its R2 delete queues another pass (due at once) instead of being cleared. Hooks for paths that do
+  not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
+  (conversation storage deletion; it drops open slots, so it schedules a second prefix delete at
+  the latest dropped slot's expiry plus `UPLOADING_GRACE_MS`, which removes a late presigned PUT). Attachments in `conversation.import` remain C-13.
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 
@@ -369,7 +484,9 @@ sends (it may import `deliverInvite` from `@cmux/home-core/invites`), the accept
 - WebSocket `cmux.wire/1`: the UserDO gateway carries `user:<user>` and `inbox:<user>` (inbox
   events: bump, pin, mute, archive); brain hosts subscribe to `mux:<agent>`; the open
   conversation uses `GET /v1/wire/conv/<id>` (snapshot with `tail`, resume with `after_seq`, events `message`, `message-updated`,
-  `read-cursor`, `conversation`, `typing`, `invite`).
+  `read-cursor`, `conversation`, `typing`, `invite`). Typing is the non-op frame
+  `{t: "typing", on, conversation?}` in and `{t: "conversation-typing", conversation, participant,
+  on}` out (home-core `typingGate` limits it per participant; never stored).
 - Generated clients: the TS client in `clients/ts/cloud` and the Swift client from the same
   catalog; the Swift Home client keeps the mirror + intent log from home.md section 3.
 
@@ -511,6 +628,14 @@ addee are connected or share an org where the adder's role may add people, read 
 UserDO projection (eventually consistent; a block takes effect at the pair owner at once and in
 projections within one drain).
 
+Built so far (2026-10-03, branch feat-cmux-next-home-reach): until pair state exists, "connected"
+means a DM where both are current participants and both gave consent (both sent a message there,
+or one accepted the other's one-to-one invite). "Both sent a message" is read from the DM's
+private consent markers (section 10), not from message rows, so a connection survives
+retention; a DM from before the markers falls back to its `msgkey` rows while they exist. The setting is `allow_requests_from:
+anyone|teams|nobody` plus `email_requests` (R2, default on, stored only); `allow_dm_from` is
+gone (section 16.10).
+
 ### 16.8 Migration from today
 
 `memberships.role` today is owner, admin or member; add `guest` and `billing` (expand
@@ -523,6 +648,39 @@ between two existing org members creates their relationship only when both send 
 - R1: the three primitives are accepted: Contacts (relationships), Grants, and Team with the roles guest, member, admin, owner and billing. The product and code keep the name "Team" (`team_` ids); "org" in this section only separates it from relationships.
 - R2: message requests from unrelated users show in Home AND send an email (on by default; the recipient can turn email off in `home.settings.set {email_requests}`).
 - R3: the address owner is `AddressDO`, participants `addr_<26>`, secret `HOME_ADDRESS_KEY` (backend and home-core renamed).
+
+### 16.10 Reach decisions (coordinator, 2026-10-03)
+
+1. Names are the 16.7 ones: `home.settings.set {allow_requests_from: anyone|teams|nobody,
+   email_requests}`. `allow_dm_from` is removed everywhere; `nobody` refuses all new reach.
+2. A shared group is no connection (16.3 stands).
+3. Interim rule, until message requests (16.4) exist: `anyone` reaches only people who share a
+   team with the caller or are connected to them; a stranger gets `not_reachable`, the same
+   answer as an unknown account. Target: a stranger's DM or add becomes a message request.
+4. The setting limits group adds too (`conversation.create` and `participants.add`): only people
+   the caller can reach are added; the client offers an invite (later a request) for the others.
+5. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`,
+   `discoverable_by_phone: false`.
+6. A chief adds the humans its owner could add, acting under its owner's reach: the Worker
+   resolves the reach facts for the chief's `owner_user` (the owner's teams, the owner's
+   connections, the target's setting checked against the owner) after the owner's UserDO
+   confirms the agent is one of the owner's active chiefs. Any other agent caller gets no facts,
+   so a cloud owner never re-adds a departed human through the stored record for an agent.
+   The owner's UserDO checks the agent class explicitly: only class `mux` (a chief) qualifies;
+   an automation run principal that carries a chief's id gets no facts. A chief never opens a
+   DM (DMs are between humans).
+7. Backend owner, 2026-10-04: a connected pair needs no request under `anyone` and `teams`, also
+   without a shared team (16.3). Under `nobody` the pair's existing DM keeps working (`dm.open`
+   reuses it), but a new group add by the contact or the contact's chief is refused.
+8. Rate limits before reach (section 9): `conversation.create` 60 per hour, `participants.add`
+   120 per hour, `home.rate_limited` with `retry_after_ms`.
+9. Follow-up, NOT built: the message-request path. There is no pending-request store, no
+   `relation.request` / accept / decline ops, and `email_requests` is stored by
+   `home.settings.set` but never read (no email is sent). Until it exists a stranger under
+   `anyone` is refused `not_reachable`, the same as under `teams`; so today `anyone` and `teams`
+   behave the same. Needed: the pair owner (16.7) holds `requested` state, the recipient's UserDO
+   lists requests in Home, accept makes the pair connected, decline and block are silent to the
+   sender, and the request email honors `email_requests` and the section 9 windows.
 
 ## 17. Engine and flow questions (answered by the backend lead, 2026-10-02)
 

@@ -5377,6 +5377,29 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "tab new-from-text",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.submit",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Tab from Text",
+      "title_key" : "action.newTab.submit",
+      "title_table" : "NewTabActions"
+    },
+    {
       "cli" : "focusMove",
       "cli_name" : "tab focus-location",
       "context_menu" : "focusMove",
@@ -10574,6 +10597,75 @@
       "title" : "Restart VS Code Inline Server",
       "title_key" : "action.palette.vscodeServeWebRestart",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-allow-agent-with-extensions",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.allowAgentWithExtensions",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Allow Agents in This Tab…",
+      "title_key" : "action.browser.allowAgentWithExtensions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser choose-profile",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.profile.choose",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Choose Browser Profile…",
+      "title_key" : "action.browser.profile.choose",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser more-actions",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.overflow.menu",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "More Browser Actions…",
+      "title_key" : "action.browser.overflow.menu",
+      "title_table" : "BrowserToolbarActions"
     },
     {
       "cli" : "guiOnly",
@@ -16773,14 +16865,14 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "tab move-to-new-sticky-column",
+      "cli_name" : "tab move-to-new-dock-column",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "tab.moveToNewStickyColumn",
+      "id" : "tab.moveToNewDockColumn",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -16790,8 +16882,8 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Move Tab to New Sticky Column",
-      "title_key" : "action.tab.moveToNewStickyColumn",
+      "title" : "Move Tab to New Dock Column",
+      "title_key" : "action.tab.moveToNewDockColumn",
       "title_table" : "LayoutActions"
     },
     {

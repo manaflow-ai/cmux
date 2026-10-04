@@ -22,5 +22,5 @@ public nonisolated enum DropTarget: Hashable, Sendable {
     case newColumn(screen: ScreenID, after: ColumnID?)
     /// Open a top or bottom dock holding the tab (a drop on the screen's top
     /// or bottom edge band while that edge has no dock; edge-docks-v1).
-    case newDock(screen: ScreenID, edge: StickyEdge)
+    case newDock(screen: ScreenID, edge: DockEdge)
 }

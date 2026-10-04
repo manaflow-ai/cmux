@@ -67,31 +67,31 @@ public struct LayoutMapping {
         } else {
             handles.rows.merge(rowHandles) { _, new in new }
         }
-        return LayoutColumn(id: id, width: width, root: root, sticky: column.sticky.map(Self.sticky), rows: rows)
+        return LayoutColumn(id: id, width: width, root: root, dock: column.dock.map(Self.dock), rows: rows)
     }
 
     /// Daemon `columns[].sticky` or `columns[].dock` as the layout's dock.
-    public nonisolated static func sticky(_ snapshot: StickySnapshot) -> StickyColumn {
-        let edge: StickyEdge = switch snapshot.edge {
+    public nonisolated static func dock(_ snapshot: DockSnapshot) -> DockColumn {
+        let edge: DockEdge = switch snapshot.edge {
         case .left: .left
         case .right: .right
         case .top: .top
         case .bottom: .bottom
         }
-        return StickyColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked)
+        return DockColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked)
     }
 
     /// The layout's dock as the daemon's value. Top and bottom need a daemon
-    /// that serves `edge-docks-v1`; `StickyColumnHandlers.apply` and the
+    /// that serves `edge-docks-v1`; `ColumnDocking.apply` and the
     /// intent sender check that before sending.
-    public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot {
-        let edge: StickySnapshot.Edge = switch sticky.edge {
+    public nonisolated static func snapshot(_ dock: DockColumn) -> DockSnapshot {
+        let edge: DockSnapshot.Edge = switch dock.edge {
         case .left: .left
         case .right: .right
         case .top: .top
         case .bottom: .bottom
         }
-        return StickySnapshot(edge: edge, mode: sticky.mode == .overlay ? .overlay : .docked)
+        return DockSnapshot(edge: edge, mode: dock.mode == .overlay ? .overlay : .docked)
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.

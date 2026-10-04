@@ -4,7 +4,8 @@
 //! - [`DaemonClient`]: connect with the cmux Rust SDK (`cmux.protocol/2`),
 //!   identify, set client metadata, load `session.snapshot`, follow
 //!   `session.events`, reconnect with backoff.
-//! - [`Mirror`]: a read-only copy of the session tree with typed deltas.
+//! - [`Mirror`]: a read-only copy of the session tree with typed deltas,
+//!   plus the personal workspace groups and sidebar order.
 //! - [`attach`]: the terminal byte attachment seam; [`DaemonAttacher`]
 //!   implements it on protocol-12 byte mode (`cmux::raw::ByteAttachment`),
 //!   one reader thread per attached view.
@@ -47,10 +48,13 @@ pub mod client;
 mod daemon_attach;
 pub mod launcher;
 pub mod mirror;
+mod mirror_state;
 pub mod reattach;
 
 #[cfg(test)]
 mod fixture;
+#[cfg(test)]
+mod mirror_state_tests;
 #[cfg(test)]
 mod mirror_tests;
 

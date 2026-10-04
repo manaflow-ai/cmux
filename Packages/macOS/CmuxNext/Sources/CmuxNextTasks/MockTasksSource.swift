@@ -190,7 +190,7 @@ extension MockTasksSource {
         let codex = TaskAgent(principal: "agt_codex-lawrence", harness: "codex", onBehalfOf: "usr_lawrence")
         typealias Row = (String, String, TaskPriority, TaskPrincipal?, TaskAgent?, [String], TaskAttention?)
         let rows: [Row] = [
-            ("Drag a tab onto a sticky column loses the tab", "st_in_progress", .urgent, lawrence, claude, ["lbl_bug", "lbl_agent"], .needsInput),
+            ("Drag a tab onto a docked column loses the tab", "st_in_progress", .urgent, lawrence, claude, ["lbl_bug", "lbl_agent"], .needsInput),
             ("Tasks: board drag between statuses", "st_in_review", .high, lawrence, codex, ["lbl_agent"], .review),
             ("iOS: reconnect after Wi-Fi handoff", "st_todo", .high, austin, nil, ["lbl_ios"], nil),
             ("Idle wakeups above 1/s with an open browser tab", "st_in_progress", .medium, lawrence, nil, ["lbl_perf"], nil),
@@ -213,7 +213,7 @@ extension MockTasksSource {
         }
         let sessions = [
             TaskSessionItem(id: "asess_1", task: "task_1", agent: claude, status: .awaitingInput, plan: [
-                TaskPlanStep(content: "Reproduce the drop on a sticky column", status: "completed"),
+                TaskPlanStep(content: "Reproduce the drop on a docked column", status: "completed"),
                 TaskPlanStep(content: "Add a failing reducer test", status: "completed"),
                 TaskPlanStep(content: "Fix the drop resolver", status: "in_progress"),
             ]),

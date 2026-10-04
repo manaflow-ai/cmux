@@ -37,6 +37,8 @@ export interface ChiefsState {
 
 export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive"])
 export const RESTORE_WINDOW_MS = 30 * 24 * 3_600_000
+/** A chief's agent class (participant `agent_class`); only this class acts under its owner's reach. */
+export const CHIEF_AGENT_CLASS = "mux"
 const MAX_CHIEFS = 20
 
 type Params = Record<string, unknown>
@@ -122,7 +124,7 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
           title: record.display_name,
           participants: [
             { id: owner, kind: "human", display_name: stateIn.user?.display_name ?? "Me" },
-            { id, kind: "agent", agent_class: "mux", owner_user: owner, display_name: record.display_name }
+            { id, kind: "agent", agent_class: CHIEF_AGENT_CLASS, owner_user: owner, display_name: record.display_name }
           ]
         },
         target: { class: "ConversationDO", name: main }

@@ -16245,264 +16245,264 @@
         }
       }
     },
-    "settings.layout.stickyColumnEdge": {
+    "settings.layout.dockColumnEdge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sticky Column Edge"
+            "value": "Dock Column Edge"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حافة العمود المثبت"
+            "value": "حافة عمود الإرساء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ivica ljepljive kolone"
+            "value": "Ivica usidrene kolone"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kant for fastgjort kolonne"
+            "value": "Kant for dokket kolonne"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rand der angehefteten Spalte"
+            "value": "Rand der angedockten Spalte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Borde de columna fija"
+            "value": "Borde de columna acoplada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bord de la colonne épinglée"
+            "value": "Bord de la colonne ancrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bordo colonna fissa"
+            "value": "Bordo colonna agganciata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "固定列の端"
+            "state": "translated",
+            "value": "ドック列の端"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គែមជួរឈរខ្ទាស់"
+            "value": "គែមជួរឈរចត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "고정 열 가장자리"
+            "value": "도킹 열 가장자리"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kant for fast kolonne"
+            "value": "Kant for dokket kolonne"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Krawędź przypiętej kolumny"
+            "value": "Krawędź zadokowanej kolumny"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Borda da coluna fixa"
+            "value": "Borda da coluna encaixada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Край закреплённой колонки"
+            "value": "Край колонки у края окна"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ขอบคอลัมน์ที่ปักหมุด"
+            "value": "ขอบคอลัมน์ที่เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sabit sütun kenarı"
+            "value": "Yerleşik sütun kenarı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Край закріпленої колонки"
+            "value": "Край колонки біля краю вікна"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cạnh cột đã ghim"
+            "value": "Cạnh cột neo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分栏边缘"
+            "value": "停靠列边缘"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分欄邊緣"
+            "value": "停靠欄邊緣"
           }
         }
       }
     },
-    "settings.layout.stickyColumnMode": {
+    "settings.layout.dockColumnMode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sticky Column Mode"
+            "value": "Dock Column Mode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "وضع العمود المثبت"
+            "value": "وضع عمود الإرساء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Način ljepljive kolone"
+            "value": "Način usidrene kolone"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilstand for fastgjort kolonne"
+            "value": "Tilstand for dokket kolonne"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modus der angehefteten Spalte"
+            "value": "Modus der angedockten Spalte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modo de columna fija"
+            "value": "Modo de columna acoplada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mode de la colonne épinglée"
+            "value": "Mode de la colonne ancrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modalità colonna fissa"
+            "value": "Modalità colonna agganciata"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "固定列のモード"
+            "state": "translated",
+            "value": "ドック列のモード"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបជួរឈរខ្ទាស់"
+            "value": "របៀបជួរឈរចត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "고정 열 모드"
+            "value": "도킹 열 모드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modus for fast kolonne"
+            "value": "Modus for dokket kolonne"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tryb przypiętej kolumny"
+            "value": "Tryb zadokowanej kolumny"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modo da coluna fixa"
+            "value": "Modo da coluna encaixada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Режим закреплённой колонки"
+            "value": "Режим колонки у края окна"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โหมดคอลัมน์ที่ปักหมุด"
+            "value": "โหมดคอลัมน์ที่เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sabit sütun modu"
+            "value": "Yerleşik sütun modu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Режим закріпленої колонки"
+            "value": "Режим колонки біля краю вікна"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chế độ cột đã ghim"
+            "value": "Chế độ cột neo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分栏模式"
+            "value": "停靠列模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定分欄模式"
+            "value": "停靠欄模式"
           }
         }
       }
@@ -25022,7 +25022,7 @@
         }
       }
     },
-    "settings.sidebar.stickyBandsScroll": {
+    "settings.sidebar.pinnedBandsScroll": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -25153,7 +25153,7 @@
         }
       }
     },
-    "settings.sidebar.stickyBandsScroll.help": {
+    "settings.sidebar.pinnedBandsScroll.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -39690,6 +39690,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "目前頁面"
+          }
+        }
+      }
+    },
+    "settings.appearance.surfaces.internalPage.color": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal Pages Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون الصفحات الداخلية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja internih stranica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farve på interne sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbe interner Seiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de las páginas internas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur des pages internes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore delle pagine interne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部ページの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ទំព័រខាងក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내부 페이지 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farge på interne sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor stron wewnętrznych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor das páginas internas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет внутренних страниц"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีหน้าภายใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dahili Sayfaların Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір внутрішніх сторінок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu trang nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部页面颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內部頁面顏色"
+          }
+        }
+      }
+    },
+    "settings.appearance.surfaces.internalPage.opacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal Pages Opacity"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عتامة الصفحات الداخلية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neprozirnost internih stranica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacitet på interne sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deckkraft interner Seiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad de las páginas internas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacité des pages internes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacità delle pagine interne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部ページの不透明度"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភាពស្រអាប់នៃទំព័រខាងក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내부 페이지 불투명도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opasitet på interne sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprzezroczystość stron wewnętrznych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidade das páginas internas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрозрачность внутренних страниц"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความทึบของหน้าภายใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dahili Sayfaların Opaklığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрозорість внутрішніх сторінок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ mờ đục của trang nội bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部页面不透明度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內部頁面不透明度"
+          }
+        }
+      }
+    },
+    "settings.appearance.surfaces.splitDivider.color": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Divider Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون فاصل الأجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja razdjelnika panela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farve på panelopdeler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbe der Bereichstrenner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del separador de paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur du séparateur de panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore del divisore dei pannelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割区切り線の色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌បន្ទាត់បែងចែកផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 구분선 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farge på panelskille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor separatora paneli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor do separador de painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет разделителя панелей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเส้นแบ่งแผง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel Ayırıcısının Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір роздільника панелей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu đường phân chia ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分栏分隔线颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分欄分隔線顏色"
+          }
+        }
+      }
+    },
+    "settings.appearance.surfaces.splitDivider.opacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Divider Opacity"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عتامة فاصل الأجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neprozirnost razdjelnika panela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacitet på panelopdeler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deckkraft der Bereichstrenner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad del separador de paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacité du séparateur de panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacità del divisore dei pannelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割区切り線の不透明度"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភាពស្រអាប់នៃបន្ទាត់បែងចែកផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 구분선 불투명도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opasitet på panelskille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprzezroczystość separatora paneli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidade do separador de painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрозрачность разделителя панелей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความทึบของเส้นแบ่งแผง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel Ayırıcısının Opaklığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрозорість роздільника панелей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ mờ đục của đường phân chia ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分栏分隔线不透明度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分欄分隔線不透明度"
           }
         }
       }

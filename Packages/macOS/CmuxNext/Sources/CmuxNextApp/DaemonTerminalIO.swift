@@ -56,7 +56,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             visible: visible,
             opener: { size in
                 try await TerminalAttachment.attach(endpoint: try await endpoint(), target: target.attachment,
-                                                    size: size, claimGeometry: false)
+                                                    size: size, claimGeometry: false,
+                                                    snapshotVersion: Self.attachSnapshotVersion)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -162,14 +163,19 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     // MARK: Steps
 
-    private static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
+    /// The GHOSTSNP version the surface restores (`terminal-snapshot-v1`);
+    /// nil when the linked libghostty cannot restore snapshots.
+    static let attachSnapshotVersion: UInt16? = TerminalSession.snapshotVersion == 0 ? nil : TerminalSession.snapshotVersion
+
+    static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
         switch step {
-        case .replay, .output: DebugTimings.markLaunch("first_terminal_content")
+        case .replay, .output, .snapshot: DebugTimings.markLaunch("first_terminal_content")
         default: break
         }
         return switch step {
         case .grid(let columns, let rows): .resize(cols: columns, rows: rows)
         case .replay(let replay): replayEvent(replay)
+        case .snapshot(let frame): .snapshot(frame.data, phase: frame.phase == .ready ? .ready : .history)
         case .output(let data): .output(data)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))

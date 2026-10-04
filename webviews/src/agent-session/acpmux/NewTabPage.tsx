@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AgentMark as BrandMark } from "../shared/AgentMark";
+import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
 import { ArrowUpIcon } from "./ComposerPickers";
 import type { AcpmuxSnapshot } from "./model";
@@ -81,11 +83,10 @@ export type NewTabHost = {
   projects?: string[];
   omnibar?: OmnibarContext;
   defaultKind?: DefaultKind;
-  /// Which design (Debug Settings `newTab.layout`): "b" the Search | Ask screen (default),
+  /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
-  /// Search | Ask as the user last left it, and the agent last picked (decision Q3).
-  mode?: "search" | "ask";
+  /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
@@ -124,7 +125,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),
     layout: object.layout === "a" ? "a" : "b",
-    ...(object.mode === "search" || object.mode === "ask" ? { mode: object.mode } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
   };
@@ -578,23 +578,10 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
   }
 }
 
-/// A small mark per agent family, so a session's row says which agent it is at a glance.
+/// The agent's brand mark (design/agent-icons), so a session's row says which agent it
+/// is at a glance; an agent without a mark draws the generic agent glyph.
 export function AgentMark({ harness }: { harness?: string }) {
-  const id = harness?.toLowerCase() ?? "";
-  if (id.startsWith("claude"))
-    return (
-      <Icon>
-        <path d="M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6" />
-      </Icon>
-    );
-  if (id.startsWith("codex"))
-    return (
-      <Icon>
-        <path d="M8 1.9 13.3 5v6L8 14.1 2.7 11V5Z" />
-        <path d="m6 6.6 1.6 1.4L6 9.4M8.6 9.6h1.6" />
-      </Icon>
-    );
-  return <KindIcon kind="agent" />;
+  return agentBrand(harness) ? <BrandMark agent={harness} size={16} /> : <KindIcon kind="agent" />;
 }
 
 // 16px stroke icons in currentColor, matching ComposerPickers.

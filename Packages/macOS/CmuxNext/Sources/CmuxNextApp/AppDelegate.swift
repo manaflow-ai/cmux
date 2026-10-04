@@ -97,12 +97,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
             .deletingLastPathComponent())
+        // cmux-page:// first-party pages for Chromium, before any window can start it.
+        FirstPartyPageSchemes.install()
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         services.observeBorders()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
+        services.newTabSpares.start()
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }

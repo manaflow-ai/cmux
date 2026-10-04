@@ -1650,6 +1650,66 @@
       "pattern": "^grant_[a-z0-9]{20}$",
       "description": "A server-side grant; tokens carry only its id."
     },
+    "HomeAttachmentPoster": {
+      "kind": "object",
+      "fields": {
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HomeSha256"
+          }
+        },
+        "mime_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        },
+        "byte_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+    },
+    "HomeAttachmentPreview": {
+      "kind": "object",
+      "fields": {
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HomeSha256"
+          }
+        },
+        "mime_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        },
+        "byte_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+    },
     "HomeChief": {
       "kind": "object",
       "fields": {
@@ -2040,6 +2100,34 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        "preview_attachments": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "kind": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "photo",
+                    "video",
+                    "audio",
+                    "file"
+                  ]
+                }
+              },
+              "count": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          },
+          "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
         },
         "dm_peer": {
           "required": false,
@@ -2456,6 +2544,86 @@
               }
             }
           }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "attachment"
+                ]
+              }
+            },
+            "hash": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "HomeSha256"
+              }
+            },
+            "name": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 255
+              }
+            },
+            "mime_type": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 255
+              }
+            },
+            "byte_count": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "width": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "height": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "duration_ms": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "poster": {
+              "required": false,
+              "type": {
+                "kind": "ref",
+                "name": "HomeAttachmentPoster"
+              }
+            },
+            "preview": {
+              "required": false,
+              "type": {
+                "kind": "ref",
+                "name": "HomeAttachmentPreview"
+              }
+            }
+          }
         }
       ]
     },
@@ -2681,6 +2849,12 @@
           }
         }
       ]
+    },
+    "HomeSha256": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the bytes, lowercase hex."
     },
     "HomeTextRun": {
       "kind": "object",
@@ -13671,11 +13845,13 @@
         "auth.unauthenticated",
         "conversation_exists",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "invalid_title",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -13703,7 +13879,7 @@
         "expose": "default",
         "group": "home"
       },
-      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation.",
+      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -13938,6 +14114,65 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -13999,6 +14234,60 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -14604,6 +14893,65 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -14665,6 +15013,60 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -15711,6 +16113,65 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -15772,6 +16233,60 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -16260,6 +16775,7 @@
         "invite_limit",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -16456,6 +16972,65 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -16517,6 +17092,60 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -26465,15 +27094,22 @@
               "name": "boolean"
             }
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "required": false,
             "type": {
               "kind": "enum",
               "values": [
                 "anyone",
                 "teams",
-                "contacts"
+                "nobody"
               ]
+            }
+          },
+          "email_requests": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
             }
           },
           "expected_revision": {
@@ -26508,15 +27144,22 @@
                   "name": "boolean"
                 }
               },
-              "allow_dm_from": {
+              "allow_requests_from": {
                 "required": true,
                 "type": {
                   "kind": "enum",
                   "values": [
                     "anyone",
                     "teams",
-                    "contacts"
+                    "nobody"
                   ]
+                }
+              },
+              "email_requests": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
                 }
               }
             }
@@ -26552,7 +27195,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Choose who can find you by email or phone and who may start a DM with you.",
+      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -26563,13 +27206,16 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "additionalProperties": true,
@@ -26584,19 +27230,23 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "required": [
           "discoverable_by_email",
           "discoverable_by_phone",
-          "allow_dm_from"
+          "allow_requests_from",
+          "email_requests"
         ],
         "additionalProperties": true,
         "$defs": {}
@@ -27071,6 +27721,30 @@
               "preview": {
                 "type": "string"
               },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
+              },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
               },
@@ -27281,6 +27955,14 @@
               "kind": "primitive",
               "name": "boolean"
             }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            }
           }
         },
         "extra": false
@@ -27295,6 +27977,16 @@
               "items": {
                 "kind": "ref",
                 "name": "HomeInboxEntry"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
               }
             }
           },
@@ -27346,6 +28038,10 @@
           },
           "include_archived": {
             "type": "boolean"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 256
           }
         },
         "additionalProperties": true,
@@ -27360,12 +28056,23 @@
               "$ref": "#/$defs/HomeInboxEntry"
             }
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "string"
           }
         },
         "required": [
           "entries",
+          "next_cursor",
           "revision"
         ],
         "additionalProperties": true,
@@ -27417,6 +28124,30 @@
               },
               "preview": {
                 "type": "string"
+              },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
               },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
@@ -27648,6 +28379,30 @@
               },
               "preview": {
                 "type": "string"
+              },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
               },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
@@ -27915,6 +28670,30 @@
               "preview": {
                 "type": "string"
               },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
+              },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
               },
@@ -28156,6 +28935,30 @@
               },
               "preview": {
                 "type": "string"
+              },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
               },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
@@ -33237,6 +34040,65 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -33298,6 +34160,60 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           }
@@ -33654,6 +34570,65 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -33715,6 +34690,60 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -34266,10 +35295,12 @@
         "auth.unauthenticated",
         "duplicate_participant",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -34297,7 +35328,7 @@
         "expose": "opt_in",
         "group": "home"
       },
-      "docs": "Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
+      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

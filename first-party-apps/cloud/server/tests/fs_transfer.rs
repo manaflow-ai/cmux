@@ -49,6 +49,7 @@ fn each_push_uses_a_fresh_key_and_sends_only_its_public_half() {
     let mut rig = rig(FIXTURES);
     rig.server.handle(&push(&local, "p-1")).expect("first push");
     rig.server.handle(&push(&local, "p-2")).expect("second push");
+    rig.server.wait_transfers();
     let log = rig.transfer.log();
     assert_eq!(log.public_keys.len(), 2);
     assert_ne!(log.public_keys[0], log.public_keys[1], "a new key per transfer");
@@ -103,14 +104,15 @@ fn the_key_is_never_in_argv_debug_or_errors() {
         guest: "/home/cmux/notes.txt".into(),
         endpoint,
         route: "127.0.0.1:40022".parse().unwrap(),
+        env: Vec::new(),
+        ssh: cmux_cloud::app_env::SshFiles {
+            config: "/tmp/x/ssh/config".into(),
+            known_hosts: "/tmp/x/ssh/known_hosts".into(),
+        },
+        temp_dir: std::env::temp_dir(),
     };
-    let argv = scp_args(
-        &job,
-        Path::new("/tmp/x/agent.sock"),
-        Path::new("/tmp/x/known_hosts"),
-        Path::new("/tmp/x/transfer.pub"),
-    )
-    .join(" ");
+    let argv =
+        scp_args(&job, Path::new("/tmp/x/agent.sock"), Path::new("/tmp/x/transfer.pub")).join(" ");
     assert!(argv.contains("StrictHostKeyChecking=yes") && argv.contains("HostKeyAlias=cmux-scp"));
     assert!(argv.contains("cmux@127.0.0.1:/home/cmux/notes.txt") && argv.contains(" -- "));
     assert!(!argv.contains(" -i "), "no identity file");
@@ -119,12 +121,13 @@ fn the_key_is_never_in_argv_debug_or_errors() {
     assert!(argv.contains("IdentityFile=\"/tmp/x/transfer.pub\""));
     assert!(argv.starts_with("-s "), "SFTP protocol: no remote shell reads the path");
     // The real transfer with missing binaries fails on its real error path.
-    let mut real = OpenSshTransfer {
+    let real = OpenSshTransfer {
+        ssh: "/nonexistent/ssh".into(),
         ssh_agent: "/nonexistent/ssh-agent".into(),
         ssh_add: "/nonexistent/ssh-add".into(),
         scp: "/nonexistent/scp".into(),
     };
-    let error = real.run(&job, &key).unwrap_err();
+    let error = real.run(&job, &key, &cmux_cloud::fs::Cancel::default()).unwrap_err();
     for secret in secrets(&key) {
         assert!(!argv.contains(&secret), "argv");
         assert!(!debug.contains(&secret), "Debug");
@@ -154,13 +157,21 @@ fn a_failed_transfer_is_a_typed_error_and_endpoint_answers_are_checked() {
     let local = scratch_file("fail");
     let mut rig = rig(FIXTURES);
     rig.transfer.log().fail_with = Some("scp failed: connection closed".into());
-    let err = rig.server.handle(&push(&local, "p-1")).unwrap_err();
-    assert_eq!(err.code, "cmux.cloud.transfer_failed");
+    let started = rig.server.handle(&push(&local, "p-1")).expect("the transfer starts");
+    rig.server.wait_transfers();
+    let ended = rig.server.take_transfer_events();
+    assert_eq!(ended.len(), 1);
+    assert_eq!(ended[0].transfer, started["transfer"].as_str().unwrap());
+    assert_eq!(ended[0].outcome.as_ref().map_err(|e| e.code), Err("cmux.cloud.transfer_failed"));
     let mut bad = common::FakeControlPlane::fixture_body("scp-endpoint");
     bad["hostPublicKey"] = json!("ssh-rsa AAAAB3NzaC1yc2E");
     rig.server.control_plane_mut().respond("POST", "/api/vm/vm-alpha01/scp-endpoint", 200, bad);
     let err = rig.server.handle(&push(&local, "p-2")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.bad_response", "only one Ed25519 host key is accepted");
+    let mut unpinned = common::FakeControlPlane::fixture_body("scp-endpoint");
+    unpinned.as_object_mut().unwrap().remove("hostPublicKey");
+    let err = ScpEndpoint::decode(unpinned, 1_791_100_000).unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.host_key_unpinned", "never a transfer to an unpinned key");
     let mut expired = common::FakeControlPlane::fixture_body("scp-endpoint");
     expired["expiresAtUnix"] = json!(1);
     assert!(ScpEndpoint::decode(expired, 1_791_100_000).is_err());
@@ -195,7 +206,7 @@ fn local_paths_are_checked_and_pull_never_overwrites() {
     .origin(Origin::User);
     assert_eq!(rig.server.handle(&glob).unwrap_err().code, "cmux.cloud.invalid_args");
     assert!(rig.transfer.log().jobs.is_empty());
-    assert!(rig.server.control_plane().calls.is_empty(), "refused before any Cloud API call");
+    assert!(rig.server.control_plane().no_calls(), "refused before any Cloud API call");
 }
 
 #[test]
@@ -213,7 +224,7 @@ fn only_a_person_may_transfer_because_the_local_path_reaches_any_file() {
         .origin(origin);
         assert_eq!(rig.server.handle(&pull).unwrap_err().code, "cmux.cloud.origin_refused");
     }
-    assert!(rig.server.control_plane().calls.is_empty());
+    assert!(rig.server.control_plane().no_calls());
 }
 
 #[test]
@@ -238,9 +249,14 @@ fn a_pull_lands_in_a_hidden_name_and_is_published_without_overwrite() {
             .count()
     };
     rig.transfer.log().fail_with = Some("scp failed".into());
-    assert_eq!(rig.server.handle(&pull("u-1")).unwrap_err().code, "cmux.cloud.transfer_failed");
+    rig.server.handle(&pull("u-1")).expect("the pull starts");
+    rig.server.wait_transfers();
+    let failed = rig.server.take_transfer_events();
+    assert_eq!(failed[0].outcome.as_ref().map_err(|e| e.code), Err("cmux.cloud.transfer_failed"));
     assert!(!target.exists() && leftovers(&dir) == 0, "a failed pull leaves nothing");
     rig.server.handle(&pull("u-2")).expect("the retry runs");
+    rig.server.wait_transfers();
+    assert_eq!(rig.server.take_transfer_events()[0].outcome, Ok(42));
     assert_eq!(std::fs::read(&target).unwrap(), b"pulled");
     assert_eq!(leftovers(&dir), 0);
     let landed = rig.transfer.log().jobs.last().unwrap().local.clone();

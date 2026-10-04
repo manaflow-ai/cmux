@@ -42,7 +42,7 @@ const releaseAddress = (head: ConversationHead, next: Draft, address: string, no
 }
 
 /** Open invites past their expiry become `expired` in this commit; their addresses are released. */
-const closeExpired = (head: ConversationHead, next: Draft, now: string): void => {
+export const closeExpired = (head: ConversationHead, next: Draft, now: string): void => {
   const expired = (next.invites ?? []).filter((invite) => isOpen(invite) && isExpired(invite, now))
   if (expired.length === 0) return
   next.invites = (next.invites ?? []).map((invite) => (expired.includes(invite) ? { ...invite, status: "expired" as const } : invite))

@@ -5,7 +5,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { matchScore, type OmnibarContext } from "../omnibar";
 import { sessionMark } from "../sessionList";
-import { classifyNewTabInput, TERMINAL_PREFIX, type NewTabMode } from "../newTabIntent";
+import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -27,8 +27,6 @@ export const MAX_MATCH_ROWS = 4;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
 
-export const nextMode = (mode: NewTabMode): NewTabMode => (mode === "search" ? "ask" : "search");
-
 /// The catalog's agents in its order, the remembered one first, capped.
 export function orderedAgents(agents: readonly ScreenAgent[], lastAgent?: string): ScreenAgent[] {
   const remembered = agents.find((agent) => agent.id === lastAgent);
@@ -37,29 +35,29 @@ export function orderedAgents(agents: readonly ScreenAgent[], lastAgent?: string
 }
 
 /// The rows under the field. Empty text: none (the cards show). `!`: none (the tab is already
-/// becoming a terminal). An address: open it first. Plain text: the agents then search in Ask
-/// mode, search then the agents in Search mode. Matching open tabs, workspaces and history last.
+/// becoming a terminal). An address: open it first. Plain text: the agents, then a web search
+/// row (one input, no mode, R86). Matching open tabs, workspaces and history last.
 export function screenRows(
   text: string,
-  mode: NewTabMode,
   context: { agents: readonly ScreenAgent[]; omnibar: OmnibarContext; lastAgent?: string; home?: string },
 ): ScreenRow[] {
-  const intent = classifyNewTabInput(text, mode, context.home ? { home: context.home } : {});
+  const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
   if (intent.kind === "none" || intent.kind === "terminal") return [];
   const query = text.trim();
+  // Variants of one agent (`claude`, `claude-sr`) share a name; their id tells them apart.
+  const names = new Map<string, number>();
+  for (const agent of context.agents) names.set(agent.name, (names.get(agent.name) ?? 0) + 1);
   const agentRows: ScreenRow[] = orderedAgents(context.agents, context.lastAgent).map((agent) => ({
     type: "agent",
     harness: agent.id,
-    name: agent.name,
+    name: (names.get(agent.name) ?? 0) > 1 ? `${agent.name} (${agent.id})` : agent.name,
     text: query,
   }));
   const search: ScreenRow = { type: "search", text: query };
   const typed: ScreenRow[] =
     intent.kind === "url"
       ? [{ type: "open", url: intent.url, text: query }, search, ...agentRows]
-      : mode === "ask"
-        ? [...agentRows, search]
-        : [search, ...agentRows];
+      : [...agentRows, search];
   return [...typed, ...matches(query, context.omnibar)];
 }
 

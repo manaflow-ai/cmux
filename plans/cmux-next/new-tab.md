@@ -174,7 +174,7 @@ must work with no page.
 | N4 | Spare pool: `newTab.spare` handshake, `newTab.context` push, `NewTabSparePool` state machine, park/adopt, idle re-warm, memory-pressure drop, `debug.new_tab.timing` | CmuxNextAgentPane, CmuxNextApp | Swift property test of the pool, fleet timing test (section 2.3), first-frame snapshot, memory sample of one spare |
 | N5 | `newTab.submit` catalog action, CLI, MCP, palette, bridge arguments, remembered mode/agent | CmuxNextActions, CmuxNextApp, Rust CLI only through the existing catalog generator | action-surfaces check, CLI round trip on a tagged build |
 | N6 | Cmd-T default (Q1) and docs | CmuxNextSettings, docs | default-matches-docs test |
-| N7 | Move the page host to `PageWebView` + `cmux-page://cmux.agent/` when the React UIs lead lands H1b; keys through the dispatcher | CmuxNextAgentPane | after H1b; same tests |
+| N7 | Move the agent pane host (the new tab page included) to `CmuxNextPages`/`PageWebView` at `cmux-page://cmux.agent/` | ACP UI lead (coordinator, 2026-10-04); the new tab lead reviews the new tab part and keeps the N4 spare pool working with the new host | their gates |
 
 N1 and N2 start now (webviews only). N4 needs a fleet build for every measurement.
 
@@ -191,6 +191,23 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 - Q6: keep variant A behind the debug flag only until variant B passes dogfood, then delete A in
   this lane.
 - Pool size: measure the spare memory in N4 before the pool size is final.
+- N7 owner: the ACP UI lead (agent pane host migration).
+- R86 (Lawrence, 2026-10-04): no Search/Ask mode. One input: `!` is a terminal, an address opens,
+  any other text is a prompt for the chosen agent; a web search is only the explicit row under the
+  field (and `newTab.submit --arg search=true`). The mode memory, the Tab toggle and the `mode`
+  argument are removed; only the last agent is remembered.
+
+### Status (2026-10-04)
+
+- Landed: plan, N1 (shared intent table), N2 (variant B page), N3 (host side: search, type-only `!`,
+  type-ahead, choice memory, `newTab.layout`).
+- N4: one spare per window (`NewTabSparePool`), adopted by `newTabPage()`; spares exist while the
+  page is likely (`tabs.newTabKind` page, or used this session), re-warm after 750 ms of quiet
+  input, dropped on memory pressure and window close. `debug.new_tab` + `scripts/cmux-next/
+  new-tab-e2e.py` measure it on cmux-lawrence-2.
+- N5: `newTab.submit` (`cmux tab new-from-text TEXT [--arg mode=search|ask] [--arg agent=ID]`), MCP tool
+  from the app registry, palette with an argument prompt.
+- N6: `tabs.newTabKind` defaults to `page`; a build without the agent page falls back to a terminal.
 
 ## 9. Leo's ideas
 

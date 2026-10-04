@@ -29,7 +29,8 @@ public nonisolated enum CloudMachinesLayout: String, Sendable, CaseIterable, Tun
 }
 
 /// Debug Settings declarations of the React pages.
-public nonisolated enum PageTunables {
+public nonisolated struct PageTunables {
+    public nonisolated init() {}
     public static let section = TunableSection(id: "pages", title: "Pages", symbol: "doc.richtext", order: 46)
 
     public static let history = Tunable<PageImplementation>.choice(

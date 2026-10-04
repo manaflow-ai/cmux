@@ -177,6 +177,13 @@ replayed spool:
 6. Once the restart is done, the app records `daemon_build_adopted` (debug log + `debug.window_snapshot`
    field) so a tagged build can prove it.
 
+Implemented (UP): `DaemonService.start` runs `DaemonLauncher.handOffIfStale` after the first connect.
+It compares `identify.build_commit` with the bundled `cmux-tui --version` commit; a mismatch sends the
+fenced `shutdown-daemon`, and the endpoint provider waits for the old pid's kernel exit event (bounded
+by a `DemandTimer` deadline) before `server ensure`. An unknown build on either side keeps the running
+daemon. `AgentPaneHost.findOrStart` reads `_acpmux/status`; it hands off a stale acpmux only when the
+status reports `agentHosts`, because without agent hosts the restart would end its agents.
+
 A daemon restart is ~seconds for normal state but data-dependent (journal replay; a 12 GB journal took
 ~3 min, cloud-guest-upgrades.md); the app shows "Updating terminals…" over views during the restart and
 never times them out into "Process exited".

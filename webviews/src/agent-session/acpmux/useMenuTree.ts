@@ -8,6 +8,8 @@ import { useHoverIntent } from "./useHoverIntent";
 export type MenuNode = {
   key: string;
   label: string;
+  /// A mark drawn before the label (a harness's brand mark).
+  icon?: React.ReactNode;
   detail?: string;
   /// A key that picks the row (the recents' 1 to 9).
   hint?: string;

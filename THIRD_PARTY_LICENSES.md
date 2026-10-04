@@ -4,15 +4,14 @@ cmux includes the following third-party software:
 
 ---
 
-## Lobe Icons (selected agent marks)
+## Agent brand marks
 
-- **License:** MIT License
-- **Copyright:** Copyright (c) 2023 LobeHub
-- **Source:** https://github.com/lobehub/lobe-icons/tree/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons
-
-Selected Cursor, Gemini, Kiro, GitHub Copilot, CodeBuddy, Qoder, Kimi, and
-Ollama SVG marks are bundled under `Assets.xcassets/AgentIcons`. The complete
-license text is in `Assets.xcassets/AgentIcons/LOBE-LICENSE.txt`.
+The coding agent and provider marks in `design/agent-icons/svg/` (and the
+catalogs generated from them) are their owners' trademarks; they identify the
+agent a session uses and imply no endorsement. `design/agent-icons/manifest.json`
+records each mark's source and license. Simple Icons path data is CC0-1.0. The
+Rovo Dev mark comes from `@atlaskit/logo` (Apache-2.0, Copyright Atlassian). The
+GitHub Copilot mark is the Primer `copilot-24` octicon (MIT, below).
 
 ---
 
@@ -22,7 +21,8 @@ license text is in `Assets.xcassets/AgentIcons/LOBE-LICENSE.txt`.
 - **Copyright:** Copyright (c) 2026 GitHub Inc.
 - **Source:** https://github.com/primer/octicons (v19.38.0)
 
-Selected 16px path data is embedded in `webviews/src/icons.tsx`.
+Selected 16px path data is embedded in `webviews/src/icons.tsx`; the copilot-24
+mark is in `design/agent-icons/svg/copilot.svg`.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -41,6 +41,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## Emoji data (icon picker)
+
+- **Unicode emoji-test.txt 17.0** and **CLDR annotations 48.2.0** (`en`, `ja`):
+  Unicode License v3, Copyright (c) 2004-2026 Unicode, Inc.
+- **emojibase-data 17.0.0** GitHub shortcodes: MIT License, Copyright (c) 2017-2019 Miles Johnson.
+- **Source:** pinned by URL and SHA-256 in `webviews/scripts/icon-picker/sources.json`.
+
+The derived table is `webviews/src/icon-picker/generated/emoji-data.json`; the full license texts
+are in `webviews/src/icon-picker/generated/LICENSES.md`.
 
 ---
 

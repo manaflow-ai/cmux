@@ -45,25 +45,18 @@ import Testing
     }
 }
 
-/// Search | Ask and the last agent are remembered on this Mac (decision Q3).
+/// The last agent picked is remembered on this Mac (decision Q3; R86 dropped the mode).
 @Suite struct NewTabChoiceMemoryTests {
-    @Test func modeAndAgentSurviveARelaunch() throws {
+    @Test func theAgentSurvivesARelaunch() throws {
         let suite = "NewTabChoiceMemoryTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
-        #expect(memory.mode == nil)
         #expect(memory.agent == nil)
-        memory.remember(mode: "search", agent: nil)
-        memory.remember(mode: nil, agent: "codex")
-        let relaunched = NewTabChoiceMemory(defaults: defaults)
-        #expect(relaunched.mode == .search)
-        #expect(relaunched.agent == "codex")
-        relaunched.remember(mode: "ask", agent: nil)
-        #expect(NewTabChoiceMemory(defaults: defaults).mode == .ask)
+        memory.remember(agent: "codex")
+        #expect(NewTabChoiceMemory(defaults: defaults).agent == "codex")
         // A value the page should never send is ignored.
-        relaunched.remember(mode: "loud", agent: "")
-        #expect(NewTabChoiceMemory(defaults: defaults).mode == .ask)
+        memory.remember(agent: "")
         #expect(NewTabChoiceMemory(defaults: defaults).agent == "codex")
     }
 }

@@ -115,6 +115,7 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
+        .package(path: "../../Shared/CmuxAgentBrands"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         .package(path: "../../Shared/CmuxIrxTransport"),
@@ -134,6 +135,7 @@ let package = Package(
                 "CmuxNextHome",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -241,7 +243,7 @@ let package = Package(
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign"],
+            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -249,7 +251,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAccountsTests",
-            dependencies: ["CmuxNextAccounts", "CmuxNextCodeRouter"],
+            dependencies: ["CmuxNextAccounts", "CmuxNextCodeRouter", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             swiftSettings: uiSwiftSettings
         ),
         // Browser import (onboarding step 2; data-model.md 5): source detection
@@ -316,7 +318,7 @@ let package = Package(
         // the per-profile page visit log (SQLite), and the cmux://history page.
         .target(
             name: "CmuxNextHistory",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
             ],
@@ -364,7 +366,7 @@ let package = Package(
         // owns every session; the App supplies the source.
         .target(
             name: "CmuxNextAgentActivity",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-activity"),
@@ -418,7 +420,7 @@ let package = Package(
         // confirmed mirror + intent log; the App supplies the source.
         .target(
             name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
             ],
@@ -567,7 +569,10 @@ let package = Package(
         // kept out of CmuxNextApp so it links in `swift test` (no GhosttyKit).
         .target(
             name: "CmuxNextBridge",
-            dependencies: ["CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs"],
+            dependencies: [
+                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs",
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -614,10 +619,12 @@ let package = Package(
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),
+                .process("BrowserToolbarActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
                 .process("HistoryActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
+                .process("NewTabActions.xcstrings"),
                 .process("Localizable.xcstrings"),
                 .process("PageInfoActions.xcstrings"),
                 .process("ProfileActions.xcstrings"),
@@ -645,10 +652,8 @@ let package = Package(
             ],
             swiftSettings: daemonSwiftSettings
         ),
-        // Links the real libghostty only inside the Xcode app target. SwiftPM
-        // can compile against the GhosttyKit module but cannot link the macOS
-        // archive (it lacks the lib prefix), so this target has no test target
-        // until it gets the C-stub pattern used by CmuxTerminalCore.
+        // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
+        // prefix, so SwiftPM test bundles link it too).
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
@@ -670,6 +675,19 @@ let package = Package(
         .target(
             name: "CmuxNextTerminalGeometry",
             swiftSettings: uiSwiftSettings
+        ),
+        // Live libghostty surfaces without a window (snapshot restore, S2b).
+        .testTarget(
+            name: "CmuxNextTerminalTests",
+            dependencies: [
+                "CmuxNextTerminal",
+                "CmuxNextTerminalGeometry",
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
+            ],
+            swiftSettings: uiSwiftSettings,
+            // libghostty's static archive carries C++ (glslang); like
+            // CmuxNextAppTests, the test bundle links libc++ itself.
+            linkerSettings: [.linkedLibrary("c++")]
         ),
         .testTarget(
             name: "CmuxNextTerminalGeometryTests",
@@ -703,7 +721,10 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextTabs",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
+            dependencies: [
+                "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources",
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            ],
             resources: [
                 .process("Resources"),
             ],
@@ -716,7 +737,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Resources"),
             ],
@@ -729,7 +750,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextPalette",
-            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            dependencies: ["CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -806,7 +827,6 @@ let package = Package(
             dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
             resources: [
                 .process("Localizable.xcstrings"),
-                .copy("Resources/settings-page"),
             ],
             swiftSettings: uiSwiftSettings
         ),

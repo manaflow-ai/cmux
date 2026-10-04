@@ -29,6 +29,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    @ObservationIgnored var passwordFill = PasswordFillState()
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -119,7 +120,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     var initialURLString: String {
         // An empty URL creates the browser without navigating, which
         // `cmux_tab_restore_navigation` needs.
-        pendingRestore != nil ? "" : pendingURL?.absoluteString ?? "about:blank"
+        pendingRestore != nil ? "" : CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
     }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
@@ -127,6 +128,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
+        CEFAgentURLGuard.applyShimGuard(self)
         applyPageBackground()
         applyPasswordFill()
         let zoom = machine.state.zoom
@@ -156,7 +158,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             host.lifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
             if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
-        if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
         refreshExtensionActions()
     }
 
@@ -182,7 +183,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     private func applyPageBackground() {
         guard let browser = browserID, let shim = runtime.shim else { return }
         _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
-                                                                                 theme: PageBackground.themeARGB(in: container)))
+                                                                                 theme: PageBackground.themeARGB(in: container,
+                                                                                                                 surface: pastFirstRealPage ? nil : .newTabPage)))
     }
 
     func creationFailed() {

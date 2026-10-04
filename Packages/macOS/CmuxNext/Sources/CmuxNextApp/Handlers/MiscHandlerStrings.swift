@@ -39,6 +39,11 @@ enum MiscHandlerStrings {
     static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module) }
     static var noFile: String { String(localized: "handlers.misc.failed.noFile", defaultValue: "No file is focused.", table: "MiscHandlers", bundle: .module) }
     static var agentChromiumPage: String { String(localized: "handlers.misc.failed.agentChromiumPage", defaultValue: "Automation cannot open Chromium's own pages (chrome://, chrome-extension://, devtools://).", table: "MiscHandlers", bundle: .module) }
+    static func unknownBrowserProfile(_ text: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.unknownBrowserProfile",
+                              defaultValue: "%@ is not a browser profile. Use \"agent\" or the id of an existing profile.",
+                              table: "MiscHandlers", bundle: .module), text)
+    }
     static func invalidURL(_ text: String) -> String {
         String(format: String(localized: "handlers.misc.failed.invalidURL", defaultValue: "%@ is not a URL cmux can open.", table: "MiscHandlers", bundle: .module), text)
     }

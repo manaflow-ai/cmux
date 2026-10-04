@@ -120,6 +120,22 @@ export interface Env {
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** Private R2 bucket of Home attachments (objects `home/v1/<conversation>/<sha256>/<upload id>`); no public access. */
+  readonly HOME_ATTACHMENTS?: R2Bucket
+  /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */
+  readonly HOME_ATTACHMENT_KEY?: string
+  /** Key id of HOME_ATTACHMENT_KEY, signed into every slot and URL (default "1"). */
+  readonly HOME_ATTACHMENT_KEY_ID?: string
+  /** Rotation: the previous key and its id; URLs signed with it stay valid until they expire. */
+  readonly HOME_ATTACHMENT_KEY_PREVIOUS?: string
+  readonly HOME_ATTACHMENT_KEY_PREVIOUS_ID?: string
+  /** Presigned PUTs for 32-100 MB files: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = large files refused. */
+  readonly HOME_ATTACHMENTS_S3_ENDPOINT?: string
+  readonly HOME_ATTACHMENTS_S3_BUCKET?: string
+  readonly HOME_ATTACHMENTS_S3_ACCESS_KEY_ID?: string
+  readonly HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY?: string
+  /** Burst limit per user on attachment intents and download URL mints. */
+  readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
   readonly IOS_APP_ID?: string
   /** "true" accepts App Attest development keys (appattestdevelop); staging and development only. */
@@ -164,4 +180,14 @@ export interface Env {
   readonly HYPERDRIVE?: Hyperdrive
   /** Read-only role (search-ro, pg_read_all_data) for home.search; never used for writes. */
   readonly HYPERDRIVE_RO?: Hyperdrive
+  /** PlanetScale MySQL `cmux-next-vitess` through Hyperdrive, readwriter role (projection writes). */
+  readonly PS_MYSQL?: Hyperdrive
+  /** PlanetScale MySQL reader role (home.search, directory reads). */
+  readonly PS_MYSQL_RO?: Hyperdrive
+  /** Projection primary: "postgres" (default) until the verified MySQL cutover, then "mysql". */
+  readonly PROJECTION_PRIMARY?: string
+  /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
+  readonly PROJECTION_SHADOW?: string
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  readonly PROJECTION_READS?: string
 }

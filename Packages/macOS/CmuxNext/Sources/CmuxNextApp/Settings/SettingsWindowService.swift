@@ -2,19 +2,20 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
 import Foundation
 
-/// Owns Settings (Settings…, Cmd-, and the app menu) and feeds it the live
-/// state cmux.json does not hold: rooms of the local daemon, saved
-/// machines, the Ghostty config and the shortcut writer. Settings opens as
-/// an internal page tab in the active window (`InternalPageTabStore`), or
-/// as its own window under the Debug Settings choice
-/// `settings.presentation = window` or when no main window can hold the
-/// tab. One model serves every tab and the window; it is made on first
-/// show and dropped once nothing shows it.
+/// Owns Settings (Settings…, Cmd-, the app menu, the palette, `settings.open`). R82: Settings is
+/// the React page (cmux-page://cmux.settings/, `SettingsPageProvider`), opened as an internal
+/// page tab in the active window. One page view is kept and shown again on reopen, so a reopen
+/// does not load the page again. Keyboard goes to the Keyboard Shortcuts page.
+///
+/// INTERIM (R82 B): the sections the React page does not draw yet (accounts, rooms, machines),
+/// and Settings with no main window open, still open the Swift Settings window with its model.
+/// That path goes when those sections reach the page.
 @MainActor
 final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     unowned let services: AppServices
@@ -32,10 +33,17 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
         controller?.window ?? services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
-    /// Shows Settings on `section`, or scrolled to `setting` (a cmux.json
-    /// key path, card or button `SettingsAnchor(key:)` knows) with its
-    /// highlight. An unknown setting is refused and opens nothing. `focus`
-    /// false (automation) opens the tab without selecting it.
+    /// The kept React page (a reopen shows it again with no reload); nil before the first show.
+    private var webPage: PageWebView?
+    /// The route the next page view opens on.
+    private var pendingRoute: String?
+
+    /// Sections only the Swift window draws (R82 B, interim).
+    static let swiftSections: Set<SettingsSection> = [.accounts]
+
+    /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
+    /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
+    /// nothing. `focus` false (automation) opens the tab without selecting it.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true) throws {
         guard let settings = services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         var anchor: SettingsAnchor?
@@ -45,18 +53,39 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
             }
             anchor = found
         }
+        let target = anchor?.section ?? section
+        if target == .keyboard {
+            let invocation = ActionInvocation(origin: focus ? .user : .cli)
+            guard services.registry.perform("keybindings.open", invocation: invocation) else {
+                throw ActionFailure(message: RefusalStrings.noWindowOpen)
+            }
+            return
+        }
+        if let target, Self.swiftSections.contains(target) {
+            return showWindow(settings: settings, section: section, anchor: anchor)
+        }
+        let route = Self.route(section: target, setting: setting)
+        guard let window = services.windows.active else {
+            return showWindow(settings: settings, section: section, anchor: anchor)
+        }
+        pendingRoute = route
+        let view = services.pages.show(.settings, in: window, focus: focus)
+        if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+    }
+
+    /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
+    /// anchor opens its section.
+    static func route(section: SettingsSection?, setting: String?) -> String? {
+        if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
+            return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
+        }
+        return section.map { "#/settings/\($0.rawValue)" }
+    }
+
+    /// The Swift Settings window (interim, R82 B).
+    private func showWindow(settings: SettingsController, section: SettingsSection?, anchor: SettingsAnchor?) {
         let model = sharedModel ?? SettingsWindowModel(settings: settings, registry: services.registry, host: self)
         sharedModel = model
-        if SettingsWindowLayout.presentation.value == .pane, let window = services.windows.active {
-            if let anchor {
-                model.open(anchor)
-            } else if let section {
-                model.select(section, layout: SettingsWindowLayout.tunable.value)
-            }
-            // Settings draws in the theme of the window that shows it.
-            SettingsWindowModel.followTheme(window.themeScope)
-            if services.pages.show(.settings, in: window, focus: focus) != nil { return }
-        }
         if controller == nil {
             let controller = SettingsWindowController(model: model)
             controller.onClose = { [weak self] in
@@ -69,17 +98,8 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
         controller?.present(section: section, anchor: anchor)
     }
 
-    /// A key while a shortcut recording runs in a Settings tab: the
-    /// recorder takes it before any shortcut (a recorded Cmd-W must not
-    /// close the tab). The Settings window routes its own keys.
-    func handlePaneRecorderKey(_ event: NSEvent) -> Bool {
-        guard controller == nil, let model = sharedModel, model.recorder != nil, event.type == .keyDown,
-              !services.pages.keys(of: .settings).isEmpty else { return false }
-        return model.handleRecorderKey(event)
-    }
-
     private func dropModelWhenUnused() {
-        guard controller == nil, services.pages.keys(of: .settings).isEmpty else { return }
+        guard controller == nil else { return }
         sharedModel?.cancelRecording()
         sharedModel = nil
     }
@@ -90,11 +110,17 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     var title: String { SettingsWindowModel.paneTitle }
     var symbol: String { "gearshape" }
 
+    /// The kept page when no other tab shows it, else a new one (a second window's tab).
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let model = sharedModel ?? services.settings.map { SettingsWindowModel(settings: $0, registry: services.registry, host: self) }
-        sharedModel = model
-        guard let model else { return NSView() }
-        return model.makePaneView(scope: window?.themeScope ?? .app)
+        let route = pendingRoute
+        pendingRoute = nil
+        if let webPage, webPage.superview == nil {
+            if let route, webPage.route != route { webPage.open(route: route) }
+            return webPage
+        }
+        guard let page = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
+        if webPage == nil { webPage = page }
+        return page
     }
 
     func tabClosed(_ key: String) {

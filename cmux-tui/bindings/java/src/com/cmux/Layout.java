@@ -80,11 +80,32 @@ public final class Layout {
         }
     }
 
-    public record Column(Ids.SplitId columnId, double width, Node root) {
+    /**
+     * A pinned column's edge ("left", "right", "top" or "bottom") and mode
+     * ("docked" or "overlay").
+     */
+    public record Sticky(String edge, String mode) {
+        public Sticky {
+            if (!List.of("left", "right", "top", "bottom").contains(edge)) {
+                throw new IllegalArgumentException("sticky edge " + edge + " is not known");
+            }
+            if (!List.of("docked", "overlay").contains(mode)) {
+                throw new IllegalArgumentException("sticky mode " + mode + " is not known");
+            }
+        }
+    }
+
+    /** A viewport column; {@code sticky} is empty while it scrolls. */
+    public record Column(Ids.SplitId columnId, double width, Node root, Optional<Sticky> sticky) {
         public Column {
             Objects.requireNonNull(columnId, "columnId");
             boundedWidth(width, "width");
             Objects.requireNonNull(root, "root");
+            Objects.requireNonNull(sticky, "sticky");
+        }
+
+        public Column(Ids.SplitId columnId, double width, Node root) {
+            this(columnId, width, root, Optional.empty());
         }
     }
 

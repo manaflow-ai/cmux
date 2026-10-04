@@ -23,6 +23,15 @@ export interface RowRange {
   readonly desc?: boolean
 }
 
+/** A window of row keys (unordered tables keyed by a sortable string, such as an inbox order index). */
+export interface KeyRange {
+  /** Exclusive lower bound on the key. */
+  readonly after?: string
+  /** Exclusive upper bound on the key. */
+  readonly before?: string
+  readonly limit: number
+}
+
 export interface RowReader {
   get<T>(table: string, key: string): StoredRow<T> | undefined
   range<T>(table: string, range: RowRange): Array<StoredRow<T>>
@@ -69,6 +78,15 @@ export class SqlRows implements RowReader {
         q.before ?? Number.MAX_SAFE_INTEGER,
         limit
       )
+      .map((r) => ({ key: r.k, n: r.n === null ? null : Number(r.n), row: JSON.parse(r.json) as T }))
+  }
+
+  /** Rows with a key inside `range`, in key order (binary collation); reads the primary key index, never the whole table. */
+  keyRange<T>(tbl: string, q: KeyRange): Array<StoredRow<T>> {
+    const clauses = [q.after === undefined ? "" : " AND k > ?", q.before === undefined ? "" : " AND k < ?"].join("")
+    const bounds = [q.after, q.before].filter((b): b is string => b !== undefined)
+    return this.sql
+      .exec<{ k: string; n: number | null; json: string }>(`SELECT k, n, json FROM ${this.table} WHERE tbl = ?${clauses} ORDER BY k LIMIT ?`, tbl, ...bounds, Math.max(0, Math.min(q.limit, 1000)))
       .map((r) => ({ key: r.k, n: r.n === null ? null : Number(r.n), row: JSON.parse(r.json) as T }))
   }
 
@@ -131,6 +149,13 @@ export class MemoryRows implements RowReader {
     )
     all.sort((a, b) => (q.desc ? b.n! - a.n! : a.n! - b.n!))
     return all.slice(0, q.limit) as Array<StoredRow<T>>
+  }
+
+  /** Same contract as SqlRows.keyRange. Keys compare by UTF-16 code unit, which equals SQLite's binary order for the ASCII keys callers use. */
+  keyRange<T>(tbl: string, q: KeyRange): Array<StoredRow<T>> {
+    const rows = [...(this.tables.get(tbl)?.values() ?? [])].filter((r) => (q.after === undefined || r.key > q.after) && (q.before === undefined || r.key < q.before))
+    rows.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    return rows.slice(0, Math.max(0, Math.min(q.limit, 1000))) as Array<StoredRow<T>>
   }
 
   apply(writes: ReadonlyArray<RowWrite>): void {

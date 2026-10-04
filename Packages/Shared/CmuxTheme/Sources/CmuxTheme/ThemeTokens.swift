@@ -24,16 +24,15 @@ public struct ThemeTokens: Hashable, Sendable {
     public var chromeBackground: ThemeRGB
     /// Floating cards (palette, hover card, editors) under or instead of glass.
     public var elevatedBackground: ThemeRGB
-    /// Every pane's tab strip: a shade darker than the window in light
-    /// themes too, so the strips read as quiet bands (a pure black window
-    /// has no darker shade; there the strip matches it).
+    /// Every pane's tab strip: the same ground as the window. Focus and
+    /// selection fills provide hierarchy without introducing a second
+    /// background token.
     public var stripBackground: ThemeRGB
     /// The sidebar's tonal step: a translucent layer over the window's one
     /// backdrop (the solid background, or the material and its tint), the
     /// foreground at the same 4% the agent pane's sidebar uses.
     public var sidebarStep: ThemeRGB
-    /// The tab strip's tonal step over the window's backdrop: black, so
-    /// over the opaque background it composites to `stripBackground`.
+    /// Reserved for the sidebar rules; tab strips do not add a tonal step.
     public var stripStep: ThemeRGB
 
     // Text
@@ -151,9 +150,9 @@ public struct ThemeTokens: Hashable, Sendable {
             contentBackground: surface,
             chromeBackground: bg.mixed(toward: fg, isDark ? 0.05 : 0.035),
             elevatedBackground: bg.mixed(toward: fg, isDark ? 0.07 : 0.02),
-            stripBackground: bg.mixed(toward: .black, isDark ? 0.22 : 0.05).withAlpha(input.backgroundOpacity),
+            stripBackground: surface,
             sidebarStep: fg.withAlpha(0.04),
-            stripStep: ThemeRGB.black.withAlpha(isDark ? 0.22 : 0.05),
+            stripStep: ThemeRGB.black.withAlpha(0),
             textPrimary: primary,
             textSecondary: secondary,
             textTertiary: tertiary,

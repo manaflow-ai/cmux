@@ -72,6 +72,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Model/FeedChoiceValidation.swift:Fe
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift:AgentResume
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageModel.swift:HistoryPageAddress
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ColumnGeometry.swift:ColumnStripGeometry
+Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/DockStripGeometry.swift:DockStripGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/DropZoneGeometry.swift:DropZoneGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/EvenSplitRatios.swift:EvenSplitRatios
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/FocusNavigation.swift:FocusNavigation
@@ -80,7 +81,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/LayoutModelPrototype.swi
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/PaneChromeGeometry.swift:PaneChromeGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/SplitGeometry.swift:SplitGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/SplitRoom.swift:SplitRoom
-Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/StickyStripGeometry.swift:StickyStripGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/StripScrollbarGeometry.swift:StripScrollbarGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/ColumnWidthPreset.swift:SplitRatio
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/NewColumnWidth.swift:NewColumnWidth
@@ -114,7 +114,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SidebarSectionsSetting.swift:Si
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/StripScrollbarSetting.swift:StripScrollbarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/TerminalCommandHistorySetting.swift:TerminalCommandHistorySetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowBackgroundSetting.swift:WindowBackgroundSetting
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowRailSetting.swift:WindowRailSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowTitlebarSetting.swift:WindowTitlebarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/DropResolver.swift:DropResolver
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/KeyboardReorder.swift:KeyboardReorder

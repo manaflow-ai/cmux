@@ -110,6 +110,8 @@ final class AppServices {
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     let newTabTypeAhead = NewTabTypeAhead()
+    /// One prewarmed new tab page per window (instant open).
+    private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -243,6 +245,7 @@ final class AppServices {
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in
             PageInfoHandlers.installRouter(on: entry, registry: registry)
+            BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
         }
         cache.extraSuggestionProviders = { [unowned self] profile in

@@ -205,15 +205,11 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.browser.open": {
+    "cloud.billing.checkout": {
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.domain.list": {
-      "scope": "cloud:read",
-      "class": "read"
-    },
-    "cloud.domain.verify": {
+    "cloud.browser.open": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -225,15 +221,11 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.firewall.create": {
+    "cloud.file.transfer.cancel": {
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.firewall.get": {
-      "scope": "cloud:read",
-      "class": "read"
-    },
-    "cloud.firewall.list": {
+    "cloud.file.transfer.list": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -260,6 +252,10 @@
     "cloud.machine.connect": {
       "scope": "cloud:write",
       "class": "mutation"
+    },
+    "cloud.machine.connect_info": {
+      "scope": "cloud:read",
+      "class": "read"
     },
     "cloud.machine.create": {
       "scope": "cloud:write",
@@ -297,15 +293,19 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.machine.stats": {
-      "scope": "cloud:read",
-      "class": "read"
+    "cloud.machine.upgrade": {
+      "scope": "cloud:write",
+      "class": "mutation"
     },
     "cloud.machine.watch": {
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.network.list": {
+    "cloud.migration.start": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.migration.status": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -321,31 +321,11 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.publication.create": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.publication.list": {
-      "scope": "cloud:read",
-      "class": "read"
-    },
-    "cloud.publication.update": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.publication.verify": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.rescue.open": {
       "scope": "cloud:write",
       "class": "mutation"
     },
     "cloud.snapshot.create": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.snapshot.fork": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -356,22 +336,6 @@
     "cloud.snapshot.restore": {
       "scope": "cloud:write",
       "class": "mutation"
-    },
-    "cloud.tunnel.attach": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.tunnel.detach": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.tunnel.rotate_key": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
-    "cloud.usage.get": {
-      "scope": "cloud:read",
-      "class": "read"
     },
     "codemirror.cycle_variant": {
       "scope": "codemirror:write",
@@ -1688,11 +1652,9 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
-    "cloud.firewall.delete",
     "cloud.fs.remove",
     "cloud.machine.delete",
     "cloud.port.close",
-    "cloud.publication.delete",
     "cloud.snapshot.delete",
     "domain.release",
     "firewall.delete",

@@ -26,6 +26,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
     @ObservationIgnored private let container: WebKitPageContainer
+    /// Web Inspector's visibility, for the toolbar's DevTools button.
+    @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -50,6 +52,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.webView = webView
         container = WebKitPageContainer(page: webView)
         super.init()
+        inspectorWatch.attach(webView: webView, container: container)
 
         webView.owner = self
         webView.navigationDelegate = self

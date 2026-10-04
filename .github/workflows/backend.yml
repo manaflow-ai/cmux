@@ -57,6 +57,14 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      # PlanetScale MySQL (Vitess) projection during the Postgres to MySQL move (state-placement.md 4.4).
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: scratch
+          MYSQL_DATABASE: cmux_next
+        ports: ["3306:3306"]
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1 -pscratch" --health-interval 5s --health-timeout 5s --health-retries 20
     defaults:
       run:
         working-directory: backend
@@ -92,6 +100,15 @@ jobs:
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: bun test test-pg
+      - name: MySQL migration lint (Vitess rules)
+        working-directory: backend/db
+        run: bun migrate-mysql.ts --lint
+      - name: MySQL migrations apply from zero, projection, search and Postgres/MySQL parity
+        working-directory: backend/db
+        env:
+          SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
+          MYSQL_URL: mysql://root:scratch@127.0.0.1:3306/cmux_next
+        run: bun migrate-mysql.ts --url-env MYSQL_URL && bun migrate-mysql.ts --url-env MYSQL_URL --verify && bun test test-mysql
       - name: Ownership invariants (OwnershipConvergence model + mutants)
         working-directory: backend/packages/ownership
         env:

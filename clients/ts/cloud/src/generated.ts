@@ -294,6 +294,20 @@ export type Grant = {
 /** A server-side grant; tokens carry only its id. */
 export type GrantId = string
 
+/** Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}. */
+export type HomeAttachmentPoster = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
+/** Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}. */
+export type HomeAttachmentPreview = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
 export type HomeChief = {
   readonly id: ChiefId
   readonly owner_user: string
@@ -355,6 +369,11 @@ export type HomeInboxEntry = {
   readonly last_seq: number
   readonly last_at: Timestamp
   readonly preview: string
+  /** Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message. */
+  readonly preview_attachments?: {
+    readonly kind: "photo" | "video" | "audio" | "file"
+    readonly count: number
+  }
   readonly dm_peer?: ParticipantId
   readonly removed: boolean
   readonly unread: number
@@ -416,6 +435,17 @@ export type HomePart = {
   readonly host?: string
   readonly status: "running" | "done" | "failed" | "waiting"
   readonly preview?: string
+} | {
+  readonly type: "attachment"
+  readonly hash: HomeSha256
+  readonly name: string
+  readonly mime_type: string
+  readonly byte_count: number
+  readonly width?: number
+  readonly height?: number
+  readonly duration_ms?: number
+  readonly poster?: HomeAttachmentPoster
+  readonly preview?: HomeAttachmentPreview
 }
 
 export type HomeParticipant = {
@@ -456,6 +486,9 @@ export type HomeReactionKind = {
 } | {
   readonly emoji: string
 }
+
+/** SHA-256 of the bytes, lowercase hex. */
+export type HomeSha256 = string
 
 /** A styled range of a text part, in UTF-16 code units. */
 export type HomeTextRun = {
@@ -1144,7 +1177,7 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "conversation.create": {
     readonly params: {
       readonly kind?: "group"
@@ -1634,17 +1667,19 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone and who may start a DM with you. */
+  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
-      readonly allow_dm_from?: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from?: "anyone" | "teams" | "nobody"
+      readonly email_requests?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
-      readonly allow_dm_from: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from: "anyone" | "teams" | "nobody"
+      readonly email_requests: boolean
     }
   }
   /** Enroll the calling install's machine as a host in the team directory. */
@@ -1686,9 +1721,11 @@ export interface CloudOps {
     readonly params: {
       readonly limit?: number
       readonly include_archived?: boolean
+      readonly cursor?: string
     }
     readonly result: {
       readonly entries: ReadonlyArray<HomeInboxEntry>
+      readonly next_cursor: string | null
       readonly revision: string
     }
   }
@@ -2003,7 +2040,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId

@@ -17,6 +17,7 @@ import {
   type OutboxItem,
   type Principal
 } from "../src/conversation/index.ts"
+import { fanOutItems } from "../src/conversation/outbox.ts"
 import { utf8Bytes } from "../src/conversation/validate.ts"
 import { agent, CoreHost, DomainHost, human, text } from "./support/harness.ts"
 import { ALICE, BOB, CAROL, CHIEF, ADDRESS, groupHead, INV, inviteOp, tokenHash } from "./support/cloud.ts"
@@ -222,6 +223,67 @@ describe("fan-out", () => {
     const readResult = host.run(BOB, "r", { kind: "read_cursor.set", seq: 1 })
     if (!readResult.ok) throw new Error(readResult.code)
     expect(fanOut({ before: result.commit.head, request: read, commit: readResult.commit }).bumps).toMatchObject([{ user: BOB, unread: 0, mentions: 0 }])
+  })
+
+  it("every bump carries the push facts of the last message and the recipient's join point (UserDO decides push)", () => {
+    const host = new CoreHost(groupHead())
+    const before = host.head
+    const op = { kind: "message.send" as const, client_msg_id: "m1", parts: [{ type: "text" as const, text: "@bob", runs: [{ start: 0, length: 4, mention: BOB }] }] }
+    const request = host.request(ALICE, "m1", op)
+    const result = host.run(ALICE, "m1", op)
+    if (!result.ok) throw new Error(result.code)
+    const bumps = fanOut({ before, request, commit: result.commit }).bumps
+    expect(bumps.find((b) => b.user === BOB)).toMatchObject({ last_author: ALICE, last_author_kind: "human", last_mention: true, joined_seq: 0 })
+    expect(bumps.find((b) => b.user === ALICE)).toMatchObject({ last_author: ALICE, last_author_kind: "human", joined_seq: 0 })
+    expect(bumps.find((b) => b.user === ALICE)?.last_mention).toBeUndefined()
+    expect(bumps.every((b) => b.last_approval === undefined)).toBe(true)
+    // A later row change (an edit of the last message) still describes the last message, so coalescing keeps the facts.
+    const edit = { kind: "message.edit" as const, message_id: result.commit.message!.id, parts: [text("plain")] }
+    const editBefore = host.head
+    const editRequest = host.request(ALICE, "e1", edit)
+    const edited = host.run(ALICE, "e1", edit)
+    if (!edited.ok) throw new Error(edited.code)
+    expect(fanOut({ before: editBefore, request: editRequest, commit: edited.commit }).bumps.find((b) => b.user === BOB)).toMatchObject({ last_seq: 1, last_author: ALICE, last_author_kind: "human" })
+    // A chief author is an agent.
+    const chief = host.run(CHIEF, "c1", { kind: "message.send", client_msg_id: "c1", parts: [text("done")] })
+    if (!chief.ok) throw new Error(chief.code)
+    const chiefBumps = fanOut({ before: host.head, request: host.request(CHIEF, "c1", { kind: "message.send", client_msg_id: "c1", parts: [text("done")] }), commit: chief.commit }).bumps
+    expect(chiefBumps.find((b) => b.user === BOB)).toMatchObject({ last_author: CHIEF, last_author_kind: "agent" })
+  })
+
+  it("an approval notifies only its addressee: the owner of the agent that asked (home.md section 5)", () => {
+    // The approval part type is not in the conversation vocabulary yet (validateParts refuses it), so the
+    // committed message is given the part after the send, as a future send of the part would commit it.
+    const withApproval = (author: string, id: string) => {
+      const host = new CoreHost(groupHead())
+      const before = host.head
+      const op = { kind: "message.send" as const, client_msg_id: id, parts: [text("may I deploy?")] }
+      const request = host.request(author, id, op)
+      const result = host.run(author, id, op)
+      if (!result.ok) throw new Error(result.code)
+      const sent = result.commit.message!
+      const message = { ...sent, parts: [...sent.parts, { type: "approval" }] as unknown as typeof sent.parts }
+      return fanOut({ before, request, commit: { ...result.commit, message } }).bumps
+    }
+    const fromChief = withApproval(CHIEF, "a1")
+    expect(fromChief.find((b) => b.user === ALICE)).toMatchObject({ last_author: CHIEF, last_author_kind: "agent", last_approval: true })
+    // Another member of the group cannot decide the chief's approval: no alert through mute.
+    expect(fromChief.find((b) => b.user === BOB)?.last_approval).toBeUndefined()
+    // A human's message never carries the approval fact, whatever its parts.
+    expect(withApproval(BOB, "a2").every((b) => b.last_approval === undefined)).toBe(true)
+  })
+
+  it("an approval bump is never coalesced away by a later bump of the same conversation", () => {
+    const fan = {
+      bumps: [{ user: BOB, conversation: "conv_GROUP", rev: 4, kind: "group" as const, title: "Team", last_seq: 3, last_at: "t", preview: "", last_author: CHIEF, last_author_kind: "agent" as const, last_approval: true as const }],
+      wakes: [],
+      search: [],
+      deliveries: []
+    }
+    const [approval] = fanOutItems(fan, undefined, "group")
+    expect(approval?.target).toEqual({ class: "UserDO", name: BOB })
+    const [plain] = fanOutItems({ ...fan, bumps: [{ ...fan.bumps[0]!, last_approval: undefined }] }, undefined, "group")
+    expect(plain?.target).toEqual({ class: "UserDO", name: BOB, coalesce: "bump:conv_GROUP" })
   })
 
   it("truncates previews and search bodies, and removes the bump target that left", () => {
