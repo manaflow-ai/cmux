@@ -18,9 +18,9 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
+pub(crate) use super::closed_history_query::closed_items;
 use super::closed_history_query::public_item;
 use super::store::{state_delete, state_upsert};
-pub(crate) use super::closed_history_query::closed_items;
 use crate::workspace_registry::resource_store::{ResourceChange, ResourcePatch};
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
@@ -60,7 +60,12 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
         )?;
         statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?
     };
@@ -299,7 +304,10 @@ pub(crate) fn group_kind(members: &[Value]) -> &'static str {
 
 /// The window record (`install/window`) whose sidebar lists the workspace,
 /// or that shows it. None when no window lists it (a TUI-only session).
-fn window_of_workspace(connection: &Connection, workspace_id: &str) -> anyhow::Result<Option<String>> {
+fn window_of_workspace(
+    connection: &Connection,
+    workspace_id: &str,
+) -> anyhow::Result<Option<String>> {
     Ok(connection
         .query_row(
             "SELECT r.install_id || '/' || r.window_id

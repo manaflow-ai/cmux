@@ -67,10 +67,16 @@ impl Reopened {
 }
 
 /// Split `members` into the ones to restore and the ones to keep.
-fn choose(members: Vec<Value>, chosen: Option<&[usize]>) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
+fn choose(
+    members: Vec<Value>,
+    chosen: Option<&[usize]>,
+) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
     let Some(chosen) = chosen else { return Ok((members, Vec::new())) };
     if let Some(bad) = chosen.iter().find(|index| **index >= members.len()) {
-        anyhow::bail!("bad request: member {bad} is out of range (the group has {})", members.len());
+        anyhow::bail!(
+            "bad request: member {bad} is out of range (the group has {})",
+            members.len()
+        );
     }
     let (restore, keep): (Vec<_>, Vec<_>) =
         members.into_iter().enumerate().partition(|(index, _)| chosen.contains(index));
@@ -95,7 +101,9 @@ impl Mux {
         let closed_id = match &request.closed {
             Some(closed) => closed.clone(),
             None => self
-                .read_registry_state(|connection| newest_for_window(connection, request.window.as_deref()))?
+                .read_registry_state(|connection| {
+                    newest_for_window(connection, request.window.as_deref())
+                })?
                 .ok_or_else(|| state_not_found("closed", "newest"))?,
         };
         let record = self
@@ -107,7 +115,8 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&closed_id, member, &mut reopened)?;
         }
-        let workspace = reopened.workspaces.first().cloned().context("reopened item has no workspace")?;
+        let workspace =
+            reopened.workspaces.first().cloned().context("reopened item has no workspace")?;
         let kind = record["kind"].as_str().unwrap_or_default().to_string();
         self.commit_state(
             mutation,
@@ -150,7 +159,9 @@ impl Mux {
             Some("tab") => self.reopen_closed_tab(member, reopened),
             Some("screen") => self.reopen_closed_screen(member, reopened),
             Some("workspace") => self.reopen_closed_workspace(member, reopened),
-            other => anyhow::bail!("closed item {closed_id} has a member of unknown kind {other:?}"),
+            other => {
+                anyhow::bail!("closed item {closed_id} has a member of unknown kind {other:?}")
+            }
         }
     }
 
@@ -294,7 +305,8 @@ impl Mux {
             return;
         };
         let original = self.with_state(|state| {
-            let pane = record["pane_id"].as_str().and_then(|pane| pane_by_public_id(state, pane))?;
+            let pane =
+                record["pane_id"].as_str().and_then(|pane| pane_by_public_id(state, pane))?;
             (state.pane_of(surface) == Some(pane)).then_some(pane)
         });
         if let Some(pane) = original {

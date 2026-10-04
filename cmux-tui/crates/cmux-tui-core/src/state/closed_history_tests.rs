@@ -6,9 +6,7 @@
 
 use serde_json::json;
 
-use super::tests::{
-    error_code, mutate, pane_id, pane_tab_ids, read, send, tab_id, terminal_tabs,
-};
+use super::tests::{error_code, mutate, pane_id, pane_tab_ids, read, send, tab_id, terminal_tabs};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -184,7 +182,7 @@ fn v1_closed_items_migrate_to_one_member_groups() {
     assert_eq!(items[0]["id"], "closed_newer");
     assert_eq!(items[0]["name"], "newer");
     assert_eq!(items[0]["member_count"], 1);
-    assert_eq!(items[0]["window"], serde_json::Value::Null);
+    assert_eq!(items[0]["window"], Value::Null);
     assert_eq!(items[0]["members"][0]["index"], 3);
     assert_eq!(items[0]["members"][0]["screens"][0]["tabs"][0]["cwd"], "/tmp");
     let v1_left: i64 = connection
