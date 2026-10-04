@@ -10,8 +10,10 @@ public nonisolated enum DropZoneGeometry {
     /// both take the target from here (R47).
     public static func zone(at point: CGPoint, in rect: CGRect, header: CGFloat = 0, footer: CGFloat = 0, style: LayoutStyle) -> PaneDropZone {
         let top = rect.minY + min(max(0, header), rect.height)
-        guard point.y >= top else { return .center }
-        let body = CGRect(x: rect.minX, y: top, width: rect.width, height: rect.maxY - top)
+        let bottom = max(top, rect.maxY - max(0, footer))
+        // Over the tab bar (header or footer) a tab joins the pane.
+        guard point.y >= top, point.y < bottom || footer <= 0 else { return .center }
+        let body = CGRect(x: rect.minX, y: top, width: rect.width, height: bottom - top)
         let bandX = band(for: body.width, style: style)
         let bandY = band(for: body.height, style: style)
         let candidates: [(PaneDropZone, CGFloat)] = [
@@ -36,12 +38,12 @@ public nonisolated enum DropZoneGeometry {
     /// pane edges so "new column" is reachable between columns. A point in
     /// no pane goes to the nearest pane.
     public static func target(at point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, headers: [PaneID: CGFloat] = [:],
-                              style: LayoutStyle) -> DropTarget? {
+                              footers: [PaneID: CGFloat] = [:], style: LayoutStyle) -> DropTarget? {
         for zone in geometry.gapZones where zone.frame.contains(point) {
             return .newColumn(screen: screen, after: zone.after)
         }
         let candidates = geometry.panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }
-        return paneTarget(at: point, candidates, headers: headers, style: style)
+        return paneTarget(at: point, candidates, headers: headers, footers: footers, style: style)
     }
 
     /// The tab bar height of `pane` measured from its cell top: the cell's
@@ -51,6 +53,13 @@ public nonisolated enum DropZoneGeometry {
         return PaneChromeGeometry.contentRect(forCell: cell, style: style).minY - cell.minY + header
     }
 
+    /// The tab bar height of `pane` at the bottom of its cell (R109): the
+    /// cell's padding plus the footer the pane reports (`footers`).
+    static func footer(of pane: PaneID, in cell: CGRect, _ footers: [PaneID: CGFloat], _ style: LayoutStyle) -> CGFloat {
+        guard let footer = footers[pane], footer > 0 else { return 0 }
+        return cell.maxY - PaneChromeGeometry.contentRect(forCell: cell, style: style).maxY + footer
+    }
+
     /// Drop target under `point` in view coordinates, with the strip
     /// scrolled to `offset`. Docked columns sit above the strip: their panes
     /// take the drop, and the rest of what a docked column covers (its glass
@@ -58,11 +67,12 @@ public nonisolated enum DropZoneGeometry {
     /// nothing lands in a strip pane hidden under it. The strip resolves as
     /// `target(at:)`. Every point resolves while the screen has a pane.
     public static func target(atView point: CGPoint, offset: CGFloat, screen: ScreenID, geometry: ScreenGeometry,
-                              headers: [PaneID: CGFloat] = [:], style: LayoutStyle) -> DropTarget? {
+                              headers: [PaneID: CGFloat] = [:], footers: [PaneID: CGFloat] = [:], style: LayoutStyle) -> DropTarget? {
         let shift = geometry.viewShift(offset: offset)
         if let cover = geometry.dock.first(where: { $0.cover.contains(point) }) {
             let panes = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
-            return paneTarget(at: point, panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }, headers: headers, style: style)
+            return paneTarget(at: point, panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }, headers: headers,
+                              footers: footers, style: style)
         }
         let content = CGPoint(x: point.x - shift, y: point.y)
         for zone in geometry.gapZones where zone.frame.contains(content) {
@@ -81,7 +91,7 @@ public nonisolated enum DropZoneGeometry {
             let visible = cell.intersection(uncovered)
             return visible.isNull || visible.isEmpty ? nil : (pane, cell, visible)
         }
-        return paneTarget(at: point, candidates, headers: headers, style: style)
+        return paneTarget(at: point, candidates, headers: headers, footers: footers, style: style)
     }
 
     /// The pane target under `point`: the pane whose cell holds it, else
@@ -90,15 +100,17 @@ public nonisolated enum DropZoneGeometry {
     /// docked column's rim preview the pane next to them; Lawrence
     /// 2026-10-04). `visible` is the part of the cell nothing covers.
     static func paneTarget(at point: CGPoint, _ candidates: [(pane: PaneID, cell: CGRect, visible: CGRect)],
-                           headers: [PaneID: CGFloat], style: LayoutStyle) -> DropTarget? {
+                           headers: [PaneID: CGFloat], footers: [PaneID: CGFloat] = [:], style: LayoutStyle) -> DropTarget? {
         let sorted = candidates.sorted { $0.pane < $1.pane }
+        func resolve(_ point: CGPoint, _ pane: PaneID, _ cell: CGRect) -> PaneDropZone {
+            Self.zone(at: point, in: cell, header: header(of: pane, in: cell, headers, style),
+                      footer: footer(of: pane, in: cell, footers, style), style: style)
+        }
         if let hit = sorted.first(where: { $0.visible.contains(point) }) {
-            return .pane(hit.pane, zone(at: point, in: hit.cell, header: header(of: hit.pane, in: hit.cell, headers, style), style: style))
+            return .pane(hit.pane, resolve(point, hit.pane, hit.cell))
         }
         guard let nearest = sorted.min(by: { distance(point, $0.visible) < distance(point, $1.visible) }) else { return nil }
-        let clamped = clamp(point, into: nearest.visible)
-        return .pane(nearest.pane, zone(at: clamped, in: nearest.cell,
-                                        header: header(of: nearest.pane, in: nearest.cell, headers, style), style: style))
+        return .pane(nearest.pane, resolve(clamp(point, into: nearest.visible), nearest.pane, nearest.cell))
     }
 
     static func distance(_ point: CGPoint, _ rect: CGRect) -> CGFloat {

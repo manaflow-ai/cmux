@@ -384,6 +384,68 @@
     },
     {
       "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.barPosition.help",
+        "text" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.barPosition",
+      "keywords" : [
+        "tab bar",
+        "tabs",
+        "strip",
+        "top",
+        "bottom",
+        "position",
+        "layout",
+        "pane"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "tabs",
+        "barPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.barPosition",
+        "text" : "Tab Bar Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -7706,7 +7768,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f3a0390df65700df2c0a1419bb61b4376c8807cd08584276784f8d812772c925",
+  "schema_hash" : "055d63c54d74e45744fc3a3937e9cee81afed10ac6866ff78bb2a3abfe3fa4ca",
   "sections" : [
     {
       "id" : "general",

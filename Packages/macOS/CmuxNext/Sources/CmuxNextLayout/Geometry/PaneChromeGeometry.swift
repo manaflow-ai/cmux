@@ -53,11 +53,13 @@ public nonisolated enum PaneChromeGeometry {
 
     /// The rounded content area of a padded pane rect (`contentRect(forCell:)`)
     /// whose hosted view has a `headerHeight`-point header (tab strip,
-    /// browser toolbar) on top: the border, ring and rounding leave the
-    /// header out. Flipped coordinates (y grows down).
+    /// browser toolbar) on top and a `footerHeight`-point footer (a tab
+    /// strip at the bottom, R109) below: the border, ring and rounding leave
+    /// both out. Flipped coordinates (y grows down).
     public static func roundedRect(inPadded padded: CGRect, headerHeight: CGFloat, footerHeight: CGFloat = 0) -> CGRect {
         let top = min(max(0, headerHeight), padded.height)
-        return CGRect(x: padded.minX, y: padded.minY + top, width: padded.width, height: padded.height - top)
+        let bottom = min(max(0, footerHeight), padded.height - top)
+        return CGRect(x: padded.minX, y: padded.minY + top, width: padded.width, height: padded.height - top - bottom)
     }
 
     /// Corner radius that fits `rect` (at most half its shorter side).

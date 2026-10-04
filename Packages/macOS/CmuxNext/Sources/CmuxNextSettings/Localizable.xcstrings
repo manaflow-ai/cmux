@@ -43623,6 +43623,268 @@
           }
         }
       }
+    },
+    "settings.tabs.barPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Position"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブバーの位置"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موضع شريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Položaj trake kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanebjælkens placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position der Tableiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posición de la barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position de la barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posizione della barra delle schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទីតាំងរបារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 막대 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plassering av fanelinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Położenie paska kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posição da barra de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Положение панели вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งแถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme Çubuğu Konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розташування панелі вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí thanh tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標籤列位置"
+          }
+        }
+      }
+    },
+    "settings.tabs.barPosition.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各ペインのタブバーの位置。下にすると標準のタイトルバーも表示され、ウインドウのボタンがペインを覆うことはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مكان شريط علامات التبويب في كل جزء. عند وضعه في الأسفل يظهر شريط العنوان القياسي أيضًا، فلا تغطي أزرار النافذة أي جزء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje je traka kartica svakog okna. Dolje se prikazuje i standardna naslovna traka, pa dugmad prozora nikad ne prekrivaju okno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor hver rudes fanebjælke sidder. Nederst vises også den almindelige titellinje, så vinduesknapperne aldrig dækker en rude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo die Tableiste jedes Bereichs sitzt. Unten wird auch die Standard-Titelleiste gezeigt, damit die Fenstertasten nie einen Bereich verdecken."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde está la barra de pestañas de cada panel. Abajo también muestra la barra de título estándar, para que los botones de la ventana nunca tapen un panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Emplacement de la barre d’onglets de chaque sous-fenêtre. En bas, la barre de titre standard s’affiche aussi, pour que les boutons de la fenêtre ne masquent jamais une sous-fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove si trova la barra delle schede di ogni riquadro. In basso mostra anche la barra del titolo standard, così i pulsanti della finestra non coprono mai un riquadro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែលរបារផ្ទាំងនៃផ្ទាំងនីមួយៗស្ថិតនៅ។ នៅខាងក្រោម របារចំណងជើងស្តង់ដារក៏បង្ហាញដែរ ដូច្នេះប៊ូតុងបង្អួចមិនគ្របផ្ទាំងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "각 패널의 탭 막대 위치입니다. 아래쪽에 두면 표준 제목 막대도 표시되어 윈도우 버튼이 패널을 가리지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor hver rutes fanelinje ligger. Nederst vises også standard tittellinje, slik at vindusknappene aldri dekker en rute."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miejsce paska kart każdego panelu. Na dole widoczny jest też standardowy pasek tytułu, więc przyciski okna nigdy nie zasłaniają panelu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onde fica a barra de abas de cada painel. Embaixo, a barra de título padrão também aparece, para que os botões da janela nunca cubram um painel."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Где находится панель вкладок каждой панели. Внизу также показывается стандартная строка заголовка, и кнопки окна не закрывают панель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งแถบแท็บของแต่ละบานหน้าต่าง หากอยู่ด้านล่าง จะแสดงแถบชื่อเรื่องมาตรฐานด้วย ปุ่มหน้าต่างจึงไม่บังบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her bölmenin sekme çubuğunun yeri. Altta standart başlık çubuğu da gösterilir, böylece pencere düğmeleri hiçbir bölmeyi örtmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Де розташована панель вкладок кожної панелі. Унизу також показується стандартний рядок заголовка, тож кнопки вікна не закривають панель."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí thanh tab của mỗi ngăn. Khi ở dưới, thanh tiêu đề chuẩn cũng hiện ra, nên các nút cửa sổ không bao giờ che một ngăn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个窗格的标签栏位置。放在底部时还会显示标准标题栏，窗口按钮不会遮住窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個窗格的標籤列位置。放在底部時也會顯示標準標題列，視窗按鈕不會遮住窗格。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

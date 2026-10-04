@@ -3,8 +3,9 @@ import CmuxNextDesign
 import CmuxNextTabs
 import Observation
 
-/// One layout leaf: the pane's tab strip on top and the selected tab's
-/// content below. Manual frame layout; heights come from live design tokens.
+/// One layout leaf: the pane's tab strip on top (or at the bottom,
+/// `tabs.barPosition`, R109) and the selected tab's content beside it.
+/// Manual frame layout; heights come from live design tokens.
 /// The strip (plus a browser toolbar) is the pane's header: the layout's
 /// border and rounded corners trace only the content below it.
 final class PaneContentView: NSView, PaneContentChrome {
@@ -19,15 +20,20 @@ final class PaneContentView: NSView, PaneContentChrome {
     var onResize: (() -> Void)?
     var onPaneHeaderHeightChange: (() -> Void)?
     private var contentCornerRadius: CGFloat = 0
-    /// The edge the strip sits on (`tabs.barPosition`, R109).
-    var barPosition: TabBarPosition = .top
-    private var reportedHeader: CGFloat = -1
+    /// The edge the strip sits on (`tabs.barPosition`, R109); follows
+    /// `DesignSettings` (`observePlacement`).
+    var barPosition: TabBarPosition = .top {
+        didSet { if barPosition != oldValue { needsLayout = true } }
+    }
+    private var placementObservation: Task<Void, Never>?
+    private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).
     init(stripModel: TabStripModel, reveal: LaunchReveal = .shared) {
         stripView = TabStripView(model: stripModel)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        barPosition = DesignSettings.shared.tabBarPosition
         wantsLayer = true
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
@@ -42,6 +48,11 @@ final class PaneContentView: NSView, PaneContentChrome {
                 self?.needsLayout = true
             }
         }
+        placementObservation = Task { [weak self] in
+            for await position in Observations({ DesignSettings.shared.tabBarPosition }) {
+                self?.barPosition = position
+            }
+        }
     }
 
     @available(*, unavailable)
@@ -49,6 +60,7 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     isolated deinit {
         tokenObservation?.cancel()
+        placementObservation?.cancel()
     }
 
 
@@ -57,8 +69,10 @@ final class PaneContentView: NSView, PaneContentChrome {
     override func layout() {
         super.layout()
         let stripHeight = self.stripHeight
-        stripView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
-        let hostFrame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
+        let contentHeight = max(0, bounds.height - stripHeight)
+        let onTop = barPosition == .top
+        stripView.frame = NSRect(x: 0, y: onTop ? 0 : contentHeight, width: bounds.width, height: stripHeight)
+        let hostFrame = NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
@@ -75,7 +89,10 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The hosted content's own header (a browser toolbar), if it has one.
     private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
 
-    var paneHeaderHeight: CGFloat { stripHeight + (innerChrome?.paneHeaderHeight ?? 0) }
+    var paneHeaderHeight: CGFloat { (barPosition == .top ? stripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0) }
+
+    /// The strip below the content (`tabs.barPosition` bottom); else 0.
+    var paneFooterHeight: CGFloat { barPosition == .bottom ? stripHeight : 0 }
 
     /// The strip's height: its tabs sit with equal gaps above (from the
     /// pane cell's top, through the pane padding) and below (to the content
@@ -118,9 +135,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
     private func reportHeaderIfChanged() {
-        let header = paneHeaderHeight
-        guard header != reportedHeader else { return }
-        reportedHeader = header
+        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight)
+        guard chrome != reportedChrome else { return }
+        reportedChrome = chrome
         onPaneHeaderHeightChange?()
     }
 
