@@ -9,6 +9,7 @@ import Foundation
 /// change made on disk.
 final class FileQuitDocument: QuitUnsavedParticipant {
     let url: URL
+    let quitParticipantID: String
     private let drafts: RecoveryDraftStore
     private let writable: () -> Bool
     private(set) var hasUnsavedChanges = false
@@ -18,13 +19,14 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     private var flushers: [UUID: () async -> Bool] = [:]
     private var work: [Task<Void, Never>] = []
 
-    init(url: URL, drafts: RecoveryDraftStore, writable: @escaping () -> Bool) {
+    /// `id` defaults to `QuitParticipantID.file(path:)` (host "local"); tests pass a malformed one.
+    init(url: URL, id: String? = nil, drafts: RecoveryDraftStore, writable: @escaping () -> Bool) {
         self.url = url
+        quitParticipantID = id ?? QuitParticipantID.file(path: url.path)
         self.drafts = drafts
         self.writable = writable
     }
 
-    var quitParticipantID: String { "file:local:" + url.path }
     var quitTitle: String { "\(url.lastPathComponent) (\(url.deletingLastPathComponent().lastPathComponent))" }
     var quitFlushDeadline: Duration { .seconds(3) }
 
@@ -37,8 +39,11 @@ final class FileQuitDocument: QuitUnsavedParticipant {
             markClean()
             return .kept
         }
-        hasUnsavedChanges = true
-        return drafts.update(id: quitParticipantID, title: quitTitle, contents: Data(text.utf8), filePath: url.path)
+        // The base is the edit's: the launch check compares the file with what the page edited.
+        let accepted = drafts.update(id: quitParticipantID, title: quitTitle, contents: Data(text.utf8), filePath: url.path,
+                                     base: baseHash.map { RecoveryDraftBase(contentHash: $0) })
+        if accepted != .invalidID { hasUnsavedChanges = true }
+        return accepted
     }
 
     /// A normal save wrote `hash`: clean when it is the last reported text.
@@ -115,21 +120,29 @@ final class FileQuitDocuments {
     static let shared = FileQuitDocuments()
     private let drafts: RecoveryDraftStore
     private let registry: QuitUnsavedRegistry
+    private let participantID: (URL) -> String
     private var documents: [String: (document: FileQuitDocument, registration: QuitUnsavedRegistration, holders: Set<String>)] = [:]
 
-    init(drafts: RecoveryDraftStore = .shared, registry: QuitUnsavedRegistry = .shared) {
+    init(drafts: RecoveryDraftStore = .shared, registry: QuitUnsavedRegistry = .shared,
+         participantID: @escaping (URL) -> String = { QuitParticipantID.file(path: $0.path) }) {
         self.drafts = drafts
         self.registry = registry
+        self.participantID = participantID
     }
 
-    func document(for url: URL, holder: String, writable: @escaping () -> Bool) -> FileQuitDocument {
+    /// The document of `url`, held by `holder`; nil when the quit hook refused its id (an inactive
+    /// registration), which the caller reports as `invalidID`.
+    func document(for url: URL, holder: String, writable: @escaping () -> Bool) -> FileQuitDocument? {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         if let existing = documents[path] {
             documents[path]?.holders.insert(holder)
             return existing.document
         }
-        let document = FileQuitDocument(url: URL(fileURLWithPath: path), drafts: drafts, writable: writable)
-        documents[path] = (document, registry.register(document), [holder])
+        let file = URL(fileURLWithPath: path)
+        let document = FileQuitDocument(url: file, id: participantID(file), drafts: drafts, writable: writable)
+        let registration = registry.register(document)
+        guard registration.isActive else { return nil }
+        documents[path] = (document, registration, [holder])
         return document
     }
 
@@ -151,10 +164,9 @@ final class FileQuitDocuments {
 /// Recovered drafts that belong to the file pages: local files only (a draft never writes a remote
 /// file into a local one).
 enum FilePageRecovery {
-    static let prefix = "file:local:"
-
     static func document(of draft: RecoveryDraft) -> URL? {
-        guard draft.host == "local", draft.id.hasPrefix(prefix), let path = draft.filePath, path.hasPrefix("/") else { return nil }
-        return URL(fileURLWithPath: path)
+        guard let parts = QuitParticipantID.parse(draft.id), parts.host == QuitParticipantID.localHost,
+              draft.host == QuitParticipantID.localHost, draft.filePath == parts.path else { return nil }
+        return URL(fileURLWithPath: parts.path)
     }
 }

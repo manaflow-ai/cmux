@@ -310,7 +310,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         guard let file, Self.canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
         let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
-        return ["recovery": accepted == .kept ? "kept" : "tooLarge"]
+        switch accepted {
+        case .kept: return ["recovery": "kept"]
+        case .tooLarge: return ["recovery": "tooLarge"]
+        case .invalidID: return ["recovery": "invalidID"]
+        }
     }
 
     // MARK: Preferences

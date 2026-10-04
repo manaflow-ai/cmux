@@ -93,7 +93,9 @@ final class FilePageService: InternalPageProvider {
     // MARK: Quit hook (R96)
 
     fileprivate func edited(_ url: URL, text: String, baseHash: String?, writable: Bool, from key: String) -> RecoveryDraftAcceptance {
-        let document = documents.document(for: url, holder: holder(key), writable: { [weak self] in self?.tabs[key]?.provider?.isWritable ?? writable })
+        guard let document = documents.document(for: url, holder: holder(key), writable: { [weak self] in self?.tabs[key]?.provider?.isWritable ?? writable }) else {
+            return .invalidID
+        }
         if tabs[key]?.stopFlush == nil, let page = tabs[key]?.page {
             let op = kind.op("flush")
             tabs[key]?.stopFlush = document.addFlusher { [weak page] in
