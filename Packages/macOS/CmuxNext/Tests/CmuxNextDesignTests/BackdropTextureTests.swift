@@ -18,7 +18,7 @@ struct BackdropTextureTests {
     }
 
     @Test func invalidStrengthFallsBackToTheSafeRange() {
-        #expect(BackdropTexture(filter: .grain, strength: -.5).strength == 0)
+        #expect(BackdropTexture(filter: .grain, strength: -0.5).strength == 0)
         #expect(BackdropTexture(filter: .grain, strength: .infinity).strength == 1)
         #expect(BackdropTexture(filter: .grain, strength: .nan).strength == 0)
     }
