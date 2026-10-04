@@ -24,6 +24,8 @@ final class SidebarRegionView: NSView {
     var onAccessory: ((LayoutItemID) -> Void)?
     var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
+    /// A drag dropped `subject`: the shown sections in their new order (R77).
+    var onReorder: ((SidebarRegionDragSubject, [LayoutSection]) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
