@@ -5774,6 +5774,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
     assert 'grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory"' in admission
     assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"' in admission
+    assert 'compile admission exited $status without a compiler diagnostic' in admission
+    assert "find \"$CMUX_COMPILE_ADMISSION_DERIVED_DATA\" -type f -name '*-build.log'" in admission
     assert "retrying compile from a clean tree" in admission
     assert 'tee -a "$compile_log"' not in admission
     assert "if compile_once; then" in admission
