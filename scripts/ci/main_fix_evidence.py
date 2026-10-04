@@ -7,6 +7,7 @@ refuses the merge. This exception currently has a contract only for cmux-next.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import json
 import re
 import subprocess
@@ -29,6 +30,7 @@ SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
 MAX_OUTPUT = 32 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
+MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
 
 
@@ -81,6 +83,7 @@ def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
 
 
 def _parent_shas(repo: str, sha: str, github: GitHub) -> list[str]:
+    """Return the parent SHAs GitHub reports for a commit."""
     commit = github.json(f"repos/{repo}/commits/{sha}")
     parents = commit.get("parents", []) if isinstance(commit, dict) else []
     return [parent["sha"] for parent in parents
@@ -88,11 +91,11 @@ def _parent_shas(repo: str, sha: str, github: GitHub) -> list[str]:
 
 
 def nearest_ancestor_check(repo: str, base: str, name: str, github: GitHub) -> tuple[str, dict, int] | None:
-    """Find the closest parent of BASE whose exact commit has NAME evidence."""
-    queue = [(parent, 1) for parent in _parent_shas(repo, base, github)]
+    """Find the closest parent with NAME evidence using bounded breadth-first search."""
+    queue = deque((parent, 1) for parent in _parent_shas(repo, base, github))
     visited: set[str] = set()
-    while queue:
-        sha, distance = queue.pop(0)
+    while queue and len(visited) < MAX_ANCESTOR_NODES:
+        sha, distance = queue.popleft()
         if sha in visited or distance > MAX_ANCESTOR_DEPTH:
             continue
         visited.add(sha)
@@ -104,6 +107,7 @@ def nearest_ancestor_check(repo: str, base: str, name: str, github: GitHub) -> t
 
 
 def path_filtered_intervening_changes(repo: str, ancestor: str, base: str, github: GitHub) -> list[str]:
+    """Reject ancestor evidence when intervening paths could affect Swift tests."""
     comparison = github.json(f"repos/{repo}/compare/{ancestor}...{base}")
     files = comparison.get("files", []) if isinstance(comparison, dict) else []
     paths = []
@@ -202,7 +206,7 @@ def validate(repo: str, number: int, github: GitHub) -> str:
         if SWIFT not in base_checks:
             ancestor = nearest_ancestor_check(repo, base, SWIFT, github)
             if ancestor is None:
-                raise Refused(f"Swift tests have not run on base {base} or any of its nearest {MAX_ANCESTOR_DEPTH} ancestors")
+                raise Refused(f"Swift tests have not run on base {base} or any of its nearest {MAX_ANCESTOR_DEPTH} ancestors ({MAX_ANCESTOR_NODES} commit limit)")
             base_check_sha, base_checks[SWIFT], distance = ancestor
             intervening = path_filtered_intervening_changes(repo, base_check_sha, base, github)
             base_reason = (

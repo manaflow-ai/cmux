@@ -151,6 +151,7 @@ class MainFixEvidenceTests(unittest.TestCase):
             self.validate()
 
     def test_missing_base_run_uses_nearest_ancestor_and_audits_why(self):
+        """Path-filtered base changes use and audit the nearest ancestor run."""
         self.gh.fail_test()
         self.gh.base_checks = []
         self.gh.parents[BASE] = [ANCESTOR]
@@ -168,6 +169,7 @@ class MainFixEvidenceTests(unittest.TestCase):
         self.assertIn("/job/31", evidence)
 
     def test_ancestor_fallback_rejects_intervening_source_changes(self):
+        """Source changes between the ancestor and base refuse the fallback."""
         self.gh.fail_test()
         self.gh.base_checks = []
         self.gh.parents[BASE] = [ANCESTOR]
@@ -179,6 +181,7 @@ class MainFixEvidenceTests(unittest.TestCase):
             self.validate()
 
     def test_ancestor_fallback_rejects_renamed_source_file(self):
+        """Renames out of source paths cannot masquerade as docs-only changes."""
         self.gh.fail_test()
         self.gh.base_checks = []
         self.gh.parents[BASE] = [ANCESTOR]
