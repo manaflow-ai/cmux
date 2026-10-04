@@ -122,6 +122,7 @@ struct BrowserCommand: LegacyBrowserCommand {
             BrowserFocusModeCommand.self, BrowserDesignModeCommand.self, BrowserZoomCommand.self,
             BrowserHistoryCommand.self, BrowserURLCommand.self, BrowserFocusWebviewCommand.self,
             BrowserWebviewFocusedCommand.self, BrowserSnapshotCommand.self, BrowserEvalCommand.self,
+            BrowserReplCommand.self,
             BrowserWaitCommand.self, BrowserSelectorActionCommand.self, BrowserTypeCommand.self,
             BrowserFillCommand.self, BrowserKeyCommand.self, BrowserSelectCommand.self,
             BrowserScrollCommand.self,
@@ -258,6 +259,19 @@ struct BrowserEvalCommand: LegacyBrowserCommand {
     @OptionGroup var target: BrowserTargetOptions
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "eval", helpNames: [])
+}
+
+/// `browser repl` takes no surface: it scopes by `--workspace`, and a bare
+/// positional is either one of the actions below or the code to evaluate.
+struct BrowserReplCommand: LegacyBrowserCommand {
+    @Argument(completion: .list(["guide", "list", "mcp", "reset"])) var action: String?
+    @Option(name: .customLong("session")) var session: String?
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("eval")) var eval: String?
+    @Option(name: .customLong("timeout")) var timeout: String?
+    @Option(name: .customLong("max-output")) var maxOutput: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "repl", helpNames: [])
 }
 
 struct BrowserKeyCommand: LegacyBrowserCommand {
