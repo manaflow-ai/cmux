@@ -103,6 +103,14 @@ and `dialog.respond` and `filechooser.respond` from any other session fail
 with `not_found`, leaving the dialog or chooser open. When that session
 leaves the tab, its open dialogs are dismissed and its choosers cancelled.
 
+A dialog or file chooser opened by a frame whose document (as WebKit
+recorded it) that session's domain policy blocks never reaches it: in a
+tab the session created, or while the page handles the session's call, it
+is answered as an unhandled one (dismissed or cancelled, never shown to
+the user); otherwise (the session's handler on a user's tab) it keeps the
+browser's own UI. A `dialog.respond` for a dialog whose frame the policy
+blocks by then fails with `blocked`, and the dialog is dismissed.
+
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
 held mouse button its button-up at the last mouse position, or the drag it
@@ -233,7 +241,7 @@ naming the session that holds the mouse.
 | --- | --- |
 | `input.setFiles` | `{ targetId, frameId, element: <agent element handle id>, files: [{ name, mimeType, base64 }] }` |
 | `filechooser.respond` | `{ targetId, chooserId, files }` or `{ ..., cancel: true }`. The files are written to a temporary directory of the session (removed when it ends) only after the driver knows the chooser is open and routed to the calling session; an answer for another session's chooser or a closed one fails with `not_found` and writes nothing. At most 256 files and 256 MiB together, with distinct names, else `invalid` and nothing is written. The session counts the files against its `fs` write budget before the call reaches the driver (one call's 256 MiB, the 2 GiB and 100,000 file changes over its life); an answer past it fails with `invalid` (`EDQUOT` or `EFBIG` in the message) and nothing is written |
-| `dialog.respond` | `{ targetId, dialogId, accept, promptText? }` |
+| `dialog.respond` | `{ targetId, dialogId, accept, promptText? }`; `blocked` (and the dialog dismissed) when the domain policy blocks the frame that opened it |
 | `download.path` | `{ downloadId }` → `{ path }` after completion |
 
 ## Events

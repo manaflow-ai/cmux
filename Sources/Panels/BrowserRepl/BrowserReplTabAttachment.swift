@@ -108,8 +108,9 @@ final class BrowserReplTabAttachment {
 
     private var sinks: [String: BrowserReplTabEventSink] = [:]
     /// Dialogs and file choosers waiting for the session each was routed
-    /// to; only that session answers one.
-    private var dialogs = BrowserReplRoutedRequests<(Bool, String?) -> Void>()
+    /// to; only that session answers one. Each dialog keeps the document of
+    /// the frame that opened it, judged again when the session answers.
+    private var dialogs = BrowserReplRoutedRequests<(respond: (Bool, String?) -> Void, document: BrowserReplFrameDocument)>()
     /// Each chooser's responder and the frame it opened from.
     private var fileChoosers = BrowserReplRoutedRequests<(respond: ([URL]?) -> Void, frame: WKFrameInfo)>()
     private var nextID = 0
@@ -552,7 +553,7 @@ final class BrowserReplTabAttachment {
         pointerReleased(sessionID: sessionID)
         // Dialogs and choosers routed to the leaving session are answered as
         // unhandled ones are; no other session may answer them.
-        for respond in dialogs.removeAll(ownedBy: sessionID) { respond(false, nil) }
+        for dialog in dialogs.removeAll(ownedBy: sessionID) { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
         sinks.removeValue(forKey: sessionID)
         httpCredentials.sessionLeft(sessionID)
@@ -671,7 +672,7 @@ final class BrowserReplTabAttachment {
         httpCredentials = BrowserReplHTTPCredentials()
         // Playwright dismisses dialogs nobody handles; do the same so a page
         // is never left blocked on a dialog after its session goes away.
-        for respond in dialogs.removeAll() { respond(false, nil) }
+        for dialog in dialogs.removeAll() { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll() { chooser.respond(nil) }
         releaseHeldInput()
         uninstrument()
@@ -912,7 +913,7 @@ final class BrowserReplTabAttachment {
             ], to: owner)
             return true
         }
-        dialogs.add(id: id, owner: owner, respond: respond)
+        dialogs.add(id: id, owner: owner, respond: (respond, BrowserReplFrameDocument(info: frame)))
         emit("dialog.opened", [
             "dialogId": id,
             "type": type,
@@ -942,9 +943,18 @@ final class BrowserReplTabAttachment {
     var lastInfo: [String: Any]?
 
     /// Answers dialog `id` when `sessionID` is the session it was routed to.
-    func respondToDialog(id: String, sessionID: String, accept: Bool, promptText: String?) -> Bool {
-        guard let respond = dialogs.take(id: id, sessionID: sessionID) else { return false }
-        respond(accept, promptText)
+    /// - Returns: `false` when the dialog is gone or another session's.
+    /// - Throws: `blocked` when `sessionID`'s domain policy now blocks the
+    ///   document that opened the dialog (it changed since the dialog
+    ///   opened): the dialog is dismissed, as an unhandled one is, and the
+    ///   session's answer never reaches that page.
+    func respondToDialog(id: String, sessionID: String, accept: Bool, promptText: String?) throws -> Bool {
+        guard let dialog = dialogs.take(id: id, sessionID: sessionID) else { return false }
+        if let reason = BrowserReplPolicyBoard.shared.policy(for: sessionID)?.blockReason(document: dialog.document) {
+            dialog.respond(false, nil)
+            throw WebKitBrowserReplDriver.error("blocked", "Dialog \(id) came from a frame showing \(dialog.document.origin ?? dialog.document.place), which the domain policy blocks: \(reason); it was dismissed")
+        }
+        dialog.respond(accept, promptText)
         return true
     }
 

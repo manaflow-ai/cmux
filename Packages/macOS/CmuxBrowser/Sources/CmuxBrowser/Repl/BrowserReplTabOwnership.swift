@@ -371,7 +371,11 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         from document: BrowserReplFrameDocument,
         policy: (String) -> BrowserReplDomainPolicy?
     ) -> BrowserReplEventRoute {
-        route(for: event)
+        let route = route(for: event)
+        guard case .session(let sessionID) = route,
+              policy(sessionID)?.blockReason(document: document) != nil else { return route }
+        let creator = isSessionOwned ? creatorSessionID : nil
+        return sessionID == creator || sessionID == inputSessionID ? .refused : .user
     }
 
     /// The one session `event` goes to (``route(for:)``), or `nil` when no
