@@ -107,22 +107,39 @@ pub struct OptChat {
 }
 
 impl OptChat {
-    /// Opens `dir` with the Anthropic compactor model and real time.
+    /// Opens `dir` with the Anthropic compactor model (and its refusal
+    /// fallback, when configured) and real time.
     pub fn open(dir: impl AsRef<Path>, config: Config) -> Result<OptChat, Error> {
         let model = Arc::new(AnthropicModel::new(&config));
-        OptChat::open_with(dir, config, model, Arc::new(SystemClock))
+        let fallback = config
+            .fallback_model
+            .as_deref()
+            .map(|m| Arc::new(AnthropicModel::with_model(&config, m)) as Arc<dyn CompactModel>);
+        OptChat::open_with_fallback(dir, config, model, fallback, Arc::new(SystemClock))
     }
 
-    /// Opens `dir`: takes the lock, loads the store (reporting torn lines),
-    /// folds the view again from message 0 (section 5.2) and starts the compactor.
+    /// `open_with` without a refusal fallback.
     pub fn open_with(
         dir: impl AsRef<Path>,
         config: Config,
         model: Arc<dyn CompactModel>,
         clock: Arc<dyn Clock>,
     ) -> Result<OptChat, Error> {
+        OptChat::open_with_fallback(dir, config, model, None, clock)
+    }
+
+    /// Opens `dir`: takes the lock, loads the store (reporting torn lines),
+    /// folds the view again from message 0 (section 5.2) and starts the
+    /// compactor. `fallback` builds the nodes `model` declines.
+    pub fn open_with_fallback(
+        dir: impl AsRef<Path>,
+        config: Config,
+        model: Arc<dyn CompactModel>,
+        fallback: Option<Arc<dyn CompactModel>>,
+        clock: Arc<dyn Clock>,
+    ) -> Result<OptChat, Error> {
         let dir = dir.as_ref();
-        std::fs::create_dir_all(dir)?;
+        crate::files::private_dir(dir)?;
         let lock = match ChatLock::acquire(dir) {
             Ok(l) => l,
             Err(LockError::Held) => return Err(Error::Locked),
@@ -146,6 +163,7 @@ impl OptChat {
             }),
             changed: Condvar::new(),
             model,
+            fallback,
             clock,
             system: config.prompt.text(&config.agent),
             retry: config.retry,
@@ -265,6 +283,14 @@ impl OptChat {
     pub fn date(&self, id: u64) -> Option<String> {
         let st = self.shared.lock();
         st.store.date(id).map(|iso| lines::local_date(&iso))
+    }
+
+    /// The stored ISO time of message `id` (millisecond precision, local
+    /// offset), as written when it was logged. It tells two messages with the
+    /// same id apart across a memory reset or a restored backup.
+    pub fn stamp(&self, id: u64) -> Option<String> {
+        let st = self.shared.lock();
+        st.store.date(id)
     }
 
     /// Kind and whole text of message `id`, if it exists.

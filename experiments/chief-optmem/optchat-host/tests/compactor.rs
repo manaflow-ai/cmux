@@ -85,7 +85,7 @@ fn a_failed_node_retries_after_the_fixed_wait_and_reports_once() {
         Arc::new(Fake(move |r: &CompactRequest, _: &[Followup]| {
             if failures.load(Ordering::SeqCst) > 0 {
                 failures.fetch_sub(1, Ordering::SeqCst);
-                return Err(ModelError("overloaded".into()));
+                return Err(ModelError::new("overloaded"));
             }
             Ok(Reply::text(summary(r.node, 200)))
         }))

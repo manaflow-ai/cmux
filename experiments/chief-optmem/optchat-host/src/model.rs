@@ -33,11 +33,33 @@ pub struct Followup {
 
 /// A failed model call: the node fails and is retried after `RETRY`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModelError(pub String);
+pub struct ModelError {
+    pub message: String,
+    /// The model declined (`stop_reason: refusal`). The same call would be
+    /// declined again, so the compactor asks its fallback model instead of
+    /// only waiting `RETRY` and repeating it.
+    pub refused: bool,
+}
+
+impl ModelError {
+    pub fn new(message: impl Into<String>) -> ModelError {
+        ModelError {
+            message: message.into(),
+            refused: false,
+        }
+    }
+
+    pub fn refusal(message: impl Into<String>) -> ModelError {
+        ModelError {
+            message: message.into(),
+            refused: true,
+        }
+    }
+}
 
 impl fmt::Display for ModelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 

@@ -15,39 +15,53 @@ const API_VERSION: &str = "2023-06-01";
 /// How much of an error body a failure report keeps.
 const ERROR_BODY: usize = 600;
 
+/// The beta that enables server-side `fallbacks: "default"`.
+const SERVER_FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
+
 pub struct AnthropicModel {
     agent: ureq::Agent,
     url: String,
     model: String,
     effort: Option<String>,
     max_tokens: u32,
+    server_fallback: bool,
 }
 
 impl AnthropicModel {
+    /// The compactor's model (`config.model`).
     pub fn new(config: &Config) -> AnthropicModel {
+        AnthropicModel::with_model(config, &config.model)
+    }
+
+    /// The same client for another model id (the refusal fallback).
+    pub fn with_model(config: &Config, model: &str) -> AnthropicModel {
         AnthropicModel {
             agent: ureq::AgentBuilder::new()
                 .timeout(config.http_timeout)
                 .build(),
             url: format!("{}/v1/messages", config.base_url.trim_end_matches('/')),
-            model: config.model.clone(),
+            model: model.to_owned(),
             effort: config.effort.clone(),
             max_tokens: config.max_tokens,
+            server_fallback: config.server_fallback,
         }
     }
 
-    /// The request body. The context block comes first and carries the cache
-    /// breakpoint: every compactor call shares the `<chat>` prefix (section 8),
-    /// and size-loop retries reread it. No tools (section 4.2). No 1-hour
-    /// entries: they cost twice the input to write (section 8).
+    /// The request body. The context comes first, cut at the view's cache
+    /// marks (section 8: the last line end before 50k, 80k and 100k
+    /// characters), and each piece carries a breakpoint: consecutive calls
+    /// share the `<chat>` prefix up to where the view last changed, and a
+    /// read lands only where an earlier request wrote a breakpoint. The last
+    /// piece's breakpoint is what size-loop retries reread. At most 4
+    /// breakpoints; the step block has none. No tools (section 4.2). No
+    /// 1-hour entries: they cost twice the input to write (section 8).
     pub fn body(&self, request: &CompactRequest, followups: &[Followup]) -> Value {
-        let mut messages = vec![json!({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": request.context, "cache_control": {"type": "ephemeral"}},
-                {"type": "text", "text": request.step},
-            ],
-        })];
+        let mut content: Vec<Value> = optchat_core::cache_pieces(&request.context)
+            .into_iter()
+            .map(|piece| json!({"type": "text", "text": piece, "cache_control": {"type": "ephemeral"}}))
+            .collect();
+        content.push(json!({"type": "text", "text": request.step}));
+        let mut messages = vec![json!({"role": "user", "content": content})];
         for f in followups {
             let content = match &f.reply.content {
                 Value::Null => json!(f.reply.text),
@@ -65,6 +79,9 @@ impl AnthropicModel {
         if let Some(effort) = &self.effort {
             body["output_config"] = json!({"effort": effort});
         }
+        if self.server_fallback {
+            body["fallbacks"] = json!("default");
+        }
         body
     }
 }
@@ -79,17 +96,22 @@ impl CompactModel for AnthropicModel {
             .agent
             .post(&self.url)
             .set("x-api-key", API_KEY)
-            .set("anthropic-version", API_VERSION)
-            .send_json(self.body(request, followups));
+            .set("anthropic-version", API_VERSION);
+        let response = if self.server_fallback {
+            response.set("anthropic-beta", SERVER_FALLBACK_BETA)
+        } else {
+            response
+        }
+        .send_json(self.body(request, followups));
         let value: Value = match response {
             Ok(r) => r
                 .into_json()
-                .map_err(|e| ModelError(format!("bad response body: {e}")))?,
+                .map_err(|e| ModelError::new(format!("bad response body: {e}")))?,
             Err(ureq::Error::Status(code, r)) => {
                 let text = r.into_string().unwrap_or_default();
-                return Err(ModelError(format!("HTTP {code}: {}", clip(&text))));
+                return Err(ModelError::new(format!("HTTP {code}: {}", clip(&text))));
             }
-            Err(e) => return Err(ModelError(e.to_string())),
+            Err(e) => return Err(ModelError::new(e.to_string())),
         };
         parse(value)
     }
@@ -100,9 +122,12 @@ impl CompactModel for AnthropicModel {
 fn parse(value: Value) -> Result<Reply, ModelError> {
     match value["stop_reason"].as_str() {
         Some("refusal") => {
-            return Err(ModelError(format!("refused: {}", value["stop_details"])));
+            return Err(ModelError::refusal(format!(
+                "refused: {}",
+                value["stop_details"]
+            )));
         }
-        Some("max_tokens") => return Err(ModelError("reply hit max_tokens".into())),
+        Some("max_tokens") => return Err(ModelError::new("reply hit max_tokens")),
         _ => {}
     }
     let content = value
@@ -110,7 +135,7 @@ fn parse(value: Value) -> Result<Reply, ModelError> {
         .cloned()
         .filter(Value::is_array)
         .ok_or_else(|| {
-            ModelError(format!(
+            ModelError::new(format!(
                 "no content in response: {}",
                 clip(&value.to_string())
             ))

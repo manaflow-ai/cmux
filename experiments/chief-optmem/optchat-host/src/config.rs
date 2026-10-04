@@ -12,6 +12,11 @@ pub const DEFAULT_BASE_URL: &str = "http://cmux-lawrences-mac-mini:31415";
 pub const BASE_URL_ENV: &str = "OPTCHAT_ANTHROPIC_BASE_URL";
 /// The compactor model: cheap but competent (section 4.2 uses Sonnet).
 pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
+/// Where a node goes when the compactor model declines it. Claude Sonnet 5
+/// declines in fewer safeguard categories than Sonnet 5.5 (no bio,
+/// reasoning-extraction or general-harms classifiers on the same scale), so a
+/// pasted exploit write-up or a log with odd content still gets its line.
+pub const DEFAULT_FALLBACK_MODEL: &str = "claude-sonnet-5";
 
 /// How one chat runs. Fixed for the life of the process: the compactor's
 /// system prompt heads every cached prefix, so it must not change per call.
@@ -23,6 +28,15 @@ pub struct Config {
     pub prompt: CompactPrompt,
     /// Compactor model id.
     pub model: String,
+    /// Model a declined node (`stop_reason: refusal`) is built with instead;
+    /// None keeps retrying the same call every `retry`. A refusal repeats on
+    /// every try, so without a fallback one message would block rule 3, and
+    /// with it every later turn, forever.
+    pub fallback_model: Option<String>,
+    /// Also send the Messages API's server-side `fallbacks: "default"` (beta
+    /// `server-side-fallback-2026-07-01`). Off by default: the team subrouter
+    /// may not forward the beta, and a 400 there would fail every call.
+    pub server_fallback: bool,
     /// `output_config.effort`; the spec runs the compactor at medium, since
     /// low effort overshot the size limit much more (section 4.2).
     pub effort: Option<String>,
@@ -46,6 +60,8 @@ impl Default for Config {
             agent: "OptChat".to_string(),
             prompt: CompactPrompt::Taelin,
             model: DEFAULT_MODEL.to_string(),
+            fallback_model: Some(DEFAULT_FALLBACK_MODEL.to_string()),
+            server_fallback: false,
             effort: Some("medium".to_string()),
             base_url: std::env::var(BASE_URL_ENV)
                 .ok()
@@ -66,6 +82,8 @@ impl fmt::Debug for Config {
             .field("agent", &self.agent)
             .field("prompt", &self.prompt.name())
             .field("model", &self.model)
+            .field("fallback_model", &self.fallback_model)
+            .field("server_fallback", &self.server_fallback)
             .field("effort", &self.effort)
             .field("base_url", &self.base_url)
             .field("max_tokens", &self.max_tokens)

@@ -38,3 +38,25 @@ fn the_log_and_the_tree_are_private_to_the_user() {
         }
     }
 }
+
+#[test]
+fn a_declined_node_is_built_by_the_fallback_model() {
+    // A refusal repeats on every try; retrying the same call would block
+    // rule 3, and every later turn, forever.
+    let dir = tempfile::tempdir().unwrap();
+    let declined = std::sync::Arc::new(Fake(|_: &CompactRequest, _: &[Followup]| {
+        Err(ModelError::refusal("refused: cyber"))
+    }));
+    let chat = OptChat::open_with_fallback(
+        dir.path(),
+        config(128_000).0,
+        declined,
+        Some(instant(200)),
+        std::sync::Arc::new(SystemClock),
+    )
+    .unwrap();
+    chat.append(Kind::User, &long(0)).unwrap();
+    assert!(chat.settle(None, WAIT));
+    assert!(chat.status().failures.is_empty());
+    assert!(chat.render_view().text.contains("sum 0+1: "));
+}

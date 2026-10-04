@@ -51,6 +51,8 @@ pub struct Shared {
     /// is woken on every fit).
     pub changed: Condvar,
     pub model: Arc<dyn CompactModel>,
+    /// Builds a node the model declined (None: retry the same call).
+    pub fallback: Option<Arc<dyn CompactModel>>,
     pub clock: Arc<dyn Clock>,
     /// The compactor's system prompt, constant for the process.
     pub system: String,
@@ -120,7 +122,17 @@ fn start(shared: &Arc<Shared>, st: &mut State, node: NodeId) {
 /// (as the spec's pump does), then release it and pump again.
 fn job(shared: Arc<Shared>, request: CompactRequest) {
     let node = request.node;
-    let result = run_node(&*shared.model, &request);
+    let result = match run_node(&*shared.model, &request) {
+        // A refusal repeats on every try: ask the fallback model, in a fresh
+        // conversation (the declined model's blocks mean nothing to it).
+        Err(declined) if declined.refused => match &shared.fallback {
+            Some(fallback) => run_node(&**fallback, &request).map_err(|e| {
+                ModelError::new(format!("{declined}; the fallback model failed too: {e}"))
+            }),
+            None => Err(declined),
+        },
+        other => other,
+    };
     let mut st = shared.lock();
     if !st.writable() {
         return;
@@ -142,9 +154,9 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     if !st.failing.contains_key(&node) {
         st.reports.push(Report::NodeFailed {
             node,
-            error: error.0.clone(),
+            error: error.message.clone(),
         });
-        st.failing.insert(node, error.0);
+        st.failing.insert(node, error.message);
     }
     shared.changed.notify_all();
     shared.unlock(st);
@@ -169,7 +181,7 @@ pub fn run_node(model: &dyn CompactModel, request: &CompactRequest) -> Result<St
         tries.push(reply.text.clone());
         match size_check(&tries) {
             SizeCheck::Accept(text) => return Ok(text),
-            SizeCheck::Fail => return Err(ModelError("empty reply".into())),
+            SizeCheck::Fail => return Err(ModelError::new("empty reply")),
             SizeCheck::Retry(retry) => followups.push(Followup { reply, retry }),
         }
     }

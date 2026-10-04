@@ -10,13 +10,27 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::FileExt;
+use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use optchat_core::{Kind, NodeId, Store};
 
 use crate::lines::{self, MainHead, MainIn, TreeIn};
 use crate::report::Report;
+
+/// Creates `dir` (and its parents) and makes it 0700: the log holds
+/// everything the user ever pasted, secrets included, and other accounts on a
+/// shared Mac must not read it. An existing directory is tightened too.
+pub fn private_dir(dir: &Path) -> io::Result<()> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
+}
+
+/// Mode of every day file (see `private_dir`).
+const FILE_MODE: u32 = 0o600;
 
 /// Where one line is: file index in its stream, byte offset, length without
 /// the newline. `len == 0` marks an absent node (a JSON line is never empty).
@@ -44,13 +58,17 @@ struct Stream {
 
 impl Stream {
     fn open(dir: PathBuf) -> io::Result<Stream> {
-        fs::create_dir_all(&dir)?;
+        private_dir(&dir)?;
         let mut files: Vec<String> = fs::read_dir(&dir)?
             .filter_map(|e| e.ok())
             .filter_map(|e| e.file_name().into_string().ok())
             .filter(|n| n.ends_with(".jsonl"))
             .collect();
         files.sort();
+        // Day files written before files were private are tightened at load.
+        for name in &files {
+            fs::set_permissions(dir.join(name), fs::Permissions::from_mode(FILE_MODE))?;
+        }
         Ok(Stream {
             dir,
             files,
@@ -73,7 +91,11 @@ impl Stream {
         {
             let path = self.dir.join(&name);
             let created = !path.exists();
-            let file = OpenOptions::new().create(true).append(true).open(&path)?;
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(FILE_MODE)
+                .open(&path)?;
             if created {
                 // The new file's directory entry must survive a crash too.
                 File::open(&self.dir)?.sync_all()?;
