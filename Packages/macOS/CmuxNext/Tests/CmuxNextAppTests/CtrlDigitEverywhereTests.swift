@@ -42,3 +42,20 @@ struct CtrlDigitEverywhereTests {
         #expect(registry.descriptor(for: "space.selectByNumber")?.defaultShortcut == Shortcut("1", modifiers: [.control, .option]))
     }
 }
+
+import CmuxNextSettings
+
+extension CtrlDigitEverywhereTests {
+    /// The onboarding choice "Ctrl-digits select Spaces" swaps the two
+    /// families; the default scheme writes nothing.
+    @Test func theSpacesSchemeSwapsTheDigitFamilies() throws {
+        #expect(ShortcutDigitScheme.tabs.overrides.isEmpty)
+        let registry = M.services().registry
+        for (id, value) in ShortcutDigitScheme.spaces.overrides {
+            guard case .stroke(let stroke)? = ShortcutBindingFormat.parse(value) else { Issue.record("\(id)"); continue }
+            registry.setShortcutOverride(SettingsApplier.shortcut(for: stroke), for: ActionID(rawValue: id))
+        }
+        #expect(registry.effectiveShortcut(for: "space.selectByNumber") == Shortcut("1", modifiers: [.control]))
+        #expect(registry.effectiveShortcut(for: "selectSurfaceByNumber") == Shortcut("1", modifiers: [.control, .option]))
+    }
+}
