@@ -28,6 +28,9 @@ final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
+    /// The connection Quit's end choice runs on, kept after
+    /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
+    @ObservationIgnored var endingConnection: DaemonConnection?
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the

@@ -50,7 +50,8 @@ struct QuitSessionsTests {
             await h.stop()
             throw error
         }
-        let ended = try await h.connection.endSessionsAndStop(deletingWorkspaces: deletingWorkspaces)
+        let ended = await h.connection.endSessionsAndStop(deletingWorkspaces: deletingWorkspaces)
+        #expect(ended.failures.isEmpty, "\(ended.failures)")
         let leakedHosts = await TerminalHosts.awaitExit(hosts)
         let leakedDaemon = await TerminalHosts.awaitExit([h.identity.pid])
         if !leakedHosts.isEmpty || !leakedDaemon.isEmpty { await h.stop() }
@@ -95,16 +96,12 @@ struct QuitSessionsTests {
             await h.stop()
             throw error
         }
-        var ended: EndedSessions?
-        do {
-            ended = try await h.connection.endSessionsAndStop(deletingWorkspaces: true)
-        } catch {
-            Issue.record("End Everything failed: \(error)")
-        }
+        let ended = await h.connection.endSessionsAndStop(deletingWorkspaces: true)
+        #expect(ended.failures.isEmpty, "Home counted as a failure: \(ended.failures)")
         let leakedHosts = await TerminalHosts.awaitExit(hosts)
         let leakedDaemon = await TerminalHosts.awaitExit([h.identity.pid])
         if !leakedHosts.isEmpty || !leakedDaemon.isEmpty { await h.stop() }
-        #expect(ended?.endedTerminals == 2)
+        #expect(ended.endedTerminals == 2)
         #expect(leakedHosts.isEmpty, "terminal hosts outlived End Everything: \(leakedHosts)")
         #expect(leakedDaemon.isEmpty, "the daemon outlived End Everything")
 
@@ -144,7 +141,7 @@ struct QuitSessionsTests {
             await h.stop()
             throw error
         }
-        let ended = try await h.connection.endSessionsAndStop(keepingLayout: true)
+        let ended = await h.connection.endSessionsAndStop(keepingLayout: true)
         #expect(ended.keptLayout && ended.endedTerminals == 2)
         #expect(await TerminalHosts.awaitExit(hosts).isEmpty)
         #expect(await TerminalHosts.awaitExit([h.identity.pid]).isEmpty)
