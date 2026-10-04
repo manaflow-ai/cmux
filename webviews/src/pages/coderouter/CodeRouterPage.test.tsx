@@ -64,7 +64,11 @@ describe("CodeRouterPage", () => {
     ]);
     expect($(".cr-linked-empty")?.textContent).toBe("Sign in to cmux to see the accounts CodeRouter holds.");
     await click($$(".cr-button").find((button) => button.textContent === "Sign In"));
-    expect(provider.calls.some((call) => call.op === CodeRouterOps.actionRun && call.params.action === CodeRouterActions.signIn)).toBe(true);
+    expect(
+      provider.calls.some(
+        (call) => call.op === CodeRouterOps.actionRun && call.params.action === CodeRouterActions.signIn,
+      ),
+    ).toBe(true);
     expect($(".cr-status")?.textContent).toContain("Signed in");
   });
 
@@ -76,8 +80,13 @@ describe("CodeRouterPage", () => {
     const codex = $$(".cr-provider").find((row) => row.textContent?.includes("Codex"));
     expect([...(codex?.querySelectorAll(".cr-button") ?? [])].map((button) => button.textContent)).toEqual(["Connect"]);
     const claude = $$(".cr-provider").find((row) => row.textContent?.includes("Claude"));
-    await click([...(claude?.querySelectorAll<HTMLElement>(".cr-button") ?? [])].find((b) => b.textContent === "Sign In Again"));
-    expect(provider.calls.at(-3)?.params).toEqual({ action: CodeRouterActions.reauthenticate, args: { provider: "claude" } });
+    await click(
+      [...(claude?.querySelectorAll<HTMLElement>(".cr-button") ?? [])].find((b) => b.textContent === "Sign In Again"),
+    );
+    expect(provider.calls.at(-3)?.params).toEqual({
+      action: CodeRouterActions.reauthenticate,
+      args: { provider: "claude" },
+    });
     expect($(".cr-keys")?.textContent).toContain("Not available in this build");
     // No account email anywhere on the page.
     expect(dom.window.document.body.textContent).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);

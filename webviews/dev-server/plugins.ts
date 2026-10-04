@@ -255,7 +255,7 @@ function agentPaneHost(): Plugin {
 
 /// /<page>/ serves src/pages/<page>/index.html for the React pages (plans/cmux-next/react-pages.md).
 /// The page boots its own client: the app bridge when present, else the mock provider with `?mock`.
-const DEV_PAGES = ["history", "apps", "cloud", "keybindings"];
+const DEV_PAGES = ["history", "apps", "coderouter", "cloud", "keybindings"];
 
 function pagesHost(): Plugin {
   return {

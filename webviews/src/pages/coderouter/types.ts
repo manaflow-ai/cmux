@@ -61,4 +61,8 @@ export const CodeRouterActions = {
 } as const;
 
 /** Codes that mean "this build has no such op": the page says "Not available", never an error. */
-export const UNAVAILABLE_CODES = new Set(["cmux.protocol.unknown_op", "cmux.operation.unsupported", "operation.unsupported"]);
+export const UNAVAILABLE_CODES = new Set([
+  "cmux.protocol.unknown_op",
+  "cmux.operation.unsupported",
+  "operation.unsupported",
+]);

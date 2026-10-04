@@ -1,6 +1,6 @@
 // An in-memory `cmux.coderouter` provider for the browser dev loop (`/coderouter/?mock`) and tests.
 // It is not the backend: the Mac host's accounts service owns detection, sign-in and CodeRouter.
-import { pageError, type PageClient } from "../shared/pageClient";
+import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { LINK_CLOSED, MockPageStreams } from "../shared/pageStreams";
 import { CodeRouterActions, CodeRouterOps, type CodeRouterStatus, type ProviderRow } from "./types";
 
@@ -51,6 +51,11 @@ export class MockCodeRouterProvider implements PageClient {
     const pageStream = this.page.subscribe(stream, onEvent as (data: unknown, seq: number) => void);
     if (pageStream) return pageStream;
     throw pageError("cmux.protocol.unknown_op", stream);
+  }
+
+  /** The host calls nothing on this page. */
+  handle(_op: string, _handler: PageHandler): () => void {
+    return () => undefined;
   }
 }
 
