@@ -18,6 +18,10 @@ public protocol PaneHeaderBandHosting: PaneContentChrome {
     /// path (a pane's own detach, a renderer swap): constraints from the
     /// pane to `paneHeaderBandGuide` must end before the views part.
     var onPaneHeaderBandRelease: (() -> Void)? { get set }
+    /// Called after this view is back in a superview inside a window (a
+    /// renderer crash recovery removes it and adds it back), so the pane
+    /// can pin again through its normal activate path.
+    var onPaneHeaderBandReattach: (() -> Void)? { get set }
     /// The accessibility elements of the header rows and of the content
     /// area, so the pane can order them toolbar, strip, page.
     var paneHeaderAccessibilityElements: [Any] { get }

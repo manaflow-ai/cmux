@@ -25,6 +25,11 @@ extension BrowserChromeView: PaneHeaderBandHosting {
         set { headerBand.onRelease = newValue }
     }
 
+    public var onPaneHeaderBandReattach: (() -> Void)? {
+        get { headerBand.onReattach }
+        set { headerBand.onReattach = newValue }
+    }
+
     public var paneHeaderAccessibilityElements: [Any] { [toolbar, accessoryBar] }
 
     public var paneContentAccessibilityElements: [Any] { [contentContainer] }
@@ -55,6 +60,17 @@ extension BrowserChromeView: PaneHeaderBandHosting {
         if newWindow == nil, window != nil { headerBand.onRelease?() }
         super.viewWillMove(toWindow: newWindow)
     }
+
+    // Back in a superview inside a window: the pane may pin again
+    // (`viewDidMoveToWindow` in BrowserChromeView+Extensions also calls it).
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        headerBandReattachIfInstalled()
+    }
+
+    func headerBandReattachIfInstalled() {
+        if window != nil, superview != nil { headerBand.onReattach?() }
+    }
 }
 
 /// The band's guide, height constraint and release callback.
@@ -62,4 +78,5 @@ final class BrowserHeaderBand {
     let guide = NSLayoutGuide()
     var height: NSLayoutConstraint?
     var onRelease: (() -> Void)?
+    var onReattach: (() -> Void)?
 }
