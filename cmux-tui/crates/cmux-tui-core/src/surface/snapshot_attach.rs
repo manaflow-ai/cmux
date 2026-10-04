@@ -288,11 +288,10 @@ impl Surface {
     /// local-history READY's).
     #[cfg(test)]
     pub(crate) fn terminal_history_digest(&self) -> Option<ghostty_vt::HistoryDigest> {
-        self.as_pty()?
-            .term
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .history_digest()
+        let term = self.as_pty()?.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The same order as the host: READY encode, then the digest.
+        term.encode_snapshot(SnapshotPhase::Ready).ok()?;
+        term.history_digest()
     }
 
     /// `terminal.history`: GHOSTSNP HISTORY pages above `before`.
