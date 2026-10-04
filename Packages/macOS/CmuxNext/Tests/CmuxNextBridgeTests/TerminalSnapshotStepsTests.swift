@@ -59,9 +59,13 @@ struct TerminalSnapshotStepsTests {
         })
         driver.input(Data("x".utf8))
         driver.start()
+        // Steps until the restore (grid first); a status step may come between.
         var steps: [TerminalStreamPlan.Step] = []
-        while steps.count < 3, let step = await driver.nextStep() { steps.append(step) }
-        #expect(steps.contains(.grid(columns: 100, rows: 30)))
+        while let step = await driver.nextStep() {
+            steps.append(step)
+            if case .snapshot = step { break }
+        }
+        #expect(steps.first == .grid(columns: 100, rows: 30))
         #expect(steps.contains { if case .snapshot = $0 { true } else { false } })
         for _ in 0..<2000 where link.input.isEmpty {
             try? await Task.sleep(for: .milliseconds(2))
