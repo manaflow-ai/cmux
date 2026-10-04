@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextPages
+public import CmuxNextPages
 import os
 public import WebKit
 
@@ -49,6 +49,8 @@ public final class AgentPaneView: NSView {
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
     let page: PageWebView?
     let pageEvents: AgentPageProvider?
+    /// Whether the page can take typing yet (the key dispatcher queues keys until then).
+    public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
@@ -89,6 +91,7 @@ public final class AgentPaneView: NSView {
             self.page = page
             pageEvents = provider
             webView = page.webKitView
+            inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in
                 if let event = AgentPageEvent.dictation(update) { provider?.publish(event) }
             })
@@ -108,6 +111,7 @@ public final class AgentPaneView: NSView {
             // window (plans/cmux-next/windows.md).
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            inputReadiness = PageInputReadiness(configuration: configuration)
             webView = WKWebView(frame: .zero, configuration: configuration)
             page = nil
             pageEvents = nil
@@ -115,6 +119,7 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        inputReadiness.attach(webView)
         if let page {
             attachPage(page)
         } else {
