@@ -33,8 +33,8 @@ import Testing
         #expect(options.filter(\.isCurrent).map(\.value) == [.number(4)])
     }
 
-    /// A wide range keeps the ends and the current value, on the step grid,
-    /// at most 41 values.
+    /// A wide range keeps the ends and the current value (30, off the grid of
+    /// 1 + 5n); the rest sit on the step grid. At most 41 values.
     @Test func aWideNumberRangeIsSampledOnItsStepGrid() throws {
         let descriptor = try descriptor("notifications.timeoutSeconds")
         guard case .number(let number) = descriptor.kind else {
@@ -48,7 +48,7 @@ import Testing
         #expect(values.last == number.range.upperBound)
         #expect(values.contains(30))
         #expect(values == values.sorted())
-        for value in values where value != number.range.upperBound {
+        for value in values where value != number.range.upperBound && value != 30 {
             let steps = (value - number.range.lowerBound) / number.step
             #expect(abs(steps - steps.rounded()) < 1e-9, "\(value) is off the step grid")
         }

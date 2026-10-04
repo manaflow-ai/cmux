@@ -138,6 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
+        // Every palette-exposed schema setting in the palette (R93).
+        services.palette.sources.settings = SettingsPaletteSource(settings: settings)
         services.history.commands.start(settings: settings)
         services.locationTrail.watchScope(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)

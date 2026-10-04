@@ -95,7 +95,11 @@ import Testing
         }
         #expect(spec.isValid("#00FF00"))
         #expect(!spec.isValid("green"))
-        _ = spec.next?("#00FF00")
+        guard case .perform(let write)? = spec.next?("#00FF00") else {
+            Issue.record("Return writes the typed value and closes")
+            return
+        }
+        write()
         #expect(source.texts == ["layout.paneBorderColor=#00FF00"])
     }
 }
