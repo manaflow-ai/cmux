@@ -43,7 +43,10 @@ impl Client {
         let id = self.2;
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
         loop {
-            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv()).await.unwrap().unwrap();
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
                 return v;
@@ -96,10 +99,17 @@ async fn mcp_servers_from_a_websocket_connection_are_refused() {
         let mut c = Client::new(&hub, origin);
         let r = c.call("session/new", new_session(&cwd, json!({"mcpServers": servers}))).await;
         assert!(err(&r).contains("mcpServers"), "{origin:?}: {r}");
-        let r = c.call("session/new", new_session(&cwd, json!({"_meta": {"acpmux": {"mcpServers": servers}}}))).await;
+        let r = c
+            .call(
+                "session/new",
+                new_session(&cwd, json!({"_meta": {"acpmux": {"mcpServers": servers}}})),
+            )
+            .await;
         assert!(err(&r).contains("mcpServers"), "{origin:?} meta: {r}");
         // Any other method that carries them, too (load, fork, prompt...).
-        let r = c.call("session/load", json!({"sessionId": "nope", "cwd": cwd, "mcpServers": servers})).await;
+        let r = c
+            .call("session/load", json!({"sessionId": "nope", "cwd": cwd, "mcpServers": servers}))
+            .await;
         assert!(err(&r).contains("mcpServers"), "{origin:?} load: {r}");
     }
     // The unix socket: unchanged (the daemon never passes them on).
@@ -116,8 +126,10 @@ async fn an_unhandled_session_method_reaches_the_harness_only_from_the_unix_sock
     let hub = hub();
     let cwd = d.real.to_string_lossy().into_owned();
     let mut local = Client::new(&hub, Origin::Local);
-    let id = local.call("session/new", new_session(&cwd, json!({})))
-        .await["result"]["sessionId"].as_str().unwrap().to_owned();
+    let id = local.call("session/new", new_session(&cwd, json!({}))).await["result"]["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     for origin in REMOTE {
         let mut c = Client::new(&hub, origin);
         let r = c.call("_harness/anything", json!({"sessionId": id, "command": "id"})).await;
@@ -134,7 +146,10 @@ async fn spawn_env_and_arbitrary_paths_are_unix_socket_only() {
     let hub = hub();
     let outside = d.file.to_string_lossy().into_owned();
     let calls = [
-        ("_acpmux/defaults", json!({"family": "fake", "set": {"env": {"NODE_OPTIONS": "--require /tmp/x"}}})),
+        (
+            "_acpmux/defaults",
+            json!({"family": "fake", "set": {"env": {"NODE_OPTIONS": "--require /tmp/x"}}}),
+        ),
         ("_acpmux/presets", json!({"name": "p", "set": {"env": {"LD_PRELOAD": "/tmp/x.so"}}})),
         ("_acpmux/export", json!({"sessionId": "nope", "dest": d.base})),
         ("_acpmux/import", json!({"path": outside})),
@@ -168,8 +183,13 @@ async fn folder_fields_from_a_websocket_connection_are_existing_directories_made
         for b in &bad {
             let r = c.call("session/new", new_session(b, json!({}))).await;
             assert!(err(&r).contains("existing directory"), "{origin:?} cwd {b}: {r}");
-            let r = c.call("session/new", new_session(&real, json!({"additionalDirectories": [b]}))).await;
-            assert!(err(&r).contains("existing directory"), "{origin:?} additionalDirectories {b}: {r}");
+            let r = c
+                .call("session/new", new_session(&real, json!({"additionalDirectories": [b]})))
+                .await;
+            assert!(
+                err(&r).contains("existing directory"),
+                "{origin:?} additionalDirectories {b}: {r}"
+            );
             let r = c.call("acp.trust.set", json!({"cwd": b, "level": "trusted"})).await;
             assert!(err(&r).contains("existing directory"), "{origin:?} trust {b}: {r}");
             let r = c.call("session/fork", json!({"sessionId": "nope", "cwd": b})).await;
@@ -189,7 +209,9 @@ async fn folder_fields_from_a_websocket_connection_are_existing_directories_made
     }
     // The unix socket: unchanged (additionalDirectories is not checked there).
     let mut local = Client::new(&hub, Origin::Local);
-    let r = local.call("session/new", new_session(&real, json!({"additionalDirectories": ["relative"]}))).await;
+    let r = local
+        .call("session/new", new_session(&real, json!({"additionalDirectories": ["relative"]})))
+        .await;
     assert!(r.get("error").is_none(), "{r}");
     let _ = std::fs::remove_dir_all(&d.base);
 }

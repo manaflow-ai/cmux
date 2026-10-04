@@ -985,6 +985,11 @@ async fn dispatch_request(
         // from the unix socket only: a harness extension method may take
         // params that spawn or read (`remote_guard.rs`).
         other => {
+            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+                return Err(RpcError::invalid_params(format!(
+                    "{other} is passed to the harness only from the local unix socket"
+                )));
+            }
             if let Ok(key) = session_key(&params) {
                 let s = hub.resolve(key)?;
                 return hub.forward(&s, other, params).await;
