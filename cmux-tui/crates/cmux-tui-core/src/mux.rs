@@ -1773,6 +1773,10 @@ pub struct ZoomState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// How many times a confirmed layout undo retries a resource revision conflict
+/// caused by unrelated commits before it reports the undo as stale.
+const LAYOUT_UNDO_COMMIT_ATTEMPTS: u32 = 3;
+
 pub enum LayoutUndoResult {
     Undone { screen: ScreenId, revision: u64 },
     ConfirmationRequired { screen: ScreenId, revision: u64, closes_panes: Vec<PaneId> },
@@ -17156,9 +17160,12 @@ impl Mux {
         })?;
         let mut fields = Map::from_iter([("confirm_close".into(), Value::Bool(confirm_close))]);
         fields.insert("expected_layout_revision".into(), Value::from(current_revision));
-        let expected_resource_revision = if created_panes.is_empty() {
-            None
-        } else {
+        // The confirmation token fences exactly what closes; it is computed
+        // once. The resource revision is only the commit's precondition, so a
+        // conflict from an unrelated commit between reading it and committing
+        // is retried (bounded) with the same token: the commit re-checks the
+        // token against the state it commits on.
+        if !created_panes.is_empty() {
             let registry = self.workspace_registry.lock().unwrap();
             let state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
@@ -17173,25 +17180,36 @@ impl Mux {
                 .as_str()
                 .context("layout undo confirmation omitted its token")?;
             fields.insert("confirmation_token".into(), Value::String(token.to_string()));
-            Some(registry.resource_topology_snapshot()?.revision)
-        };
-        #[cfg(test)]
-        if let Some(hook) = self.layout_undo_before_commit.lock().unwrap().clone() {
-            hook();
         }
-        let commit = self
-            .commit_resource_topology_operation(
+        let mut attempts = 0;
+        let commit = loop {
+            attempts += 1;
+            let expected_resource_revision = if created_panes.is_empty() {
+                None
+            } else {
+                Some(self.workspace_registry.lock().unwrap().resource_topology_snapshot()?.revision)
+            };
+            #[cfg(test)]
+            if let Some(hook) = self.layout_undo_before_commit.lock().unwrap().clone() {
+                hook();
+            }
+            let result = self.commit_resource_topology_operation(
                 ResourceOperation::ScreenLayoutUndo,
-                selectors,
-                fields,
+                selectors.clone(),
+                fields.clone(),
                 expected_resource_revision,
                 &WorkspaceMutation::local("cmux-tui-layout-undo"),
-            )
-            .map_err(|error| {
-                if error
+            );
+            let conflict = result.as_ref().err().is_some_and(|error| {
+                error
                     .downcast_ref::<ResourceError>()
                     .is_some_and(|error| error.code == "revision.conflict")
-                {
+            });
+            if conflict && attempts < LAYOUT_UNDO_COMMIT_ATTEMPTS {
+                continue;
+            }
+            break result.map_err(|error| {
+                if conflict {
                     anyhow::Error::new(LayoutUndoError::Stale(
                         "layout revision conflict: resource topology changed before confirmed undo could commit"
                             .to_string(),
@@ -17200,6 +17218,7 @@ impl Mux {
                     error
                 }
             })?;
+        };
         let screen = commit
             .result
             .get("screen")
@@ -20176,6 +20195,7 @@ mod tests {
 
     mod column_update;
     mod kitty_reservation;
+    mod layout_undo_commit;
     mod rows;
     mod sticky_columns;
 
@@ -29196,42 +29216,6 @@ mod tests {
             assert_eq!(screen.layout_columns[1].root.pane_ids_vec(), vec![right_pane]);
             assert!(screen.layout_column_projection_is_consistent());
         });
-    }
-
-    /// A confirmed undo reads the resource revision just before its commit.
-    /// An unrelated commit in that window (a shell's OSC 7 cwd update, a
-    /// rename) must not refuse the undo the user confirmed: the confirmation
-    /// token still fences exactly what closes (layout_undo flake, 1 of 30).
-    #[test]
-    fn confirmed_layout_undo_survives_an_unrelated_commit_before_it_commits() {
-        let mux = test_mux();
-        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
-        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
-        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
-        let LayoutUndoResult::ConfirmationRequired { revision, .. } =
-            mux.undo_layout(right_pane, None, false).unwrap()
-        else {
-            panic!("a created pane needs confirmation");
-        };
-        let workspace = mux.with_state(|state| state.workspaces[0].id);
-        let fired = Arc::new(AtomicBool::new(false));
-        *mux.layout_undo_before_commit.lock().unwrap() = Some(Arc::new({
-            let mux = Arc::downgrade(&mux);
-            let fired = fired.clone();
-            move || {
-                if !fired.swap(true, Ordering::SeqCst)
-                    && let Some(mux) = mux.upgrade()
-                {
-                    assert!(mux.rename_workspace(workspace, "renamed meanwhile".into()));
-                }
-            }
-        }));
-
-        let result = mux.undo_layout(right_pane, Some(revision), true);
-        assert!(fired.load(Ordering::SeqCst), "the unrelated commit ran before the undo commit");
-        assert!(matches!(result, Ok(LayoutUndoResult::Undone { .. })), "{result:?}");
-        mux.with_state(|state| assert!(!state.panes.contains_key(&right_pane)));
     }
 
     #[test]
