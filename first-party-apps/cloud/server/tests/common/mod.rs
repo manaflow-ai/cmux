@@ -32,6 +32,12 @@ pub struct FakeControlPlane {
     get_any: bool,
     list_two: bool,
     start_any: bool,
+    /// `vm-get-unbound`: every `cloud.machine.get` answers a provisioning
+    /// machine with no host yet.
+    get_unbound: bool,
+    /// `connect-info-nofs` / `connect-info-fs`: `cloud.machine.connect_info`
+    /// answers a bound machine whose daemon lacks / has `fs-v1`.
+    connect_info: Option<bool>,
     routes: HashMap<(String, String), (u16, Value)>,
     /// Classic route calls (attach, scp and file routes), in order.
     pub calls: Vec<HttpCall>,
@@ -45,6 +51,16 @@ pub fn link_machine(id: &str, status: &str) -> Value {
         "classic": false, "revision": "1" })
 }
 
+/// A `cloud.machine.connect_info` answer (contract 1.7) for a bound,
+/// running link-test machine with these daemon capabilities.
+pub fn connect_info(id: &str, capabilities: &Value) -> Value {
+    json!({ "machine": id, "host": format!("host-{id}"), "epoch": 1, "state": "running",
+        "peer": { "wg_public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "overlay_address": "fd7c:6d78::1", "vpc_endpoint": null, "public_ipv6": null },
+        "gateway": null, "services": ["daemon", "ssh"],
+        "daemon": { "version": "0.1.0", "capabilities": capabilities }, "revision": "1" })
+}
+
 impl FakeControlPlane {
     /// The vectors plus the named classic fixtures (`tests/fixtures/<name>.json`)
     /// and the link-test names `vm-get`, `vm-list`, `vm-resume`.
@@ -54,6 +70,8 @@ impl FakeControlPlane {
             get_any: false,
             list_two: false,
             start_any: false,
+            get_unbound: false,
+            connect_info: None,
             routes: HashMap::new(),
             calls: Vec::new(),
         };
@@ -62,6 +80,9 @@ impl FakeControlPlane {
                 "vm-get" => fake.get_any = true,
                 "vm-list" => fake.list_two = true,
                 "vm-resume" => fake.start_any = true,
+                "vm-get-unbound" => fake.get_unbound = true,
+                "connect-info-nofs" => fake.connect_info = Some(false),
+                "connect-info-fs" => fake.connect_info = Some(true),
                 other => fake.serve(other),
             }
         }
@@ -113,6 +134,17 @@ impl FakeControlPlane {
     fn link_answer(&self, call: &WireCall) -> Option<Value> {
         let machine = call.params.get("machine").and_then(Value::as_str);
         match (call.op.as_str(), machine) {
+            ("cloud.machine.get", Some(id)) if self.get_unbound => {
+                Some(link_machine(id, "provisioning"))
+            }
+            ("cloud.machine.connect_info", Some(id)) if self.connect_info.is_some() => {
+                let capabilities = if self.connect_info == Some(true) {
+                    json!(["fs-v1"])
+                } else {
+                    json!([])
+                };
+                Some(connect_info(id, &capabilities))
+            }
             ("cloud.machine.get", Some(id)) if self.get_any => Some(link_machine(id, "running")),
             ("cloud.machine.start", Some(id)) if self.start_any => {
                 let mut running = link_machine(id, "running");

@@ -24,6 +24,10 @@ pub enum Script {
     /// Prints nothing until [`FakeSpawner::ready`]; sends its tag on the
     /// channel once spawned.
     Hold(std::sync::mpsc::Sender<LinkTag>),
+    /// The carrier's probe dial failed with this `link.dial` error code
+    /// (`host_paused`, `unknown_host`, `not_authorized`, `unreachable`):
+    /// it prints the dial-failed line, then ends with status 1.
+    DialFailed(&'static str),
 }
 
 #[derive(Default)]
@@ -110,6 +114,13 @@ impl LinkSpawner for FakeSpawner {
             Script::ExitEarly(code) => {
                 events
                     .send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(code) })
+                    .unwrap();
+            }
+            Script::DialFailed(code) => {
+                let failed = serde_json::json!({ "event": "dial-failed", "error_code": code });
+                events.send(line(&failed.to_string())).unwrap();
+                events
+                    .send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(1) })
                     .unwrap();
             }
             Script::Hold(spawned) => {
