@@ -697,15 +697,11 @@ body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;
 }
 /* Files sidebar open/close: the sidebar is a fixed-width panel pinned to the
-   right edge of #content and slides on `transform` only, so the animation runs
-   on the compositor and never relayouts the diff per frame. The diff column
-   changes width once, at the start of the toggle: opening narrows it and the
-   panel slides into the vacated strip (which already paints the shared viewer
-   background); closing widens it under the opaque panel as it slides away. */
-#files-sidebar {
-  --cmux-diff-files-slide-duration: 200ms;
-  --cmux-diff-files-slide-easing: cubic-bezier(0.2, 0.8, 0.2, 1);
-}
+   right edge of #content. These rules are its resting states; the slide
+   between them is a composited Web Animations transform driven by
+   files-panel-motion.ts, which changes the diff column's width once, in the
+   frame before the slide starts, and keeps the panel painted while it closes
+   (data-files-motion). */
 body[data-status-only="true"] #content {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "viewer";
@@ -725,10 +721,9 @@ body[data-status-only="true"] #content {
   border-left: 1px solid var(--cmux-diff-border);
   background: var(--cmux-diff-solid-bg);
   contain: strict;
+  /* Its own compositor layer before any slide starts. */
+  will-change: transform;
   transform: translate3d(0, 0, 0);
-  transition:
-    transform var(--cmux-diff-files-slide-duration) var(--cmux-diff-files-slide-easing),
-    visibility 0s linear 0s;
 }
 #files-resize-handle {
   position: absolute;
@@ -758,11 +753,11 @@ body[data-files-hidden="true"] #files-sidebar {
   pointer-events: none;
   visibility: hidden;
   transform: translate3d(100%, 0, 0);
-  /* Stay painted for the whole slide, then drop out of hit testing and the
-     accessibility tree. */
-  transition:
-    transform var(--cmux-diff-files-slide-duration) var(--cmux-diff-files-slide-easing),
-    visibility 0s linear var(--cmux-diff-files-slide-duration);
+}
+/* Closing: stay painted for the whole slide, then drop out of hit testing and
+   the accessibility tree. */
+body[data-files-hidden="true"] #files-sidebar[data-files-motion="running"] {
+  visibility: visible;
 }
 body[data-status-only="true"] #files-sidebar {
   display: none;
@@ -990,13 +985,6 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   }
   #app[data-file-search-open="true"] #files-resize-handle {
     display: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  /* No slide: the panel appears and disappears in one frame, both ways. */
-  #files-sidebar,
-  body[data-files-hidden="true"] #files-sidebar {
-    transition: none;
   }
 }
 #viewer diffs-container {
