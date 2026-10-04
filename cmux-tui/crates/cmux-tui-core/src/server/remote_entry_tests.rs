@@ -29,6 +29,9 @@ fn entry(verifier_accepts: bool, gate: Arc<dyn RemoteGate>) -> Entry {
     let directory = cmux_unix_socket::short_test_dir("rentry");
     let path = cmux_link::entry_path::remote_entry_socket_path(&directory.path().join("s.sock"));
     let mux = Mux::new_for_test("remote-entry", crate::SurfaceOptions::default());
+    // The control plane confirmed the install (section 10: an install that
+    // was never checked opens no stream).
+    mux.record_remote_check("inst_1");
     let verifier: LinkVerifier = Arc::new(move |_stream: &UnixStream| {
         if verifier_accepts {
             Ok(())
@@ -164,14 +167,16 @@ fn a_missing_or_malformed_stamp_closes_the_connection() {
     assert!(remote_clients(&entry.mux).is_empty());
 }
 
-/// A gate that admits a frame lets it reach normal dispatch.
+/// A gate that admits a frame lets it reach normal dispatch. The frame is
+/// `identify` because dispatch refuses every non-allowlisted command of a
+/// remote client too (remote_relay::intercept, defense behind the gate).
 #[test]
 fn an_admitted_frame_reaches_dispatch() {
     let entry = entry(true, Arc::new(AdmitAll));
     let (mut stream, mut reader) = connect_as_link(&entry);
     // The stamp and the first frame in one write: the stamp read leaves
     // the frame for dispatch.
-    stream.write_all(format!("{STAMP}\n{{\"id\":7,\"cmd\":\"ping\"}}\n").as_bytes()).unwrap();
+    stream.write_all(format!("{STAMP}\n{{\"id\":7,\"cmd\":\"identify\"}}\n").as_bytes()).unwrap();
     let reply = response(&mut reader);
     assert_eq!(reply["id"], json!(7));
     assert_eq!(reply["ok"], json!(true), "{reply}");
@@ -206,4 +211,48 @@ fn the_entry_socket_is_private_and_removed_on_drop() {
     assert_eq!(mode, 0o600);
     drop(entry);
     assert!(!path.exists());
+}
+
+/// The link's stamp is kept for the connection: its principal is the
+/// install's participant and its peer keeps the stamped user; the
+/// connection's end clears both.
+#[test]
+fn a_remote_client_keeps_its_peer_user_until_it_disconnects() {
+    let entry = entry(true, Arc::new(DenyAllGate));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, STAMP);
+    send(&mut stream, r#"{"id":1,"cmd":"ping"}"#);
+    let _ = response(&mut reader);
+    let client = remote_clients(&entry.mux)[0];
+    let peer = entry.mux.remote_relay().peer(client).expect("the stamped peer");
+    assert_eq!((peer.install.as_str(), peer.user.as_str()), ("inst_1", "42"));
+    assert_eq!(entry.mux.conversation_principal(client), "remote_inst_1");
+    drop(reader);
+    stream.shutdown(Shutdown::Both).unwrap();
+    drop(stream);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !remote_clients(&entry.mux).is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(remote_clients(&entry.mux).is_empty());
+    assert!(entry.mux.remote_relay().peer(client).is_none());
+    assert_ne!(entry.mux.conversation_principal(client), "remote_inst_1");
+}
+
+/// The conversation gate over the real entry: identify passes with a
+/// remote-only reply, ping and a command param are refused.
+#[test]
+fn the_conversation_gate_admits_only_the_remote_allowlist() {
+    let entry = entry(true, Arc::new(ConversationGate));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, STAMP);
+    send(&mut stream, r#"{"id":1,"cmd":"identify"}"#);
+    let identify = response(&mut reader);
+    assert_eq!(identify["ok"], json!(true), "{identify}");
+    assert!(identify["data"].get("pid").is_none(), "{identify}");
+    for frame in [r#"{"id":2,"cmd":"ping"}"#, r#"{"id":3,"cmd":"identify","command":"sh"}"#] {
+        send(&mut stream, frame);
+        let reply = response(&mut reader);
+        assert_eq!(reply["error_code"], json!("remote_denied"), "{frame}: {reply}");
+    }
 }
