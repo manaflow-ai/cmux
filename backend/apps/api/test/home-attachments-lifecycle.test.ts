@@ -162,25 +162,21 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
   const storedBytes = (user: string) =>
     runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
   const objects = async (id: string) => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects.length
-  /** Makes every uploader's stored-bytes release (or `method`) fail inside the ConversationDO until `restore` runs. */
-  const failReleases = (stub: unknown, method = "releaseAttachmentStorage") =>
-    runInDurableObject(stub, async (i) => {
-      const real = i.env.USER_DO as DurableObjectNamespace
-      const failing = new Proxy(real, {
-        get: (t, p) => {
-          if (p !== "get") {
-            const v = (t as any)[p]
-            return typeof v === "function" ? v.bind(t) : v
-          }
-          return (id: DurableObjectId) => {
-            const stubOf = t.get(id) as any
-            return new Proxy(stubOf, { get: (s, m) => (m === method ? async () => Promise.reject(new Error(`${method} unavailable`)) : (...a: Array<unknown>) => s[m as string](...a)) })
-          }
-        }
-      })
-      i.env = { ...i.env, USER_DO: failing }
-      return () => runInDurableObject(stub, async (j) => void (j.env = { ...j.env, USER_DO: real }))
+  /**
+   * Makes the UserDO stored-bytes release (or `method`) fail until `restore` runs. RPC dispatch
+   * reads prototype methods, so the class method is swapped (this file's tests run one at a time);
+   * the ConversationDO's own RPCs, also from its runtime alarm, then see the failure.
+   */
+  const failReleases = async (user: string, method = "releaseAttachmentStorage") => {
+    const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
+    const original = await runInDurableObject(userStub, async (i) => {
+      const proto = Object.getPrototypeOf(i)
+      const real = proto[method]
+      proto[method] = async () => Promise.reject(new Error(`${method} unavailable`))
+      return real
     })
+    return () => runInDurableObject(userStub, async (i) => void (Object.getPrototypeOf(i)[method] = original))
+  }
   const drops = (stub: unknown) =>
     runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT * FROM home_attachment_drops").toArray() as Array<{ object_key: string; next_attempt_at?: number; attempts?: number; dead?: number }>)
 
@@ -264,7 +260,7 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     const g = await group(alice)
     const stub = doOf(g.id)
     await upload(alice, g.id, bytesOf("deleted with its conversation, release fails"))
-    const restore = await failReleases(stub)
+    const restore = await failReleases(alice.user)
     const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
     await conv.deleteAttachmentStorage(g.id).catch(() => undefined)
     expect((await drops(stub)).length).toBe(1)
@@ -298,8 +294,9 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     const before = await usageRows(alice.user)
     expect((await slotRows(stub)).length).toBe(1)
     const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
-    const restore = await failReleases(stub, "refundAttachmentQuota")
-    await expect(conv.deleteAttachmentStorage(g.id)).rejects.toThrow()
+    const restore = await failReleases(alice.user, "refundAttachmentQuota")
+    const failed = await conv.deleteAttachmentStorage(g.id).then(() => null, (e: unknown) => e)
+    expect(String(failed)).toContain("refundAttachmentQuota unavailable")
     await restore()
     // Nothing was forgotten yet: the open slot and its charge are still there for the retry.
     expect((await slotRows(stub)).length).toBe(1)
@@ -316,7 +313,7 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     const age = () => runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 25 * 3_600_000))
     await upload(alice, g.id, bytesOf("first orphan, its release keeps failing"))
     await age()
-    const restore = await failReleases(stub)
+    const restore = await failReleases(alice.user)
     await wake(stub)
     expect((await drops(stub)).length).toBe(1)
     // A second orphan: the sweep still runs and deletes its object although the first drop keeps failing.
