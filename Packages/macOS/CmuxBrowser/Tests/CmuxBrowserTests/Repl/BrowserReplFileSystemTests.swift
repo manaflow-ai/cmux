@@ -546,6 +546,28 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d"))
     }
 
+    /// `readdir` and `rm -r` run on the session's thread; on a large tree a
+    /// cell that timed out (or a session that closed) must not wait for the
+    /// whole traversal.
+    @Test("A cancelled readdir or recursive rm of a large directory stops")
+    func cancelledTraversalStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let big = scratch.root + "/big"
+        try FileManager.default.createDirectory(atPath: big + "/nested", withIntermediateDirectories: true)
+        for index in 0..<3000 {
+            #expect(FileManager.default.createFile(atPath: big + "/f\(index)", contents: nil))
+        }
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { true })
+
+        #expect(fs.perform("readdir", arguments: ["path": "big"]).failureCode == "ECANCELED")
+        #expect(fs.perform("rm", arguments: ["path": "big", "recursive": true]).failureCode == "ECANCELED")
+        #expect(FileManager.default.fileExists(atPath: big))
+        // Small ones still finish: the check is between chunks of entries.
+        try FileManager.default.createDirectory(atPath: scratch.root + "/small/inner", withIntermediateDirectories: true)
+        #expect(fs.perform("readdir", arguments: ["path": "small"]).failureCode == "ok")
+    }
+
     @Test("A cancelled copy or write stops between chunks and a copy leaves no file")
     func cancelledCopyStops() throws {
         let scratch = try Scratch()
