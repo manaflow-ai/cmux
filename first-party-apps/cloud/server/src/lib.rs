@@ -19,5 +19,6 @@ pub mod rescue;
 
 pub use api::{
     CloudError, ControlPlane, HttpCall, HttpReply, Origin, RelayError, Request, SessionStatus,
+    WireCall, WireError, WireReply, WireResult,
 };
 pub use ops::Server;

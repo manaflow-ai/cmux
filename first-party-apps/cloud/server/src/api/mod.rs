@@ -12,7 +12,10 @@ mod serve;
 mod wire;
 
 pub(crate) use call::{Ctx, decode_answer};
-pub use control_plane::{ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus};
+pub use control_plane::{
+    ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus, WireCall, WireError, WireReply,
+    WireResult,
+};
 pub use error::{CloudError, codes};
 pub(crate) use ledger::Ledger;
 pub use ledger::upstream_key;
