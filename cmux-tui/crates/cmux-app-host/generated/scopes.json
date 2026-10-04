@@ -229,6 +229,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.file.transfer.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.firewall.create": {
       "scope": "cloud:write",
       "class": "mutation"
