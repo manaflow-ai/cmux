@@ -102,3 +102,45 @@ import Testing
         #expect(proofs.withLock { $0 } == 0)
     }
 }
+
+/// Coordinator conditions for the DEV key file (2026-10-04).
+@Suite struct FrontendInstallKeyStoreChoiceTests {
+    /// A signed build (a Team ID) uses the Keychain, never the DEV file,
+    /// even when a key file sits in its state directory.
+    @Test func aSignedBuildNeverUsesTheDevFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fik-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = FileFrontendInstallKeyStore(file: dir.appendingPathComponent("frontend-install-key")).loadOrCreate()
+        let signed = FrontendInstallKeyStores.forApp(session: "cmux-app-t", stateDirectory: dir,
+                                                     bundleID: "com.cmuxterm.app.debug.t", team: "ABCDE12345")
+        #expect(signed is KeychainFrontendInstallKeyStore)
+        #expect((signed as? KeychainFrontendInstallKeyStore)?.account == "cmux-app-t")
+        let unsigned = FrontendInstallKeyStores.forApp(session: "cmux-app-t", stateDirectory: dir,
+                                                       bundleID: nil, team: nil)
+        #expect((unsigned as? FileFrontendInstallKeyStore)?.file == dir.appendingPathComponent("frontend-install-key"))
+        // No tag state directory: an unsigned build has no key at all.
+        #expect(FrontendInstallKeyStores.forApp(session: "cmux-app", stateDirectory: nil, bundleID: nil, team: nil) == nil)
+    }
+
+    /// The file is created 0600 in one step (no chmod after) and is refused
+    /// when its mode or its owner is wrong.
+    @Test func theDevFileIsRefusedWithAWrongModeOrOwner() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fik-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("frontend-install-key")
+        let previous = umask(0)
+        defer { umask(previous) }
+        let created = try #require(FileFrontendInstallKeyStore(file: file).loadOrCreate())
+        let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        #expect(FileFrontendInstallKeyStore(file: file).loadOrCreate() == created)
+        // Another owner: refused, and the file is not replaced.
+        #expect(FileFrontendInstallKeyStore(file: file, owner: geteuid() + 1).loadOrCreate() == nil)
+        for wider in [0o604, 0o620, 0o700] {
+            try FileManager.default.setAttributes([.posixPermissions: wider], ofItemAtPath: file.path)
+            #expect(FileFrontendInstallKeyStore(file: file).loadOrCreate() == nil, "mode \(String(wider, radix: 8))")
+        }
+    }
+}
