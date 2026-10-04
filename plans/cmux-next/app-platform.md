@@ -278,3 +278,25 @@ Apps reach system features only through ops owned by the native host of the mach
 | Power assertions | `power.assertion.create {kinds: display|idle|disk|system|user, reason, until: {pid|terminal|task|deadline}}` -> `pwr_…`, `power.assertion.release {assertion|all}`, `power.assertion.list`, stream `power.assertion.watch` | the native host on that machine (IOKit power assertions; no process spawn) | scope `power:write` (list: `power:read`); an agent may bind an assertion only to its own terminal and for at most 4 h; `until-stopped` and releasing another actor's assertion need origin user; every assertion ends with its binding (pid exit, terminal idle, task done, deadline) | Caffeinate app (PR 16998), cmux server health, CLI `cmux power keep-awake\|list\|stop\|watch` (accepted by the Rust CLI owner: global `--session` routing, `$CMUX_TUI_TERMINAL_ID`, verbs generated from the catalog, `watch` CLI only, host checks origin user) |
 
 The app supervisor lane adds the power ops after PR 16872 lands; the catalog generates the CLI verbs and MCP tools.
+
+## 15. App Store backend: `cmux.apps.*` (R62 UI-STACK, 2026-10-04)
+
+The App Store page moves to React (webviews) with a Rust backend; the Swift App Store UI is deleted after parity and gets no new features. The app supervisor (apps-v1) owns these ops; they are Rust types with `schemars` in `cmux-tui-core/src/apps/store.rs` and enter the one IR through emit-ir (pane-protocol.md; one catalog for panes and apps, full names canonical, old wire names as `aliases`). The page, the CLI and MCP use the generated client.
+
+| Op | Scope | Rule |
+| --- | --- | --- |
+| `cmux.apps.catalog.list {query?, category?, tier?, cursor?, limit?}` | apps:read | bundled, sample, local and registry apps in one list, with install state and mirror revision |
+| `cmux.apps.catalog.get {app, version?}` | apps:read | detail: scopes with risk class (scope-classes.json) and reason, handles, notices, versions, interfaces |
+| `cmux.apps.asset.get {app, path}` | apps:read | only paths the manifest names (icon, screenshots, notices), as a byte stream; the page never reads bundle folders |
+| `cmux.apps.installed.list` | apps:read | installed, enabled, hidden, sandboxed, source (default, user, bundled, local), version, update, grants |
+| `cmux.apps.install {app, version?, grant_optional}` / `cmux.apps.uninstall {app}` | apps:write | origin user with a gesture; agents refused until the actor stamp |
+| `cmux.apps.set {app, enabled?, hidden?, sandboxed?}` | apps:write | hidden from any origin (D55); the rest origin user; replaces the `app.hide`/`app.unhide` actions |
+| `cmux.apps.grants.get {app}` / `cmux.apps.grant.set {app, scope, granted}` | apps:read / apps:write | grant changes origin user with a gesture |
+| `cmux.apps.updates.list` / `cmux.apps.update {app}` | apps:read / apps:write | an update that adds scopes asks first; update origin user |
+| `cmux.apps.local.add {path}` / `cmux.apps.local.remove {app}` | apps:write | dev apps start sandboxed; origin user |
+| `cmux.apps.validate {path}` | apps:read | `cmux-app-manifest` issues |
+| `cmux.apps.logs {app, follow?}` | apps:read | stream of log lines |
+| `cmux.apps.watch` | apps:read | typed stream `{revision, app?}` so the page never polls |
+| `cmux.apps.open {app, command?, focus?}` | apps:write | opens the app's page tab in the client; replaces the `app.open` action |
+
+The CodeRouter entry needs no op of its own: a first-party listing plus `cmux.apps.open`. Third-party namespaces are `<publisher>.<name>` ('-' becomes '_'); the store registry (AppDO) keeps publisher ids unique.
