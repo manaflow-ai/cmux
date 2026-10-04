@@ -15,7 +15,9 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
         case failed(HomeRejection)
     }
 
-    public let intent: HomeIntent
+    /// Replaced only before a send first reaches the owner (its parts adopt
+    /// the owner's stored attachment records); the key never changes.
+    public internal(set) var intent: HomeIntent
     public var state: State
     /// Set once the intent was resent without waiting for a reconnect.
     public var resentImmediately = false
@@ -63,6 +65,16 @@ public struct IntentLog: Hashable, Sendable {
             $0.isUploading = uploading
             if uploading { $0.state = .sending }
         }
+    }
+
+    /// Replaces the op of a send that has not reached the owner yet (same
+    /// key, same position). False when the key is not in the log.
+    @discardableResult
+    public mutating func replaceOp(_ key: IdempotencyKey, with op: HomeOp) -> Bool {
+        guard let index = entries.firstIndex(where: { $0.intent.key == key }) else { return false }
+        let old = entries[index].intent
+        entries[index].intent = HomeIntent(key: key, op: op, issuedAt: old.issuedAt)
+        return true
     }
 
     public mutating func discard(_ key: IdempotencyKey) {

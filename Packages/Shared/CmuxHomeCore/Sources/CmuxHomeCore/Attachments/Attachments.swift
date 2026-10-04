@@ -6,10 +6,14 @@ public import Foundation
 public struct LocalAttachmentFiles: Hashable, Sendable {
     public var fileURL: URL
     public var posterURL: URL?
+    /// SHA-256 of the poster file. A part whose poster differs (the owner
+    /// kept another device's poster) fetches the poster from the source.
+    public var posterHash: String?
 
-    public init(fileURL: URL, posterURL: URL? = nil) {
+    public init(fileURL: URL, posterURL: URL? = nil, posterHash: String? = nil) {
         self.fileURL = fileURL
         self.posterURL = posterURL
+        self.posterHash = posterHash
     }
 }
 
@@ -26,7 +30,9 @@ public struct LocalAttachment: Hashable, Sendable {
         self.posterURL = posterURL
     }
 
-    public var files: LocalAttachmentFiles { LocalAttachmentFiles(fileURL: fileURL, posterURL: posterURL) }
+    public var files: LocalAttachmentFiles {
+        LocalAttachmentFiles(fileURL: fileURL, posterURL: posterURL, posterHash: posterURL == nil ? nil : ref.posterHash)
+    }
 }
 
 /// One upload request to a `HomeSource`.

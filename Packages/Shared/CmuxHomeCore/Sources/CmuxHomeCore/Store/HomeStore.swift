@@ -285,7 +285,9 @@ public final class HomeStore {
         case .thumbnail(let maxPixel):
             return try await Self.localThumbnail(files, ref: ref, maxPixel: maxPixel)
         case .poster:
-            guard let poster = files.posterURL else { throw HomeRejection.invalid("no_poster") }
+            guard let wanted = ref.poster else { throw HomeRejection.invalid("no_poster") }
+            // The owner may have kept another device's poster for these bytes.
+            guard let poster = files.posterURL, files.posterHash == wanted.hash else { return nil }
             return poster
         }
     }
@@ -333,10 +335,35 @@ public final class HomeStore {
             afterLogChange(intent.op)
             throw failure
         }
+        // The owner keeps the first record of a hash: send its mime type,
+        // byte count and poster (or none), or it refuses attachment_mismatch.
+        // The logged intent changes first, so the pending row shows the
+        // parts that are sent.
+        let stored = uploads[key]?.stored ?? [:]
         uploads[key] = nil
+        var final = intent
+        if let current = log.entries.first(where: { $0.intent.key == key })?.intent {
+            let adopted = Self.adopting(stored, in: current.op)
+            if adopted != current.op { log.replaceOp(key, with: adopted) }
+            final = HomeIntent(key: key, op: adopted, issuedAt: current.issuedAt)
+        }
         log.setUploading(key, false)
-        afterLogChange(intent.op)
-        _ = try await submit(intent)
+        afterLogChange(final.op)
+        _ = try await submit(final)
+    }
+
+    /// The op with each attachment part's mime type, byte count and poster
+    /// taken from the owner's stored ref for its hash.
+    static func adopting(_ stored: [String: AttachmentRef], in op: HomeOp) -> HomeOp {
+        guard case .sendMessage(let conversation, let parts) = op else { return op }
+        let adopted = parts.map { part -> MessagePart in
+            guard case .attachment(var ref) = part, let record = stored[ref.hash] else { return part }
+            ref.mimeType = record.mimeType
+            ref.byteCount = record.byteCount
+            ref.poster = record.poster
+            return .attachment(ref)
+        }
+        return .sendMessage(conversation: conversation, parts: adopted)
     }
 
     /// Uploads, at most `uploadConcurrency` at once, every attachment of the
@@ -364,6 +391,7 @@ public final class HomeStore {
                 switch result {
                 case .success(let stored) where stored.hash == hash:
                     uploads[key]?.uploaded.insert(hash)
+                    uploads[key]?.stored[hash] = stored
                     if uploads[key]?.active == true { uploads[key]?.progress[hash] = 1 }
                     bumpUploadRow(key)
                 case .success:
@@ -534,6 +562,8 @@ public final class HomeStore {
         /// Unique by hash, in part order.
         var attachments: [LocalAttachment]
         var uploaded: Set<String> = []
+        /// The owner's stored ref for each uploaded hash.
+        var stored: [String: AttachmentRef] = [:]
         var progress: [String: Double] = [:]
         /// True while an upload pass runs.
         var active = false
