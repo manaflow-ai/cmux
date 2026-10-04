@@ -71,7 +71,11 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.machine.connect_info", READ, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
     // Only `cmux link` calls it; this server never does (listed so the table
     // is the whole CloudDO catalog).
-    ("cloud.machine.link_token", LINK_TOKEN, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
+    (
+        "cloud.machine.link_token",
+        LINK_TOKEN,
+        &["cloud.machine.not_bound", "cloud.machine.not_found"],
+    ),
     (
         "cloud.machine.upgrade",
         MUTATION,
