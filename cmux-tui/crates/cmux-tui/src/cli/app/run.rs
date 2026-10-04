@@ -49,8 +49,9 @@ pub(in crate::cli) fn request_with_retry(
     stream: &mut UnixStream,
     method: &str,
     params: &Value,
-    timeout: Duration,
+    timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
+    let timeout = timeout.into();
     let mut retries = 0;
     loop {
         match request(stream, method, params.clone(), timeout)? {

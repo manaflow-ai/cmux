@@ -218,3 +218,39 @@ fn errors_the_cli_meets_by_design_say_what_to_do() {
     assert!(stderr.contains(messages().gesture_required), "{stderr}");
     assert!(stderr.contains("cloud.machine.delete"), "{stderr}");
 }
+
+/// Guard (reply order): the run's cmux.op.cancelled answer may arrive BEFORE
+/// the `{}` reply to cancel-request. The CLI sends one cancel-request, ends on
+/// the answer without waiting for the reply (no hang), and reports one
+/// confirmed cancel.
+#[tokio::test]
+async fn a_cancelled_answer_before_the_cancel_reply_is_one_confirmed_cancel() {
+    // A long bound: only the cancelled answer can end the wait in time.
+    let (run, mut daemon, press) = start_with(Duration::from_secs(60));
+    daemon.handshake(true).await;
+    let request = daemon.read().await;
+    press.send(()).unwrap();
+    let cancel = daemon.read().await;
+    assert_eq!(cancel["cmd"], "cancel-request");
+    assert_eq!(cancel["target"], request["id"]);
+    let started = std::time::Instant::now();
+    daemon
+        .write(json!({"id": request["id"], "ok": false, "error": "cancelled",
+            "error_code": "cmux.op.cancelled", "retryable": false}))
+        .await;
+    // The CLI may already have closed the connection: ignore a write error.
+    let reply = format!("{}\n", json!({"id": cancel["id"], "ok": true, "data": {}}));
+    let _ = daemon.writer.write_all(reply.as_bytes()).await;
+    let outcome = run.await.unwrap();
+    assert!(started.elapsed() < Duration::from_secs(10), "waited {:?}", started.elapsed());
+    assert_eq!(outcome, Outcome::Cancelled { confirmed: true });
+    assert!(
+        daemon.lines.next_line().await.unwrap().is_none(),
+        "one cancel-request, then the connection closed"
+    );
+    let (stdout, stderr, code) = report(&outcome, OutputMode::Human);
+    assert_eq!(
+        (stdout, stderr.as_deref(), code),
+        (None, Some(messages().cancelled), EXIT_CANCELLED)
+    );
+}

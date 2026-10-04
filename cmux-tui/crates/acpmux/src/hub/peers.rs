@@ -15,6 +15,18 @@ impl Hub {
         url: &str,
         token: Option<String>,
     ) -> tokio::sync::watch::Receiver<u64> {
+        // A saved ssh peer the validator refuses never runs: its URL may have
+        // been set by a remote client before tokens stopped leaking to them.
+        // The log names the peer, never the URL.
+        if url.starts_with("ssh://")
+            && let Err(why) = crate::peer::ssh_target(url)
+        {
+            tracing::warn!(peer = %name, "peer refused: its ssh URL is not valid ({why}); fix or remove it");
+            if let Some(old) = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name) {
+                old.stop();
+            }
+            return tokio::sync::watch::channel(1).1;
+        }
         let peer = crate::peer::Peer::new(name, url, token, self.peer_notices.clone());
         let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
@@ -39,6 +51,11 @@ impl Hub {
             return Err(RpcError::invalid_params(
                 "peer url must start with ws://, wss://, or ssh://host",
             ));
+        }
+        if url.starts_with("ssh://")
+            && let Err(why) = crate::peer::ssh_target(url)
+        {
+            return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
         }
         {
             let mut cfg = self.config.write().await;

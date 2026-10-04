@@ -112,16 +112,11 @@ impl Peer {
         }
     }
 
-    /// `ssh://user@host[:port]` -> (ssh target, remote port).
+    /// `ssh://user@host[:port]` -> (ssh destination, remote port); None for
+    /// any other scheme and for an ssh URL `ssh_target` refuses.
     fn ssh_parts(&self) -> Option<(String, u16)> {
-        let rest = self.url.strip_prefix("ssh://")?;
-        let (host, port) = match rest.rsplit_once(':') {
-            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => {
-                (h.to_owned(), p.parse().unwrap_or(47811))
-            }
-            _ => (rest.to_owned(), 47811),
-        };
-        Some((host, port))
+        let t = ssh_target(&self.url).ok()?;
+        Some((t.destination, t.port))
     }
 
     /// Open an `ssh -W` stdio channel to the peer's WebSocket port. The
@@ -135,19 +130,7 @@ impl Peer {
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
         let mut child = tokio::process::Command::new("ssh")
-            .args([
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ServerAliveInterval=15",
-                "-o",
-                "ServerAliveCountMax=3",
-                "-o",
-                "ConnectTimeout=10",
-                "-W",
-                &format!("127.0.0.1:{remote_port}"),
-                &host,
-            ])
+            .args(tunnel_argv(&host, remote_port))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -170,14 +153,7 @@ impl Peer {
         }
         // Read the remote token once over ssh.
         let out = tokio::process::Command::new("ssh")
-            .args([
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
-                &host,
-                "cat ~/.acpmux/config.json",
-            ])
+            .args(read_config_argv(&host))
             .output()
             .await
             .map_err(|e| format!("read remote config: {e}"))?;
@@ -410,5 +386,202 @@ impl Peer {
         };
         handshake.abort();
         result
+    }
+}
+
+/// The default WebSocket port of an `ssh://` peer.
+pub const SSH_PEER_PORT: u16 = 47811;
+
+/// An `ssh://` peer's ssh destination (`[user@]host`) and remote port.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshTarget {
+    pub destination: String,
+    pub port: u16,
+}
+
+/// Parse and check `ssh://[user@]host[:port]`. Every part reaches an ssh or
+/// scp argv, and a peer URL can come from any WebSocket token holder
+/// (`_acpmux/peer_add`), so a part that ssh could read as an option or that
+/// carries anything but a name is refused: an empty user or host, one that
+/// starts with `-` (`-oProxyCommand=...`, `-F...`), whitespace or a control
+/// character, an `@` in the host, and a port that is not a plain number in
+/// 1..=65535. The reason never quotes the value (it may hold a secret).
+pub fn ssh_target(url: &str) -> Result<SshTarget, &'static str> {
+    let rest = url.strip_prefix("ssh://").ok_or("not an ssh:// url")?;
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let (user, hostport) = match rest.split_once('@') {
+        Some((user, hostport)) => (Some(user), hostport),
+        None => (None, rest),
+    };
+    let bracketed = hostport.starts_with('[') && hostport.ends_with(']');
+    let (host, port) = match hostport.rsplit_once(':') {
+        Some((host, port)) if !bracketed => {
+            let plain = !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit());
+            let port = port.parse::<u16>().ok().filter(|p| plain && *p > 0);
+            (host, port.ok_or("the port is not a plain number")?)
+        }
+        _ => (hostport, SSH_PEER_PORT),
+    };
+    check_ssh_part(host, "host")?;
+    if host.contains('@') {
+        return Err("the host has an @");
+    }
+    let destination = match user {
+        Some(user) => {
+            check_ssh_part(user, "user")?;
+            format!("{user}@{host}")
+        }
+        None => host.to_owned(),
+    };
+    Ok(SshTarget { destination, port })
+}
+
+fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
+    let host = what == "host";
+    if part.is_empty() {
+        return Err(if host { "the host is empty" } else { "the user is empty" });
+    }
+    if part.starts_with('-') {
+        return Err(if host {
+            "the host starts with - (an ssh option)"
+        } else {
+            "the user starts with - (an ssh option)"
+        });
+    }
+    // Names only: a user's ssh_config may put %h or %r into a shell command
+    // (ProxyCommand, Match exec), and scp reads `/` and `:` itself.
+    let name = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-');
+    let plain = if let Some(inner) = part.strip_prefix('[').and_then(|p| p.strip_suffix(']')) {
+        // A bracketed IPv6 address (scp strips the brackets).
+        host && !inner.is_empty()
+            && inner.bytes().all(|b| b.is_ascii_hexdigit() || matches!(b, b':' | b'.' | b'%'))
+    } else {
+        part.bytes().all(name)
+    };
+    if !plain {
+        return Err(if host {
+            "the host is not a plain name or [IPv6] address"
+        } else {
+            "the user is not a plain name"
+        });
+    }
+    Ok(())
+}
+
+/// `ssh ... -W 127.0.0.1:PORT -- DESTINATION`: the `--` ends ssh's options,
+/// so the destination is never read as one.
+pub fn tunnel_argv(destination: &str, port: u16) -> Vec<String> {
+    let mut argv: Vec<String> = [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ConnectTimeout=10",
+        "-W",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    argv.push(format!("127.0.0.1:{port}"));
+    argv.push("--".into());
+    argv.push(destination.to_owned());
+    argv
+}
+
+/// `ssh ... -- DESTINATION 'cat ~/.acpmux/config.json'` (a fixed command).
+pub fn read_config_argv(destination: &str) -> Vec<String> {
+    [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "--",
+        destination,
+        "cat ~/.acpmux/config.json",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+#[cfg(test)]
+mod ssh_tests {
+    use super::*;
+
+    #[test]
+    fn option_shaped_or_odd_parts_are_refused() {
+        for bad in [
+            "ssh://-oProxyCommand=touch%20/tmp/x",
+            "ssh://-oProxyCommand=touch /tmp/x",
+            "ssh://-Fevil",
+            "ssh://-F",
+            "ssh://-luser@host",
+            "ssh://-oProxyCommand=x@host",
+            "ssh://user@-oProxyCommand=x",
+            "ssh://ho st",
+            "ssh://host\tname",
+            "ssh://host\nname",
+            "ssh://host\u{7}",
+            "ssh://us er@host",
+            "ssh://user\r@host",
+            "ssh://@host",
+            "ssh://user@",
+            "ssh://",
+            "ssh://host:abc",
+            "ssh://host:",
+            "ssh://host:0",
+            "ssh://host:99999",
+            "ssh://host:+22",
+            "ssh://a@b@c",
+            "ssh://[-oProxyCommand=x]",
+            "ssh://u@[-oProxyCommand=x]:22",
+            "ssh://[]",
+            "ssh://a/b@h",
+            "ssh://u:p@h",
+            "ssh://h;id",
+            "ssh://$(id)",
+            "ssh://`id`",
+            "ssh://h|x",
+            "ssh://h'x",
+            "ssh://[::1",
+        ] {
+            assert!(ssh_target(bad).is_err(), "{bad:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn plain_targets_parse() {
+        let t = |u: &str| ssh_target(u).unwrap();
+        assert_eq!(t("ssh://box"), SshTarget { destination: "box".into(), port: 47811 });
+        assert_eq!(
+            t("ssh://me@box.local:2222"),
+            SshTarget { destination: "me@box.local".into(), port: 2222 }
+        );
+        assert_eq!(t("ssh://box/"), SshTarget { destination: "box".into(), port: 47811 });
+        assert_eq!(t("ssh://[::1]"), SshTarget { destination: "[::1]".into(), port: 47811 });
+        assert_eq!(t("ssh://[::1]:9"), SshTarget { destination: "[::1]".into(), port: 9 });
+        assert_eq!(
+            t("ssh://a_b@h-1.x"),
+            SshTarget { destination: "a_b@h-1.x".into(), port: 47811 }
+        );
+    }
+
+    #[test]
+    fn a_refusal_never_quotes_the_value() {
+        let secret = "ssh://-oProxyCommand=SECRETVALUE";
+        let reason = ssh_target(secret).unwrap_err();
+        assert!(!reason.contains("SECRETVALUE"));
+    }
+
+    #[test]
+    fn the_destination_always_follows_double_dash() {
+        for argv in [tunnel_argv("box", 1), read_config_argv("box")] {
+            let dd = argv.iter().position(|a| a == "--").expect("a -- in every ssh argv");
+            assert_eq!(argv[dd + 1], "box", "{argv:?}");
+            assert!(argv[..dd].iter().all(|a| a != "box"));
+        }
     }
 }
