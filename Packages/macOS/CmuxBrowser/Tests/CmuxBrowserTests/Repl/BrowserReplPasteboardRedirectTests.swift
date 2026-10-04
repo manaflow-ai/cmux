@@ -347,28 +347,37 @@ struct BrowserReplPasteboardRedirectTests {
             return webView
         }
 
+        /// The system pasteboard is a stand-in, so a broken redirect pastes
+        /// the stand-in's text, never the person's clipboard. The system's
+        /// change count is given above the tab's, so the paste always runs
+        /// through WebKit (``aPasteWhoseLateReadsWebKitCouldAllowDoesNotStart``
+        /// covers the other side of that check).
         @Test func webKitsPasteReadsTheTabPasteboard() async throws {
-            let webView = await load(
-                "<input id=i><script>addEventListener('paste', e => { window.pasted = e.isTrusted + ':' + e.clipboardData.getData('text/plain'); });</script>"
-            )
-            _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
+            let standIn = Self.makeStandIn()
+            defer { standIn.releaseGlobally() }
             let tab = NSPasteboard.withUniqueName()
             defer { tab.releaseGlobally() }
             tab.clearContents()
             tab.setString("tab text", forType: .string)
-
-            let outcome = await BrowserReplPasteboardRedirect.shared.perform("Paste", in: webView, pasteboard: tab, timeout: .seconds(10))
-            if tab.changeCount >= NSPasteboard.general.changeCount {
-                // A system clipboard this young could match the tab's change
-                // count, which WebKit's access check compares; Paste then
-                // does not run through WebKit at all.
-                #expect(outcome == .unavailable)
-                return
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            var value: String?
+            var event: String?
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let webView = await load(
+                    "<input id=i><script>addEventListener('paste', e => { window.pasted = e.isTrusted + ':' + e.clipboardData.getData('text/plain'); });</script>"
+                )
+                _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
+                outcome = await BrowserReplPasteboardRedirect.shared.perform(
+                    "Paste",
+                    in: webView,
+                    pasteboard: tab,
+                    timeout: .seconds(10),
+                    systemChangeCount: tab.changeCount + 1
+                )
+                value = try await webView.evaluateJavaScript("document.getElementById('i').value") as? String
+                event = try await webView.evaluateJavaScript("window.pasted || ''") as? String
             }
             #expect(outcome == .completed)
-            // A broken redirect would have pasted the user's clipboard.
-            let value = try await webView.evaluateJavaScript("document.getElementById('i').value") as? String
-            let event = try await webView.evaluateJavaScript("window.pasted || ''") as? String
             // Bools, so a failure never prints the values.
             let pastedTabText = value == "tab text"
             let trustedEvent = event == "true:tab text"
@@ -418,19 +427,25 @@ struct BrowserReplPasteboardRedirectTests {
         /// its web content process ended at the timeout, so the handler
         /// never reads anything late and WebKit's default paste never runs.
         @Test func aPasteThatOutlivesTheTimeoutHasItsWebContentEnded() async throws {
-            let webView = await load(Self.slowPastePage)
-            _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
-            let terminations = Terminations()
-            webView.navigationDelegate = terminations
+            let standIn = Self.makeStandIn()
+            defer { standIn.releaseGlobally() }
             let tab = NSPasteboard.withUniqueName()
             defer { tab.releaseGlobally() }
             tab.clearContents()
             tab.setString("tab text", forType: .string)
-
-            let outcome = await BrowserReplPasteboardRedirect.shared.perform("Paste", in: webView, pasteboard: tab, timeout: .milliseconds(300))
-            if tab.changeCount >= NSPasteboard.general.changeCount {
-                #expect(outcome == .unavailable)
-                return
+            let terminations = Terminations()
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let webView = await load(Self.slowPastePage)
+                _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
+                webView.navigationDelegate = terminations
+                outcome = await BrowserReplPasteboardRedirect.shared.perform(
+                    "Paste",
+                    in: webView,
+                    pasteboard: tab,
+                    timeout: .milliseconds(300),
+                    systemChangeCount: tab.changeCount + 1
+                )
             }
             #expect(outcome == .timedOut)
             #expect(terminations.count == 1, "the page that outlived the paste's timeout kept its web content process")
@@ -532,23 +547,29 @@ struct BrowserReplPasteboardRedirectTests {
         /// `+pasteboardWithName:` lookup the redirect hooks.
         @Test(arguments: ["Copy", "Cut"])
         func webKitsCopyAndCutWriteOnlyTheTabPasteboard(command: String) async throws {
-            let webView = await load(
-                """
-                <div id=ed contenteditable><b>bold</b> <a href="https://example.com/x">link</a> \
-                <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="> text</div>
-                """
-            )
-            _ = try await webView.evaluateJavaScript(
-                "const ed = document.getElementById('ed'); ed.focus(); const r = document.createRange(); r.selectNodeContents(ed); getSelection().removeAllRanges(); getSelection().addRange(r); true"
-            )
+            let standIn = Self.makeStandIn()
+            defer { standIn.releaseGlobally() }
+            let standInBefore = standIn.changeCount
             let tab = NSPasteboard.withUniqueName()
             defer { tab.releaseGlobally() }
             tab.clearContents()
             let systemBefore = NSPasteboard.general.changeCount
-
-            let outcome = await BrowserReplPasteboardRedirect.shared.perform(command, in: webView, pasteboard: tab, timeout: .seconds(10))
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let webView = await load(
+                    """
+                    <div id=ed contenteditable><b>bold</b> <a href="https://example.com/x">link</a> \
+                    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="> text</div>
+                    """
+                )
+                _ = try await webView.evaluateJavaScript(
+                    "const ed = document.getElementById('ed'); ed.focus(); const r = document.createRange(); r.selectNodeContents(ed); getSelection().removeAllRanges(); getSelection().addRange(r); true"
+                )
+                outcome = await BrowserReplPasteboardRedirect.shared.perform(command, in: webView, pasteboard: tab, timeout: .seconds(10))
+            }
             #expect(outcome == .completed)
-            #expect(NSPasteboard.general.changeCount == systemBefore, "WebKit's \(command) wrote the system pasteboard")
+            #expect(standIn.changeCount == standInBefore, "WebKit's \(command) wrote the system pasteboard")
+            #expect(NSPasteboard.general.changeCount == systemBefore, "WebKit's \(command) wrote the real system pasteboard")
             let types = Set(tab.types ?? [])
             #expect(types.contains(.html), "WebKit's \(command) did not write its HTML to the tab's pasteboard")
             #expect(types.contains(.string), "WebKit's \(command) did not write its text to the tab's pasteboard")
@@ -728,6 +749,20 @@ struct BrowserReplPasteboardRedirectTests {
         /// every lookup of the general pasteboard by name, the hook WebKit's
         /// pasteboard code uses. The redirect's own hook stays underneath and
         /// still answers first.
+        /// A private pasteboard holding "the person's clipboard", to stand in
+        /// for the system pasteboard.
+        private static func makeStandIn() -> NSPasteboard {
+            let standIn = NSPasteboard.withUniqueName()
+            standIn.clearContents()
+            standIn.setString("the person's clipboard", forType: .string)
+            return standIn
+        }
+
+        /// Runs `body` with `standIn` for the system pasteboard: every lookup
+        /// that would return the system's (`+pasteboardWithName:` with its
+        /// name, past the redirect's hook, and `+generalPasteboard`) returns
+        /// the stand-in, so a broken redirect never reads or writes the
+        /// person's clipboard.
         private static func withStandInSystemPasteboard(
             _ standIn: NSPasteboard,
             _ body: () async throws -> Void
@@ -742,8 +777,16 @@ struct BrowserReplPasteboardRedirectTests {
                 let found = previous(cls, selector, name)
                 return found === pasteboards.system ? pasteboards.standIn : found
             }
+            let generalSelector = NSSelectorFromString("generalPasteboard")
+            let generalMethod = try #require(class_getClassMethod(NSPasteboard.self, generalSelector))
+            let previousGeneral = method_getImplementation(generalMethod)
+            let generalReplacement: @convention(block) @Sendable (AnyObject) -> NSPasteboard = { _ in pasteboards.standIn }
             method_setImplementation(method, imp_implementationWithBlock(replacement))
-            defer { method_setImplementation(method, previousImplementation) }
+            method_setImplementation(generalMethod, imp_implementationWithBlock(generalReplacement))
+            defer {
+                method_setImplementation(generalMethod, previousGeneral)
+                method_setImplementation(method, previousImplementation)
+            }
             try await body()
         }
 
