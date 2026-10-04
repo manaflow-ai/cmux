@@ -7,8 +7,8 @@ export type AppTier = "first-party" | "verified" | "unverified";
 
 export type AppSource = "default" | "user" | "bundled" | "local";
 
-/** The risk class of a scope (scope-classes.json). */
-export type ScopeRisk = "read" | "mutate-own" | "mutate" | "network" | "integration" | "destructive";
+/** The risk class of a scope (cmux-app-host schema/v2/scope-classes.json). */
+export type ScopeRisk = "standard" | "sensitive" | "restricted";
 
 export interface AppIconRef {
   /** A manifest path served by `cmux.apps.asset.get`; absent means the generic glyph. */

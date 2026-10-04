@@ -4,10 +4,11 @@ import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
+import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { HOME_RATE_LIMITS, HOME_RATE_WINDOW_MS, homeRateDecision, isHomeRateOp, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
@@ -62,6 +63,13 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected override routeFrame(ws: WebSocket, a: Attachment, frame: { readonly t?: string; readonly stream?: unknown; readonly op?: unknown } & Record<string, unknown>): boolean {
+    // A chief token never changes the owner's account (installs, grants, chiefs, inbox, presence): refused here too.
+    if (frame.t === "op" && a.principal.agent !== undefined) {
+      try {
+        ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false }))
+      } catch {}
+      return true
+    }
     // Ops the Worker gates on team policy (agents.allowedClasses, P17-4) never run from the socket.
     if (frame.t === "op" && frame.op === "chief.create") {
       try {
@@ -86,7 +94,44 @@ export class UserDO extends OwnerDO<UserState> {
     this.boundInbox()
     const inbox = this.inbox.nextWakeAt()
     const pending = Object.keys(this.boundEngine?.currentState.ssh_revoke_pending ?? {}).length > 0 ? Math.max(Date.now(), this.sshRetryAt ?? 0) : null
-    return inbox === null ? pending : pending === null ? inbox : Math.min(inbox, pending)
+    const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
+    const times = [inbox, pending, closes].filter((t): t is number => t !== null)
+    return times.length ? Math.min(...times) : null
+  }
+
+  /** A chief token never changes the owner's account (security review P2): every UserDO mutation from one is refused. */
+  override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    if (principal.agent === undefined) return super.submit(entity, principal, frame)
+    const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
+    return {
+      frames: [
+        { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
+        { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }
+      ]
+    }
+  }
+
+  /** Retry time of a socket close that failed (socket-registry.ts); memory only. */
+  private closeRetryAt: number | null = null
+
+  /** Closes a revoked install's sockets on every other owner (instant revocation). */
+  private async flushCloses(now: number): Promise<void> {
+    if (this.closeRetryAt !== null && now < this.closeRetryAt) return
+    const failed = await flushInstallCloses(this.ctx.storage.sql, this.env, now)
+    this.closeRetryAt = failed ? now + CLOSE_RETRY_MS : null
+  }
+
+  /**
+   * RPC from an owner that accepted a socket of one of this user's installs (socket-gate.ts).
+   * False when the install (with this grant) is not active: the owner closes the socket at once,
+   * which closes the race between the Worker's check and a revoke.
+   */
+  async registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean> {
+    if (!this.isBound(entity)) return false
+    const state = this.bind(entity).currentState
+    if (!installActive(state, { identity: install, kind: "install", user: entity, install, ...(grant ? { grant } : {}), ...(agent ? { agent } : {}) })) return false
+    registerSocketOwner(this.ctx.storage.sql, install, agent, cls, name, expiresAt, Date.now())
+    return true
   }
 
   /** Backoff after a failed KRL notice (in memory: a restart retries at once). */
@@ -98,6 +143,7 @@ export class UserDO extends OwnerDO<UserState> {
    * when every team confirmed (S4). TeamDO's side is idempotent, so a retry after a crash is safe.
    */
   protected override async onWake(now: number): Promise<void> {
+    await this.flushCloses(now)
     const engine = this.existing()
     const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
     if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
@@ -133,7 +179,7 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
   async submitInbox(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    const refused = this.inboxRefusal(entity, principal, frame.op)
+    const refused = principal.agent !== undefined ? { code: "auth.forbidden", message: "a chief token cannot change the owner's inbox" } : this.inboxRefusal(entity, principal, frame.op)
     if (refused) return { frames: [{ t: "reject", tx: "", idempotency_key: frame.idempotency_key, code: refused.code, message: refused.message, retryable: false, replayed: false } as OwnerFrame] }
     this.inbox.open(entity)
     const frames: Array<OwnerFrame> = []
@@ -329,19 +375,32 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
-  async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<ReadonlyArray<boolean>> {
+  async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined; agent?: string }>): Promise<ReadonlyArray<boolean>> {
     // One answer per entry, in order (two sockets of one install may hold different grants).
     if (!this.isBound(entity)) return list.map(() => false)
     const state = this.bind(entity).currentState
-    return list.map((x) => installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}) }))
+    return list.map((x) => installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}), ...(x.agent ? { agent: x.agent } : {}) }))
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
-    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
     const result = frames.find((f) => f.t === "result")
+    // An archived chief's token stops at once: its sockets here and on every other owner close.
+    if (op === "chief.archive" && result && result.t === "result") {
+      const agent = (result.value as { id?: string }).id
+      if (!agent) return
+      this.closeSockets((p) => p.agent === agent, "chief archived")
+      if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
+      return
+    }
+    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
     const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
-    if (revoked) this.closeSockets((p) => p.install === revoked, "install revoked")
+    if (!revoked) return
+    this.closeSockets((p) => p.install === revoked, "install revoked")
+    // Every other owner with a socket of this install closes it now; failures retry from the alarm.
+    if (markInstallClosing(this.ctx.storage.sql, revoked, Date.now()) > 0) {
+      this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
+    }
   }
 
   /**
@@ -379,13 +438,14 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
     const inst = state.installs[install]
     const g = state.grants[grant]
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
+    if (agent !== undefined && !chiefActive(state, agent)) return { ok: false }
     // The email from the user's last Stack session, so other owners can check email-domain rules for installs.
     return { ok: true, op_classes: g.op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true }
   }
@@ -405,7 +465,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */
-  async redeem(entity: string, install: string, nonce: string, signature: string): Promise<RedeemResult> {
+  async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
     const sql = this.ctx.storage.sql
@@ -424,7 +484,9 @@ export class UserDO extends OwnerDO<UserState> {
     const now = engine.currentState
     const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
     if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
+    // A chief token only for an unarchived chief of this user.
+    if (agent !== undefined && !chiefActive(now, agent)) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
     const emailDomain = emailDomainOf(now.user.email)
-    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}) }
+    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}) }
   }
 }

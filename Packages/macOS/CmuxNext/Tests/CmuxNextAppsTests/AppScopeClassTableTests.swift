@@ -25,7 +25,7 @@ import Testing
             ("feed:answer", .restricted, false), ("terminal:input", .restricted, false),
             ("fs:write", .restricted, false), ("usage:read", .restricted, false),
             ("mcp:expose", .restricted, false), ("clipboard:write", .restricted, false),
-            ("coderouter:keys", .restricted, false),
+            ("coderouter:keys", .restricted, false), ("terminal:backend", .elevated, false),
             ("process:spawn:sr", .restricted, true), ("op:coderouter.accounts.usage", .sensitive, true),
         ]
         for (scope, scopeClass, serverOnly) in cases {

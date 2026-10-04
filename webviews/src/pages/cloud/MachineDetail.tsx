@@ -1,11 +1,15 @@
 // The selected machine: header (rename, connect, pause or resume, fork, delete), overview (size from
 // the stats with a memory resize from the plan's options, idle policy) and stats, then the sections
-// in DetailSections.tsx. Delete asks the host's native confirmation. Rename is page view state
-// until the user saves it. An op the owner does not serve yet shows "Not available yet".
+// in DetailSections.tsx, PortsSection.tsx, FilesSection.tsx and NetworkSection.tsx. Delete asks the
+// host's native confirmation. Rename is page view state until the user saves it. An op the owner
+// does not serve yet shows "Not available yet".
 import { useState, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import type { MachineDetail } from "./detail";
-import { DomainsSection, NetworkSection, PublicationsSection, SnapshotsSection } from "./DetailSections";
+import { DomainsSection, PublicationsSection, SnapshotsSection } from "./DetailSections";
+import { FilesSection } from "./FilesSection";
+import { NetworkSection } from "./NetworkSection";
+import { PortsSection } from "./PortsSection";
 import {
   canPause,
   canResume,
@@ -29,6 +33,8 @@ export interface DetailProps {
   row: MachineRow;
   detail: MachineDetail;
   plan?: CloudPlan;
+  /** The signed-in team (`cloud.auth.status`); decides the publication form's default access. */
+  team?: string | null;
   /** Ops the owner does not serve yet. */
   unavailable: readonly string[];
   strings: Strings;
@@ -38,7 +44,7 @@ export interface DetailProps {
 // events) do not pull focus back to it.
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 
-export function MachineDetailView({ store, row, detail, plan, unavailable, strings }: DetailProps) {
+export function MachineDetailView({ store, row, detail, plan, team, unavailable, strings }: DetailProps) {
   const { t, language } = strings;
   const machine = row.machine!;
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -238,11 +244,21 @@ export function MachineDetailView({ store, row, detail, plan, unavailable, strin
       <PublicationsSection
         store={store}
         machine={machine.id}
+        team={team}
         detail={detail}
         unavailable={unavailable}
         strings={strings}
       />
       <DomainsSection store={store} detail={detail} unavailable={unavailable} strings={strings} />
+      <PortsSection
+        store={store}
+        machine={machine.id}
+        title={row.title}
+        detail={detail}
+        unavailable={unavailable}
+        strings={strings}
+      />
+      <FilesSection store={store} detail={detail} unavailable={unavailable} strings={strings} />
       <NetworkSection store={store} machine={machine.id} detail={detail} unavailable={unavailable} strings={strings} />
     </section>
   );

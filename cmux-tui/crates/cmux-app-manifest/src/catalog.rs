@@ -33,6 +33,18 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
     }
     let owner = format!("app:{}", manifest["id"].as_str().unwrap_or_default());
     let family = catalog["family"].as_str().unwrap_or_default();
+    let id = manifest["id"].as_str().unwrap_or_default();
+    let publisher = id.split('/').next().unwrap_or_default();
+    if !crate::rules::is_first_party(publisher) && family != crate::app_namespace(id) {
+        out.push(Issue::error(
+            "/catalog/family",
+            "catalog.namespace",
+            format!(
+                "a third-party catalog uses its app namespace {}; bare families are first-party",
+                crate::app_namespace(id)
+            ),
+        ));
+    }
     let has_main = manifest.pointer("/runtime/main").is_some();
     crate::toolbar::check_ops(manifest, catalog, &mut out);
     if catalog.get("owner").and_then(Value::as_str).is_some_and(|o| o != owner) {

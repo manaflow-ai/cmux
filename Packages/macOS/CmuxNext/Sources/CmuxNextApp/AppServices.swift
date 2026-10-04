@@ -90,7 +90,8 @@ final class AppServices {
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
-    private(set) lazy var serverMenuBar = ServerMenuBarController()
+    private(set) lazy var serverMenuBar =
+        ServerMenuBarController(makeSource: { [unowned self] in CloudPairingSource.app(feed: feed, auth: cloud.auth) })
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
@@ -237,7 +238,7 @@ final class AppServices {
         cache.pageRequests.services = self
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
-        keyRouter.whichKey = WhichKeyController(registry: registry)
+        keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in

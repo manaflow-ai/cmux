@@ -14,6 +14,9 @@ pub struct FakeControlPlane {
     pub signed_in: bool,
     /// The next N calls fail as if the host or network did not answer.
     pub fail_next: usize,
+    /// The next N calls reach the Cloud API (the route answers and any
+    /// change happens), but the answer is lost on the way back.
+    pub lose_next: usize,
     /// Like the Cloud API (`beginCreate`): a POST with a known key replays
     /// the first answer and creates nothing.
     by_key: HashMap<String, (u16, Value)>,
@@ -29,6 +32,7 @@ impl FakeControlPlane {
             calls: Vec::new(),
             signed_in: true,
             fail_next: 0,
+            lose_next: 0,
             by_key: HashMap::new(),
             provider_posts: 0,
         };
@@ -94,6 +98,10 @@ impl ControlPlane for FakeControlPlane {
             if let Some(key) = &call.idempotency_key {
                 self.by_key.insert(key.clone(), (status, body.clone()));
             }
+        }
+        if self.lose_next > 0 {
+            self.lose_next -= 1;
+            return Err(RelayError::Unavailable("the answer was lost".into()));
         }
         Ok(HttpReply { status, body, error_code: None })
     }

@@ -16,6 +16,36 @@ pub enum OpKind {
     Stream,
 }
 
+/// What an op does to the world (decision 27): the app catalog's `risk`
+/// enum (cmux-app-host/schema/v2/cmux-app-catalog.schema.json).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Risk {
+    Read,
+    MutateOwn,
+    MutateShared,
+    Execute,
+    SendExternal,
+    Destructive,
+}
+
+/// The wire names of [`Risk`].
+pub const RISKS: &[&str] =
+    &["read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"];
+
+impl Risk {
+    /// The default for an op that declares none: `read` for a read op. A
+    /// mutation must declare its risk; using this for one fails the build.
+    pub const fn default_for(kind: OpKind) -> Self {
+        match kind {
+            OpKind::Read => Self::Read,
+            OpKind::Mutation | OpKind::Stream => {
+                panic!("a mutation or stream op must declare `risk`")
+            }
+        }
+    }
+}
+
 /// Whether agents see an op as an MCP tool (decision 21).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -62,6 +92,10 @@ pub trait Op: 'static {
     /// Params that name a filesystem path. The provider canonicalizes each
     /// and refuses it unless it is inside one of the token's roots.
     const PATH_PARAMS: &'static [&'static str] = &[];
+    /// The op's risk (decision 27).
+    const RISK: Risk;
+    /// Whether a call needs a user gesture token.
+    const GESTURE: bool = false;
     /// MCP exposure; fail closed.
     const MCP: McpSpec = McpSpec::NEVER;
     /// The CLI verb, if any (zero or one entry).
@@ -96,6 +130,8 @@ macro_rules! pane_op {
         params: $params:ty, result: $result:ty,
         errors: [$($error:literal),* $(,)?]
         $(, aliases: [$($alias:literal),* $(,)?])?
+        $(, risk: $risk:ident)?
+        $(, gesture: $gesture:literal)?
         $(, paths: [$($path:literal),* $(,)?])?
         $(, mcp: $expose:ident $(in $group:literal)?)?
         $(, cli: $cli:literal $(positional [$($positional:literal),* $(,)?])? $(visible $visible:literal)?)? $(,)?
@@ -110,6 +146,8 @@ macro_rules! pane_op {
             const ERRORS: &'static [&'static str] = &[$($error),*];
             const ALIASES: &'static [&'static str] = &[$($($alias),*)?];
             const PATH_PARAMS: &'static [&'static str] = &[$($($path),*)?];
+            const RISK: $crate::op::Risk = $crate::__pane_risk!($kind $(, $risk)?);
+            $(const GESTURE: bool = $gesture;)?
             $(const MCP: $crate::op::McpSpec = $crate::op::McpSpec {
                 expose: $crate::op::McpExpose::$expose,
                 group: &[$($group)?],
@@ -123,6 +161,18 @@ macro_rules! pane_op {
             type Params = $params;
             type Result = $result;
         }
+    };
+}
+
+/// The declared risk, or the default for the op's kind.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __pane_risk {
+    ($kind:ident) => {
+        $crate::op::Risk::default_for($crate::op::OpKind::$kind)
+    };
+    ($kind:ident, $risk:ident) => {
+        $crate::op::Risk::$risk
     };
 }
 
@@ -149,9 +199,11 @@ mod tests {
 
     crate::pane_op! {
         HiddenOp {
-            name: "cmux.test.hidden.run", kind: Mutation, scope: "test:run",
+            name: "cmux.test.hidden.run", kind: Mutation, scope: "test:write",
             params: crate::example::HelloParams, result: crate::example::HelloResult,
             errors: [],
+            risk: MutateOwn,
+            gesture: true,
             mcp: OptIn,
             cli: "hidden run" positional ["name"] visible false,
         }
@@ -162,6 +214,11 @@ mod tests {
         assert!(!HiddenOp::CLI[0].visible);
         assert_eq!(HiddenOp::CLI[0].positional, ["name"]);
         assert_eq!(HiddenOp::MCP.expose, McpExpose::OptIn);
+        assert_eq!((HiddenOp::RISK, HiddenOp::GESTURE), (Risk::MutateOwn, true));
+        assert_eq!(
+            (crate::git::GitStatusOp::RISK, crate::git::GitStatusOp::GESTURE),
+            (Risk::Read, false)
+        );
         assert!(crate::git::GitStatusOp::CLI[0].visible);
         assert_eq!(crate::git::GitStatusOp::PATH_PARAMS, ["cwd"]);
     }

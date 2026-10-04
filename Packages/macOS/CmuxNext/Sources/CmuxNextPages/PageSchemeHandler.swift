@@ -10,8 +10,8 @@ import WebKit
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
 final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let contentSecurityPolicy =
-        "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
+    /// The strict policy every page starts with (``PageCSP/strict``).
+    static var contentSecurityPolicy: String { PageCSP.strict.header }
 
     private let page: PageDescriptor
     private let root: URL
@@ -49,7 +49,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             let type = Self.mimeType(forExtension: file.pathExtension)
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
                 "Content-Type": type, "Content-Length": String(data.count), "Cache-Control": "no-store",
-                "Content-Security-Policy": Self.contentSecurityPolicy,
+                "Content-Security-Policy": self.page.csp.header,
             ])
             task.didReceive(response ?? URLResponse(url: url, mimeType: type, expectedContentLength: data.count, textEncodingName: nil))
             task.didReceive(data)

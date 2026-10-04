@@ -45,7 +45,15 @@ export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.gra
 export const installActive = (state: UserState, p: Principal) => {
   if (p.kind === "session") return true
   const inst = p.install ? state.installs[p.install] : undefined
-  return Boolean(inst && inst.revoked_at === null && inst.grant === p.grant)
+  if (!inst || inst.revoked_at !== null || inst.grant !== p.grant) return false
+  // A chief token (principal.agent): the chief must be this user's and not archived (instant chief revocation).
+  return p.agent === undefined || chiefActive(state, p.agent)
+}
+
+/** True for an unarchived chief of this user. */
+export const chiefActive = (state: UserState, agent: string): boolean => {
+  const c = (state as { chiefs?: Readonly<Record<string, { owner_user: string; archived_at: string | null }>> }).chiefs?.[agent]
+  return c !== undefined && c.archived_at === null && state.user !== null && state.user !== undefined && c.owner_user === state.user.id
 }
 
 /**
