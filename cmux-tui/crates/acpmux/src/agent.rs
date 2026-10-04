@@ -68,6 +68,9 @@ pub struct ClaudeState {
 /// The answer to one request, as `ChildAgent::request` returns it.
 pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 
+/// How long the reader waits for the Exit entry's ack to be written.
+const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The agent runs under an `__agent-host` process (durable sessions).
 struct Hosted {
     /// The current owner connection; replaced by `reattach`.
@@ -760,6 +763,7 @@ impl ChildAgent {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
+                let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
                 if !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
@@ -768,6 +772,17 @@ impl ChildAgent {
                     return;
                 }
                 hosted.logged.send_replace(h);
+                if is_exit {
+                    // Written before anyone hears of the exit: a daemon that
+                    // ends the agent and exits at once still acks the Exit.
+                    let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
+                    hosted.exited.store(true, Ordering::SeqCst);
+                    hosted.exit.notify_waiters();
+                    if acked.is_err() {
+                        break;
+                    }
+                    continue;
+                }
                 if link.ack(h).await.is_err() {
                     break;
                 }
@@ -850,10 +865,9 @@ impl ChildAgent {
                     let _ = tx.send(Err(RpcError::internal("agent process closed")));
                 }
                 drop(p);
-                if let Some(hosted) = &self.hosted {
-                    hosted.exited.store(true, Ordering::SeqCst);
-                    hosted.exit.notify_waiters();
-                }
+                // `exited` and the exit notify follow the Exit entry's ack
+                // (`start_reader`), so a terminate that waits on them never
+                // returns before the host knows its Exit is logged.
                 let _ =
                     inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
                 true
