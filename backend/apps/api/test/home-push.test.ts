@@ -324,4 +324,29 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
     expect(sent).toHaveLength(62)
     expect(JSON.parse(sent[61]!.message.body).cmux.home_conversation).toBe(convs[60])
   })
+
+  it("a throwing Home push drain does not skip the socket-close flush or the KRL notices, and the next wake is still scheduled", async () => {
+    const { user, stub } = await pushUser("home-push-wake-isolation")
+    // A queued push (delivered, not drained) keeps the object's next wake due.
+    expect((await stub.systemDeliver(user, "conv:test", [bump(user, convId())])).done).toHaveLength(1)
+    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void> }
+    const ran: Array<string> = []
+    let alarm: number | null = 0
+    await runInDurableObject(stub, async (instance: unknown, state: DurableObjectState) => {
+      const o = instance as WakeSteps
+      const flush = o.flushCloses.bind(o)
+      const krl = o.deliverKrlNotices.bind(o)
+      o.flushCloses = async (now) => (ran.push("flushCloses"), flush(now))
+      o.deliverKrlNotices = async (now) => (ran.push("deliverKrlNotices"), krl(now))
+      o.drainHomePush = async () => {
+        ran.push("drainHomePush")
+        throw new Error("drain failed")
+      }
+      await state.storage.deleteAlarm()
+      await o.alarm()
+      alarm = await state.storage.getAlarm()
+    })
+    expect(ran).toEqual(["flushCloses", "drainHomePush", "deliverKrlNotices"])
+    expect(alarm).not.toBeNull()
+  })
 })
