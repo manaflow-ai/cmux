@@ -1901,6 +1901,7 @@ enum CmuxEmbeddedConfigSchema {
         "showLinkHoverURL": {
           "type": "boolean",
           "default": true,
+          "descriptionKey": "schemaDescriptions.browser.showLinkHoverURL",
           "description": "Show a link's destination at the bottom-left of a browser pane while the pointer is over the link."
         },
         "openTerminalLinksInCmuxBrowser": {
