@@ -134,6 +134,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
     public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
+    /// `picker.pinned`: the cmux picker's pinned folders (absolute paths).
+    public var pickerPinned: [String] = []
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -249,6 +251,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
+        let (pinned, pinnedDiagnostics) = PickerPinnedSetting.parse(root, home: NSHomeDirectory())
+        snapshot.pickerPinned = pinned
+        snapshot.diagnostics += pinnedDiagnostics
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }

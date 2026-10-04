@@ -289,21 +289,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
             ),
             ActionDescriptor(
-                id: "openDiffViewer",
-                title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"],
-                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
-                defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
-                symbol: "plusminus", surfaces: [.palette, .keyboard], targets: [.pane],
-                cliName: "browser open-diff-viewer"
-            ),
-            ActionDescriptor(
-                id: "palette.openDirectoryDiffViewer",
-                title: String(localized: "action.palette.openDirectoryDiffViewer", defaultValue: "Open Directory Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"], category: .browser, symbol: "plus.forwardslash.minus",
-                surfaces: [.palette], targets: [.pane], cliName: "browser open-directory-diff-viewer"
-            ),
-            ActionDescriptor(
                 id: "diffViewerNextLine",
                 title: String(localized: "action.diffViewerNextLine", defaultValue: "Diff: Next Line", bundle: .module),
                 keywords: ["diff", "vim"], defaultShortcut: Shortcut("j", modifiers: []), category: .browser,

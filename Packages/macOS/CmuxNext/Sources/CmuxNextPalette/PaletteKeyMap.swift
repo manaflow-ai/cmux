@@ -6,7 +6,13 @@ import Foundation
 /// registry's (user-editable) Palette Next/Previous shortcuts.
 public struct PaletteKeyMap {
     public init() {}
-    public static func command(for event: NSEvent, actionsMenuOpen: Bool, queryIsEmpty: Bool, registry: ActionRegistry) -> PaletteKeyCommand? {
+    /// `hierarchical`: the page walks a tree (`PaletteHierarchy`), so Left
+    /// and Right move through it where they would not move the caret:
+    /// Right from the end of the query enters the selected row, Left from
+    /// its start goes up.
+    public static func command(for event: NSEvent, actionsMenuOpen: Bool, queryIsEmpty: Bool, registry: ActionRegistry,
+                               hierarchical: Bool = false, caretAtEnd: Bool = true, caretAtStart: Bool? = nil) -> PaletteKeyCommand? {
+        let caretAtStart = caretAtStart ?? queryIsEmpty
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let pressed = Shortcut(key, modifiers: flags)
@@ -14,15 +20,21 @@ public struct PaletteKeyMap {
         if let previous = registry.effectiveShortcut(for: "commandPalettePrevious"), previous == pressed { return .moveUp }
 
         switch event.keyCode {
+        // Cmd-Up: a tree page's parent, else the first row.
+        case 126 where hierarchical && !actionsMenuOpen && flags == .command: return .leaveLevel
         case 126: return flags.contains(.command) ? .moveToFirst : .moveUp
         case 125: return flags.contains(.command) ? .moveToLast : .moveDown
         case 116: return .pageUp
         case 121: return .pageDown
-        case 115: return actionsMenuOpen ? .moveToFirst : nil
-        case 119: return actionsMenuOpen ? .moveToLast : nil
+        // Home and End: the Actions menu's ends, or a tree page's with an
+        // empty query (otherwise they move the caret).
+        case 115: return actionsMenuOpen || (hierarchical && queryIsEmpty) ? .moveToFirst : nil
+        case 119: return actionsMenuOpen || (hierarchical && queryIsEmpty) ? .moveToLast : nil
         case 36, 76: return flags.contains(.command) ? .submitAlternate : .submit
         case 48: return flags.contains(.shift) ? .closeActions : .openActions
         case 53: return .escape
+        case 124 where hierarchical && !actionsMenuOpen && flags.isEmpty && caretAtEnd: return .enterRow
+        case 123 where hierarchical && !actionsMenuOpen && flags.isEmpty && caretAtStart: return .leaveLevel
         case 51:
             if actionsMenuOpen { return .actionsFilterDeleteBackward }
             return queryIsEmpty ? .back : nil

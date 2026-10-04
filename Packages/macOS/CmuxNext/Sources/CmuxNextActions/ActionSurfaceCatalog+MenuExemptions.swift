@@ -14,8 +14,6 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.openInWebKit",
         ],
         .unimplemented: [
-            "palette.openDirectoryDiffViewer",
-            "openDiffViewer",
             "palette.browserToggleOmnibar",
             "toggleReactGrab",
             "palette.openCloudPane",

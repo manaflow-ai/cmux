@@ -25,6 +25,8 @@ final class PaletteContentView: NSView {
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
     private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
     private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
+    /// The page's line under the field (`PaletteModel.fieldHint`).
+    private let fieldHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
     private let actionsMenuView = PaletteActionsMenuView()
     private let recorderView = PaletteShortcutRecorderView()
@@ -54,7 +56,8 @@ final class PaletteContentView: NSView {
         emptyTitle.alignment = .center
         emptyHint.alignment = .center
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
-        [searchBar, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
+        fieldHint.isHidden = true
+        [searchBar, fieldHint, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
@@ -87,7 +90,7 @@ final class PaletteContentView: NSView {
         }
         let length = searchBar.field.stringValue.utf16.count
         searchBar.field.currentEditor()?.selectedRange = model.selectsQuery
-            ? NSRange(location: 0, length: length) : NSRange(location: length, length: 0)
+            ? NSRange(location: 0, length: min(model.selectedQueryLength ?? length, length)) : NSRange(location: length, length: 0)
     }
 
     private func wire() {
@@ -99,6 +102,7 @@ final class PaletteContentView: NSView {
         list.onActivate = { model.activate(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }
+        footer.onCrumb = { model.openCrumb(at: $0) }
         footer.onClose = { model.handle(.closeItem) }
         actionsMenuView.onRun = { model.runActionsMenuCommand(at: $0) }
     }
@@ -154,8 +158,14 @@ final class PaletteContentView: NSView {
             pageSymbol: model.pageSymbol,
             primaryTitle: model.primaryTitle,
             actionsEnabled: model.selectedItem?.isEnabled == true,
-            closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil }
+            closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil },
+            crumbs: model.pageCrumbs
         )
+        if fieldHint.stringValue != model.fieldHint ?? "" || fieldHint.isHidden != (model.fieldHint == nil) {
+            fieldHint.stringValue = model.fieldHint ?? ""
+            fieldHint.isHidden = model.fieldHint == nil
+            needsLayout = true
+        }
         if pageToken != appliedPage {
             appliedPage = pageToken
             focusField()
@@ -208,9 +218,14 @@ final class PaletteContentView: NSView {
         var y: CGFloat = 0
         searchBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.searchHeight)
         y += PaletteLayout.searchHeight
+        // The hint takes its line from the top of the list.
+        let fieldHintHeight = fieldHint.isHidden ? 0 : fieldHint.intrinsicContentSize.height + Metrics.space2
+        fieldHint.frame = NSRect(x: PaletteLayout.horizontalPadding, y: y,
+                                 width: width - 2 * PaletteLayout.horizontalPadding, height: fieldHintHeight)
+        y += fieldHintHeight
         topRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
-        let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight)
+        let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight - fieldHintHeight)
         listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = emptyTitle.intrinsicContentSize.height
@@ -218,7 +233,7 @@ final class PaletteContentView: NSView {
         let emptyTop = listFrame.midY - (titleHeight + Metrics.space2 + hintHeight) / 2
         emptyTitle.frame = NSRect(x: 0, y: emptyTop, width: width, height: titleHeight)
         emptyHint.frame = NSRect(x: 0, y: emptyTop + titleHeight + Metrics.space2, width: width, height: hintHeight)
-        y += PaletteLayout.listHeight
+        y += PaletteLayout.listHeight - fieldHintHeight
         bottomRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
         footer.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.footerHeight)

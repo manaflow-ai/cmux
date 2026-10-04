@@ -45,6 +45,12 @@ public struct PaletteItem: Identifiable {
     /// The row's typed commands, primary first (`palette.run`). Empty for a
     /// row that only the palette UI can run.
     public var actionRefs: [PaletteActionRef] = []
+    /// The row matches only a query that starts with this text, and never
+    /// shows for an empty query (the picker's hidden files: `.`).
+    public var queryPrefix: String?
+    /// The row shows for an empty query only, never as a match (the
+    /// picker's Locations).
+    public var hidesWhenTyping = false
 
     public init(
         id: String,
