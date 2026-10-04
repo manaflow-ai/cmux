@@ -77,14 +77,16 @@ public import WebKit
 ///   pasteboard too) is never taken as the tab's: WebKit's own Copy or Cut
 ///   writes the pasteboard at most once and a Paste never does (each write
 ///   is one change count), so a command whose pasteboard was written more
-///   often is `interfered`, and the caller discards the pasteboard.
+///   often is `interfered`, and the caller discards the pasteboard. A Copy
+///   or Cut's one write must also be shown to be the page's own
+///   (``BrowserReplCopyProbe``: WebKit's default action wrote the selection,
+///   or the page cancelled the event and the write carries the probe's
+///   marker); one that cannot is `interfered` too.
 ///
 /// Residual risk: while a command is in flight (milliseconds, at most its
 /// timeout), a copy made in another web view of this process lands on the
-/// tab's pasteboard (and does not reach the system clipboard); it reaches the
-/// tab's clipboard only when it is the one write of a Copy or Cut whose page
-/// wrote nothing itself (a `copy` handler that cancels the event and sets no
-/// data). A web content process the app granted read access on its own turn
+/// tab's pasteboard (and does not reach the system clipboard); the command
+/// then fails. A web content process the app granted read access on its own turn
 /// without a `+generalPasteboard` read first would read the tab's pasteboard;
 /// WebKit 26 has no such grant. A paste in another web view that starts
 /// during the command reads nothing. The same holds after a
@@ -128,7 +130,9 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         /// WebKit reported the command done within the timeout, but another
         /// web view used the pasteboard during the command: the tab's
         /// pasteboard was written more often than the command writes it
-        /// (WebKit's Copy or Cut writes it at most once, a Paste never), or
+        /// (WebKit's Copy or Cut writes it at most once, a Paste never), its
+        /// one write cannot be shown to be the page's own
+        /// (``BrowserReplCopyProbe``), or
         /// another web view's paste or clipboard read diverted the command
         /// (the page may have pasted nothing). What the pasteboard holds is
         /// not the tab's, and the caller must not take it.
@@ -233,8 +237,12 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
             whenWebKitFinishes()
             return .unavailable
         }
+        // A Copy or Cut may write nothing itself; the probe tells whether
+        // the write it saw is the page's own (BrowserReplCopyProbe).
+        let probe = command == "Paste" ? nil : await BrowserReplCopyProbe.arm(in: webView)
+        let startCount = pasteboard.changeCount
         var askedToEnd = 0
-        return await run(
+        let outcome = await run(
             on: pasteboard,
             tab: tab,
             timeout: timeout,
@@ -255,6 +263,9 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
             let completion: Completion = { _ in MainActor.assumeIsolated { done() } }
             function(webView, Self.editCommandSelector, command as NSString, "" as NSString, completion)
         }
+        guard outcome == .completed, let probe else { return outcome }
+        // The redirect has ended, so the count no longer moves.
+        return await probe.accepts(writes: pasteboard.changeCount - startCount, on: pasteboard) ? .completed : .interfered
     }
 
     /// Ends `webView`'s web content process at once (WebKit's
