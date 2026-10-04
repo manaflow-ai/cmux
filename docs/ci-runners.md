@@ -35,7 +35,7 @@ Roll out the change in this order:
 4. For a red-`main` fix, use the `--main-fix` evidence path after the gate is
    live: it records the exact-head merge-gate result and validates the required
    Release, Debug, Swift, and matching main-failure evidence before merging.
-   This is the controlled path for fixes such as #17221; it is not a bypass.
+   This is the controlled path for future red-main fixes; it is not a bypass.
 
 The merge-gate evaluator checks GitHub metadata from trusted `main` code and
 never checks out or executes pull-request code. Keep the rollout order above in
