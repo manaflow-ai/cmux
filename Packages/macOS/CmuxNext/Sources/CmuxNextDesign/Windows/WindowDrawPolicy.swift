@@ -44,7 +44,7 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
         guard inWindow else { return .notInWindow }
         if hidden { return .hidden }
         if suspended { return .suspended }
-        if !windowVisible { return .windowOccluded }
+        if !windowVisible, !drawWhenOccluded { return .windowOccluded }
         return nil
     }
 
@@ -90,7 +90,7 @@ public enum WindowDrawPolicy {
     /// Whether content in `window` may draw now (false without a window).
     public static func isDrawable(_ window: NSWindow?) -> Bool {
         guard let window else { return false }
-        return isOnScreen(window)
+        return isOnScreen(window) || drawsWhenOccluded
     }
 
     /// The drawing inputs of `view` now.

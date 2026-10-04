@@ -39,9 +39,11 @@ struct PaneSurfaceStatus {
     }
 
     /// A visible pane with a selected tab whose content is missing, detached,
-    /// paused or has no grid.
+    /// paused or has no grid. A pane whose window may not draw (occluded,
+    /// ``WindowDrawPolicy``) shows nothing by design and is never blank; the
+    /// invariant checks it again when the window is visible.
     var isBlank: Bool {
-        guard isVisible, selectedTab != nil, !isCollapsed else { return false }
+        guard isVisible, windowDrawable, selectedTab != nil, !isCollapsed else { return false }
         guard selectedTab == shownTab, contentInstalled, contentInWindow else { return true }
         if let terminal { return !terminal.isPresentable }
         if let page, !page.isVisible { return true }
