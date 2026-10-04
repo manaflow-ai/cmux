@@ -15,7 +15,7 @@ final class AppPageNativeProvider: PageProvider {
     private let page: PageDescriptor
     /// Runs a confirmed namespace op on the provider that owns its namespace.
     var forward: (@MainActor (_ op: String, _ params: CmuxNextSettings.JSONValue, _ context: PageCallContext) async throws -> CmuxNextSettings.JSONValue)?
-    var presenter: any PageConfirmationPresenter = AlertPageConfirmationPresenter()
+    var presenter: any PageConfirmationPresenter = DialogPageConfirmationPresenter()
     /// The page view the sheet attaches to.
     var anchor: () -> NSView? = { nil }
 

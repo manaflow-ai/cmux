@@ -14,7 +14,7 @@ struct QuitAlertContent: Equatable {
     var title: String
     /// One short sentence per line.
     var lines: [String]
-    /// NSAlert order: the first is the default (Return).
+    /// The first is the default (Return); `QuitAlert` draws Cancel first.
     var buttons: [Button]
     var showsSuppression: Bool
 

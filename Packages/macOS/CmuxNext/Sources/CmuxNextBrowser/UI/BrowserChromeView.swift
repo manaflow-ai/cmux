@@ -59,6 +59,7 @@ public final class BrowserChromeView: NSView {
     private var reportedHeader: CGFloat = -1
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
+    private let promptDialogs = BrowserPromptDialogs()
     private let pageStatus = PageStatusViews()
     var toolbarHeight: NSLayoutConstraint!
     private var observation: ObservationLoop?
@@ -305,6 +306,9 @@ public final class BrowserChromeView: NSView {
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 
+    /// Permission prompts in the bar; JavaScript dialogs as cmux dialogs on this tab.
+    func renderPrompt() { promptDialogs.render(tab.pendingPrompts.first, in: contentContainer, bar: promptBar) }
+
     private func render() {
         let state = tab.state
         backButton.isEnabled = state.canGoBack
@@ -322,12 +326,7 @@ public final class BrowserChromeView: NSView {
 
         pageStatus.render(state)
 
-        if let prompt = tab.pendingPrompts.first {
-            promptBar.show(prompt)
-            promptBar.isHidden = false
-        } else {
-            promptBar.isHidden = true
-        }
+        renderPrompt()
 
         setToolbarHidden(state.isContentFullscreen)
         updateOcclusion()

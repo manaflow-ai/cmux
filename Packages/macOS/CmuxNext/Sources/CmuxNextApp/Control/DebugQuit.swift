@@ -50,13 +50,11 @@ enum DebugQuit {
             "chief_keeps_running": .bool(prompt.chiefKeepsRunning),
         ])
         result["lines"] = .array(sheet.lines.map { .string($0) })
-        result["buttons"] = .array(sheet.buttons.map { entry in
-            .object(["id": .string(entry.id), "title": .string(entry.button.title),
-                     "key_equivalent": .string(entry.button.keyEquivalent == "\r" ? "return"
-                         : entry.button.keyEquivalent == "\u{1b}" ? "escape" : entry.button.keyEquivalent)])
+        result["buttons"] = .array(sheet.buttons.map { button in
+            .object(["id": .string(button.id), "title": .string(button.title), "role": .string(button.role.rawValue)])
         })
         result["remember"] = .bool(sheet.remembers)
-        result["attached"] = .bool(sheet.isAttachedSheet)
+        result["attached"] = .bool(sheet.isAttached)
         return result
     }
 }
