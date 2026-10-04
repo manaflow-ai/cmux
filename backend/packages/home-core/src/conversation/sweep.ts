@@ -7,7 +7,7 @@ import { formatRfc3339Millis, parseRfc3339Millis } from "./ids.ts"
 import { closeExpired } from "./invite-ops.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
 import type { Draft } from "./request.ts"
-import { inviteWrites, msgKey, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD } from "./tables.ts"
+import { inviteWrites, msgKey, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type Message } from "./types.ts"
 
 /**
@@ -21,7 +21,8 @@ import { SYSTEM_ACTOR, type ConversationHead, type Message } from "./types.ts"
  *   (home-scale.md B7), not one delete per message. When the newest message goes, every current
  *   human gets an inbox bump with an empty preview, so no expired text stays in an inbox.
  *   Deleted messages a human had not read leave that human's stored counts (TABLE_UNREAD), the
- *   same as a retract, and that human gets a bump carrying the lower counts.
+ *   same as a retract, and that human gets a bump carrying the lower counts (never below what
+ *   the remaining messages hold, see countsAfter). Stored counts of humans who left are dropped.
  * - Invites: open invites past `expires_at` become `expired` and their addresses are released,
  *   the same rule every invite op applies lazily (invite-ops.ts closeExpired).
  *
@@ -80,6 +81,7 @@ export const reduceSweep = (head: ConversationHead, ctx: ReduceContext, actor: s
   const lastAt = newest?.created_at ?? head.created_at
   const counts = countsAfter(next, rows, deleted)
   for (const [user, row] of counts) writes.push({ table: TABLE_UNREAD, op: "upsert", key: user, n: null, row })
+  writes.push(...leftRows(next as ConversationHead, rows))
   const fan: FanOut = { bumps: sweepBumps(next, remaining, lastAt, newest !== null && !remaining, counts), wakes: [], search: [], deliveries: [] }
   const commit = { head: next as ConversationHead, change: { kind: "conversation" as const, conversation: summary(next, remaining) } }
   const outbox: Array<OutboxItem> = [...fanOutItems(fan, undefined, next.kind), ...projectionItems(head, commit, fan, now, lastAt)]
@@ -104,9 +106,16 @@ export const reduceSweep = (head: ConversationHead, ctx: ReduceContext, actor: s
  * Stored counts of each current human after `deleted` go, for the humans whose counts drop (a
  * deleted unseen message counts down like a retract). A human with no stored row is skipped: the
  * next commit recounts from the message rows, which no longer hold the deleted messages.
+ *
+ * A stored row may be a lower bound: a recount reads at most UNREAD_RECOUNT_LIMIT messages. So the
+ * lowered count is never below what the remaining messages hold, counted by one scan of at most
+ * that many rows after the deleted prefix. An exact row stays exact (the subtraction is the larger
+ * value), and a capped row becomes exact when the remaining messages fit in the scan.
  */
 const countsAfter = (head: ConversationHead, rows: RowReader, deleted: ReadonlyArray<Message>): Map<string, UnreadCounts> => {
   const counts = new Map<string, UnreadCounts>()
+  const through = deleted.at(-1)?.seq ?? 0
+  let remaining: ReadonlyArray<Message> | undefined
   for (const participant of head.participants) {
     if (participant.kind !== "human" || participant.left_at !== undefined) continue
     const prior = rows.get<UnreadCounts>(TABLE_UNREAD, participant.id)?.row
@@ -115,10 +124,26 @@ const countsAfter = (head: ConversationHead, rows: RowReader, deleted: ReadonlyA
     const unseen = deleted.filter((m) => m.author !== participant.id && m.seq > cursor && m.retracted_at === undefined)
     if (unseen.length === 0) continue
     const mentioned = unseen.filter((m) => mentionsOf(m).has(participant.id)).length
-    counts.set(participant.id, { unread: Math.max(0, prior.unread - unseen.length), mentions: Math.max(0, prior.mentions - mentioned) })
+    // Every row at or below `through` is deleted, and this human's cursor is below `through`: all remaining rows are after it.
+    remaining ??= rows.range<Message>(TABLE_MSG, { after: through, limit: UNREAD_RECOUNT_LIMIT }).map((r) => r.row)
+    const left = remaining.filter((m) => m.author !== participant.id && m.seq > cursor && m.retracted_at === undefined)
+    counts.set(participant.id, {
+      unread: Math.max(prior.unread - unseen.length, left.length),
+      mentions: Math.max(prior.mentions - mentioned, left.filter((m) => mentionsOf(m).has(participant.id)).length)
+    })
   }
   return counts
 }
+
+/**
+ * Stored rows of humans who left: bumps no longer reach them, so the row would only go stale (it
+ * already misses every message since the leave). Dropping it makes a rejoin recount from the
+ * remaining messages, the same as a conversation older than the table.
+ */
+const leftRows = (head: ConversationHead, rows: RowReader): Array<RowWrite> =>
+  head.participants
+    .filter((participant) => participant.kind === "human" && participant.left_at !== undefined && rows.get(TABLE_UNREAD, participant.id) !== undefined)
+    .map((participant) => ({ table: TABLE_UNREAD, op: "delete" as const, key: participant.id }))
 
 /**
  * Inbox bumps for a sweep: every current human when the newest message expired (the preview

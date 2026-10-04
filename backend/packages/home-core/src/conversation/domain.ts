@@ -13,7 +13,7 @@ import type { OpRequest } from "./request.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type ConversationKind, type Invite, type Message, type Op, type Participant } from "./types.ts"
 import { currentParticipant, safeDisplayName } from "./validate.ts"
 import { reduceSweep, SWEEP_OP } from "./sweep.ts"
-import { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD } from "./tables.ts"
+import { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export { actorOf } from "./policy.ts"
 
@@ -37,9 +37,7 @@ export { actorOf } from "./policy.ts"
  * which the Domain hashes. A token hash seen in an event or row is useless,
  * and a proof appears only in the accept event, after its single use.
  */
-export { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD } from "./tables.ts"
-/** A recount (a cursor moved back, or a conversation older than the table) reads at most this many messages. */
-export const UNREAD_RECOUNT_LIMIT = 1000
+export { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 
 export type ConversationState = ConversationHead | null
 export type ConversationParams = Readonly<Record<string, unknown>>
