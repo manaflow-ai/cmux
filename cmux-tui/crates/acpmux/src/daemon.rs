@@ -144,9 +144,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
             .unwrap_or_default();
         let token_rotated = config.websocket.as_ref().map_or(0, |w| w.token_rotated);
+        // A later save (policy, peers, presets) writes the saved token, never
+        // a `--token` value for this run.
+        let saved_token = config.websocket.as_ref().and_then(|w| w.token.clone());
+        if token != &saved_token {
+            config.web_token_override = token.clone();
+        }
         config.websocket = Some(crate::config::WebSocketConfig {
             listen: addr.clone(),
-            token: token.clone(),
+            token: saved_token.or_else(|| token.clone()),
             allowed_origins,
             allowed_hosts,
             token_rotated,
@@ -177,7 +183,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "pid": std::process::id(),
         "socket": socket_path(),
         "listen": bound,
-        "webUrl": hub.config.read().await.web_listener().map(crate::hub::web_url),
+        "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
@@ -271,15 +277,26 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
     if w.token_rotated >= TOKEN_ROTATION || w.token.as_deref().is_none_or(|t| t.trim().is_empty()) {
         return false;
     }
-    w.token = Some(random_token());
+    let old = w.token.replace(random_token());
     w.token_rotated = TOKEN_ROTATION;
     match config.save() {
-        Ok(()) => tracing::info!(
-            "the saved WebSocket token was rotated once; run `acpmux web` for the new link"
-        ),
-        Err(e) => tracing::warn!("could not save the rotated WebSocket token: {e}"),
+        Ok(()) => {
+            tracing::info!(
+                "the saved WebSocket token was rotated once; run `acpmux web` for the new link"
+            );
+            true
+        }
+        Err(e) => {
+            // Never run on a token the file does not hold (ssh peers read
+            // the file): keep the old one and rotate at the next start.
+            tracing::warn!("could not save the rotated WebSocket token; rotating next start: {e}");
+            if let Some(w) = config.websocket.as_mut() {
+                w.token = old;
+                w.token_rotated = 0;
+            }
+            false
+        }
     }
-    true
 }
 
 fn random_token() -> String {

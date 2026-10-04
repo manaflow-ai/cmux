@@ -31,6 +31,10 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
         "p".into(),
         PeerConfig { url: format!("ws://127.0.0.1:1/?token={PEER_TOKEN}"), token: None },
     );
+    cfg.peers.insert(
+        "q".into(),
+        PeerConfig { url: format!("ws://user:{PEER_TOKEN}@127.0.0.1:2/"), token: None },
+    );
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
@@ -41,7 +45,16 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
 }
 
 async fn call(c: &mut (mpsc::Sender<String>, mpsc::Receiver<String>), id: i64, m: &str) -> String {
-    c.0.send(Message::request(id, m, json!({})).to_line()).await.unwrap();
+    call_with(c, id, m, json!({})).await
+}
+
+async fn call_with(
+    c: &mut (mpsc::Sender<String>, mpsc::Receiver<String>),
+    id: i64,
+    m: &str,
+    params: Value,
+) -> String {
+    c.0.send(Message::request(id, m, params).to_line()).await.unwrap();
     loop {
         let line =
             tokio::time::timeout(Duration::from_secs(10), c.1.recv()).await.unwrap().unwrap();
@@ -56,8 +69,16 @@ async fn call(c: &mut (mpsc::Sender<String>, mpsc::Receiver<String>), id: i64, m
 #[tokio::test]
 async fn a_web_connection_never_gets_the_token_or_the_web_url() {
     let mut web = client(Origin::Web).await;
-    for (id, m) in [(1, method::INITIALIZE), (2, method::MUX_STATUS), (3, "_acpmux/peers")] {
-        let reply = call(&mut web, id, m).await;
+    let calls = [
+        (1, method::INITIALIZE, json!({})),
+        (2, method::MUX_STATUS, json!({})),
+        (3, "_acpmux/peers", json!({})),
+        // Each answers with every peer's listing.
+        (4, "_acpmux/peer_reconnect", json!({"name": "p"})),
+        (5, "_acpmux/peer_remove", json!({"name": "q"})),
+    ];
+    for (id, m, params) in calls {
+        let reply = call_with(&mut web, id, m, params).await;
         assert!(!reply.contains(TOKEN), "{m} sent the listener token to a Web connection: {reply}");
         assert!(
             !reply.contains(PEER_TOKEN),
@@ -131,6 +152,25 @@ fn stop(mut daemon: Daemon) {
     }
 }
 
+/// One request over the daemon's unix socket.
+fn unix_call(home: &std::path::Path, m: &str, params: Value) -> Value {
+    use std::io::Write;
+    let mut s = std::os::unix::net::UnixStream::connect(home.join("s.sock")).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let line = json!({"jsonrpc": "2.0", "id": 1, "method": m, "params": params});
+    writeln!(s, "{line}").unwrap();
+    let mut reader = BufReader::new(s);
+    loop {
+        let mut reply = String::new();
+        reader.read_line(&mut reply).unwrap();
+        let v: Value = serde_json::from_str(&reply).unwrap();
+        if v.get("id") == Some(&json!(1)) {
+            assert!(v.get("error").is_none(), "{m}: {v}");
+            return v;
+        }
+    }
+}
+
 fn url_token(ready: &Value) -> String {
     let url = ready["webUrl"].as_str().unwrap();
     url.split("token=").nth(1).unwrap().to_owned()
@@ -165,8 +205,10 @@ fn a_saved_token_from_before_the_fix_rotates_once() {
     let (child, again) = start(&home, &[]);
     stop(child);
     assert_eq!(url_token(&again), rotated);
-    // --token still overrides the listener's token.
+    // --token still overrides the listener's token, and a save while it
+    // runs (a policy change here) never writes it to config.json.
     let (child, flagged) = start(&home, &["--token", "flag-token-abc"]);
+    unix_call(&home, "_acpmux/set_default_policy", json!({"policy": "ask"}));
     stop(child);
     assert_eq!(url_token(&flagged), "flag-token-abc");
     assert_eq!(saved(&home)["websocket"]["token"], rotated.as_str());

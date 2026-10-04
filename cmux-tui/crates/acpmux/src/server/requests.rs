@@ -62,6 +62,24 @@ pub(super) async fn handle_request(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    let mut reply = dispatch_request(hub, conn, m, params).await;
+    // One place for every reply (status, the peer listings of peer_add,
+    // peer_reconnect and peer_remove, forwarded peer replies): only the
+    // local socket ever reads a token back.
+    if conn.origin != Origin::Local
+        && let Ok(v) = &mut reply
+    {
+        redact_for_remote(v);
+    }
+    reply
+}
+
+async fn dispatch_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+) -> Result<Value, RpcError> {
     // A session that lives on a peer: forward the whole request there.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(&params)
@@ -342,13 +360,7 @@ pub(super) async fn handle_request(
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
-        method::MUX_STATUS => {
-            let mut status = hub.status().await;
-            if conn.origin == Origin::Web {
-                redact_for_remote(&mut status);
-            }
-            Ok(status)
-        }
+        method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         method::MUX_WARM => {
             let requested: Vec<String> = params
@@ -386,13 +398,7 @@ pub(super) async fn handle_request(
             cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             Ok(json!({"policy":policy.to_string()}))
         }
-        "_acpmux/peers" => {
-            let mut reply = json!({"peers": hub.peers()});
-            if conn.origin == Origin::Web {
-                redact_for_remote(&mut reply);
-            }
-            Ok(reply)
-        }
+        "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
@@ -965,9 +971,9 @@ pub(super) async fn handle_request(
 }
 
 /// A remote-origin (Web) connection never learns a token: not the
-/// dashboard link (`webUrl` carries this listener's token) and not a query
-/// or fragment of a peer's URL (a user may have written a peer's token
-/// there). The local socket keeps both (`acpmux web`, the app's host).
+/// dashboard link (`webUrl` carries this listener's token) and not the
+/// userinfo, query or fragment of a peer's URL (a user may have written a
+/// peer's token there). The local socket keeps both (`acpmux web`, the app's host).
 fn redact_for_remote(reply: &mut Value) {
     if let Some(obj) = reply.as_object_mut() {
         obj.remove("webUrl");
@@ -975,9 +981,17 @@ fn redact_for_remote(reply: &mut Value) {
     if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
         for peer in peers {
             if let Some(url) = peer.get("url").and_then(Value::as_str) {
-                let bare = url.split(['?', '#']).next().unwrap_or_default().to_owned();
-                peer["url"] = Value::String(bare);
+                peer["url"] = Value::String(url_without_secrets(url));
             }
         }
     }
+}
+
+/// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
+fn url_without_secrets(url: &str) -> String {
+    let bare = url.split(['?', '#']).next().unwrap_or_default();
+    let Some((scheme, rest)) = bare.split_once("://") else { return bare.to_owned() };
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    format!("{scheme}://{host}{path}")
 }

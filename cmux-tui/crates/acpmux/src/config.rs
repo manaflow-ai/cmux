@@ -443,6 +443,10 @@ pub struct Config {
     /// only, never saved).
     #[serde(skip)]
     pub dev_origins: Vec<String>,
+    /// The listener's token for this run when `--token` gave one: the
+    /// dashboard link uses it, and it is never saved over `websocket.token`.
+    #[serde(skip)]
+    pub web_token_override: Option<String>,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.
