@@ -427,6 +427,15 @@
     // closures only: the global goes before any agent code runs, so a cell
     // cannot call it directly (the guards behind it are native anyway).
     delete root.__cmuxNative;
+    const hostCall = (fn, op, args) => {
+      const r = JSON.parse(fn(op, JSON.stringify(args || {})));
+      if (r.error) {
+        const e = new Error(r.error.message);
+        e.code = r.error.code;
+        throw e;
+      }
+      return r.ok;
+    };
     const pending = new Map();
     const timers = new Map();
     const listeners = new Map();
@@ -495,16 +504,9 @@
         }
         return r.ok;
       },
-      // The host's secret vault and domain policy (browser-host.md section
-      // 4). Values set here are agent-known; user secrets never come here.
-      secretSet: (name, value, options) => JSON.parse(native.secretSet(name, value, JSON.stringify(options))),
-      secretList: () => JSON.parse(native.secretList()),
-      secretDelete: (name) => !!native.secretDelete(name),
-      policyNarrow: (change) => JSON.parse(native.policyNarrow(JSON.stringify(change))),
-      policyGet: () => JSON.parse(native.policyGet()),
-      policyLog: () => JSON.parse(native.policyLog()),
-      policyCheck: (targetId) => native.policyCheck(targetId) || null,
       fetchHandlesCookies: true,
+      secrets: (op, args) => hostCall(native.secrets, op, args),
+      policy: (op, args) => hostCall(native.policy, op, args),
       async fetch(url, init) {
         const r = await callAsync((id) => native.fetch(id, JSON.stringify({
           url,

@@ -424,13 +424,16 @@ structured values cross the boundary as JSON strings.
 | `readResource(relativePath)` | text of a bundled `cmux-tui/crates/cmux-browser-host/js/` file, or `null` |
 | `tmpdir`, `homedir` | the session's private temporary directory (`<app temp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, removed on close when empty; no other session's files are in it) and the canonical home directory, for `node:os` |
 
-cmux-next: until the native ABI slice (port plan decision D1) lands, the Rust
-VM (`vm.rs`) exposes `secretSet`, `secretList`, `secretDelete`,
-`policyNarrow`, `policyGet`, `policyLog` and `policyCheck` instead of
-`secrets(op)` and `policy(op)`; a secret is a `{__secret: name}` handle that
-`input.insertText { text }` and the page agent's `fill` carry; agent code may
-only narrow the policy. `fs` has no `lstat` yet, and `fetch` answers
-`unsupported`.
+cmux-next: the Rust VM (`vm.rs`) has main's `secrets(op)` and `policy(op)`
+(port plan decision D1), with these differences: a secret is a
+`{__secret: name}` handle that `input.insertText { text }` and the page
+agent's `fill` carry (not `input.insertText { secret }`); `policy set` only
+narrows (the host intersects with the user's layer); `policy site` answers
+from a compact suffix list until the host has a Public Suffix List (D6);
+`policy log` returns the host's own log of navigations it blocked before
+their request; `secrets load` keys come back in sorted order. The host keeps
+the runtime's entry points and removes them and `__cmuxNative` before the
+first cell. `fs` has no `lstat` yet, and `fetch` answers `unsupported`.
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
 the session's own `tmpdir`, never the system temporary directory that other

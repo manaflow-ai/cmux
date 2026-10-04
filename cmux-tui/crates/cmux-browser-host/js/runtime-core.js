@@ -798,8 +798,8 @@
       route("download.finished", (p) => this._forward(p, "_onDownloadFinished"));
       // The driver cancelled a navigation the domain policy blocks. Main's
       // agent-tools.js logs it and fails the action that caused it; in
-      // cmux-next the host keeps that log (policyLog) and fails the action
-      // (policyCheck).
+      // cmux-next the host blocks it before the request and keeps the log
+      // (policy op "log").
       route("navigation.blocked", () => {});
       route("console", (p) => this._forward(p, "_onConsole"));
       route("pageerror", (p) => this._forward(p, "_onPageError"));
