@@ -6,18 +6,6 @@ import Foundation
 /// cloud owners, the app leases the signed-in account's token to it, and
 /// `cloudSource` reads and writes through that proxy only.
 extension HomeService {
-    /// The daemon connection with the cloud transport and the account it serves.
-    nonisolated struct CloudLink: Equatable, Sendable {
-        var connection: DaemonConnection?
-        var userID: String?
-        var displayName: String
-
-        static func == (lhs: CloudLink, rhs: CloudLink) -> Bool {
-            lhs.connection.map(ObjectIdentifier.init) == rhs.connection.map(ObjectIdentifier.init)
-                && lhs.userID == rhs.userID && lhs.displayName == rhs.displayName
-        }
-    }
-
     /// Follows the local daemon's connection and the signed-in account:
     /// each change re-leases the token and reconfigures the cloud source.
     func startCloud() {
@@ -25,39 +13,26 @@ extension HomeService {
         let auth = services.cloud.auth
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String
-        let lease = HomeCloudLease(auth: auth, apiBaseURL: services.feed.apiBaseURL, clientVersion: version, logger: logger)
-        cloudLease = lease
+        let lease = HomeCloudLease(tokens: auth, apiBaseURL: services.feed.apiBaseURL, clientVersion: version, logger: logger)
+        let linker = HomeCloudLink(lease: lease, source: cloudSource, localID: homeSource.me.id)
+        cloudLinker = linker
         // task-owner: lives as long as the service; event-driven (Observation)
-        cloudLink = Task { [weak self] in
-            var last: CloudLink?
+        cloudLink = Task {
             for await link in Observations({
-                CloudLink(connection: local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil,
-                          userID: auth.isSignedIn ? auth.user?.id : nil,
-                          displayName: auth.user?.displayName ?? auth.user?.primaryEmail ?? "")
+                let connection = local.supports(DaemonCapabilities.shared.cloudConversations) ? local.connection : nil
+                return HomeCloudLink.Link(endpoint: connection.map(CloudConversationClient.init),
+                                          id: connection.map(ObjectIdentifier.init),
+                                          userID: auth.isSignedIn ? auth.user?.id : nil,
+                                          displayName: auth.user?.displayName ?? auth.user?.primaryEmail ?? "")
             }) {
-                guard let self, link != last else { continue }
-                if let previous = last, previous.userID != nil, previous.userID != link.userID {
-                    // The previous account ends before the daemon holds the next
-                    // one's lease: an op submitted in between is refused here
-                    // instead of committing under the new account.
-                    cloudSource.configure(commands: previous.connection.map(CloudConversationClient.init),
-                                          link: previous.connection.map(ObjectIdentifier.init), identity: nil)
-                }
-                last = link
-                if let connection = link.connection { await lease.sync(connection) }
-                let identity = link.userID.map {
-                    CloudIdentity(stackUserID: $0, displayName: link.displayName, localID: homeSource.me.id)
-                }
-                cloudSource.configure(commands: link.connection.map(CloudConversationClient.init),
-                                      link: link.connection.map(ObjectIdentifier.init), identity: identity)
+                await linker.apply(link)
             }
         }
     }
 
     func handleCloud(_ event: CloudConversationsEvent) {
         if case .sessionNeeded(let needed) = event {
-            guard let connection = services.machines.local.connection else { return }
-            cloudLease?.renew(connection, reason: needed.reason) { [weak self] in self?.cloudSource.leaseRenewed() }
+            cloudLinker?.sessionNeeded(reason: needed.reason)
             return
         }
         cloudSource.handle(event)

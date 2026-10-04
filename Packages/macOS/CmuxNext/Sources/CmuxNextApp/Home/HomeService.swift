@@ -35,7 +35,7 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter)
     @ObservationIgnored var cloudLink: Task<Void, Never>?
-    @ObservationIgnored var cloudLease: HomeCloudLease?
+    @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")

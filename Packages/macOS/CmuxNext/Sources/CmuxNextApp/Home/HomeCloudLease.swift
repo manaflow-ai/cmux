@@ -3,59 +3,83 @@ import CmuxNextDaemon
 import Foundation
 import os
 
+/// Where a lease's access token comes from: the signed-in account
+/// (`CloudAuth` in the app, a fake in tests).
+protocol CloudLeaseTokens: AnyObject {
+    var isSignedIn: Bool { get }
+    func accessToken(forceRefresh: Bool) async throws -> String
+}
+
+/// The daemon side of a lease (`CloudConversationClient` in the app).
+nonisolated protocol CloudLeaseSessions: Sendable {
+    func setSession(_ request: CloudSessionSetRequest) async throws -> CloudSessionState
+    func clearSession() async throws -> CloudSessionState
+}
+
+extension CloudConversationClient: CloudLeaseSessions {}
+
+extension CloudAuth: CloudLeaseTokens {
+    func accessToken(forceRefresh: Bool) async throws -> String {
+        forceRefresh ? try await coordinator.forceRefreshAccessToken() : try await tokens().access
+    }
+}
+
 /// The cloud session lease the app gives the local daemon
 /// (home-cloud-proxy.md section 2). CloudAuth (the signed-in trusted local
 /// client) owns the Stack session; the daemon holds the current access token
 /// in memory only and asks for a new one with `cloud-session-needed`.
-@MainActor
 final class HomeCloudLease {
-    private let auth: CloudAuth
+    private let tokens: any CloudLeaseTokens
     private let apiBaseURL: URL
     private let clientVersion: String?
     private let logger: Logger
     private var leasing: Task<Void, Never>?
 
-    init(auth: CloudAuth, apiBaseURL: URL, clientVersion: String?, logger: Logger) {
-        self.auth = auth
+    init(tokens: any CloudLeaseTokens, apiBaseURL: URL, clientVersion: String?, logger: Logger) {
+        self.tokens = tokens
         self.apiBaseURL = apiBaseURL
         self.clientVersion = clientVersion
         self.logger = logger
     }
 
-    /// Leases the current token to `connection` while signed in, and ends
+    /// Leases the current token to the daemon while signed in, and ends
     /// the lease when signed out. Returns once the daemon answered, so
     /// cloud reads that follow carry the lease.
-    func sync(_ connection: DaemonConnection) async {
+    func sync(_ sessions: any CloudLeaseSessions) async {
         leasing?.cancel()
-        await lease(connection, forceRefresh: false)
+        await lease(sessions, forceRefresh: false)
     }
 
     /// The daemon asked for a lease. `missing` takes the current token; the
     /// others need a refreshed one (an `expiring` token may still be the
     /// current one, which would only be asked for again). `leased` runs once
     /// the daemon holds the new lease, so ops it refused can go again.
-    func renew(_ connection: DaemonConnection, reason: String, leased: @escaping @MainActor () -> Void) {
+    func renew(_ sessions: any CloudLeaseSessions, reason: String, leased: @escaping @MainActor () -> Void) {
         leasing?.cancel()
         // task-owner: one token read and one cloud-session-set; ends with the reply
         leasing = Task { [weak self] in
-            if await self?.lease(connection, forceRefresh: reason != "missing") == true { leased() }
+            if await self?.lease(sessions, forceRefresh: reason != "missing") == true { leased() }
         }
+    }
+
+    /// Waits for the lease work started so far (tests).
+    func settle() async {
+        await leasing?.value
     }
 
     /// Returns whether the daemon now holds a lease.
     @discardableResult
-    private func lease(_ connection: DaemonConnection, forceRefresh: Bool) async -> Bool {
-        let client = CloudConversationClient(connection)
+    private func lease(_ sessions: any CloudLeaseSessions, forceRefresh: Bool) async -> Bool {
         do {
-            guard auth.isSignedIn else {
-                _ = try await client.clearSession()
+            guard tokens.isSignedIn else {
+                _ = try await sessions.clearSession()
                 return false
             }
-            let token = forceRefresh ? try await auth.coordinator.forceRefreshAccessToken() : try await auth.tokens().access
+            let token = try await tokens.accessToken(forceRefresh: forceRefresh)
             guard !Task.isCancelled, let origin = Self.origin(apiBaseURL) else { return false }
             let expiresAt = Self.expiry(ofJWT: token) ?? Self.fallbackExpiry(now: Date())
-            _ = try await client.setSession(CloudSessionSetRequest(apiBaseURL: origin, accessToken: token, expiresAt: expiresAt,
-                                                                   clientVersion: clientVersion))
+            _ = try await sessions.setSession(CloudSessionSetRequest(apiBaseURL: origin, accessToken: token, expiresAt: expiresAt,
+                                                                     clientVersion: clientVersion))
             return true
         } catch is CancellationError {
             return false
