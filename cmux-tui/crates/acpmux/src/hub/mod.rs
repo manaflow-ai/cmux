@@ -10,6 +10,7 @@
 mod adoption;
 mod handoff;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod paging;
@@ -179,6 +180,9 @@ pub struct Session {
     /// Recent client prompt ids and their outcomes, newest last: a prompt
     /// sent again with the same id never runs a second turn.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// Bumped when a record failed to reach the store; an agent host entry
+    /// is acknowledged only when its record was stored.
+    pub(super) append_errors: AtomicU64,
 }
 
 impl Session {
@@ -417,7 +421,8 @@ impl Hub {
         }
         tracing::info!("loaded {} sessions from store", sessions.len());
         drop(sessions);
-        self.mark_unknown_outcomes();
+        // A turn whose agent host still runs is not lost: the host is adopted.
+        self.mark_unknown_outcomes(&Self::live_host_sessions());
     }
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
@@ -447,6 +452,7 @@ impl Hub {
             attached: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
+            append_errors: AtomicU64::new(0),
         })
     }
 
@@ -490,13 +496,27 @@ impl Hub {
         kind: &str,
         msg: Value,
     ) -> EventRecord {
+        self.append_with_host_seq(session, dir, kind, msg, None)
+    }
+
+    /// Append one record; `host_seq` names the agent host entry it logs.
+    pub(super) fn append_with_host_seq(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+    ) -> EventRecord {
         let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let record = EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg };
+        let record =
+            EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg, host_seq };
         if session.purged.load(Ordering::SeqCst) {
             return record;
         }
         if let Err(e) = self.store.append(&session.id, &record) {
+            session.append_errors.fetch_add(1, Ordering::SeqCst);
             tracing::warn!(session = %session.id, "append failed: {e}");
         }
         {
@@ -690,8 +710,11 @@ impl Hub {
     /// After a restart: a turn that started but never settled gets a
     /// `turn_result failed outcome_unknown`, so nobody replays a prompt that
     /// may have run to completion.
-    pub(super) fn mark_unknown_outcomes(&self) {
+    pub(super) fn mark_unknown_outcomes(&self, hosted: &std::collections::HashSet<String>) {
         for session in self.sessions() {
+            if hosted.contains(&session.id) {
+                continue;
+            }
             // Scan the whole log: a long turn can stream far more records
             // than any fixed tail window after its `turn_started`.
             let mut open: Option<(u64, Value)> = None;

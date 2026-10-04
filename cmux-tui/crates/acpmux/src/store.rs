@@ -27,6 +27,10 @@ pub struct EventRecord {
     pub kind: String,
     /// Raw JSON-RPC message, or the acpmux payload.
     pub msg: Value,
+    /// The agent host entry this record logs (`hostSeq`), so a controller
+    /// that adopts the host resumes after it (agent hosts, durable sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
@@ -476,6 +480,7 @@ mod tests {
             dir: "mux".into(),
             kind: "status".into(),
             msg: serde_json::json!({"seq": seq}),
+            host_seq: None,
         }
     }
 
