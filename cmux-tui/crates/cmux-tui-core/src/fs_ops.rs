@@ -63,6 +63,12 @@ pub fn advertised() -> Option<&'static str> {
 #[must_use]
 pub fn frame_command(line: &str) -> Option<&'static str> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
-    let cmd = value.as_object()?.get("cmd")?.as_str()?;
+    let object = value.as_object()?;
+    // A frame with `protocol` goes to the resource router, never to the
+    // fs adapter: it is not an fs frame.
+    if object.contains_key("protocol") {
+        return None;
+    }
+    let cmd = object.get("cmd")?.as_str()?;
     FS_COMMANDS.iter().copied().find(|known| *known == cmd)
 }
