@@ -113,8 +113,15 @@ def cleanup(before, work):
 
 # ---- feed and install -------------------------------------------------------
 
+USER_AGENT = {"User-Agent": "cmux-update-e2e/1 (Sparkle-compatible test)"}
+
+
+def fetch(url, timeout=600):
+    return urllib.request.urlopen(urllib.request.Request(url, headers=USER_AGENT), timeout=timeout)
+
+
 def feed_items():
-    xml = urllib.request.urlopen(opts.feed, timeout=30).read().decode()
+    xml = fetch(opts.feed, timeout=30).read().decode()
     items = []
     for item in re.findall(r"<item>.*?</item>", xml, re.S):
         build = re.search(r"<sparkle:version>(.*?)<", item)
@@ -131,7 +138,8 @@ def feed_items():
 def install(item, folder):
     dmg = os.path.join(folder, "build.dmg")
     print(f"downloading {item['url']}")
-    urllib.request.urlretrieve(item["url"], dmg)
+    with fetch(item["url"]) as response, open(dmg, "wb") as out:
+        shutil.copyfileobj(response, out, 1 << 20)
     mount = os.path.join(folder, "mnt")
     os.makedirs(mount, exist_ok=True)
     attach = run("hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", mount, dmg, timeout=300)
