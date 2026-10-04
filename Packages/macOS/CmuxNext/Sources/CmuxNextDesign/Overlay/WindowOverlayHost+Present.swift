@@ -91,7 +91,7 @@ extension WindowOverlayHost {
     func layoutAppPanel() {
         let size = handles.reduce(NSSize.zero) { NSSize(width: max($0.width, $1.content.frame.width),
                                                         height: max($0.height, $1.content.frame.height)) }
-        let screen = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+        let screen = Self.appHostScreenFrame()
         panel.setFrame(NSRect(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2,
                               width: size.width, height: size.height), display: true)
         for handle in handles { handle.content.setFrameOrigin(.zero) }
@@ -163,6 +163,11 @@ extension WindowOverlayHost {
             return
         }
         panel.acceptsKey = false
+        guard !isTearingDown else {
+            restoreWindow = nil
+            restoreResponder = nil
+            return
+        }
         let window = restoreWindow ?? self.window
         if let window, window.isVisible { window.makeKey() }
         if let responder = restoreResponder, let window {
@@ -175,6 +180,19 @@ extension WindowOverlayHost {
         }
         restoreWindow = nil
         restoreResponder = nil
+    }
+
+    /// Tab inside the newest modal overlay: the next (or previous) control, wrapping.
+    func cycleKeyView(forward: Bool) -> Bool {
+        guard let top = handles.last(where: { $0.options.isModal }) else { return false }
+        let views = Self.keyViews(in: top.content)
+        guard !views.isEmpty else { return true }
+        var current = panel.firstResponder as? NSView
+        if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSView }
+        let index = current.flatMap { view in views.firstIndex { $0 === view } } ?? (forward ? views.count - 1 : 0)
+        let next = views[(index + (forward ? 1 : views.count - 1)) % views.count]
+        panel.makeFirstResponder(next)
+        return true
     }
 
     /// Escape: the newest overlay that dismisses on Escape goes.

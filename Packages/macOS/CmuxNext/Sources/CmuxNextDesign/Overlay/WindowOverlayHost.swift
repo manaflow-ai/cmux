@@ -37,6 +37,12 @@ public final class WindowOverlayHost {
     weak var restoreWindow: NSWindow?
     weak var restoreResponder: NSResponder?
     var isReordering = false
+    /// The window is closing: nothing takes key status back.
+    var isTearingDown = false
+    /// Where the app host centers its panel (tests pass an off-screen rect).
+    public static var appHostScreenFrame: () -> NSRect = {
+        (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+    }
     /// Reorders done (diagnostics).
     public private(set) var reorderCount = 0
     /// Called after the panel was attached, detached or reordered.
@@ -50,6 +56,7 @@ public final class WindowOverlayHost {
         isAppHost = window == nil
         panel = OverlayHostPanel()
         panel.onCancel = { [weak self] in self?.escape() }
+        panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
@@ -106,6 +113,7 @@ public final class WindowOverlayHost {
     public var isPanelAttached: Bool { isAppHost ? panel.isVisible : panel.parent === window && window != nil }
 
     func tearDown() {
+        isTearingDown = true
         for handle in handles { handle.dismiss() }
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()

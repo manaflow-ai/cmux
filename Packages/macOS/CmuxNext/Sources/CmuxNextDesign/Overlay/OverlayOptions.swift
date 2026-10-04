@@ -30,8 +30,8 @@ public struct OverlayOptions: Equatable, Sendable {
     public var dimsContent: Bool
     /// The overlay itself never takes the mouse (clicks reach what is below).
     public var passesThroughClicks: Bool
-    /// Window coordinates: input inside this rect is blocked (a tab-region
-    /// modal), the rest of the window stays usable.
+    /// Window coordinates: mouse input inside this rect is blocked (a
+    /// tab-region modal), the rest of the window stays usable.
     public var modalRegion: NSRect?
 
     public init(kind: Kind, anchor: NSRect? = nil, isModal: Bool = false, dismissOnEscape: Bool = false,

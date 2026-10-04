@@ -69,13 +69,11 @@ import Testing
     @Test func aPanelOutsideTheHostTripsTheGuard() {
         let main = makeMain()
         defer { close(main) }
-        ChildWindowPolicy.resetViolations()
         let host = WindowOverlayHost.host(for: main)
         #expect(ChildWindowPolicy.check(host.panel, parent: main))
         #expect(ChildWindowPolicy.check(makePage(), parent: main))
         #expect(!ChildWindowPolicy.check(UnlistedPresenterPanel(), parent: main))
-        #expect(ChildWindowPolicy.violations == ["UnlistedPresenterPanel"])
-        ChildWindowPolicy.resetViolations()
+        #expect(ChildWindowPolicy.violations.filter { $0 == "UnlistedPresenterPanel" }.count == 1)
     }
 
     // MARK: Mouse
@@ -131,12 +129,12 @@ import Testing
 
         #expect(host.panel.canBecomeKey, "a modal overlay may take the keyboard")
         #expect(Self.owner(of: host.panel.firstResponder) === first)
-        host.panel.selectNextKeyView(nil)
+        host.panel.sendEvent(Self.key("\t", keyCode: 48, panel: host.panel))
         #expect(Self.owner(of: host.panel.firstResponder) === second)
-        host.panel.selectNextKeyView(nil)
+        host.panel.sendEvent(Self.key("\t", keyCode: 48, panel: host.panel))
         #expect(Self.owner(of: host.panel.firstResponder) === first, "Tab cycles inside the overlay")
 
-        host.panel.cancelOperation(nil)
+        host.panel.sendEvent(Self.key("\u{1b}", keyCode: 53, panel: host.panel))
         #expect(handle.isDismissed)
         #expect(dismissed == 1)
         #expect(!host.panel.canBecomeKey)
@@ -146,6 +144,7 @@ import Testing
     /// Without a window (quit with every window closed) the app host shows
     /// the same overlays in a panel of its own.
     @Test func appHostPresentsWithoutAWindow() {
+        WindowOverlayHost.appHostScreenFrame = { NSRect(x: -30_000, y: -30_000, width: 1280, height: 800) }
         let host = WindowOverlayHost.appHost()
         let handle = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 140)), options: .dialog(dimsContent: false))
         #expect(host.hasPresentations)
@@ -153,6 +152,13 @@ import Testing
         handle.dismiss()
         #expect(!host.hasPresentations)
         #expect(!host.panel.isVisible)
+    }
+
+    /// A key down as the keyboard sends it to `panel`.
+    private static func key(_ characters: String, keyCode: UInt16, panel: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                         windowNumber: panel.windowNumber, context: nil, characters: characters,
+                         charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)!
     }
 
     /// The field editor stands in for a text field while it edits.

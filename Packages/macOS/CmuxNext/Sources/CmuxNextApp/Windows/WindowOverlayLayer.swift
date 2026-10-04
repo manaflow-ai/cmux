@@ -54,7 +54,7 @@ final class WindowOverlayLayer {
     /// A window geometry change whose layout pass has not run yet.
     private var pageUpdateAfterLayout = false
     /// Reorders done (for `debug.layers`).
-    var reorderCount: Int { host.reorderCount }
+    var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
 
     init(window: NSWindow) {
         self.window = window
@@ -148,6 +148,7 @@ final class WindowOverlayLayer {
         case .inWindow:
             (plane.home as? LayoutRootView)?.returnPlaneHome()
         case .overlayWindow:
+            guard !isTornDown else { return }
             let container = host.panel.planeContainer
             if plane.superview !== container { container.addSubview(plane) }
             plane.syncFrame()
@@ -205,6 +206,7 @@ final class WindowOverlayLayer {
     }
 
     private func showPanel() {
+        guard !isTornDown else { return }
         host.setPlanesWantPanel(true)
     }
 
@@ -215,12 +217,12 @@ final class WindowOverlayLayer {
     /// Wanted child order, bottom to top: content windows, the host panel,
     /// app panels at its level (`WindowOverlayHost.reassertOrder`).
     private func enforceOrder() {
-        host.reassertOrder()
+        WindowOverlayHost.existingHost(for: window)?.reassertOrder()
     }
 
     private func parentGeometryDidChange() {
-        let panel = host.panel
-        if placement == .overlayWindow, panel.parent === window, panel.frame != window.frame {
+        if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.panel,
+           panel.parent === window, panel.frame != window.frame {
             panel.setFrame(window.frame, display: false)
         }
         for plane in planes { plane.syncFrame() }
@@ -281,7 +283,7 @@ final class WindowOverlayLayer {
     /// not needed because there is none).
     var isOverlayAboveContent: Bool {
         guard !Self.contentChildWindows(of: window).isEmpty else { return true }
-        return placement == .overlayWindow && host.isAbovePages
+        return placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.isAbovePages == true
     }
 
     var overlayPanel: NSWindow? { WindowOverlayHost.existingHost(for: window).flatMap { $0.isPanelAttached ? $0.panel : nil } }

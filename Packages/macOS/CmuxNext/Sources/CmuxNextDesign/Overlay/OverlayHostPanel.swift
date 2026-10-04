@@ -11,6 +11,8 @@ public final class OverlayHostPanel: NSPanel {
     let overlayContainer = OverlayContainerView()
     var acceptsKey = false
     var onCancel: (() -> Void)?
+    /// Tab (true) or Shift-Tab (false) inside a modal overlay: the host moves focus within it.
+    var onCycleKeyView: ((Bool) -> Bool)?
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -37,6 +39,14 @@ public final class OverlayHostPanel: NSPanel {
 
     override public var canBecomeKey: Bool { acceptsKey }
     override public var canBecomeMain: Bool { false }
+
+    override public func selectNextKeyView(_ sender: Any?) {
+        if onCycleKeyView?(true) != true { super.selectNextKeyView(sender) }
+    }
+
+    override public func selectPreviousKeyView(_ sender: Any?) {
+        if onCycleKeyView?(false) != true { super.selectPreviousKeyView(sender) }
+    }
 
     /// Escape in a modal overlay.
     override public func cancelOperation(_ sender: Any?) {
