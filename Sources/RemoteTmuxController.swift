@@ -437,7 +437,7 @@ final class RemoteTmuxController {
             // ssh round trip. `windowId(for:)` would also answer for a closed window's
             // recoverable route and resurrect a dead manager, so it is deliberately
             // not used here.
-            func managerIsLive() -> Bool {
+            @MainActor func managerIsLive() -> Bool {
                 AppDelegate.shared?.mainWindowContexts.values
                     .contains(where: { $0.tabManager === manager }) == true
             }
@@ -512,9 +512,16 @@ final class RemoteTmuxController {
         try self.mirrorSession(host: host, sessionName: name, into: manager, select: select)
     }
 
-    /// The in-flight routed New Workspace request, if any. Tests await it so the
-    /// ssh round trip and mirror creation finish inside the test body.
-    private(set) var newSessionRoutingTask: Task<Void, Never>?
+    /// The in-flight routed New Workspace request, if any.
+    private var newSessionRoutingTask: Task<Void, Never>?
+
+    #if DEBUG
+    /// Waits for the in-flight routed New Workspace request, so a test's ssh round
+    /// trip and mirror creation finish inside its body.
+    func waitForNewSessionRoutingForTesting() async {
+        await newSessionRoutingTask?.value
+    }
+    #endif
 
     /// How a failed routed New Workspace reaches the user (host, which step failed,
     /// requesting manager). Local creation stays suppressed either way — a mirror
