@@ -92,7 +92,12 @@ impl Overlay for MeshOverlay {
         Ok(())
     }
 
-    async fn set_cloud_peer(&self, host: &str, key: [u8; 32], info: &ConnectInfo) -> io::Result<()> {
+    async fn set_cloud_peer(
+        &self,
+        host: &str,
+        key: [u8; 32],
+        info: &ConnectInfo,
+    ) -> io::Result<()> {
         let shape = cloud_shape(info)?;
         let previous = self.cloud.lock().unwrap().get(host).cloned();
         if previous.as_ref() == Some(&(key, shape.clone())) {

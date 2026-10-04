@@ -24,8 +24,10 @@ use super::dial::{DIAL_TIMEOUT, Overlay, reply};
 /// in the product, a fake in tests.
 pub(super) trait ConnectInfoSource: Send + Sync + 'static {
     /// `cloud.machine.connect_info {host}` (a read; no token in it).
-    fn fetch(&self, host: &str)
-    -> impl Future<Output = Result<ConnectInfo, ConnectInfoError>> + Send;
+    fn fetch(
+        &self,
+        host: &str,
+    ) -> impl Future<Output = Result<ConnectInfo, ConnectInfoError>> + Send;
     /// `cloud.machine.link_token {host, services}`: every call mints a fresh
     /// token for one hello.
     fn mint_token(
@@ -172,8 +174,11 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
         }
         // Rule 3: a handshake failure fetches once more before it reports.
         if refresh {
-            let error =
-                if resolved.info.is_paused() { DialError::HostPaused } else { DialError::Unreachable };
+            let error = if resolved.info.is_paused() {
+                DialError::HostPaused
+            } else {
+                DialError::Unreachable
+            };
             return reply(&mut caller, DialReply::failed(error)).await;
         }
         refresh = true;

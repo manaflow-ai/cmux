@@ -58,8 +58,8 @@ where
     let line = read_line(&mut stream, MAX_LINE_BYTES)
         .await
         .map_err(|_| HostRefused::Inbound(InboundRefused::BadHello))?;
-    let hello = parse_line::<ServiceHello>(&line)
-        .ok_or(HostRefused::Inbound(InboundRefused::BadHello))?;
+    let hello =
+        parse_line::<ServiceHello>(&line).ok_or(HostRefused::Inbound(InboundRefused::BadHello))?;
     let token = hello.link_token.as_deref().ok_or(HostRefused::Token)?;
     if hello.epoch.is_none_or(|epoch| epoch < me.epoch) {
         return Err(HostRefused::StaleEpoch);

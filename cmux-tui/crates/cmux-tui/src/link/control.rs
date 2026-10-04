@@ -75,12 +75,7 @@ pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
                 continue;
             }
         };
-        tokio::spawn(serve_local_request(
-            stream,
-            overlay.clone(),
-            peers.clone(),
-            resolver.clone(),
-        ));
+        tokio::spawn(serve_local_request(stream, overlay.clone(), peers.clone(), resolver.clone()));
     }
 }
 

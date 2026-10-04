@@ -209,11 +209,8 @@ mod tests {
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\"}\n"
         );
         assert_eq!(line(&ServiceHello::paired(Service::Daemon)), "{\"service\":\"daemon\"}\n");
-        let cloud = ServiceHello {
-            service: Service::Ssh,
-            link_token: Some("tok".into()),
-            epoch: Some(3),
-        };
+        let cloud =
+            ServiceHello { service: Service::Ssh, link_token: Some("tok".into()), epoch: Some(3) };
         assert_eq!(line(&cloud), "{\"service\":\"ssh\",\"link_token\":\"tok\",\"epoch\":3}\n");
         assert_eq!(
             line(&DialReply::failed(DialError::HostPaused)),

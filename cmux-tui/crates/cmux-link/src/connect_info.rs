@@ -205,10 +205,8 @@ impl ConnectInfoCache {
     /// Store `info` (fetched at `now`). An older revision than the cached
     /// one keeps the cached peer data.
     pub fn insert(&mut self, info: ConnectInfo, now: Instant) {
-        let keep_cached = self
-            .entries
-            .get(&info.host)
-            .is_some_and(|cached| cached.info.revision > info.revision);
+        let keep_cached =
+            self.entries.get(&info.host).is_some_and(|cached| cached.info.revision > info.revision);
         if !keep_cached {
             self.entries.insert(info.host.clone(), Entry { info, fetched_at: now });
         }

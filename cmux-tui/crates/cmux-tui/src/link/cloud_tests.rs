@@ -175,17 +175,21 @@ async fn hello_on(overlay: &CloudOverlay, index: usize) -> String {
 async fn a_cloud_dial_sends_a_fresh_single_use_token_and_reports_the_path() {
     let overlay: &'static CloudOverlay = Box::leak(Box::default());
     let resolver: &'static CloudResolver<FakeSource> = Box::leak(Box::new(CloudResolver::new(
-        FakeSource::with(vec![Ok(record("running", &["daemon"]))]).tokens(vec![
-            Ok(grant("t1", HOST, &["daemon"])),
-            Ok(grant("t2", HOST, &["daemon"])),
-        ]),
+        FakeSource::with(vec![Ok(record("running", &["daemon"]))])
+            .tokens(vec![Ok(grant("t1", HOST, &["daemon"])), Ok(grant("t2", HOST, &["daemon"]))]),
     )));
     let reply = spawn_dial(overlay, resolver).await.unwrap();
     assert_eq!(reply, "{\"ok\":true,\"path_state\":\"tunnel\",\"relay_available\":false}\n");
-    assert_eq!(hello_on(overlay, 0).await, "{\"service\":\"daemon\",\"link_token\":\"t1\",\"epoch\":4}\n");
+    assert_eq!(
+        hello_on(overlay, 0).await,
+        "{\"service\":\"daemon\",\"link_token\":\"t1\",\"epoch\":4}\n"
+    );
     // The next dial asks again: a token is used for one hello only.
     spawn_dial(overlay, resolver).await.unwrap();
-    assert_eq!(hello_on(overlay, 0).await, "{\"service\":\"daemon\",\"link_token\":\"t2\",\"epoch\":4}\n");
+    assert_eq!(
+        hello_on(overlay, 0).await,
+        "{\"service\":\"daemon\",\"link_token\":\"t2\",\"epoch\":4}\n"
+    );
     assert_eq!(*resolver.source.calls.lock().unwrap(), 1, "connect_info comes from the cache");
     assert_eq!(*resolver.source.mints.lock().unwrap(), 2, "one fresh token per dial");
     assert_eq!(overlay.peers.lock().unwrap()[0], (HOST.to_string(), [9u8; 32]));
@@ -229,7 +233,11 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{state}: {reply}");
         assert_eq!(*resolver.source.calls.lock().unwrap(), 2, "{state}: one refetch");
-        assert_eq!(*resolver.source.mints.lock().unwrap(), 0, "{state}: no token without a handshake");
+        assert_eq!(
+            *resolver.source.mints.lock().unwrap(),
+            0,
+            "{state}: no token without a handshake"
+        );
         assert_eq!(overlay.connects.lock().unwrap().len(), 2, "{state}");
     }
 }
@@ -295,8 +303,5 @@ async fn forwarded_cloud_events_drop_records_and_peers() {
 #[tokio::test]
 async fn the_relay_source_is_off_until_the_relay_ships() {
     let resolver = CloudResolver::new(RelaySource);
-    assert!(matches!(
-        resolver.resolve(HOST, false).await,
-        Err(ConnectInfoError::Unavailable(_))
-    ));
+    assert!(matches!(resolver.resolve(HOST, false).await, Err(ConnectInfoError::Unavailable(_))));
 }
