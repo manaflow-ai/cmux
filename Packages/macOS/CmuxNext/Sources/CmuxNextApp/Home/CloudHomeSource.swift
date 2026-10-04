@@ -186,11 +186,14 @@ nonisolated final class CloudHomeSource: HomeSource {
         if !change.cleared { state.withLock { $0.degraded = true } }
         let generation = change.generation
         let kept = change.kept
-        // task-owner: one inbox subscribe and list, then the kept conversations' subscribes; ends with their replies
+        // The kept conversations subscribe before the inbox lists: a list
+        // without them would take them out of the merged inbox (the router
+        // removes what a cloud inbox leaves out) while they are on screen.
+        // task-owner: one inbox subscribe, the kept conversations' subscribes, then one list; ends with their replies
         Task { [weak self] in
             _ = try? await commands.subscribeInbox()
-            await self?.reloadInbox(generation: generation)
             for id in kept { await self?.subscribe(id, commands: commands, generation: generation) }
+            await self?.reloadInbox(generation: generation)
         }
     }
 
