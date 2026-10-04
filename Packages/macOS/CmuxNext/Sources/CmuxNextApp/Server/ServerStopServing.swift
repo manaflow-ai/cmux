@@ -22,12 +22,13 @@ struct ServerServiceRegistration {
 /// every power setting a fix changed (the helper's revert restores the value
 /// it recorded), then unregisters the server LaunchAgent and the privileged
 /// helper. Idempotent: a job that is not registered is skipped, and a fix
-/// with nothing recorded is not an error. When a revert fails, or the
-/// helper awaits approval in Login Items (it cannot run, and the app cannot
-/// read what it recorded, so the values count as changed), the helper stays
-/// registered so the user can stop serving again and get the settings back;
-/// the agent is still removed. A running Fix finishes its current step
-/// first (`ServerFixGate`), so no apply lands after its revert.
+/// with nothing recorded is not an error. An enabled helper reverts every
+/// allowlisted fix; otherwise the app's `ServerFixLedger` decides, and an
+/// empty ledger never needs the helper or its approval. When a revert fails,
+/// or recorded fixes remain and the helper awaits approval in Login Items,
+/// the helper stays registered so the user can stop serving again and get
+/// the settings back; the agent is still removed. A running Fix finishes its
+/// current step first (`ServerFixGate`), so no apply lands after its revert.
 struct ServerStopServing {
     enum Failure: Error, Equatable {
         case revert(String)
@@ -48,6 +49,7 @@ struct ServerStopServing {
     var helper: ServerServiceRegistration?
     var revert: @MainActor (ServerFix) async throws(ServerHelperClient.Failure) -> Void
     var gate: ServerFixGate = .shared
+    /// The fixes this app had the helper apply.
     let ledger: ServerFixLedger
 
     static func app() -> ServerStopServing {
@@ -59,36 +61,48 @@ struct ServerStopServing {
             }, ledger: .standard)
     }
 
+    /// Holds the gate until the helper is gone, so a Fix queued behind Stop
+    /// Serving cannot apply after the reverts.
     func run() async throws(Failure) {
         await gate.acquire()
-        let revertFailure = await revertAll()
-        gate.release()
+        defer { gate.release() }
+        let revertFailure = await revertRecorded()
         if let agent { try await unregister(agent) }
         if let revertFailure { throw .revert(revertFailure) }
         if let helper { try await unregister(helper) }
     }
 
-    /// Nil when every recorded value is back (or nothing ran), else the reason.
-    private func revertAll() async -> String? {
-        guard let helper else { return nil }
-        switch helper.status() {
+    /// An enabled helper reverts every allowlisted fix, whatever the ledger
+    /// says (a lost ledger must not leave a setting changed). Otherwise the
+    /// ledger decides: recorded fixes and a helper awaiting approval keep the
+    /// helper; nothing recorded, or no helper registered, needs no helper.
+    /// Nil when nothing is left to restore, else the reason.
+    private func revertRecorded() async -> String? {
+        let recorded = await ledger.load()
+        switch helper?.status() {
         case .enabled:
-            var failure: String?
-            for fix in ServerFix.allCases {
-                do throws(ServerHelperClient.Failure) {
-                    try await revert(fix)
-                } catch {
-                    if case let .refused(reason) = error, reason == ServerHelperService.nothingToRevert { continue }
-                    failure = failure ?? ServerHealthFixer.reject(for: error)
-                }
-            }
-            return failure
+            break
         case .requiresApproval:
-            return ServerHealthFixer.reject(for: .requiresApproval)
+            return recorded.toRevert.isEmpty ? nil : ServerHealthFixer.reject(for: .requiresApproval)
         default:
-            // Not registered or not in this build: no helper ever ran a fix.
+            // No helper is registered: none can revert; the ledger keeps its entries.
             return nil
         }
+        var failure: String?
+        for fix in ServerFix.allCases {
+            do throws(ServerHelperClient.Failure) {
+                try await revert(fix)
+            } catch {
+                guard case let .refused(reason) = error, reason == ServerHelperService.nothingToRevert else {
+                    failure = failure ?? ServerHealthFixer.reject(for: error)
+                    continue
+                }
+            }
+            // Only a revert that succeeded, or found nothing to revert, clears its entry.
+            try? await ledger.clear(fix)
+        }
+        if failure == nil, recorded == .unknown { try? await ledger.reset() }
+        return failure
     }
 
     private func unregister(_ job: ServerServiceRegistration) async throws(Failure) {

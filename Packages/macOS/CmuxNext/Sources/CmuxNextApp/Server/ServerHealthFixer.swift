@@ -14,9 +14,8 @@ struct ServerHealthFixer {
     let run: Run
     /// Shared with Stop Serving, so a revert never overtakes an apply.
     var gate: ServerFixGate = .shared
+    /// Every fix the helper applied, for Stop Serving.
     let ledger: ServerFixLedger
-
-    static var cancelled: String { "" }
 
     /// The App's fixer: the helper of this build.
     static let helper = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
@@ -62,7 +61,15 @@ struct ServerHealthFixer {
         await gate.acquire()
         defer { gate.release() }
         for fix in fixes {
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled else { return Self.cancelled }
+            // Recorded before the call: a call that ends early (timeout) may
+            // still have changed the setting, and Stop Serving must revert it.
+            // Without the record the fix does not run.
+            do {
+                try await ledger.record(fix)
+            } catch {
+                return RefusalStrings.format("refusal.server.fixFailed", "Could not run the fix: %@", String(describing: error))
+            }
             do throws(ServerHelperClient.Failure) {
                 try await run(fix, false)
             } catch {
@@ -70,6 +77,11 @@ struct ServerHealthFixer {
             }
         }
         return nil
+    }
+
+    /// A Fix cut short by Stop Serving: not a success.
+    static var cancelled: String {
+        RefusalStrings.text("refusal.server.fixCancelled", "The fix was stopped before it finished.")
     }
 
     /// Localized text for a helper failure; the helper's own reason is kept.

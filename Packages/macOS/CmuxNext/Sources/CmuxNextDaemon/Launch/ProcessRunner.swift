@@ -62,7 +62,7 @@ public enum ProcessRunner {
                 if status == Int32.min {
                     // Interactive shells ignore SIGTERM, so kill outright; the
                     // waiter task resumes once the child is reaped.
-                    kill(box.process.processIdentifier, SIGKILL)
+                    box.kill()
                     throw DaemonError.timedOut("\(executable.lastPathComponent) \(arguments.joined(separator: " "))")
                 }
                 return status
@@ -77,6 +77,7 @@ public enum ProcessRunner {
 /// `Process` is not Sendable; it is only touched from the group tasks above.
 final class ProcessBox: @unchecked Sendable {
     let process: Process
+    /// Sends a signal (tests record it instead).
     private let signal: @Sendable (pid_t, Int32) -> Void
 
     init(_ process: Process, signal: @escaping @Sendable (pid_t, Int32) -> Void = { _ = Darwin.kill($0, $1) }) {
@@ -84,7 +85,9 @@ final class ProcessBox: @unchecked Sendable {
         self.signal = signal
     }
 
-    /// SIGKILL to this child only; never before launch (pid 0 would be our group).
+    /// SIGKILL to this child only, and only while it runs: never before launch
+    /// (pid 0 would be our own process group) and never after exit (the pid
+    /// may belong to another process by then).
     func kill() {
         let pid = process.processIdentifier
         guard pid > 0, process.isRunning else { return }
