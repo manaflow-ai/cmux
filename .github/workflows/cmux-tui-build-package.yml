@@ -311,6 +311,27 @@ jobs:
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
 
+      - name: Build cmux-cloud app server
+        # The first-party Cloud app server (cmux/cloud) is its own Cargo
+        # workspace with the same toolchain. The app supervisor runs it from
+        # beside cmux-app-host. Unix only, like the app host.
+        if: runner.os != 'Windows'
+        env:
+          CLOUD_SERVER_CROSS: ${{ matrix.cross }}
+          CLOUD_SERVER_TARGET: ${{ matrix.build_target }}
+          RUNNER_OS: ${{ runner.os }}
+        working-directory: first-party-apps/cloud/server
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The common target directory gives staging one predictable path.
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
+          if [[ "$CLOUD_SERVER_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
+            cargo zigbuild --bin cmux-cloud --release --locked --target "$CLOUD_SERVER_TARGET"
+          else
+            cargo build --bin cmux-cloud --release --locked --target "$CLOUD_SERVER_TARGET"
+          fi
+
       - name: Build agent screen-detection plugin
         if: inputs.build_agent_plugin && runner.os != 'Windows'
         env:
@@ -352,6 +373,13 @@ jobs:
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-app-host${{ matrix.ext }}" "$app_host_binary"
+          # The Cloud app server rides the same way as cmux-tui-cloud-server-<target>
+          # and installs as cmux-cloud beside cmux-app-host. Unix only.
+          cloud_server_binary=""
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            cloud_server_binary="dist/cmux-tui-cloud-server-${{ matrix.target }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-cloud" "$cloud_server_binary"
+          fi
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           # acpmux rides in the cmux-tui artifact group (like cmux-tui-hook) so
@@ -367,6 +395,9 @@ jobs:
             cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$acpmux_binary" "dist/cmux-tui-acpmux-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$app_host_binary" "dist/cmux-tui-app-host-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            if [[ -n "$cloud_server_binary" ]]; then
+              cp "$cloud_server_binary" "dist/cmux-tui-cloud-server-${{ matrix.compatibility_target }}"
+            fi
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
