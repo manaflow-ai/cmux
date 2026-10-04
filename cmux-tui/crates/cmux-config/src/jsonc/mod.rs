@@ -3,6 +3,7 @@
 //! the source text in place so comments, key order and formatting the user
 //! wrote survive (port of Swift `JSONC`).
 
+mod array;
 mod edit;
 mod lex;
 mod tree;
@@ -97,4 +98,28 @@ pub fn set(source: &str, path: &[String], value: &Value) -> Result<String, Jsonc
 /// `source` with the member at `path` removed. Unchanged when absent.
 pub fn remove(source: &str, path: &[String]) -> Result<String, JsoncError> {
     edit::remove(source, path)
+}
+
+/// The value spans of the root array's elements (keybindings.json); empty
+/// for an empty or comment-only document. Fails when the root is not an array.
+pub fn array_spans(source: &str) -> Result<Vec<(usize, usize)>, JsoncError> {
+    let array = array::root_array(source.as_bytes())?;
+    Ok(array
+        .map(|array| array.elements.iter().map(|element| (element.start, element.end)).collect())
+        .unwrap_or_default())
+}
+
+/// `source` with `value` appended to the root array.
+pub fn array_append(source: &str, value: &Value) -> Result<String, JsoncError> {
+    array::append(source, value)
+}
+
+/// `source` with element `index` of the root array removed.
+pub fn array_remove(source: &str, index: usize) -> Result<String, JsoncError> {
+    array::remove(source, index)
+}
+
+/// `source` with element `index` of the root array replaced by `value`.
+pub fn array_replace(source: &str, index: usize, value: &Value) -> Result<String, JsoncError> {
+    array::replace(source, index, value)
 }

@@ -1,6 +1,8 @@
 //! `cmux-config`: the owner of `~/.config/cmux/cmux.json` inside the cmux
 //! daemon (plans/cmux-next/settings-react.md sections 1-3 and 6).
 //!
+//! - [`keybindings`]: keybindings.json (R59): entries with per-entry
+//!   diagnostics and comment-preserving edits.
 //! - [`schema`]: the settings schema exported from Swift, embedded, with
 //!   write validation per kind.
 //! - [`jsonc`]: a comment-preserving JSONC parser and in-place editor.
@@ -16,6 +18,7 @@ pub mod effective;
 pub mod fsio;
 pub mod guard;
 pub mod jsonc;
+pub mod keybindings;
 pub mod keypath;
 pub mod location;
 pub mod managed;
