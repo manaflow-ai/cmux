@@ -17,6 +17,7 @@
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "dist/main.js" },
   "catalog": "catalog/skills-catalog.json",
+  "cli": { "name": "skills" },
   "implements": {
     "cmux.section/1": { "export": "renderSection", "title": { "en": "Skills", "ja": "スキル" }, "symbol": "book.closed", "options": { "defaultRegion": "bottom" } },
     "cmux.pane/1": { "export": "renderPane", "title": { "en": "Skills and MCP", "ja": "スキルとMCP" }, "symbol": "book.closed" }

@@ -39,12 +39,25 @@ struct ChordTracker {
         return prefix
     }
 
-    /// `canArm` says whether the focus lets a chord start (not a text input,
-    /// not browser focus mode, no marked text; `KeyRouter.canArm`); asked
-    /// only for a first key. `focus` is the window's focus, kept with an
-    /// armed chord for ``focusDidChange(to:in:)``.
+    /// The registry's own resolution with its process-wide context (tests
+    /// and the which-key overlay); the key router passes the binding table
+    /// with the key window's context instead.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, registry: ActionRegistry,
                        focus: FocusState.Resolved? = nil, canArm: () -> Bool) -> Step {
+        step(event, window: window, focus: focus, prefix: { LeaderLayer(registry: registry).chordPrefix(for: $0) },
+             complete: { prefix, event in registry.resolveChord(after: prefix, event: event).map { ($0.id, $0.argument) } },
+             canArm: canArm)
+    }
+
+    /// `prefix` gives the first key of a chord a key-down arms (or nil);
+    /// `complete` gives the action the key after `prefix` runs, with its
+    /// digit. `canArm` says whether the focus lets a chord start (not a text
+    /// input, not browser focus mode, no marked text; `KeyRouter.canArm`);
+    /// asked only for a first key. `focus` is the window's focus, kept with
+    /// an armed chord for ``focusDidChange(to:in:)``.
+    mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil,
+                       prefix: (NSEvent) -> Shortcut?, complete: (Shortcut, NSEvent) -> (ActionID, String?)?,
+                       canArm: () -> Bool) -> Step {
         // A held Cmd-J repeats: the leader stays armed, and a repeat never arms it.
         if event.isARepeat, KeyRouter.isChord(event.modifierFlags), LeaderLayer.prefix.matches(event) {
             return pending?.prefix == LeaderLayer.prefix && pending?.window == window ? .armed : .pass
@@ -52,16 +65,14 @@ struct ChordTracker {
         if let pending {
             self.pending = nil
             if pending.window == window {
-                guard let resolved = registry.resolveChord(after: pending.prefix, event: event) else {
+                guard event.type == .keyDown, let resolved = complete(pending.prefix, event) else {
                     return pending.prefix == LeaderLayer.prefix ? .dismissed : .mismatch
                 }
-                return .run(resolved.id, argument: resolved.argument)
+                return .run(resolved.0, argument: resolved.1)
             }
         }
-        guard KeyRouter.isChord(event.modifierFlags),
-              let prefix = LeaderLayer(registry: registry).chordPrefix(for: event),
-              canArm() else { return .pass }
-        pending = (prefix, window, focus)
+        guard KeyRouter.isChord(event.modifierFlags), let first = prefix(event), canArm() else { return .pass }
+        self.pending = (first, window, focus)
         return .armed
     }
 

@@ -64,8 +64,8 @@ import Testing
 
     /// One window showing the daemon's workspace: one pane, tab 11 selected
     /// and focused.
-    static func harness() async throws -> Harness {
-        let daemon = try TopologyDaemon()
+    static func harness(daemon: TopologyDaemon? = nil) async throws -> Harness {
+        let daemon = try daemon ?? TopologyDaemon()
         let services = ActionBindingCoverageTests.boundServices()
         services.windows.ordersWindowsIn = false
         services.daemon.start(makeConnection: { daemon.connection() })

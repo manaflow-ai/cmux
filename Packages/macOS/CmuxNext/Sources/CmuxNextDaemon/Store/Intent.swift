@@ -28,6 +28,20 @@ public enum Intent: Sendable, Hashable {
     case setWorkspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
     /// `update-tab-group` with `collapsed`.
     case setTabGroupCollapsed(TabGroupID, collapsed: Bool)
+    /// `set-row-heights` (`rows-v1`): every row of `column`, in permille.
+    /// A row divider release (plans/cmux-next/rows.md Z1).
+    case setRowHeights(column: ColumnID, heights: [RowHeightValue])
+}
+
+/// One row's height in permille (`set-row-heights` `heights[]`).
+public struct RowHeightValue: Sendable, Hashable, Codable {
+    public var row: RowID
+    public var height: Int
+
+    public init(row: RowID, height: Int) {
+        self.row = row
+        self.height = height
+    }
 }
 
 /// How an intent left the log. Each intent leaves exactly once.

@@ -148,7 +148,7 @@ describe("calls", () => {
     await tick();
     expect(errors.map((e) => e.message)).toEqual([
       "message is not valid JSON",
-      "ok.id must be a u64",
+      "ok.id must be an id in 0..2^53-1",
       "result for unknown call id 999",
       "binary frame shorter than its 8-byte header",
     ]);
@@ -184,17 +184,38 @@ describe("subscriptions", () => {
     expect(sentText(a).at(-1)).toEqual({ t: "unsub", sub: sub.id });
   });
 
-  test("seq gaps are reported", async () => {
+  test("seq gaps and provider-declared drops (gap:true) are reported", async () => {
     const { b, client } = clientOnly();
-    const gaps: Array<[number, number]> = [];
-    const pending = client.subscribe("x.y.ev", { onEvent: () => {}, onGap: (e, r) => gaps.push([e, r]) });
+    const gaps: Array<{ expected: number; received: number; dropped: boolean }> = [];
+    const seen: number[] = [];
+    const pending = client.subscribe("x.y.ev", { onEvent: (_d, seq) => seen.push(seq), onGap: (g) => gaps.push(g) });
     b.send(JSON.stringify({ t: "ok", id: 1, value: { sub: 3 } }));
     const sub = await pending;
     b.send(JSON.stringify({ t: "ev", sub: sub.id, seq: 5, data: {} }));
     b.send(JSON.stringify({ t: "ev", sub: sub.id, seq: 6, data: {} }));
     b.send(JSON.stringify({ t: "ev", sub: sub.id, seq: 9, data: {} }));
+    // Decision 15: seq stays contiguous; gap:true says events were dropped before this one.
+    b.send(JSON.stringify({ t: "ev", sub: sub.id, seq: 10, data: {}, gap: true }));
     await tick();
-    expect(gaps).toEqual([[7, 9]]);
+    expect(gaps).toEqual([
+      { expected: 7, received: 9, dropped: false },
+      { expected: 10, received: 10, dropped: true },
+    ]);
+    expect(seen).toEqual([5, 6, 9, 10]);
+  });
+
+  test("a malformed request with a readable id gets err bad_message", async () => {
+    const [a, b] = createMockPair();
+    new Session(a, { role: "server" });
+    const replies: string[] = [];
+    b.onMessage((m) => replies.push(m as string));
+    b.send('{"t":"call","id":4}'); // op missing
+    b.send('{"t":"call","id":0,"op":"x.y.z"}'); // id 0 is unreadable as a request id: no reply
+    await tick();
+    await tick();
+    expect(replies.map((r) => JSON.parse(r))).toEqual([
+      { t: "err", id: 4, code: "cmux.protocol.bad_message", message: "call.op must be a string", retryable: false },
+    ]);
   });
 
   test("using releases a subscription and a handle at scope exit", async () => {

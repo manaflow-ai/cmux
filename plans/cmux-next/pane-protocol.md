@@ -175,6 +175,15 @@ Router control ops in the first slice: `cmux.router.hello` (provider admission),
 `cmux.router.resolve`, `cmux.router.token.refresh`, `cmux.router.interfaces.list`,
 `cmux.router.pages.list`.
 
+Every page also gets two event streams from its engine bridge (the host, not a provider), so pages
+handle host state and host commands one way:
+
+- `cmux.page.connection` `{connected: boolean}`: the page's backend connection went up or down.
+  Pages show their own offline state from it instead of guessing from failed calls.
+- `cmux.page.command` `{command: "find" | "focusSearch" | "back" | "forward" | "reset"}`: a host
+  command for the focused page. The app's single key dispatcher (R59) maps keys to these commands;
+  pages add no key handling of their own for them.
+
 ## First slice (proves every part)
 
 1. Rust: envelope, framing, token mint and verify, router namespace registry and provider

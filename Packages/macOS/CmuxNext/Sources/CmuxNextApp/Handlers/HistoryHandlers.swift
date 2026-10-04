@@ -48,6 +48,19 @@ enum HistoryHandlers {
         registry.bind("history.reopen", run: { invocation in
             HistoryRestorer(services: services).reopen(closedID: invocation["id"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
         })
+        // One entry's restore action by id (the History page's rows, `cmux history open`). The
+        // entry is looked up from its owners, so a caller names it and never supplies its facts.
+        registry.bind("history.open", run: { invocation in
+            guard let id = invocation["id"]?.stringValue, !id.isEmpty else { return }
+            let newTab = invocation["new_tab"]?.boolValue ?? false
+            services.registry.track(Task { @MainActor in
+                guard let entry = await services.history.entry(id: id), entry.isAvailable else {
+                    return ActionWorkFailure(HistoryAppStrings.entryGone)
+                }
+                HistoryRestorer(services: services).open(entry, newTab: newTab)
+                return nil
+            })
+        })
         registry.bind("history.clear", run: { invocation in
             let range = invocation["range"]?.stringValue.flatMap(HistoryRange.init(rawValue:)) ?? .hour
             let kind = invocation["kind"]?.stringValue.flatMap(HistoryEntry.Kind.init(rawValue:))

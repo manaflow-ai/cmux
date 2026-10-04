@@ -37,6 +37,7 @@
     "main": "dist/main.js"
   },
   "catalog": "catalog/usage-catalog.json",
+  "cli": { "name": "usage" },
   "implements": {
     "cmux.section/1": {
       "export": "renderSection",

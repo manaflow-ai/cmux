@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e7cee22695ab7966861c8ab2ccfbf5fee50718b0db63bfbac22bd10e40c28379";
+pub const ir_sha256 = "48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4814,6 +4814,7 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
 pub const MoveTabToNewWorkspaceRequest = struct {
     group: wire.Field([]const u8) = .absent,
     index: wire.Field(u64) = .absent,
+    name: wire.Field([]const u8) = .absent,
     surface: Id,
     transaction: wire.Field([]const u8) = .absent,
 };
@@ -4828,6 +4829,9 @@ pub fn moveTabToNewWorkspace(client: anytype, request: MoveTabToNewWorkspaceRequ
             .authority = "control",
             .since = 12,
             .capability = "tab-drag-v1",
+            .fields = &.{
+                .{ .name = "name", .since = null, .capability = "tab-workspace-name-v1" },
+            },
         },
         request,
     );

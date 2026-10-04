@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e7cee22695ab7966861c8ab2ccfbf5fee50718b0db63bfbac22bd10e40c28379. */
+/* cmux-tui mux protocol 12, IR 48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa. */
 
 
 import type * as T from "./types.js";
@@ -1017,6 +1017,7 @@ export interface MoveTabToNewWorkspaceRequest extends CmuxRequestBase {
   cmd: "move-tab-to-new-workspace";
   "group"?: (string) | null;
   "index"?: (bigint) | null;
+  "name"?: (string) | null;
   "surface": T.Id;
   "transaction"?: (string) | null;
 }

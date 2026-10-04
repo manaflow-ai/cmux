@@ -55,8 +55,11 @@ export interface SubscribeOptions<T = unknown> {
   /** Aborting before the `ok` cancels the subscribe; aborting after unsubscribes. */
   signal?: AbortSignal;
   onEvent: (data: T, seq: number) => void;
-  /** seq did not follow the previous one (expected = previous + 1). */
-  onGap?: (expected: number, received: number) => void;
+  /**
+   * Events were lost before this one. `dropped` means the provider said so (`gap:true`, its queue
+   * overflowed; decision 15); otherwise seq skipped. Either way, resync from a fresh read.
+   */
+  onGap?: (gap: { expected: number; received: number; dropped: boolean }) => void;
   /** An event failed validation and was dropped. */
   onInvalid?: (error: ProtocolError, seq: number) => void;
   /** The session closed under the subscription. */
@@ -260,8 +263,8 @@ export class Session {
         resolve: (value) => {
           signal?.removeEventListener("abort", onAbort);
           const subId = (value as { sub?: unknown } | null)?.sub;
-          if (typeof subId !== "number" || !Number.isSafeInteger(subId) || subId < 0) {
-            reject(new ProtocolError(ProtocolErrorCode.invalidResult, "subscribe result must be {sub:<u64>}"));
+          if (typeof subId !== "number" || !Number.isSafeInteger(subId) || subId < 1) {
+            reject(new ProtocolError(ProtocolErrorCode.invalidResult, "subscribe result must be {sub:<id>}"));
             return;
           }
           this.subscriptions.set(subId, { stream, lastSeq: null, options: options as SubscribeOptions<unknown> });
@@ -411,6 +414,7 @@ export class Session {
       envelope = decodeEnvelope(msg);
     } catch (error) {
       this.protocolError(error as Error);
+      this.refuseMalformed(msg, error as Error);
       return;
     }
     switch (envelope.t) {
@@ -431,7 +435,7 @@ export class Session {
         this.settle(envelope.id, (call) => call.reject(errorFromMessage(envelope)));
         return;
       case "ev":
-        this.receiveEvent(envelope.sub, envelope.seq, envelope.data);
+        this.receiveEvent(envelope.sub, envelope.seq, envelope.data, envelope.gap === true);
         return;
       case "call":
         this.receiveCall(envelope);
@@ -489,12 +493,13 @@ export class Session {
     apply(call);
   }
 
-  private receiveEvent(subId: number, seq: number, data: unknown): void {
+  private receiveEvent(subId: number, seq: number, data: unknown, gap: boolean): void {
     const sub = this.subscriptions.get(subId);
     if (!sub) return; // Late event after unsub.
     const previous = sub.lastSeq;
     sub.lastSeq = seq;
-    if (previous !== null && seq !== previous + 1) sub.options.onGap?.(previous + 1, seq);
+    const expected = previous === null ? seq : previous + 1;
+    if (gap || seq !== expected) sub.options.onGap?.({ expected, received: seq, dropped: gap });
     if (this.options.schema) {
       const issues = this.options.schema.validateEvent(sub.stream, data);
       const error = this.checkIssues(issues, ProtocolErrorCode.invalidEvent, `event ${sub.stream}`);
@@ -621,6 +626,24 @@ export class Session {
   }
 
   // Helpers.
+
+  /**
+   * A malformed request still gets an answer when its id can be read, so the peer's call does
+   * not hang: `err` with `cmux.protocol.bad_message` (decision 13, R4). Other malformed messages
+   * are only reported.
+   */
+  private refuseMalformed(text: string, error: Error): void {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const { t, id } = (raw ?? {}) as { t?: unknown; id?: unknown };
+    if ((t !== "call" && t !== "sub" && t !== "open") || typeof id !== "number") return;
+    if (!Number.isSafeInteger(id) || id < 1) return;
+    this.replyError(id, new ProtocolError(ProtocolErrorCode.badMessage, error.message));
+  }
 
   private checkIssues(issues: ValidationIssue[] | null, code: string, what: string): ProtocolError | null {
     if (issues === null) return new ProtocolError(code, `${what}: not in the protocol schema`);

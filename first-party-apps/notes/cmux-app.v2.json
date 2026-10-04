@@ -36,6 +36,7 @@
     "main": "dist/main.js"
   },
   "catalog": "catalog/notes-catalog.json",
+  "cli": { "name": "notes" },
   "implements": {
     "cmux.section/1": {
       "export": "renderNotes",

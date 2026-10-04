@@ -93,6 +93,7 @@ impl FakeWire {
                 json!({"success": true})
             }
             "Target.activateTarget"
+            | "Target.detachFromTarget"
             | "Page.enable"
             | "Page.setLifecycleEventsEnabled"
             | "Emulation.setFocusEmulationEnabled"
@@ -138,6 +139,12 @@ impl FakeWire {
                 } else {
                     let target = target_of(&session);
                     let tab = browser.tabs.get_mut(&target).unwrap();
+                    // A server redirect that lands on a browser page.
+                    let url = if url.contains("redirect-to-browser-page") {
+                        "chrome://password-manager/passwords".to_owned()
+                    } else {
+                        url
+                    };
                     tab.history.truncate(tab.index + 1);
                     tab.history.push(url.clone());
                     tab.index = tab.history.len() - 1;
@@ -765,4 +772,292 @@ fn workers_and_prerenders_are_intercepted_before_they_run() {
         assert!(std::time::Instant::now() < deadline, "{sent:?}");
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+}
+
+/// Browser pages (chrome://, chrome-extension://, chrome-untrusted://,
+/// devtools://) hold saved passwords and settings; the relay never lets an
+/// agent open one, run script in one, or read one (P0, 2026-10-03).
+fn privileged_tab(h: &Harness) -> String {
+    let target = h.open(Some("https://a.test/"));
+    // The user (or an earlier step) left the tab on the password manager.
+    let session = target.replacen('T', "S", 1);
+    let event = session_event(
+        &session,
+        "Page.frameNavigated",
+        json!({"frame": {"id": format!("F-{target}"), "loaderId": "LP", "url": "chrome://password-manager/passwords"}, "type": "Navigation"}),
+    );
+    h._conn.receive(&event.to_string());
+    for _ in 0..2000 {
+        if h.call("tab.info", json!({"targetId": target}))["url"]
+            == "chrome://password-manager/passwords"
+        {
+            return target;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    panic!("the tab did not report the browser page");
+}
+
+#[test]
+fn agents_cannot_navigate_or_open_tabs_to_browser_pages() {
+    let h = Harness::new();
+    let target = h.open(Some("https://a.test/"));
+    for url in [
+        "chrome://password-manager/passwords",
+        "CHROME://settings",
+        "chrome-extension://abc/options.html",
+        "chrome-untrusted://print/",
+        "devtools://devtools/bundled/inspector.html",
+    ] {
+        let mark = h.mark();
+        let error =
+            h.driver.call("tab.navigate", &json!({"targetId": target, "url": url})).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Forbidden, "{url}");
+        let error = h.driver.call("tabs.open", &json!({"url": url})).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Forbidden, "{url}");
+        let sent = h.methods_since(mark);
+        assert!(
+            !sent.iter().any(|m| m == "Page.navigate" || m == "Target.createTarget"),
+            "{url}: {sent:?}"
+        );
+    }
+}
+
+#[test]
+fn agents_cannot_run_script_in_or_read_a_browser_page() {
+    let h = Harness::new();
+    let target = privileged_tab(&h);
+    let mark = h.mark();
+    for (method, params) in [
+        (
+            "frame.evaluate",
+            json!({"targetId": target, "world": "page", "source": "() => 1", "args": []}),
+        ),
+        (
+            "frame.evaluate",
+            json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []}),
+        ),
+        (
+            "cdp",
+            json!({"targetId": target, "method": "Runtime.evaluate", "params": {"expression": "1"}}),
+        ),
+        (
+            "cdp",
+            json!({"targetId": target, "method": "Runtime.callFunctionOn", "params": {"functionDeclaration": "() => 1"}}),
+        ),
+        ("cdp", json!({"targetId": target, "method": "DOM.getDocument", "params": {}})),
+        ("frames.list", json!({"targetId": target})),
+        ("input.insertText", json!({"targetId": target, "text": "x"})),
+        ("tab.screenshot", json!({"targetId": target})),
+    ] {
+        let error = h.driver.call(method, &params).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Forbidden, "{method} {params}");
+    }
+    let sent = h.methods_since(mark);
+    assert!(
+        !sent.iter().any(|m| m.starts_with("Runtime.")
+            || m.starts_with("DOM.")
+            || m.starts_with("Input.")
+            || m == "Page.captureScreenshot"),
+        "{sent:?}"
+    );
+    // Leaving the page stays possible.
+    h.call("tab.navigate", json!({"targetId": target, "url": "https://b.test/"}));
+    assert_eq!(
+        h.call(
+            "frame.evaluate",
+            json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []})
+        ),
+        "ok"
+    );
+}
+
+#[test]
+fn history_never_returns_an_agent_to_a_browser_page() {
+    let h = Harness::new();
+    let target = h.open(Some("https://a.test/"));
+    {
+        let mut browser = h.wire.browser.lock().unwrap();
+        let tab = browser.tabs.get_mut(&target).unwrap();
+        tab.history = vec![
+            "https://a.test/".into(),
+            "chrome://password-manager/passwords".into(),
+            "https://b.test/".into(),
+        ];
+        tab.index = 2;
+    }
+    let mark = h.mark();
+    let error =
+        h.driver.call("tab.history", &json!({"targetId": target, "delta": -1})).unwrap_err();
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    assert!(!h.methods_since(mark).iter().any(|m| m == "Page.navigateToHistoryEntry"));
+}
+
+#[test]
+fn a_redirect_onto_a_browser_page_is_left_and_refused() {
+    let h = Harness::new();
+    let target = h.open(Some("https://a.test/"));
+    let mark = h.mark();
+    let error = h
+        .driver
+        .call(
+            "tab.navigate",
+            &json!({"targetId": target, "url": "https://a.test/redirect-to-browser-page"}),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    let leave = h
+        .sent_since(mark)
+        .into_iter()
+        .filter(|(m, _)| m == "Page.navigate")
+        .map(|(_, p)| p["url"].as_str().unwrap_or("").to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(leave.last().map(String::as_str), Some("about:blank"), "{leave:?}");
+    assert_eq!(h.call("tab.info", json!({"targetId": target}))["url"], "about:blank");
+}
+
+#[test]
+fn the_relay_detaches_from_browser_page_targets() {
+    let h = Harness::new();
+    h.open(Some("https://a.test/"));
+    let mark = h.mark();
+    let attached = json!({"method": "Target.attachedToTarget", "params": {
+        "sessionId": "SPM",
+        "targetInfo": {"targetId": "TPM", "type": "page", "url": "chrome://password-manager/passwords", "title": ""},
+        "waitingForDebugger": true,
+    }});
+    h._conn.receive(&attached.to_string());
+    for _ in 0..2000 {
+        if h.methods_since(mark).iter().any(|m| m == "Target.detachFromTarget") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let sent = h.sent_since(mark);
+    let detach = sent.iter().find(|(m, _)| m == "Target.detachFromTarget");
+    assert_eq!(detach.map(|(_, p)| p["sessionId"].clone()), Some(json!("SPM")), "{sent:?}");
+    assert!(
+        !sent
+            .iter()
+            .any(|(m, _)| m == "Page.addScriptToEvaluateOnNewDocument" || m == "Runtime.enable"),
+        "{sent:?}"
+    );
+    let tabs = h.call("tabs.list", json!({}));
+    assert!(!tabs.to_string().contains("TPM"), "{tabs}");
+}
+
+fn receive(h: &Harness, event: Value) {
+    h._conn.receive(&event.to_string());
+}
+
+fn wait_until(mut done: impl FnMut() -> bool, what: &str) {
+    for _ in 0..2000 {
+        if done() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    panic!("{what}");
+}
+
+#[test]
+fn a_pending_url_does_not_unlock_a_committed_browser_page() {
+    let h = Harness::new();
+    let target = privileged_tab(&h);
+    // A slow navigation away is still pending: Chromium reports its URL in
+    // targetInfoChanged before anything commits.
+    receive(
+        &h,
+        json!({"method": "Target.targetInfoChanged", "params": {"targetInfo": {
+        "targetId": target, "type": "page", "url": "https://b.test/slow", "title": "Password Manager"}}}),
+    );
+    wait_until(
+        || h.call("tabs.list", json!({})).to_string().contains("https://b.test/slow"),
+        "targetInfoChanged was not applied",
+    );
+    for (method, params) in [
+        (
+            "frame.evaluate",
+            json!({"targetId": target, "world": "page", "source": "() => 1", "args": []}),
+        ),
+        (
+            "cdp",
+            json!({"targetId": target, "method": "Runtime.evaluate", "params": {"expression": "1"}}),
+        ),
+        ("tab.reload", json!({"targetId": target})),
+    ] {
+        let error = h.driver.call(method, &params).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Forbidden, "{method}");
+    }
+}
+
+#[test]
+fn frames_that_show_browser_pages_are_refused_and_released() {
+    let h = Harness::new();
+    let target = h.open(Some("https://a.test/"));
+    let session = target.replacen('T', "S", 1);
+    // An in-process child frame commits an extension page.
+    receive(
+        &h,
+        session_event(
+            &session,
+            "Page.frameNavigated",
+            json!({"frame": {
+        "id": "XF", "parentId": format!("F-{target}"), "loaderId": "LX", "url": "chrome-extension://abc/menu.html"}, "type": "Navigation"}),
+        ),
+    );
+    wait_until(
+        || {
+            h.events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.payload.to_string().contains("chrome-extension://abc/menu.html"))
+        },
+        "the frame navigation was not applied",
+    );
+    let error = h
+        .driver
+        .call("frame.evaluate", &json!({"targetId": target, "frameId": "XF", "world": "page", "source": "() => 1", "args": []}))
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    // The page itself stays usable.
+    assert_eq!(
+        h.call(
+            "frame.evaluate",
+            json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []})
+        ),
+        "ok"
+    );
+
+    // An out-of-process child frame attached at a web URL, then committed an
+    // extension page: the relay detaches it through its parent session.
+    receive(
+        &h,
+        json!({"sessionId": session, "method": "Target.attachedToTarget", "params": {
+        "sessionId": "CX", "targetInfo": {"targetId": "OOP", "type": "iframe", "url": "https://x.test/"}, "waitingForDebugger": true}}),
+    );
+    let mark = h.mark();
+    receive(
+        &h,
+        session_event(
+            "CX",
+            "Page.frameNavigated",
+            json!({"frame": {
+        "id": "OOP", "parentId": format!("F-{target}"), "loaderId": "LO", "url": "chrome-extension://abc/menu.html"}, "type": "Navigation"}),
+        ),
+    );
+    wait_until(
+        || h.methods_since(mark).iter().any(|m| m == "Target.detachFromTarget"),
+        "the extension frame was not detached",
+    );
+    let browser = h.wire.browser.lock().unwrap();
+    let detach =
+        browser.sent[mark..].iter().find(|m| m["method"] == "Target.detachFromTarget").unwrap();
+    assert_eq!(detach["params"]["sessionId"], "CX");
+    assert_eq!(
+        detach["sessionId"],
+        json!(session),
+        "a child session is detached through its parent"
+    );
 }

@@ -197,7 +197,8 @@ public final class GhosttyRuntime {
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
         opacity = min(max(configured, 0), 1)
-        if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells) {
+        if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
+                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
@@ -345,9 +346,12 @@ nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
 /// root's sheet (`background` at `background-opacity`) is the only layer
 /// behind the cells, as the single surface layer is in Ghostty.app. With
 /// `background-opacity-cells` explicit cell colors take the opacity, and a
-/// 0 would erase them, so the config stays as it is.
+/// 0 would erase them, so the config stays as it is. A terminal background
+/// override (`appearance.surfaces.terminal`) makes the surfaces transparent
+/// in an opaque window too: the terminal host paints the override behind
+/// the cells (`ownerPaintsBackground`).
 nonisolated enum GhosttyRuntimeSurfacePolicy {
-    static func override(configuredOpacity: Double, opacityCells: Bool) -> String? {
-        configuredOpacity < 1 && !opacityCells ? "background-opacity = 0" : nil
+    static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false) -> String? {
+        (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells ? "background-opacity = 0" : nil
     }
 }

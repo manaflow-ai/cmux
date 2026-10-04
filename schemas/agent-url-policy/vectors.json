@@ -1,0 +1,133 @@
+{
+  "description": "Shared test vectors for the agent URL rule: Swift AgentURLPolicy (CmuxNextBrowser/Core/AgentURLPolicy.swift) and Rust cmux-browser-host policy::is_browser_page both read this file. Change both implementations together.",
+  "cases": [
+    {
+      "url": "chrome://password-manager/passwords",
+      "refused": true
+    },
+    {
+      "url": "CHROME://settings",
+      "refused": true
+    },
+    {
+      "url": " \t\u0001chrome://settings",
+      "refused": true
+    },
+    {
+      "url": "chr\tome://settings",
+      "refused": true
+    },
+    {
+      "url": "\nchrome://settings",
+      "refused": true
+    },
+    {
+      "url": "chrome-extension://abc/options.html",
+      "refused": true
+    },
+    {
+      "url": "chrome-untrusted://print/",
+      "refused": true
+    },
+    {
+      "url": "chrome-search://local-ntp/",
+      "refused": true
+    },
+    {
+      "url": "devtools://devtools/bundled/inspector.html",
+      "refused": true
+    },
+    {
+      "url": "chrome-devtools://devtools/x",
+      "refused": true
+    },
+    {
+      "url": "view-source:https://a.test/",
+      "refused": true
+    },
+    {
+      "url": "about:settings",
+      "refused": true
+    },
+    {
+      "url": "About:Passwords?x",
+      "refused": true
+    },
+    {
+      "url": "about:version#top",
+      "refused": true
+    },
+    {
+      "url": "blob:chrome://settings/abc",
+      "refused": true
+    },
+    {
+      "url": "blob:chrome-extension://abc/1",
+      "refused": true
+    },
+    {
+      "url": "filesystem:chrome-extension://abc/temporary/x",
+      "refused": true
+    },
+    {
+      "url": "blob:blob:chrome://settings/x",
+      "refused": true
+    },
+    {
+      "url": "https://a.test/",
+      "refused": false
+    },
+    {
+      "url": "http://127.0.0.1:8080/",
+      "refused": false
+    },
+    {
+      "url": "about:blank",
+      "refused": false
+    },
+    {
+      "url": "about:blank#top",
+      "refused": false
+    },
+    {
+      "url": "ABOUT:srcdoc",
+      "refused": false
+    },
+    {
+      "url": "about:blank?x",
+      "refused": false
+    },
+    {
+      "url": "blob:https://a.test/abc",
+      "refused": false
+    },
+    {
+      "url": "filesystem:https://a.test/temporary/x",
+      "refused": false
+    },
+    {
+      "url": "data:text/html,x",
+      "refused": false
+    },
+    {
+      "url": "",
+      "refused": false
+    },
+    {
+      "url": "not a url",
+      "refused": false
+    },
+    {
+      "url": "chrome",
+      "refused": false
+    },
+    {
+      "url": "https://chrome.example/",
+      "refused": false
+    },
+    {
+      "url": "mailto:a@chrome.test",
+      "refused": false
+    }
+  ]
+}

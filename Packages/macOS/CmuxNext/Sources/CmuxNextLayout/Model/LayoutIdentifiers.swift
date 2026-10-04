@@ -25,6 +25,7 @@ public nonisolated enum LayoutTag {
     public enum Pane {}
     public enum Split {}
     public enum Column {}
+    public enum Row {}
     public enum Screen {}
     public enum Tab {}
     public enum Transaction {}
@@ -36,6 +37,8 @@ public typealias PaneID = LayoutIdentifier<LayoutTag.Pane>
 public typealias SplitID = LayoutIdentifier<LayoutTag.Split>
 /// A scrollable column. Maps to the daemon `columns[].id`.
 public typealias ColumnID = LayoutIdentifier<LayoutTag.Column>
+/// A row of a column. Maps to the daemon `columns[].rows[].id`.
+public typealias RowID = LayoutIdentifier<LayoutTag.Row>
 /// A screen (a window inside a workspace) of a workspace.
 public typealias ScreenID = LayoutIdentifier<LayoutTag.Screen>
 /// A tab placement being dragged onto the layout.

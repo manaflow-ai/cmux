@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e7cee22695ab7966861c8ab2ccfbf5fee50718b0db63bfbac22bd10e40c28379.
+// cmux-tui mux protocol 12, IR 48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1445,6 +1445,8 @@ pub struct MoveTabToNewWorkspaceRequest {
     pub group: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -3510,6 +3512,9 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_new_workspace(&mut self, request: MoveTabToNewWorkspaceRequest) -> Result<MoveTabToNewWorkspaceResult> {
+        if !request.name.is_missing() {
+            self.require_capability_field("move-tab-to-new-workspace", "tab-workspace-name-v1")?;
+        }
         self.execute(&MOVE_TAB_TO_NEW_WORKSPACE_METADATA, &request)
     }
 

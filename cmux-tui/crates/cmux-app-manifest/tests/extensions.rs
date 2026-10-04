@@ -210,3 +210,34 @@ fn home_app_store_and_coderouter_use_the_same_presentation_fields() {
     }
     assert_eq!(orders, vec![0, 10, 20], "Home first, then App Store, then CodeRouter");
 }
+
+#[test]
+fn a_server_implements_an_interface_through_the_top_level_server() {
+    let imp = json!({ "implements": { "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] } } });
+    let mut with = manifest(imp.clone());
+    with["id"] = json!("cmux/cloud");
+    with["repository"] = json!("https://github.com/manaflow-ai/cmux");
+    with["server"] = json!({ "kind": "native", "binaries": { "linux-x64": "cmux-cloud" }, "instances": "user", "hosts": ["local"] });
+    assert!(validate_manifest(&with).is_empty(), "{:?}", validate_manifest(&with));
+    assert_eq!(
+        codes(&validate_manifest(&manifest(imp))),
+        vec![("implements.serverMissing", Severity::Error)]
+    );
+    let two =
+        manifest(json!({ "implements": { "cmux.pane/1": { "server": true, "export": "x" } } }));
+    assert!(validate_manifest(&two).iter().any(|i| i.code == "schema"));
+}
+
+#[test]
+fn terminal_backends_are_a_known_interface_and_a_restricted_scope() {
+    assert_eq!(scope_info("terminal:backend").map(|i| i.class), Some(ScopeClass::Restricted));
+    let third = manifest(json!({ "id": "octo/x", "repository": "https://github.com/octo/x",
+        "server": { "kind": "js", "instances": "user", "hosts": ["local"] },
+        "implements": { "cmux.terminal.backend/1": { "server": true, "options": { "kinds": ["octo-vm"] } } },
+        "scopes": { "terminal:backend": "Run your Octo Cloud terminals." } }));
+    assert_eq!(codes(&validate_manifest(&third)), vec![("scope.restricted", Severity::Warning)]);
+    let mut no_kinds = third;
+    no_kinds["implements"] =
+        json!({ "cmux.terminal.connector/1": { "server": true, "options": {} } });
+    assert!(codes(&validate_manifest(&no_kinds)).contains(&("interface.options", Severity::Error)));
+}

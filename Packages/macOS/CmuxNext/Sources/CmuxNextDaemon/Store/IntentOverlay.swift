@@ -51,7 +51,27 @@ import Foundation
             guard let group = store.tabGroupsByID[id], group.collapsed != collapsed else { return nil }
             group.setCollapsed(collapsed)
             return .tabGroupCollapsed(id, collapsed: !collapsed)
+        case .setRowHeights(let column, let heights):
+            return setRowHeights(heights, of: column, in: store)
         }
+    }
+
+    /// Writes `heights` onto the column's rows; nil when the column is not
+    /// in the mirror, its row set differs (the daemon refuses that,
+    /// `row-set-stale`) or nothing changes.
+    private static func setRowHeights(_ heights: [RowHeightValue], of column: ColumnID, in store: DaemonStore) -> IntentUndo? {
+        let byRow = Dictionary(heights.map { ($0.row, $0.height) }, uniquingKeysWith: { _, new in new })
+        for screen in store.screensByHandle.values {
+            guard let index = screen.columns.firstIndex(where: { $0.id == column }) else { continue }
+            var entry = screen.columns[index]
+            guard Set(entry.rows.map(\.id)) == Set(byRow.keys), entry.rows.count == byRow.count else { return nil }
+            let previous = entry.rows.map { RowHeightValue(row: $0.id, height: $0.height) }
+            for row in entry.rows.indices { entry.rows[row].height = byRow[entry.rows[row].id] ?? entry.rows[row].height }
+            guard entry != screen.columns[index] else { return nil }
+            screen.columns[index] = entry
+            return .rowHeights(column: column, heights: previous)
+        }
+        return nil
     }
 
     static func undo(_ undo: IntentUndo, in store: DaemonStore) {
@@ -77,6 +97,10 @@ import Foundation
             store.group(id)?.setCollapsed(collapsed)
         case .tabGroupCollapsed(let id, let collapsed):
             store.tabGroupsByID[id]?.setCollapsed(collapsed)
+        case .rowHeights(let column, let heights):
+            guard setRowHeights(heights, of: column, in: store) != nil else {
+                return store.reportMirrorViolation("intent overlay undo found column \(column) without its rows")
+            }
         }
     }
 

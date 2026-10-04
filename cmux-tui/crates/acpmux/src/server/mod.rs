@@ -74,6 +74,9 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
+    // A configured path longer than sun_path fails here with the path and
+    // the limit, never as a bare bind error.
+    cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
         // Owner-only when created here, like the /tmp fallback directory.
         use std::os::unix::fs::DirBuilderExt;
@@ -202,6 +205,13 @@ pub fn dev_origin(value: &str) -> Result<String> {
     Ok(origin)
 }
 
+/// An accepted web socket streams many small ACP deltas: send each at once (no Nagle delay).
+fn tune_ws_socket(stream: &tokio::net::TcpStream) {
+    if let Err(e) = stream.set_nodelay(true) {
+        tracing::debug!("ws TCP_NODELAY: {e}");
+    }
+}
+
 pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Result<()> {
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
     let (extra_origins, extra_hosts) = {
@@ -224,6 +234,7 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                 continue;
             }
         };
+        tune_ws_socket(&stream);
         let hub = hub.clone();
         let token = token.clone();
         let policy = policy.clone();
@@ -675,3 +686,19 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod requests;
 mod wait;
 use requests::{handle_notification, handle_request};
+
+#[cfg(test)]
+mod nodelay_tests {
+    use super::tune_ws_socket;
+
+    #[tokio::test]
+    async fn an_accepted_web_socket_sends_without_nagle_delay() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let _client = tokio::net::TcpStream::connect(address).await.unwrap();
+        let (accepted, _) = listener.accept().await.unwrap();
+        assert!(!accepted.nodelay().unwrap(), "a fresh socket has Nagle on");
+        tune_ws_socket(&accepted);
+        assert!(accepted.nodelay().unwrap());
+    }
+}
