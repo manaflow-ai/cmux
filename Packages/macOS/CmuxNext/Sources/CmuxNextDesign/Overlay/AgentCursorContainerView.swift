@@ -64,8 +64,10 @@ extension WindowOverlayHost {
     /// the content view's bounds, y-down, so a cursor at a content-view point
     /// needs no conversion. It is above the layout, the sidebar, every page
     /// window and window overlays, below modal overlays, and never takes the
-    /// mouse. Only the agent cursor host adds sublayers. Do not keep its
-    /// superlayer: the layer moves with the overlay panel.
+    /// mouse. Only the agent cursor host (`AgentCursorLayerHost`) adds
+    /// sublayers. The layer changes superlayer when the overlay panel
+    /// attaches or detaches, so callers must never keep a reference to its
+    /// superlayer or convert through it; content-view points need no conversion.
     public var agentCursorLayer: CALayer { agentCursorView.cursorLayer }
 
     var agentCursorView: AgentCursorContainerView {
@@ -93,5 +95,15 @@ extension WindowOverlayHost {
             if view.frame != content.bounds { view.frame = content.bounds }
         }
         view.syncLayerFrame()
+    }
+
+    /// The window's content view added `subview`. While the panel is
+    /// detached the cursor view stays the content view's top subview, so a
+    /// later subview (the titlebar badge, added `.above`) never covers it.
+    /// The content view's `didAddSubview` calls this.
+    public func contentViewDidAddSubview(_ subview: NSView) {
+        guard let view = agentCursorContainer, subview !== view, let content = view.superview,
+              content === window?.contentView, content.subviews.last !== view else { return }
+        content.addSubview(view, positioned: .above, relativeTo: nil)
     }
 }

@@ -191,6 +191,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         return titlebarBadgeFrame.map { band.union($0) } ?? band
     }
 
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        // The agent cursor view stays on top of everything added after it.
+        if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(subview) }
+    }
+
     override func layout() {
         super.layout()
         // The sidebar stays above Chromium pages and pane overlays (R126): an occluder of the window's overlay host.
