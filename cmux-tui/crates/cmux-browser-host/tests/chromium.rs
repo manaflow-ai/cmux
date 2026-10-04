@@ -435,11 +435,17 @@ fn navigations_answer_the_document_status() {
     };
     let target = call("tabs.open", json!({}))["targetId"].as_str().unwrap().to_owned();
     let nav = |path: &str| {
-        call("tab.navigate", json!({"targetId": target, "url": format!("http://127.0.0.1:{port}{path}"), "waitUntil": "load"}))
+        call(
+            "tab.navigate",
+            json!({"targetId": target, "url": format!("http://127.0.0.1:{port}{path}"), "waitUntil": "load"}),
+        )
     };
     assert_eq!(nav("/second")["status"], 200);
     assert_eq!(nav("/missing")["status"], 404);
     assert_eq!(call("tab.reload", json!({"targetId": target, "waitUntil": "load"}))["status"], 404);
-    let data = call("tab.navigate", json!({"targetId": target, "url": "data:text/html,x", "waitUntil": "load"}));
+    let data = call(
+        "tab.navigate",
+        json!({"targetId": target, "url": "data:text/html,x", "waitUntil": "load"}),
+    );
     assert!(data.get("status").is_none(), "a data: URL has no HTTP status: {data}");
 }
