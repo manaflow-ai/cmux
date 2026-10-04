@@ -43,7 +43,7 @@ describe("agent page host", () => {
 
   test("a call goes to the op with the same params and resolves with its value", async () => {
     const { fake, calls } = client(() => ({ root: "/repo" }));
-    expect(await callPageHost(fake, "git.status", { cwd: "/repo" })).toEqual({ root: "/repo" });
+    expect(await callPageHost<unknown>(fake, "git.status", { cwd: "/repo" })).toEqual({ root: "/repo" });
     expect(calls).toEqual([{ op: "cmux.agent.git.status", params: { cwd: "/repo" } }]);
   });
 
@@ -113,6 +113,12 @@ describe("agent page host", () => {
       ["command", "searchChats"],
     ]);
     delete (globalThis as any).cmuxTheme;
+  });
+
+  test("focusLocation uses the new tab page's event", async () => {
+    const { FOCUS_LOCATION_EVENT } = await import("./NewTabPage");
+    const { FOCUS_LOCATION } = await import("./pageHost");
+    expect(FOCUS_LOCATION).toBe(FOCUS_LOCATION_EVENT);
   });
 
   test("the page subscribes to host events once", async () => {
