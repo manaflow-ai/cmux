@@ -20,10 +20,10 @@ stdio pipes in their own process group (`acpmux/src/agent.rs:136-152`).
 | Event | Terminals | Agents (ACP) |
 | --- | --- | --- |
 | App quit or crash | survive: the daemon is not the app's child; `applicationWillTerminate` only closes the connection (`AppDelegate.swift:215-226`); only "End Sessions" sends `shutdown-daemon end_terminals` | survive: acpmux is not the app's child and the app never stops it |
-| Sparkle update and relaunch | survive, but the OLD daemon keeps running: `updaterWillRelaunchApplication` only logs (`UpdaterService.swift:203-217`), `server ensure` never compares builds (`local_owner.rs:280-325`), and `DaemonLauncher.isStale`/`restartDaemon` (`DaemonLauncher.swift:293-319`) have no caller outside a test | survive, OLD acpmux keeps running: no version check anywhere (`AgentPaneHost.swift:43-131`, `mux/host/src/acpmux-daemon.ts:67-87`) |
+| Sparkle update and relaunch | survive; the app hands the old daemon off to the bundled build (slice UP: `DaemonService` runs `DaemonLauncher.handOffIfStale`, fenced `shutdown-daemon`, hosts adopted) | survive; the app hands an acpmux off only when it reports `agentHosts` (`AcpmuxVersionHandoff`); with agent hosts the new acpmux adopts every agent mid-turn |
 | Daemon restart (SIGTERM, `shutdown-daemon`, crash, SIGKILL) | survive: hosts outlive the daemon; the new daemon re-adopts them from `terminal-hosts-<token>/*.json` records (`mux.rs:3518-3780`); tested by `terminal_host_survives_sigkill_and_is_adopted_with_io_and_size`, `fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host`, `terminal_host_survives_daemon_process_group_hangup` | n/a (acpmux is a separate process) |
-| acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | LOST: `shutdown_all` cancels pending permissions and SIGTERMs then SIGKILLs every harness process group (`hub/turns.rs:854-880`, `daemon.rs:159`) |
-| acpmux crash (SIGKILL) | n/a | LOST: the harness loses its stdin and stdout; the running turn dies with it |
+| acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | survive under agent hosts (default on): the daemon detaches every host and the next daemon adopts it; `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything) ends them and records the turn in progress as `turn_result {status: cancelled, detail: quit}` (`hub/shutdown.rs`). With `ACPMUX_AGENT_HOSTS=0`: LOST, as before |
+| acpmux crash (SIGKILL) | n/a | survive under agent hosts: the host keeps every unacknowledged entry and the next daemon resumes after the last logged `hseq`. With `ACPMUX_AGENT_HOSTS=0`: LOST |
 | acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts (memory only) are gone; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
 
 What survives an agent restart is the transcript (`$ACPMUX_HOME/sessions/<id>/session.json` +
@@ -150,7 +150,7 @@ replayed spool:
   `ACPMUX_AGENT_HOSTS=0` as the one-release opt-out. `--memory` stores never use hosts (no log to resume
   from). Hosts already running are adopted whatever the switch says.
 
-### 2.7 Code map (A1-A3, on branch feat-cmux-next-durable-sessions; not landed)
+### 2.7 Code map (A1-A4, landed on feat-cmux-next 2026-10-04)
 
 - `acpmux/src/agent_host/mod.rs`: protocol frames, records, liveness lock, the frozen
   `terminate_unadoptable` path; `host.rs`: the `__agent-host` process; `link.rs`: spawn and connect.

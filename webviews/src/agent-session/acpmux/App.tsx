@@ -42,7 +42,7 @@ import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
@@ -288,6 +288,7 @@ const NoticeRow = memo(
 );
 const PermissionRow = memo(
   function PermissionRow({ row }: RowProps) {
+    const t = useT();
     const permission = row.permission;
     if (!permission)
       return (
@@ -306,6 +307,7 @@ const EDITED_FILES_SHOWN = 3;
 /// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
+    const t = useT();
     const [showAll, setShowAll] = useState(false);
     const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
     const toolFiles = useMemo(() => turnFiles([row]), [row]);
@@ -871,6 +873,7 @@ export function AcpmuxApp() {
 }
 
 function AcpmuxPane() {
+  const t = useT();
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -1076,8 +1079,8 @@ function AcpmuxPane() {
     const pending = [...hunkDecisions].some(
       ([key, decision]) => decision === "rejected" && toolIds.has(key.split("\u0000")[0]!),
     );
-    return turnDisplay(diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
-  }, [diffFiles, diffTurn, hunkDecisions, turnCheckpoint]);
+    return turnDisplay(t, diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
+  }, [diffFiles, diffTurn, hunkDecisions, t, turnCheckpoint]);
   // The latest edited-files card shows its turn's checkpoint counts once the turn has ended.
   const endedEditTurn = useMemo(() => {
     let ended = false;

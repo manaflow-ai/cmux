@@ -165,6 +165,7 @@ impl Hub {
                 dir: "peer".into(),
                 kind: kind.into(),
                 msg: Value::Null,
+                host_seq: None,
             },
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         });
@@ -258,6 +259,7 @@ impl Hub {
                                 dir: "peer".into(),
                                 kind,
                                 msg: Value::Null,
+                                host_seq: None,
                             },
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
@@ -279,6 +281,7 @@ impl Hub {
                             dir: "peer".into(),
                             kind,
                             msg: Value::Null,
+                            host_seq: None,
                         },
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
@@ -313,6 +316,7 @@ impl Hub {
                                 .unwrap_or("session/update")
                                 .to_owned(),
                             msg: json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": params}),
+                            host_seq: None,
                         },
                         method::MUX_EVENT => EventRecord {
                             seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
@@ -328,6 +332,7 @@ impl Hub {
                                 .unwrap_or("")
                                 .to_owned(),
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
+                            host_seq: None,
                         },
                         // permission_pending is derived from the permission_request event locally.
                         _ => return,

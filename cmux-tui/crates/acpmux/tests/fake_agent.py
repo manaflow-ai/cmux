@@ -4,6 +4,7 @@
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
   "slow"       -> streams three chunks with delays, honours session/cancel
+  "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 """
 import json
@@ -75,6 +76,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
         return
+    # "gate: PATH" streams "before-gate", blocks until the test writes to
+    # the FIFO at PATH (no timers), then streams "after-gate" and ends.
+    if text.startswith("gate:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[5:].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
@@ -106,6 +116,11 @@ def handle_prompt(rid, params):
     if text.startswith("env:"):
         name = text[4:].strip()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "argv" replies with this process's arguments as JSON, for spawn-time checks.
+    if text == "argv":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(sys.argv[1:])}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "fswrite: PATH" and "fsread: PATH" delegate the file operation to the

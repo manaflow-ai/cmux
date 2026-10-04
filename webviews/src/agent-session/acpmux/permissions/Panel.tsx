@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { t, type StringKey } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
 
@@ -18,6 +18,7 @@ type Props = {
 };
 
 function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSignal: number }) {
+  const t = useT();
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (expandSignal === 0) return;
@@ -64,6 +65,7 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
 }
 
 export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh }: Props) {
+  const t = useT();
   const shortcuts = {
     allow_once: useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce),
     allow_chat: useShortcut(SHORTCUT_ACTIONS.permissionAllowChat),

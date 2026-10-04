@@ -95,6 +95,12 @@ final class SidebarBridge {
                 self?.showProfiles(profiles, active: active, launching: launching)
             }
         }
+        // R99: the rows of another space, for the page beside the current one during a swipe.
+        model.spaceSections = { [weak windowState] key in
+            guard let windowState else { return [] }
+            return Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
+                                 hidesHome: Self.hidesHome(layout.document))
+        }
         let state = windowState
         let model = model
         widthObservation = Task { [weak self] in
