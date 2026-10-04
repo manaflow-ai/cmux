@@ -235,7 +235,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("fix:", result.stderr)
-            self.assertIn("see cmuxterm-hq REPAIR.md", result.stderr)
+            self.assertIn("see cmuxterm-hq REPAIR.md#merging", result.stderr)
 
     def test_main_fix_without_any_compile_evidence_refuses_to_merge(self):
         with tempfile.TemporaryDirectory() as directory:

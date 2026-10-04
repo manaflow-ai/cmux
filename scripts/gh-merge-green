@@ -4,7 +4,7 @@
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
 set -Eeuo pipefail
 
-repair_note='see cmuxterm-hq REPAIR.md'
+repair_note='see cmuxterm-hq REPAIR.md#merging'
 refusal_reported=0
 
 print_repair() {
