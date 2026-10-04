@@ -5,13 +5,16 @@
 // copy) so CSS edits hot-update. Query parameters pick the source: `?source=branch&base=HEAD~5`
 // (default), `?source=unstaged`, `?source=staged`; `&layout=unified` switches the layout.
 import "../styles.css";
-import { DEFAULT_DIFF_VIEWER_LABELS } from "../labels";
+import { diffViewerLabelsFor, diffViewerLanguage } from "../labels";
 import type { DiffViewerConfig } from "../types";
 
 const response = await fetch(`/__cmux-diff/config${location.search}`, { cache: "no-store" });
 if (!response.ok) throw new Error(`cmux diff dev config failed (${response.status}): ${await response.text()}`);
 const config = (await response.json()) as DiffViewerConfig;
-config.payload = { ...config.payload, labels: { ...DEFAULT_DIFF_VIEWER_LABELS, ...config.payload?.labels } };
+config.payload = {
+  ...config.payload,
+  labels: { ...diffViewerLabelsFor(diffViewerLanguage()), ...config.payload?.labels },
+};
 const element = document.createElement("script");
 element.type = "application/json";
 element.id = "cmux-diff-viewer-config";
