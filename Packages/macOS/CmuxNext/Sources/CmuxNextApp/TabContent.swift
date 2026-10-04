@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextTerminal
 
 /// What a pane shows for its selected tab.
@@ -27,6 +28,16 @@ enum TabContent {
         case .page(let view): view
         case .placeholder(let view): view
         case .conversation(let view): view
+        }
+    }
+
+    /// Whether a page's document can take typing yet (the key router's
+    /// type-ahead): an agent page or a React page tab.
+    @MainActor var inputReadiness: PageInputReadiness? {
+        switch self {
+        case .agent(let view): view.inputReadiness
+        case .page(let view): (view.content as? PageWebView)?.inputReadiness
+        default: nil
         }
     }
 

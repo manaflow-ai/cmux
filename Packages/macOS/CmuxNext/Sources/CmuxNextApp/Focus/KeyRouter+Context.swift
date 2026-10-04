@@ -15,6 +15,9 @@ extension KeyRouter {
         /// The focused screen has a primary input and none of its text
         /// fields has the keyboard (`PrimaryInputTarget`).
         var primaryInputReady = false
+        /// The focused page cannot take typing yet: its document has not
+        /// focused its primary input, or keys typed before still wait.
+        var pageInputPending = false
     }
 
     /// The context keys for a key in a window with `focus`.
