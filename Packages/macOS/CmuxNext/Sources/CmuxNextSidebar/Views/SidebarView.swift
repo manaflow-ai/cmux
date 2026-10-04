@@ -47,7 +47,9 @@ public final class SidebarView: NSView {
     let belowLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
-    private(set) var isChromeRevealed = false
+    var isChromeRevealed = false
+    /// Bands minimal mode hides right now (the fade's target, R54).
+    var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     private let footer = NSView()
     private var observation: Task<Void, Never>?
@@ -286,31 +288,6 @@ public final class SidebarView: NSView {
 
     override public func mouseEntered(with event: NSEvent) { setChromeRevealed(true) }
     override public func mouseExited(with event: NSEvent) { setChromeRevealed(false) }
-
-    /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
-    /// reach the same actions through the palette and the registry menus.
-    /// Bands minimal mode hides right now (the fade's target).
-    private(set) var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
-
-    func setChromeRevealed(_ revealed: Bool) {
-        let changed = revealed != isChromeRevealed
-        isChromeRevealed = revealed
-        let alpha: CGFloat = revealed ? 1 : 0
-        let mode = DesignSettings.shared.sidebarSections.minimalMode
-        // Minimal mode (R54): the chosen sticky bands hide with the
-        // buttons. They stay in the view and accessibility tree (a fade,
-        // not isHidden), so VoiceOver still reaches their items.
-        let above: CGFloat = revealed || !mode.hidesTop ? 1 : 0
-        let below: CGFloat = revealed || !mode.hidesBottom ? 1 : 0
-        let hidden = (top: above == 0, bottom: below == 0)
-        guard changed || hidden != minimalHiddenBands else { return }
-        minimalHiddenBands = hidden
-        Motion.animate(.hover) {
-            if changed { newButton.animator().alphaValue = alpha }
-            aboveFade.animator().alphaValue = above
-            belowFade.animator().alphaValue = below
-        }
-    }
 
     private func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
         let f = footer.bounds
