@@ -389,7 +389,10 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   and capture masking live in the native session (`BrowserReplBoundary`
   in `Packages/macOS/CmuxBrowser`) and the driver, which every driver call,
   fetch, event, file write and output line passes through. The runtime
-  deletes the `__cmuxNative` global before any cell runs.
+  deletes the `__cmuxNative` global, and the app the runtime's entry
+  points, before any cell runs. Every script on the session's thread is
+  bounded, also a timer or event callback outside a cell (10 s), and
+  `cmux browser repl reset` always ends a stuck one.
 - Runtime: `Resources/browser-repl/` (`runtime-core.js` Playwright model,
   `api.js` globals, `snapshot.js` host-side stitching and diff, `page-agent.js`
   per-frame script in an isolated content world, `repl-host.js`). Locators use

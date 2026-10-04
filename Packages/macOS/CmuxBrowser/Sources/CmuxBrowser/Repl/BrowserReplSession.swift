@@ -53,7 +53,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     private let sleeper: any BrowserReplSleeping
     private let gate = BrowserReplEvalGate()
     private var scheduler: BrowserReplTimerScheduler<ContinuousClock>!
-    private let watchdog = BrowserReplWatchdog()
+    private let watchdog: BrowserReplWatchdog
 
     // Lifecycle state, guarded by `stateLock`. Submitting work to `thread`
     // happens under the same lock, so `close()` and `evaluate()` see one
@@ -85,6 +85,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var context: JSContext?
     /// The `__cmuxNative` object; the runtime deletes the global.
     private var nativeHost: JSValue?
+    /// The runtime's entry points, taken off the global object once the
+    /// runtime loaded, so no cell can call them.
+    private var entryPoints: EntryPoints?
     private var loadError: String?
     private var fileSystem: BrowserReplFileSystem
 
@@ -264,6 +267,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.driver = driver
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
+        self.watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit)
         self.fetcher = BrowserReplFetcher(driver: driver)
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
@@ -361,6 +365,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             nextEvalID += 1
             let state = EvalState(id: nextEvalID, spillDirectory: privateTemporaryDirectory, continuation: continuation)
             currentEval = state
+            watchdog.setCurrentEval(state.id)
             let submitted = thread.perform { [self] in
                 self.beginEval(state, code: code, cwd: cwd, maxOutput: maxOutput)
             }
@@ -397,8 +402,11 @@ public final class BrowserReplSession: @unchecked Sendable {
         inFlight.removeAll()
         queuedFetches.removeAll()
         runningFetches = 0
-        watchdog.requestTermination()
+        // Every script from now on, also one a block queued before this
+        // runs, is terminated; a timeout's cleanup cannot clear that.
+        watchdog.close()
         thread.perform { [self] in
+            self.entryPoints = nil
             self.nativeHost = nil
             self.context = nil
         }
@@ -421,7 +429,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Finishes `state` and forgets it when it is still the current evaluation.
     private func finish(_ state: EvalState, error: String?) {
         stateLock.withLock {
-            if currentEval === state { currentEval = nil }
+            if currentEval === state {
+                currentEval = nil
+                watchdog.setCurrentEval(nil)
+            }
         }
         state.finish(error: error.map(boundary.secrets.redact))
     }
@@ -514,11 +525,15 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Asks the runtime to drop cell `evalID` if it is still running
     /// (`__cmuxReplCancel`); a cell that already ended is left alone.
     private func cancelRunningCell(_ message: String, evalID: Int) {
-        guard let context else { return }
+        guard let context, !isClosedNow, let cancel = entryPoints?.cancel else { return }
+        enter(context) { _ = cancel.call(withArguments: [message, evalID]) }
+    }
+
+    /// Runs `body`, which calls into `context`, as one watchdog run under
+    /// the cell running now, and clears the exception it left.
+    private func enter(_ context: JSContext, _ body: () -> Void) {
         watchdog.absorbTermination(in: context)
-        guard let cancel = context.objectForKeyedSubscript("__cmuxReplCancel"),
-              !cancel.isUndefined else { return }
-        cancel.call(withArguments: [message, evalID])
+        watchdog.run(evalID: stateLock.withLock { currentEval?.id }, body)
         context.exception = nil
     }
 
@@ -562,12 +577,19 @@ public final class BrowserReplSession: @unchecked Sendable {
             nativeHost?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)
         }
 
+        // Loading the runtime and the cell's first turn are one run of
+        // this cell: its timeout bounds them.
+        watchdog.run(evalID: state.id) {
+            startEval(state, code: code, maxOutput: maxOutput)
+        }
+    }
+
+    private func startEval(_ state: EvalState, code: String, maxOutput: Int?) {
         guard let context = ensureContext() else {
             finish(state, error: loadError ?? "Error: browser REPL runtime failed to load")
             return
         }
-        guard let evalFunction = context.objectForKeyedSubscript("__cmuxReplEval"),
-              !evalFunction.isUndefined else {
+        guard let evalFunction = entryPoints?.evaluate else {
             finish(state, error: "Error: browser REPL runtime is not installed (missing __cmuxReplEval)")
             return
         }
@@ -607,8 +629,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     }
 
     private func formatError(_ value: JSValue, in context: JSContext) -> String {
-        if let formatter = context.objectForKeyedSubscript("__cmuxFormatError"),
-           !formatter.isUndefined,
+        if let formatter = entryPoints?.formatError,
            let formatted = formatter.call(withArguments: [value]),
            formatted.isString,
            let text = formatted.toString() {
@@ -653,11 +674,60 @@ public final class BrowserReplSession: @unchecked Sendable {
                 return nil
             }
         }
+        // The app calls the runtime through these; a cell must not (it
+        // could start work no cell owns), so they leave the global object.
+        guard let entryPoints = takeEntryPoints(from: context) else { return nil }
+        self.entryPoints = entryPoints
         self.context = context
         driver.attach { [weak self] name, payload in
             self?.deliverEvent(name: name, payloadJSON: payload)
         }
         return context
+    }
+
+    /// The functions the app calls in the runtime (driver-protocol.md,
+    /// "Native host contract").
+    private struct EntryPoints {
+        let evaluate: JSValue
+        let cancel: JSValue?
+        let onResult: JSValue?
+        let onTimer: JSValue?
+        let onEvent: JSValue?
+        let formatError: JSValue?
+    }
+
+    /// Takes the runtime's entry points off the global object, or sets
+    /// `loadError` when `__cmuxReplEval` is missing or one cannot be removed.
+    private func takeEntryPoints(from context: JSContext) -> EntryPoints? {
+        let global = context.globalObject
+        var failed: String?
+        func take(_ name: String) -> JSValue? {
+            guard let value = global?.objectForKeyedSubscript(name), !value.isUndefined else { return nil }
+            global?.deleteProperty(name)
+            if global?.hasProperty(name) != false { failed = name }
+            return value
+        }
+        let evaluate = take("__cmuxReplEval")
+        let entryPoints = evaluate.map { evaluate in
+            EntryPoints(
+                evaluate: evaluate,
+                cancel: take("__cmuxReplCancel"),
+                onResult: take("__cmuxHostOnResult"),
+                onTimer: take("__cmuxHostOnTimer"),
+                onEvent: take("__cmuxHostOnEvent"),
+                formatError: take("__cmuxFormatError")
+            )
+        }
+        context.exception = nil
+        if let failed {
+            loadError = "Error: browser REPL runtime failed to load: its entry point \(failed) could not be removed from the global object"
+            return nil
+        }
+        guard let entryPoints else {
+            loadError = "Error: browser REPL runtime is not installed (missing __cmuxReplEval)"
+            return nil
+        }
+        return entryPoints
     }
 
     private func installNativeHost(in context: JSContext) {
@@ -807,17 +877,15 @@ public final class BrowserReplSession: @unchecked Sendable {
     }
 
     private func resolveCall(_ callID: Int, _ result: Result<String, BrowserReplDriverError>) {
-        guard let context else { return }
-        watchdog.absorbTermination(in: context)
-        guard let resolve = context.objectForKeyedSubscript("__cmuxHostOnResult"),
-              !resolve.isUndefined else { return }
-        switch result {
-        case .success(let json):
-            resolve.call(withArguments: [callID, NSNull(), json])
-        case .failure(let error):
-            resolve.call(withArguments: [callID, error.json, NSNull()])
+        guard let context, !isClosedNow, let resolve = entryPoints?.onResult else { return }
+        enter(context) {
+            switch result {
+            case .success(let json):
+                resolve.call(withArguments: [callID, NSNull(), json])
+            case .failure(let error):
+                resolve.call(withArguments: [callID, error.json, NSNull()])
+            }
         }
-        context.exception = nil
     }
 
     private func fireTimer(_ id: Int) {
@@ -825,12 +893,8 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self else { return }
             // The timer counts as pending until its callback has run.
             defer { self.scheduler.delivered(id: id) }
-            guard let context = self.context else { return }
-            self.watchdog.absorbTermination(in: context)
-            guard let handler = context.objectForKeyedSubscript("__cmuxHostOnTimer"),
-                  !handler.isUndefined else { return }
-            handler.call(withArguments: [id])
-            context.exception = nil
+            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onTimer else { return }
+            self.enter(context) { _ = handler.call(withArguments: [id]) }
         }
     }
 
@@ -841,12 +905,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                let path = JSONSerialization.browserReplObject(payloadJSON)["path"] as? String {
                 self.fileSystem.sandbox.allowReading(path)
             }
-            guard let context = self.context else { return }
-            self.watchdog.absorbTermination(in: context)
-            guard let handler = context.objectForKeyedSubscript("__cmuxHostOnEvent"),
-                  !handler.isUndefined else { return }
-            handler.call(withArguments: [name, self.boundary.secrets.redactJSON(payloadJSON)])
-            context.exception = nil
+            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else { return }
+            let payload = self.boundary.secrets.redactJSON(payloadJSON)
+            self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
         }
     }
 }

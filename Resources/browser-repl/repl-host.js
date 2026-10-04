@@ -541,10 +541,11 @@
     };
     root.__cmuxReplCancel = (message, evalId) => (repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false);
     root.__cmuxFormatError = (e) => formatError(e);
-    // The entry points the app calls stay what they are.
-    for (const name of ["__cmuxHostOnResult", "__cmuxHostOnTimer", "__cmuxHostOnEvent", "__cmuxReplEval", "__cmuxReplCancel", "__cmuxFormatError"]) {
-      Object.defineProperty(root, name, { value: root[name], writable: false, configurable: false, enumerable: false });
-    }
+    // The app takes these entry points and deletes the globals before any
+    // cell runs, so a cell cannot call them (work they start would belong
+    // to no cell). The runtime's namespace goes too: a cell must not build
+    // a second REPL over this host and driver.
+    delete root.CmuxBrowserRepl;
   }
 
   ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, HARD_MAX_OUTPUT, formatError, installNativeHost };

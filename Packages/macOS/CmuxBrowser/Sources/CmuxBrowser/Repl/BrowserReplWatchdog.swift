@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import JavaScriptCore
 
-/// Terminates a REPL context's running script on request.
+/// Bounds every JavaScript run on a REPL session's thread.
 ///
 /// JavaScript runs on the session's one thread, so a synchronous infinite
 /// loop would hold that thread forever and nothing queued behind it (the
@@ -10,8 +10,16 @@ import JavaScriptCore
 /// `JSContextGroupSetExecutionTimeLimit` calls a callback on the JS thread
 /// once a script has run for `checkInterval` without returning (in practice
 /// JavaScriptCore checks every second or two); the callback returns `true` to
-/// terminate that script with an uncatchable exception. The session asks for termination when a cell times out or the
-/// session closes, and clears the request once the JS thread is free again.
+/// terminate that script with an uncatchable exception.
+///
+/// The session enters JavaScript only through ``run(evalID:_:)`` (a cell,
+/// a driver result, a timer, an event, a cancel), naming the cell that is
+/// running then. A run is terminated when the session asks for it (a cell
+/// timed out), once the session closed (for good: nothing clears that), or
+/// when it has gone on for `callbackTimeLimit` while the cell it started
+/// under is no longer running, or it started under none. Agent code can
+/// start work outside a cell (timers, event handlers, promise jobs a later
+/// run drains), so every run is bounded, not only cells.
 ///
 /// The function is exported by JavaScriptCore but declared in a non-public
 /// header, so it is resolved with `dlsym`, as `JSWatchdog` in
@@ -34,7 +42,20 @@ final class BrowserReplWatchdog: @unchecked Sendable {
 
     private let lock = NSLock()
     private var terminationRequested = false
+    private var closed = false
     private var terminatedScript = false
+    /// How long a run outside its cell may go on.
+    private let callbackTimeLimit: Duration
+    /// The cell running now, as the session last reported it.
+    private var currentEvalID: Int?
+    /// The outermost run in progress: when it started and under which cell.
+    private var depth = 0
+    private var runStart = ContinuousClock.now
+    private var runEvalID: Int?
+
+    init(callbackTimeLimit: Duration) {
+        self.callbackTimeLimit = callbackTimeLimit
+    }
 
     nonisolated(unsafe) private static var associationKey: UInt8 = 0
 
@@ -75,8 +96,37 @@ final class BrowserReplWatchdog: @unchecked Sendable {
         lock.withLock { terminationRequested = true }
     }
 
+    /// Ends a request; never one `close()` made.
     func clearTermination() {
-        lock.withLock { terminationRequested = false }
+        lock.withLock { terminationRequested = closed }
+    }
+
+    /// Every script that runs from now on is terminated.
+    func close() {
+        lock.withLock {
+            closed = true
+            terminationRequested = true
+        }
+    }
+
+    /// Records the cell that runs now (`nil` when none).
+    func setCurrentEval(_ id: Int?) {
+        lock.withLock { currentEvalID = id }
+    }
+
+    /// Runs `body`, which enters the context, as one run under cell `evalID`
+    /// (the cell running when it started, or `nil`). Nested runs belong to
+    /// the outermost one.
+    func run<T>(evalID: Int?, _ body: () -> T) -> T {
+        lock.withLock {
+            if depth == 0 {
+                runStart = .now
+                runEvalID = evalID
+            }
+            depth += 1
+        }
+        defer { lock.withLock { depth -= 1 } }
+        return body()
     }
 
     /// After a termination JavaScriptCore can still hold the termination
@@ -94,6 +144,10 @@ final class BrowserReplWatchdog: @unchecked Sendable {
     }
 
     private var shouldTerminate: Bool {
-        lock.withLock { terminationRequested }
+        lock.withLock {
+            if terminationRequested { return true }
+            guard depth > 0, runEvalID == nil || runEvalID != currentEvalID else { return false }
+            return ContinuousClock.now - runStart >= callbackTimeLimit
+        }
     }
 }

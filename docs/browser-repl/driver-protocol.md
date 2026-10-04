@@ -364,8 +364,16 @@ Entry points the runtime defines, called by the app:
   (`JSContextGroupSetExecutionTimeLimit`), then `__cmuxReplCancel(message)`
   settles the cell so the next one runs.
 - The runtime (`repl-host.js`) keeps `__cmuxNative` in its closures and
-  deletes the global before any cell runs; the entry points above are
-  non-writable.
+  deletes the global, and its own `CmuxBrowserRepl` namespace, before any
+  cell runs. Once the runtime has loaded, the app takes the entry points
+  (above and below) and deletes their globals, so no cell can call them.
+- Every call the app makes into the context (a cell, a driver result, a
+  timer, an event, a cancel) is bounded, since agent code can start work
+  outside a cell (timers, event handlers): one that starts while a cell
+  runs ends at that cell's timeout; one that started outside a cell, or
+  whose cell has ended, is terminated after 10 s. After the session closes
+  (`cmux browser repl reset`, idle expiry) every script is terminated and
+  the app makes no further call into the context.
 - `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
 - `__cmuxHostOnTimer(id)`, `__cmuxHostOnResult(callId, errorJSON, resultJSON)`.
 

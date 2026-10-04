@@ -307,7 +307,7 @@ struct BrowserReplSessionWatchdogTests {
             """, timeout: .seconds(20))
         }
         #expect(result?.error == nil)
-        #expect(result?.lines.map(\.text) == ["'" + Array(repeating: "undefined", count: 8).joined(separator: ",") + "'"])
+        #expect(result?.lines.map(\.text) == [Array(repeating: "undefined", count: 8).joined(separator: ",")])
     }
 
     @Test("A timer callback that never returns after its cell ended is stopped, and the next cell runs")
