@@ -21816,9 +21816,13 @@ mod tests {
 
     #[test]
     fn durable_workspace_creation_supports_the_in_process_terminal_runtime() {
+        // A child that writes nothing: a live shell's OSC 7 cwd report can
+        // commit a second revision before the snapshot below (1 of 3 full runs).
+        let quiet = vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()];
+        let options = SurfaceOptions { command: Some(quiet), ..SurfaceOptions::default() };
         let mux = Mux::new(
             format!("in-process-resource-{}", WorkspacePublicId::random().unwrap()),
-            SurfaceOptions::default(),
+            options,
         );
 
         let surface = mux.new_workspace(Some("headless".into()), Some((80, 24))).unwrap();
