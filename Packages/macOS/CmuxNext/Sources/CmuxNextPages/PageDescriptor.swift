@@ -25,10 +25,12 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// host shows the native confirmation of that kind, then runs the op as the user's own
     /// (deleting data, money, publishing, signing in). The page never calls them directly.
     public let confirmedOps: [String: PageConfirmation.Kind]
+    /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it.
+    public let csp: PageCSP
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
-                confirmedOps: [String: PageConfirmation.Kind] = [:]) {
+                confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -37,6 +39,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.actions = actions
         self.commands = commands
         self.confirmedOps = confirmedOps
+        // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
+        self.csp = PageID.isFirstParty(id) ? csp : .strict
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
