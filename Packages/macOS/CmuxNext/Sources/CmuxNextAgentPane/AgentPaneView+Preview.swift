@@ -6,6 +6,6 @@ extension AgentPaneView {
 
     /// Pushes ``previewFeatures`` to the page.
     func applyPreviewFeatures() {
-        evaluateScript(Self.previewScript(previewFeatures))
+        deliver([.preview(previewFeatures)], scripts: [Self.previewScript(previewFeatures)])
     }
 }

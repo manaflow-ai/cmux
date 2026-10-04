@@ -40,6 +40,17 @@ export default defineConfig({
     }),
     tailwindcss(),
     {
+      // Vite writes root-absolute script URLs into `diff-page.html`; make them relative to the
+      // page so the entry and its chunks resolve under any base (cmux-page://cmux.diff/ serves
+      // the webviews-app directory as its root).
+      name: "cmux-diff-page-relative-entry",
+      apply: "build",
+      transformIndexHtml: {
+        order: "post",
+        handler: (html: string) => html.replace(/(src|href)="\/chunks\//g, '$1="./chunks/'),
+      },
+    },
+    {
       // `@pierre/diffs` declares `sideEffects: false`, which is right for the
       // main-thread exports but tree-shakes the worker entry (a self-registering
       // `onmessage` script with no exports) down to an empty chunk.
@@ -67,7 +78,9 @@ export default defineConfig({
     // load grants read access to the whole output directory.
     modulePreload: false,
     rolldownOptions: {
-      input: { main: "src/main.tsx", "diff-worker": "src/diff-worker.ts" },
+      // `diff-page.html` is the shared page host's diff entry (cmux-page://cmux.diff/): an HTML input
+      // whose module entry is chunks/diff-page.mjs, sharing every chunk, the worker and the WASM.
+      input: { main: "src/main.tsx", "diff-worker": "src/diff-worker.ts", "diff-page": "diff-page.html" },
       output: {
         format: "es",
         // `main.mjs` is the page entry the host HTML loads; the worker entry

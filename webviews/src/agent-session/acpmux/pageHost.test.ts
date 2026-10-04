@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { agentPageOp, applyHostEvent, callPageHost, startHostEvents } from "./pageHost";
 import { pageError, type PageClient } from "../../pages/shared/pageClient";
 
+(globalThis as any).window ??= globalThis;
+
 /// A fake page client: records calls and subscriptions, answers with `answer`.
 function client(answer: (op: string, params: unknown) => unknown) {
   const calls: { op: string; params: unknown }[] = [];

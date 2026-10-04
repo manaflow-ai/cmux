@@ -525,9 +525,11 @@ fn pin_call(mux: &Arc<Mux>, repository: &Path, operation: &str, fields: Value, k
     call(mux, operation, params, Some(key))
 }
 
-/// A second worktree of `repository` on a new branch.
+/// A second worktree of `repository` on a new branch, in its own unique
+/// directory: a fixed `$TMPDIR/<name>-second` collided with the worktree an
+/// earlier or parallel run left behind ("already exists").
 fn second_worktree(repository: &Path, name: &str) -> PathBuf {
-    let worktree = repository.parent().unwrap().join(format!("{name}-second"));
+    let worktree = temporary(&format!("{name}-second")).join("worktree");
     let target = worktree.to_string_lossy().into_owned();
     git(repository, &["worktree", "add", "-q", "-b", name, &target]);
     fs::canonicalize(worktree).unwrap()

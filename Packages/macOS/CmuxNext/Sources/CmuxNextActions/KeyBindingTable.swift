@@ -51,11 +51,15 @@ public nonisolated struct KeyBindingTable: Sendable {
 
     /// In precedence order: a later entry wins over an earlier one.
     public let entries: [KeyBinding]
+    /// Default and app entries that user removals took out (the editor
+    /// lists them so a person can reset them); never resolved.
+    public let removed: [KeyBinding]
     /// Entry indexes by first key, ascending.
     private let byFirstKey: [Shortcut: [Int]]
 
-    public init(_ entries: [KeyBinding]) {
+    public init(_ entries: [KeyBinding], removed: [KeyBinding] = []) {
         self.entries = entries
+        self.removed = removed
         var index: [Shortcut: [Int]] = [:]
         for (offset, entry) in entries.enumerated() {
             guard let first = entry.keys.first, entry.keys.count <= Self.maxSequenceLength else { continue }

@@ -14970,6 +14970,29 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "settings keyboard-shortcuts",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "keybindings.open",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Keyboard Shortcuts",
+      "title_key" : "action.keybindings.open",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "devOnly",
       "cli_name" : "debug open-settings",
       "context_menu" : "devOnly",

@@ -279,3 +279,19 @@ sequence, user entries, removals and the expected outcome (an action with its ar
 or none). `KeybindingVectorTests` (CmuxNextSettingsTests) runs them against the real
 catalog through `KeyBindingTable.outcome(of:in:isRunnable:)`; other clients run the same
 file.
+
+8.5 **Read ops.** Socket methods `keybinding.list` (entries in precedence order with `id`,
+keys in keybindings.json syntax, `when` text, args, source, `conflicts`: other entries on the
+same keys whose `when` can hold together, `WhenClause.canOverlap`; defaults a removal took out
+are listed with `removed: true`), `keybinding.resolve {keys, window?}` (outcome run/armed/none
+and every candidate's verdict) and `context.keys {window?}`. CLI and MCP verbs need a cmux-tui
+slot (Rust `cli/app.rs`).
+
+8.6 **Keyboard Shortcuts editor.** React page `webviews/src/pages/keybindings` on
+CmuxNextPages (`cmux-page://cmux.keybindings/`, internal page tab `keybindings`), opened by
+`keybindings.open` (palette, CLI `cmux settings keyboard-shortcuts`, MCP; no default key, K1).
+`KeybindingsPageProvider` serves `cmux.keybindings.list`, `record.start` / `record.stop` with
+the `recorded` stream (the key dispatcher gives the page window's keys to a `KeyRecorder`:
+Return or the fourth stroke ends, Escape cancels; the page never reads key events) and the
+`changed` stream. `set`, `remove` and `reset` answer `cmux.keybindings.unsupported` until
+keybindings.json has its owner (slice 4, cmux-config).
