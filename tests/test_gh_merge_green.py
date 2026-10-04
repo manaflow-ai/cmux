@@ -34,6 +34,7 @@ class FakeGitHub:
         self.ancestor_checks = []
         self.parents = {BASE: []}
         self.compare_files = []
+        self.compare_entries = None
         self.jobs = {}
         self.logs = {}
         for i, (name, step) in enumerate(zip(NAMES, BUILD_STEPS), 1):
@@ -48,7 +49,7 @@ class FakeGitHub:
         if route.endswith("pulls/42"):
             return copy.deepcopy(self.pr)
         if "/compare/" in route:
-            return {"files": [{"filename": path} for path in self.compare_files]}
+            return {"files": self.compare_entries if self.compare_entries is not None else [{"filename": path} for path in self.compare_files]}
         if "/commits/" in route:
             sha = route.split("/commits/", 1)[1].split("/", 1)[0]
             if "/check-runs" not in route:
@@ -174,6 +175,17 @@ class MainFixEvidenceTests(unittest.TestCase):
         ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
         self.gh.ancestor_checks = [ancestor]
         self.gh.compare_files = ["Packages/macOS/CmuxNext/Sources/Changed.swift"]
+        with self.assertRaisesRegex(module.Refused, "intervening changes may affect the test"):
+            self.validate()
+
+    def test_ancestor_fallback_rejects_renamed_source_file(self):
+        self.gh.fail_test()
+        self.gh.base_checks = []
+        self.gh.parents[BASE] = [ANCESTOR]
+        ancestor = copy.deepcopy(self.gh.head_checks[2])
+        ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
+        self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_entries = [{"filename": "docs/cmux-next/renamed.md", "previous_filename": "Packages/macOS/CmuxNext/Sources/Changed.swift"}]
         with self.assertRaisesRegex(module.Refused, "intervening changes may affect the test"):
             self.validate()
 

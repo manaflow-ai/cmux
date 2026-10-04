@@ -106,8 +106,13 @@ def nearest_ancestor_check(repo: str, base: str, name: str, github: GitHub) -> t
 def path_filtered_intervening_changes(repo: str, ancestor: str, base: str, github: GitHub) -> list[str]:
     comparison = github.json(f"repos/{repo}/compare/{ancestor}...{base}")
     files = comparison.get("files", []) if isinstance(comparison, dict) else []
-    paths = [file["filename"] for file in files
-             if isinstance(file, dict) and isinstance(file.get("filename"), str)]
+    paths = []
+    for file in files:
+        if not isinstance(file, dict):
+            continue
+        for key in ("filename", "previous_filename"):
+            if isinstance(file.get(key), str):
+                paths.append(file[key])
     unsafe = [path for path in paths if not path.startswith(PATH_FILTERED_PREFIXES)]
     if unsafe:
         message = (
