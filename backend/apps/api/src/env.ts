@@ -72,6 +72,8 @@ export interface Env {
   readonly CLOUD_NAME_PREFIX?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
+  /** Per-team limit on cloud.machine.create and delete (namespace 1151-1153). */
+  readonly CLOUD_MUTATION_LIMIT?: RateLimit
   /** Test only: `fake` selects the in-object fake Cloud provider when ENVIRONMENT=test. */
   readonly CLOUD_DRIVER?: string
   /** Per-IP limit on unauthenticated pairing begins. */
