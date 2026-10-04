@@ -150,7 +150,7 @@ fn key_only_peer(allowed: &[IpNetwork]) -> WgPeer {
         public_key: random_keypair().1,
         preshared_key: None,
         allowed_ips: allowed.to_vec(),
-        endpoint: None,
+        route: None,
         persistent_keepalive: None,
     }
 }
