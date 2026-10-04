@@ -1057,6 +1057,8 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
 mod remote_browser_proxy;
 #[path = "remote_wg_hub.rs"]
 mod remote_wg_hub;
+#[path = "link/mod.rs"]
+mod link;
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
 use remote_wg_hub::run_wg;
 

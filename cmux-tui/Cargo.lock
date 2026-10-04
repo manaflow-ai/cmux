@@ -1104,6 +1104,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
