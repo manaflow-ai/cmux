@@ -157,15 +157,16 @@ impl Hub {
                 f(v);
             }
         };
-        let child = self.child_for(session).await?;
-        let agent_sid = session
-            .meta()
-            .agent_session_id
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
         if steer_now {
+            // A running turn has a live agent.
+            let child = self.child_for(session).await?;
+            let agent_sid = session
+                .meta()
+                .agent_session_id
+                .ok_or_else(|| RpcError::internal("no agent session"))?;
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             self.append(
                 session,
@@ -218,20 +219,6 @@ impl Hub {
                 json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
             );
         }
-        // The child may have died while we waited.
-        let child = self.child_for(session).await?;
-        let agent_sid = session
-            .meta()
-            .agent_session_id
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
-        if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000)
-        {
-            blocks.insert(
-                    0,
-                    json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
-                );
-        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -263,6 +250,32 @@ impl Hub {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
+        }
+        // The prompt is recorded and acknowledged above before the agent is started again (it
+        // died, or the daemon restarted), so a client hears prompt_accepted at once.
+        let started = match self.child_for(session).await {
+            Ok(child) => session
+                .meta()
+                .agent_session_id
+                .map(|sid| (child, sid))
+                .ok_or_else(|| RpcError::internal("no agent session")),
+            Err(e) => Err(e),
+        };
+        let (child, agent_sid) = match started {
+            Ok(started) => started,
+            Err(e) => {
+                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
+                drop(guard);
+                return Err(e);
+            }
+        };
+        if session.rehydrate.swap(false, Ordering::SeqCst)
+            && let Some(transcript) = self.transcript(session, 24_000)
+        {
+            blocks.insert(
+                    0,
+                    json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                );
         }
         session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self
@@ -409,6 +422,32 @@ impl Hub {
             merge_mux_meta(v, ids);
         }
         result
+    }
+
+    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
+    /// sees the prompt settle instead of a turn that never starts.
+    fn fail_unstarted_turn(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        turn_id: &str,
+        e: &RpcError,
+    ) {
+        *session.turn.lock().unwrap() = None;
+        self.append(
+            session,
+            "mux",
+            "turn_error",
+            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
+        );
+        let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        self.record_last_turn(session, &msg);
+        self.append(session, "mux", "turn_result", msg);
+        self.reset_stream(session);
+        if session.status() != SessionStatus::Closed {
+            self.set_status(session, SessionStatus::Disconnected);
+        }
+        self.save_meta(session);
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
