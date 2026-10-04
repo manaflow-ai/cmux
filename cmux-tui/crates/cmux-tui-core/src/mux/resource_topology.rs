@@ -2976,8 +2976,7 @@ impl Mux {
                 let record = registry.terminal_record(terminal_id)?.ok_or_else(|| {
                     terminal_close_state_error(format!("terminal close omitted host {terminal_id}"))
                 })?;
-                // A host being adopted, or one this build cannot adopt, also
-                // has views and no runtime here; closing it ends that host.
+                // A pending terminal (R41) also has views and no runtime.
                 if record.lifecycle != TerminalLifecycle::Exited
                     && !self.pending_terminal_closable(terminal_id)
                 {
@@ -3113,22 +3112,13 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal.revision);
         }
         let effects = plan.install(&mut state, resource.revision, None);
-        // A pending terminal (adopting, or unadoptable) has a host but no
-        // runtime here: the close ends that host (R41).
-        let pending_host =
-            effects.terminal_runtime.is_none() && self.terminal_is_pending(terminal_id);
+        let pending = effects.terminal_runtime.is_none() && self.terminal_is_pending(terminal_id);
         drop(state);
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
         self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
-        self.forget_terminal_end(public_id.as_str());
-        if pending_host {
-            self.terminate_discovered_terminal_host(
-                terminal_id,
-                terminal.result["incarnation"].as_str(),
-            );
-        }
+        self.after_terminal_close(&public_id, terminal_id, &terminal.result, pending);
         Ok(Some(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
@@ -3503,8 +3493,7 @@ impl Mux {
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
                 // An exited terminal may keep dead views without a runtime
-                // (a host loss, or a keep-layout tab), and so may a pending
-                // one (adopting, or unadoptable: R41); a live one may not.
+                // (a host loss, or a keep-layout tab); a live one may not.
                 if runtime.is_none() {
                     anyhow::ensure!(
                         placements.is_empty()
