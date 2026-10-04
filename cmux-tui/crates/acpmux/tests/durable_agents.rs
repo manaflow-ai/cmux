@@ -72,6 +72,13 @@ impl Daemon {
         assert!(status.success(), "daemon exited badly on SIGTERM: {status}");
     }
 
+    /// The daemon stopped by itself (`_acpmux/shutdown`).
+    fn wait_exit(&mut self) {
+        let mut child = self.child.take().unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success(), "daemon exited badly after _acpmux/shutdown: {status}");
+    }
+
     async fn rpc(&self) -> Rpc {
         Rpc::connect(&self.socket).await
     }
@@ -189,6 +196,19 @@ fn alive(pid: i64) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
+/// Whether `pid` is gone within `within` (an ended process group needs a
+/// moment to be reaped by launchd once its host exits).
+fn gone_within(pid: i64, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while alive(pid) {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    true
+}
+
 fn chunk(e: &Value, text: &str) -> bool {
     e["msg"]["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
         && e["msg"]["params"]["update"]["content"]["text"] == text
@@ -288,4 +308,80 @@ async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_age
     daemon.wait_event(&session, "the agent's answer", |e| chunk(e, "chose yes"));
     let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
     assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+}
+
+/// Starts a turn that waits on a FIFO; returns the session and its host record.
+async fn gated_turn(daemon: &Daemon) -> (String, Value, Rpc) {
+    let session = new_session(daemon).await;
+    let gate = daemon.home.join(format!("gate-{session}"));
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let host = daemon.host_record(&session);
+    (session, host, client)
+}
+
+/// "Quit Everything" in the app (plans/cmux-next/quit-persistence.md 4.3):
+/// `_acpmux/shutdown {endAgents: true}` ends every hosted agent and its host,
+/// records the turn in progress as cancelled, and the next daemon adopts
+/// nothing.
+#[tokio::test]
+async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_turn() {
+    let mut daemon = Daemon::new("endq", "approve-all");
+    let (session, host, client) = gated_turn(&daemon).await;
+    let harness_pid = host["harness_pid"].as_i64().unwrap();
+    let host_pid = host["host_pid"].as_i64().unwrap();
+
+    let reply = daemon.rpc().await.call("_acpmux/shutdown", json!({"endAgents": true})).await;
+    assert_eq!(reply["endAgents"], true, "{reply}");
+    daemon.wait_exit();
+    drop(client);
+    assert!(gone_within(harness_pid, Duration::from_secs(10)), "the agent outlived Quit Everything");
+    assert!(gone_within(host_pid, Duration::from_secs(10)), "the agent host outlived Quit Everything");
+    let cancelled = daemon
+        .events(&session)
+        .into_iter()
+        .find(|e| e["kind"] == "turn_cancelled")
+        .unwrap_or_else(|| panic!("no turn_cancelled record: {:#?}", daemon.events(&session)));
+    assert_eq!(cancelled["msg"]["reason"], "quit", "{cancelled}");
+
+    daemon.start();
+    let summary = daemon.rpc().await.call("_acpmux/sessions", json!({})).await;
+    let entry = summary["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == session.as_str())
+        .cloned()
+        .expect("the session is kept, resumable");
+    assert_eq!(entry["status"], "idle", "{entry}");
+    assert!(
+        !daemon.events(&session).iter().any(|e| e["kind"] == "host_adopted"),
+        "a host survived Quit Everything and was adopted"
+    );
+}
+
+/// "Keep Sessions Running" and every other shutdown leave hosted agents
+/// running mid-turn for the next daemon.
+#[tokio::test]
+async fn shutdown_without_end_agents_keeps_hosted_agents_running() {
+    let mut daemon = Daemon::new("keepq", "approve-all");
+    let (session, host, client) = gated_turn(&daemon).await;
+    let harness_pid = host["harness_pid"].as_i64().unwrap();
+
+    let reply = daemon.rpc().await.call("_acpmux/shutdown", json!({})).await;
+    assert_ne!(reply["endAgents"], true, "{reply}");
+    daemon.wait_exit();
+    drop(client);
+    assert!(alive(harness_pid), "a plain shutdown ended the agent");
+    assert!(
+        !daemon.events(&session).iter().any(|e| e["kind"] == "turn_cancelled"),
+        "a plain shutdown cancelled the turn"
+    );
 }
