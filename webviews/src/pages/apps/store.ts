@@ -163,6 +163,14 @@ export class AppsStore {
     }
   }
 
+  /** The host set a new fragment (`appStore.show {app}`, `showInstalled`): its tab and listing. */
+  applyRoute(hash: string): void {
+    const route = parseRoute(hash);
+    this.setTab(route.tab);
+    if (route.layout !== this.snapshot.layout) this.set({ layout: route.layout });
+    if (route.app !== this.snapshot.selection) void this.select(route.app);
+  }
+
   setTab(tab: StoreTab): void {
     if (tab !== this.snapshot.tab)
       this.set({ tab, selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined });
