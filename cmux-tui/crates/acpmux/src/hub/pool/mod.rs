@@ -29,21 +29,21 @@
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
 
 use super::*;
-use crate::agent::{Attached, Tap};
+use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
-use crate::clock::Clock;
-use std::collections::VecDeque;
-use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 mod auth;
+mod held;
 pub(crate) mod policy;
+mod reaper;
+use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
+pub(crate) use reaper::run_reaper;
+use reaper::signal_harness;
+pub use reaper::tree_rss_bytes;
 
-/// Held log lines and inbound messages per entry, beyond which stderr is
-/// dropped (anything else is kept).
-const HELD_CAP: usize = 1024;
 /// Most a pooled start's `initialize` and harness session may take before
 /// it counts as failed (and its host is ended).
 const START_BUDGET: Duration = Duration::from_secs(90);
@@ -99,12 +99,6 @@ impl PoolState {
             oversize: StdMutex::new(Default::default()),
         }
     }
-}
-
-/// Log lines (with their host entry) held until a session takes the entry.
-enum TapSlot {
-    Held(Vec<(Direction, Message, Option<u64>)>),
-    Live(Tap),
 }
 
 /// One hidden session, ready for a `session/new` to take.
@@ -165,138 +159,6 @@ fn initialize_params() -> Value {
         },
         "clientInfo": {"name": "acpmux", "version": VERSION}
     })
-}
-
-fn is_stderr_note(msg: &Message) -> bool {
-    matches!(msg, Message::Notification { method, .. } if method == crate::agent::HOST_STDERR)
-}
-
-/// A tap that holds every line until the entry is taken. Held lines count
-/// as stored: they reach the session log, in order, when it is taken.
-fn holding_tap() -> (Tap, Arc<StdMutex<TapSlot>>) {
-    let slot = Arc::new(StdMutex::new(TapSlot::Held(Vec::new())));
-    let s = slot.clone();
-    let tap: Tap = Arc::new(move |dir, msg, host_seq| {
-        let mut guard = s.lock().unwrap();
-        match &mut *guard {
-            TapSlot::Held(held) => {
-                if held.len() < HELD_CAP || !is_stderr_note(msg) {
-                    held.push((dir, msg.clone(), host_seq));
-                }
-                true
-            }
-            TapSlot::Live(live) => {
-                let live = live.clone();
-                drop(guard);
-                live(dir, msg, host_seq)
-            }
-        }
-    });
-    (tap, slot)
-}
-
-/// Inbound traffic of an entry: held until a session's channel arrives,
-/// then forwarded in order.
-fn holding_inbound() -> (mpsc::Sender<Inbound>, oneshot::Sender<mpsc::Sender<Inbound>>) {
-    let (tx, mut rx) = mpsc::channel::<Inbound>(1024);
-    let (target_tx, mut target_rx) = oneshot::channel::<mpsc::Sender<Inbound>>();
-    tokio::spawn(async move {
-        let mut held = VecDeque::new();
-        let target = loop {
-            tokio::select! {
-                t = &mut target_rx => match t {
-                    Ok(t) => break t,
-                    Err(_) => return, // ended untaken
-                },
-                m = rx.recv() => match m {
-                    Some(m) => {
-                        if held.len() < HELD_CAP || !matches!(m, Inbound::Stderr(..)) {
-                            held.push_back(m);
-                        }
-                    }
-                    None => return,
-                },
-            }
-        };
-        for m in held {
-            if target.send(m).await.is_err() {
-                return;
-            }
-        }
-        while let Some(m) = rx.recv().await {
-            if target.send(m).await.is_err() {
-                return;
-            }
-        }
-    });
-    (tx, target_tx)
-}
-
-/// `killpg` on the harness group of a pooled host (park and resume).
-fn signal_harness(record: &HostRecord, signal: i32) {
-    if let Some(pid) = record.harness_pid.and_then(|p| i32::try_from(p).ok()) {
-        // SAFETY: the harness leads its own process group under its host.
-        unsafe { libc::killpg(pid, signal) };
-    }
-}
-
-/// Resident memory of `root` and every descendant, in bytes (one `ps`).
-pub fn tree_rss_bytes(root: u32) -> u64 {
-    let Ok(out) = std::process::Command::new("ps").args(["-A", "-o", "pid=,ppid=,rss="]).output()
-    else {
-        return 0;
-    };
-    let rows: Vec<(u32, u32, u64)> = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|l| {
-            let mut f = l.split_whitespace().map(|x| x.parse::<u64>().ok());
-            Some((f.next()?? as u32, f.next()?? as u32, f.next()??))
-        })
-        .collect();
-    let mut tree = vec![root];
-    let mut i = 0;
-    while i < tree.len() {
-        let parent = tree[i];
-        tree.extend(rows.iter().filter(|r| r.1 == parent && r.0 != parent).map(|r| r.0));
-        i += 1;
-    }
-    rows.iter().filter(|r| tree.contains(&r.0)).map(|r| r.2 * 1024).sum()
-}
-
-/// End idle entries at their deadline. Waits only on `clock`, the pool's
-/// wake signal and `stopped`, so an idle pool costs no CPU; returns when
-/// `stopped` resolves or `clock` reports the owner gone (None).
-pub(crate) async fn run_reaper<T>(
-    pool: &StdMutex<Pool<T>>,
-    wake: &Notify,
-    stopped: impl Future<Output = ()>,
-    mut clock: impl FnMut() -> Option<Arc<dyn Clock>>,
-    mut expired: impl FnMut(Vec<T>),
-) {
-    tokio::pin!(stopped);
-    loop {
-        let Some(clock) = clock() else { return };
-        let next = pool.lock().unwrap().next_deadline();
-        let woke = async {
-            match next {
-                Some(at) => {
-                    tokio::select! {
-                        _ = clock.sleep_until(at) => {}
-                        _ = wake.notified() => {}
-                    }
-                }
-                None => wake.notified().await,
-            }
-        };
-        tokio::select! {
-            _ = &mut stopped => return,
-            _ = woke => {}
-        }
-        let out = pool.lock().unwrap().expire(clock.now());
-        if !out.is_empty() {
-            expired(out);
-        }
-    }
 }
 
 impl Hub {
@@ -386,7 +248,7 @@ impl Hub {
         let cwd = super::adoption::session_cwd(Some(cwd), None, &family)?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
-        let draft = super::lifecycle::draft_meta(super::lifecycle::Draft {
+        let draft = super::resolve::draft_meta(super::resolve::Draft {
             id: String::new(),
             agent: &r.agent,
             profile: &r.profile,
@@ -999,72 +861,6 @@ async fn end_pooled_host(record: &HostRecord) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clock::ManualClock;
-
-    fn key(h: &str) -> PoolKey {
-        PoolKey {
-            origin: Origin::Local,
-            cwd: "/w".into(),
-            harness: h.into(),
-            preset: None,
-            args: vec![],
-            system_prompt_sha256: None,
-            auth: "a".into(),
-            account: None,
-        }
-    }
-
-    /// Lets every task that can run, run.
-    async fn settle() {
-        for _ in 0..20 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    #[tokio::test]
-    async fn an_idle_entry_exits_on_the_fake_clock_and_a_hint_moves_its_deadline() {
-        let pool = Arc::new(StdMutex::new(Pool::<&'static str>::new(Duration::from_secs(600))));
-        let wake = Arc::new(Notify::new());
-        let clock = ManualClock::new();
-        let (stop_tx, stop_rx) = oneshot::channel::<()>();
-        let (out_tx, mut out_rx) = mpsc::unbounded_channel();
-        {
-            let mut p = pool.lock().unwrap();
-            let g = p.want(Role::Hinted, key("codex"), Duration::ZERO).start.unwrap();
-            assert!(p.complete(&key("codex"), g, "codex#1", Duration::ZERO).is_none());
-        }
-        let (pool2, wake2, clock2) = (pool.clone(), wake.clone(), clock.clone());
-        let reaper = tokio::spawn(async move {
-            run_reaper(
-                &pool2,
-                &wake2,
-                async {
-                    let _ = stop_rx.await;
-                },
-                || Some(clock2.clone() as Arc<dyn Clock>),
-                |v| v.into_iter().for_each(|t| out_tx.send(t).unwrap()),
-            )
-            .await;
-        });
-        settle().await;
-        clock.advance(Duration::from_secs(599));
-        settle().await;
-        assert!(out_rx.try_recv().is_err(), "not idle long enough");
-        // A hint at 599 s moves the deadline to 1199 s.
-        pool.lock().unwrap().want(Role::Hinted, key("codex"), Duration::from_secs(599));
-        wake.notify_one();
-        settle().await;
-        clock.advance(Duration::from_secs(1));
-        settle().await;
-        assert!(out_rx.try_recv().is_err(), "the hint pushed the deadline");
-        clock.advance(Duration::from_secs(599));
-        settle().await;
-        assert_eq!(out_rx.try_recv().ok(), Some("codex#1"));
-        assert!(pool.lock().unwrap().is_empty());
-        // The reaper stops when told to (hub.shutdown or stop_pool).
-        stop_tx.send(()).unwrap();
-        tokio::time::timeout(Duration::from_secs(5), reaper).await.unwrap().unwrap();
-    }
 
     fn test_profile() -> HarnessProfile {
         HarnessProfile {
@@ -1097,7 +893,7 @@ mod tests {
         assert!(refused.is_err(), "a remote-origin hint is refused");
         assert!(hub.pool.pool.lock().unwrap().is_empty());
         let profile = test_profile();
-        let mut meta = super::super::lifecycle::draft_meta(super::super::lifecycle::Draft {
+        let mut meta = super::super::resolve::draft_meta(super::super::resolve::Draft {
             id: String::new(),
             agent: "claude",
             profile: &profile,
@@ -1113,10 +909,5 @@ mod tests {
         meta.remote_origin = false;
         // A memory store runs no agent hosts, so nothing is pooled here either.
         assert_eq!(hub.pool_claim(&meta, &profile, &Default::default()).await, None);
-    }
-
-    #[test]
-    fn tree_rss_counts_this_process() {
-        assert!(tree_rss_bytes(std::process::id()) > 0);
     }
 }
