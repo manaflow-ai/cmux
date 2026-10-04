@@ -12,6 +12,8 @@ import Observation
 final class AppDevToolsRelay: ProviderDevToolsRelay {
     private unowned let services: AppServices
     private weak var marking: (any ProviderAgentMarking)?
+    /// Whether the app announces tab `id` to the host (local, not incognito).
+    var drivable: ((String) -> Bool)?
     private var relayed: [String: WeakCEFTab] = [:]
 
     /// A page may be replaced a few times while it starts (rebuild, wake);
@@ -24,7 +26,8 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func prepareRelay(targetID: String) async -> Bool {
-        guard let (tab, _) = services.locateTab(targetID), tab.browserEngine == BrowserEngineTag.cef.rawValue else { return false }
+        guard drivable?(targetID) == true, let (tab, _) = services.locateTab(targetID),
+              tab.browserEngine == BrowserEngineTag.cef.rawValue else { return false }
         marking?.agentWillDrive(targetID: targetID)
         guard let page = await agentReadyPage(tab) else { return false }
         if !page.agentRelay.hasBrowser { page.agentRelay.createBrowser() }
@@ -63,16 +66,18 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
         return nil
     }
 
-    /// Resumes at the next page install anywhere in the app (`pageInstalls`).
+    /// Resumes at the next page install anywhere in the app (`pageInstalls`),
+    /// or when the waiting task is cancelled (the provider's prepare deadline).
     private func nextPageInstall() async {
         let installs = services.cache.pageInstalls
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            withObservationTracking {
-                _ = installs.revision
-            } onChange: {
-                continuation.resume()
-            }
+        let installed = OneShot<Bool>()
+        withObservationTracking {
+            _ = installs.revision
+        } onChange: {
+            installed.resolve(true)
         }
+        // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
+        _ = await installed.wait(cancelled: false)
     }
 
     func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool {

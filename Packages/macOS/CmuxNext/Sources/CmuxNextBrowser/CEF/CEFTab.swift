@@ -370,6 +370,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        agentRelay.resumeWaiters(false)
         faviconTask?.cancel()
         if let browserID {
             runtime.shim?.close(browserID)

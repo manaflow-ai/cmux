@@ -17,13 +17,17 @@ public nonisolated final class OneShot<Value: Sendable>: Sendable {
 
     /// The resolved value, or `cancelled` once the waiting task is cancelled.
     public func wait(cancelled: Value) async -> Value {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
-            let early = state.withLock { state -> Value? in
-                if state.resolved { return state.value }
-                state.continuation = continuation
-                return nil
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
+                let early = state.withLock { state -> Value? in
+                    if state.resolved { return state.value }
+                    state.continuation = continuation
+                    return nil
+                }
+                if let early { continuation.resume(returning: early) }
             }
-            if let early { continuation.resume(returning: early) }
+        } onCancel: {
+            resolve(cancelled)
         }
     }
 

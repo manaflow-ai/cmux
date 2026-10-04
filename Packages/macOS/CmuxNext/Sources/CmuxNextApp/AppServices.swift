@@ -300,6 +300,7 @@ final class AppServices {
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
             self?.notifications.noteMouseDown(in: window)
+            if let event = NSApp.currentEvent { self?.browserHost?.noteInput(event) }
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
             self?.keyRouter.cancelChord()

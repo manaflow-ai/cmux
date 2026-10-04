@@ -42,6 +42,11 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         return out
     }
 
+    /// A tab the app announces: a browser tab of a local workspace, not incognito.
+    func isDrivable(_ targetID: String) -> Bool {
+        localBrowserTabs.contains { $0.model.id == targetID }
+    }
+
     // MARK: ProviderTabSource
 
     var providerTabs: [ProviderTab] {
@@ -98,7 +103,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// filled password, so it is rebuilt before any agent message reaches it
     /// (the relay waits for the new page).
     func agentWillDrive(targetID: String) {
-        guard services.locateTab(targetID) != nil else { return }
+        guard isDrivable(targetID) else { return }
         if AppBrowserPage.markAgentDriven(targetID, services: services) {
             services.cache.rebuildForAgent(targetID)
         }
@@ -127,6 +132,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func activateAutomationTab(_ id: BrowserTabID) {}
 }
 
+/// Agent-facing protocol text (driver error message), not shown to a person: not localized.
 enum AutomationTabError: LocalizedError {
     case openThroughStore
 

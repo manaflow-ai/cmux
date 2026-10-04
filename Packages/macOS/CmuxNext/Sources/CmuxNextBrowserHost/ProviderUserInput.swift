@@ -7,6 +7,10 @@ public import AppKit
 public enum ProviderUserInput {
     /// One per press: key downs and mouse downs, not releases or drags.
     public static func pausesLease(_ event: NSEvent) -> Bool {
-        false // RED: no event counts yet
+        switch event.type {
+        case .keyDown: !event.isARepeat
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown: true
+        default: false
+        }
     }
 }

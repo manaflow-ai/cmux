@@ -76,7 +76,7 @@ extension BrowserHostProvider {
 
     /// A tab left the app: its relay and per-tab state end.
     private func tabGone(_ targetID: String) {
-        if relays[targetID] != nil { endRelay(targetID) }
+        if relays[targetID] != nil { endRelay(targetID, answering: true) }
         accessSent[targetID] = nil
         calledTargets.remove(targetID)
         if leases.removeValue(forKey: targetID) != nil { onLeaseChange?(targetID, nil) }

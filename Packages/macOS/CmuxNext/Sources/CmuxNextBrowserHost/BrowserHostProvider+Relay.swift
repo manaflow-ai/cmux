@@ -31,6 +31,10 @@ extension BrowserHostProvider {
     /// host commands wait in a bounded queue until then, or until the
     /// prepare deadline answers them with CDP errors.
     func attachRelay(_ targetID: String) {
+        // Only a Chromium tab this app announced (never an incognito or
+        // another machine's tab): anything else stays unattached, so its
+        // commands get CDP errors, and it is never marked or prepared.
+        guard announced[targetID]?.engine == .cef else { return }
         marking?.agentWillDrive(targetID: targetID)
         guard relays[targetID] == nil else { return }
         relayGeneration += 1
@@ -131,9 +135,11 @@ extension BrowserHostProvider {
     /// The browser went away under a live relay (rebuilt, closed): the host
     /// drops its driver for the tab and attaches again on its next call.
     private func relayClosedByBrowser(_ targetID: String, _ gen: Int) {
-        guard let session = relays[targetID], session.generation == gen else { return }
+        guard var session = relays[targetID], session.generation == gen else { return }
         relays[targetID] = nil
         session.deadline?.cancel()
+        // Every command still waiting is answered before the host hears the close.
+        for message in session.map.drainPending() { replyError(targetID, to: message, "the tab's page closed") }
         send(.event(name: "tab.relay.closed", payload: .object(["targetId": .string(targetID)])))
     }
 
@@ -143,12 +149,16 @@ extension BrowserHostProvider {
         endRelay(targetID)
     }
 
-    /// Stops a relay without telling the host (detach, tab gone, link down).
-    func endRelay(_ targetID: String) {
-        guard let session = relays.removeValue(forKey: targetID) else { return }
+    /// Stops a relay (detach, tab gone, link down). `answering` sends a CDP
+    /// error for every command still waiting (the tab left while the host
+    /// still holds the relay).
+    func endRelay(_ targetID: String, answering: Bool = false) {
+        guard var session = relays.removeValue(forKey: targetID) else { return }
         session.deadline?.cancel()
         session.preparing?.cancel()
         if case .relaying = session.phase { relay?.stopRelay(targetID: targetID) }
+        guard answering else { return }
+        for message in session.queued + session.map.drainPending() { replyError(targetID, to: message, "the tab closed") }
     }
 
     private func replyError(_ targetID: String, to message: String, _ text: String) {

@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
@@ -13,10 +14,13 @@ final class AppBrowserHost {
     private let credentials: AppProviderCredentials
     private let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
+    private unowned let services: AppServices
 
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
+        self.services = services
         let tabs = AppBrowserHostTabs(services: services)
         let relay = AppDevToolsRelay(services: services, marking: tabs)
+        relay.drivable = { [unowned tabs] id in tabs.isDrivable(id) }
         let driver = WebKitDriver(provider: tabs)
         let credentials = AppProviderCredentials()
         self.credentials = credentials
@@ -35,8 +39,30 @@ final class AppBrowserHost {
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
     }
 
+    /// Starts the provider (idle until step c2) and feeds it a person's key
+    /// downs: before dispatch, when focus already names the page that gets
+    /// them. Clicks come from the app's mouse-down observer, after dispatch
+    /// (focus has moved to the clicked page).
     func start() {
         provider.start()
+        let application = NSApp as? CmuxApplication
+        let earlier = application?.inputObserver
+        application?.inputObserver = { [weak self] event in
+            earlier?(event)
+            if event.type == .keyDown { self?.noteInput(event) }
+        }
+    }
+
+    /// A person's event reached a page: `user.input` when the page is leased.
+    /// Only events AppKit dispatches come here; the WebKit driver calls the
+    /// web view directly and CDP input stays inside Chromium, so agent input
+    /// never pauses a lease.
+    func noteInput(_ event: NSEvent) {
+        guard ProviderUserInput.pausesLease(event),
+              let window = CmuxApplication.accessibilityWindow(for: event.window ?? NSApp.keyWindow),
+              let controller = services.windows.controllers.first(where: { $0.window === window }),
+              case .browserPage(_, let tab) = controller.focus.state.resolved else { return }
+        provider.reportUserInput(event: event, targetID: tab)
     }
 
     /// One provider per install: a random id kept in the app's defaults.

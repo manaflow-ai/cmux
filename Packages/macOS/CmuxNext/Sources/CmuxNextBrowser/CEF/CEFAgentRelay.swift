@@ -19,7 +19,7 @@ public final class CEFAgentRelay {
     private unowned let tab: CEFTab
     private var sink: ((String) -> Void)?
     private var onEnd: (() -> Void)?
-    private var waiters: [CheckedContinuation<Bool, Never>] = []
+    private var waiters: [OneShot<Bool>] = []
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -56,11 +56,14 @@ public final class CEFAgentRelay {
     }
 
     /// Resumes with true once the browser exists, false when its creation
-    /// failed or the tab closed.
+    /// failed, the tab closed, or the waiting task was cancelled.
     public func browserCreated() async -> Bool {
         if tab.browserID != nil { return true }
         if tab.isClosed { return false }
-        return await withCheckedContinuation { waiters.append($0) }
+        let waiter = OneShot<Bool>()
+        waiters.append(waiter)
+        // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
+        return await waiter.wait(cancelled: false)
     }
 
     // MARK: Tab lifetime (CEFTab)
@@ -75,7 +78,7 @@ public final class CEFAgentRelay {
     func resumeWaiters(_ created: Bool) {
         let waiting = waiters
         waiters = []
-        for waiter in waiting { waiter.resume(returning: created) }
+        for waiter in waiting { waiter.resolve(created) }
     }
 
     /// The browser closed: waiters fail and the relay hears the end once.

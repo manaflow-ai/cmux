@@ -36,6 +36,12 @@ extension BrowserHostProvider {
             send(.result(id: id, result: nil, error: DriverError(.unsupported, "\(method): the app serves only calls on a tab").json))
             return
         }
+        // A tab this app did not announce (incognito, another machine's) is
+        // unknown to the host's agents: refused, never marked.
+        if let targetID, announced[targetID] == nil {
+            send(.result(id: id, result: nil, error: DriverError(.notFound, "\(method): no tab \(targetID)").json))
+            return
+        }
         if let targetID, calledTargets.insert(targetID).inserted {
             marking?.agentWillDrive(targetID: targetID)
         }
@@ -60,6 +66,8 @@ extension BrowserHostProvider {
     /// The host's lease for a tab: shown by the app, never invented. A lease
     /// that starts marks the tab agent-driven before any later frame runs.
     private func leaseChanged(_ targetID: String, _ lease: ProviderLease?) {
+        // A lease on a tab this app did not announce is not shown or marked.
+        guard lease == nil || announced[targetID] != nil else { return }
         let old = leases[targetID]
         leases[targetID] = lease
         if lease != nil, old == nil { marking?.agentWillDrive(targetID: targetID) }

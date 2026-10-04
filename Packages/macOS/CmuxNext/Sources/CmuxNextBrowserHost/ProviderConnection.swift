@@ -1,5 +1,6 @@
 public import Foundation
 import Darwin
+import os
 import Synchronization
 
 public nonisolated enum ProviderConnectionError: Error, Hashable, Sendable {
@@ -23,6 +24,8 @@ public nonisolated final class ProviderConnection: Sendable {
         var started = false
         var fdOpen = true
     }
+
+    static let logger = Logger(subsystem: "com.cmuxterm.next", category: "browser-host-provider")
 
     public let frames: AsyncStream<ProviderFrame>
     private let continuation: AsyncStream<ProviderFrame>.Continuation
@@ -170,16 +173,25 @@ public nonisolated final class ProviderConnection: Sendable {
             let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if count > 0 {
                 buffer.withUnsafeBytes { decoder.push(UnsafeRawBufferPointer(rebasing: $0[0..<count])) }
-                do {
-                    while open, let frame = try decoder.next() {
-                        if case .dropped = continuation.yield(frame) {
-                            reason = "the app fell behind the browser host"
-                            open = false
+                var draining = true
+                while open, draining {
+                    do throws(ProviderCodecError) {
+                        if let frame = try decoder.next() {
+                            if case .dropped = continuation.yield(frame) {
+                                reason = "the app fell behind the browser host"
+                                open = false
+                            }
+                        } else {
+                            draining = false
                         }
+                    } catch .tooLarge(let length) {
+                        // The stream cannot resync past a bad length: end the link.
+                        reason = "provider frame of \(length) bytes is too large"
+                        open = false
+                    } catch {
+                        // A malformed frame was consumed whole: drop it, keep the link.
+                        Self.logger.error("browser host provider: dropped a malformed frame: \(String(describing: error), privacy: .public)")
                     }
-                } catch {
-                    reason = "bad provider frame: \(error)"
-                    open = false
                 }
             } else if count < 0, errno == EINTR {
                 continue
