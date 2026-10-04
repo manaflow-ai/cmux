@@ -40,6 +40,11 @@ struct WebKitChallengeTests {
         let prompt = BrowserPrompt(kind: .credentials(host: "intranet.test", realm: "Staff"), origin: "intranet.test") { answer = $0 }
         bar.show(prompt)
         #expect(!bar.userField.isHidden && !bar.passwordField.isHidden)
+        // A long realm wraps instead of being cut at the bar's width.
+        bar.frame = NSRect(x: 0, y: 0, width: 320, height: 400)
+        bar.layoutSubtreeIfNeeded()
+        bar.layoutSubtreeIfNeeded()
+        #expect(bar.messageLineCount > 1, "the realm wraps to a second line")
         bar.userField.stringValue = "ada"
         bar.passwordField.stringValue = "s3cret"
         bar.submit()
