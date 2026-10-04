@@ -102,7 +102,7 @@ extension WindowOverlayHost {
         let pages = (window.childWindows ?? []).filter { Self.isPageWindow($0) && $0.isVisible && $0.frame.contains(screenPoint) }
         guard pages.count > 1 else { return pages.first ?? window }
         // Front to back (child order is add order, not z-order).
-        let order = NSWindow.windowNumbers(options: []) ?? []
+        let order = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
         return pages.min { (order.firstIndex(of: $0.windowNumber) ?? .max) < (order.firstIndex(of: $1.windowNumber) ?? .max) } ?? window
     }
 
