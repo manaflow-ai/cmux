@@ -343,7 +343,8 @@ fn a_copied_group_reopened_in_v2_leaves_v1_too() {
 }
 
 /// A registry that S1 (closed_at_ms ledger) already migrated keeps working:
-/// the ledger gains the v1 sequence of every row still in v1.
+/// the ledger gains the v1 sequence of every row still in v1. A row removed
+/// before that fill has no known sequence, so its group stays.
 #[test]
 fn a_ledger_from_the_first_v2_build_gains_sequences() {
     let mut connection = rusqlite::Connection::open_in_memory().unwrap();
@@ -361,6 +362,8 @@ fn a_ledger_from_the_first_v2_build_gains_sequences() {
                SELECT closed_id, closed_at_ms FROM closed_history;",
         )
         .unwrap();
+    // The first open of this build fills the sequences of rows still in v1.
+    open_schema(&mut connection);
     connection.execute("DELETE FROM closed_history WHERE closed_id = 'closed_old2'", []).unwrap();
     open_schema(&mut connection);
     assert_eq!(group_ids(&connection), vec![json!("closed_old3"), json!("closed_old1")]);

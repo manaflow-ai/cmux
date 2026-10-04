@@ -115,7 +115,7 @@ fn delete_in(
     let mut out = Deleted::default();
     match &request.closed {
         Some(closed_id) => {
-            delete_one(transaction, closed_id, request.members.as_deref(), &mut out)?
+            delete_one(transaction, closed_id, request.members.as_deref(), &mut out)?;
         }
         None => {
             for closed_id in groups_since(transaction, request.since_ms)? {
