@@ -81,6 +81,7 @@ Framing: length-prefixed JSON (u32 big-endian length, then UTF-8 JSON), one fram
 | `cdp {targetId, message}` | both | one raw CDP message (string), passed through unparsed by the app |
 | `lease {targetId, lease?}` | host → app | show or clear the "driven by" badge; the app never shows a lease it did not receive |
 | `user.input {targetId}` | app → host | a person pressed a key or clicked in a leased tab; the host pauses that lease (spec risk "human and agent input") |
+| `tab.access {targetId, extension_host_access, user_override}` | app → host | interim extension rule (2026-10-04): whether an enabled extension of the tab's profile holds host permissions on its page, and the person's per-tab override (native confirmation). The host refuses every call on a non-WebKit tab without a report, or with `extension_host_access` and no override: `forbidden`, `errorName: "extension_host_access"`. Only the provider connection sends it |
 
 Authentication: the daemon mints a per-launch provider secret when it starts the host and hands it to the app over the app's existing trusted daemon connection; the app proves it in `hello` and the host also checks peer credentials (same uid). A provider connection is never accepted from the agent listener. The host refuses a second provider with the same `install_id` (one app per install) and replaces it only after the first disconnects.
 
