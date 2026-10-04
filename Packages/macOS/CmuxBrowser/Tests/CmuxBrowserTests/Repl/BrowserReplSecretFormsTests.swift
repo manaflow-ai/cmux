@@ -85,4 +85,41 @@ struct BrowserReplSecretFormsTests {
         let plain = "Mxyz NDgy abcdEFGH QYTd the quick brown fox " + Data((0..<3000).map { UInt8($0 % 256) }).base64EncodedString()
         #expect(store.redact(plain) == plain)
     }
+
+    /// Escapes other serializers and markup use: JSON `\\uXXXX` for any
+    /// character (Python's `ensure_ascii`, Go's HTML-safe JSON), surrogate
+    /// pairs, JavaScript `\\xHH` and `\\u{...}`, HTML numeric character
+    /// references (decimal, hex, without the semicolon), named references
+    /// in upper case, `%uXXXX` (JavaScript's `escape`) and a value
+    /// percent-encoded twice (a URL inside a redirect parameter).
+    @Test("JSON, JavaScript, HTML and doubled percent escapes of a value are masked")
+    func escapedFormsAreMasked() throws {
+        let value = "p@ss w/rd:\u{E9}\u{1F600}"
+        let store = BrowserReplSecretStore()
+        try store.set(name: "pw", value: value, domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "amp", value: "a&b<c", domains: ["example.com"], totp: false, title: "t")
+        func each(_ form: (Unicode.Scalar) -> String) -> String { value.unicodeScalars.map(form).joined() }
+        func utf16(_ scalar: Unicode.Scalar, _ format: String) -> String {
+            String(scalar).utf16.map { String(format: format, $0) }.joined()
+        }
+        let percentTwice = value.utf8.map { String(format: "%%25%02X", $0) }.joined()
+        let samples = [
+            each { utf16($0, "\\u%04x") },
+            each { utf16($0, "\\u%04X") },
+            each { $0.isASCII ? String($0) : utf16($0, "\\u%04x") },
+            each { $0.value < 0x100 ? String(format: "\\x%02x", $0.value) : String(format: "\\u{%X}", $0.value) },
+            each { "&#\($0.value);" },
+            each { String(format: "&#x%X;", $0.value) },
+            each { String(format: "&#X%05x", $0.value) },
+            each { $0.value < 0x100 ? String(format: "%%u%04X", $0.value) : String($0) },
+            percentTwice,
+            "a&AMP;b&LT;c a&#38b&#60c",
+        ]
+        for sample in samples {
+            let redacted = store.redact(" \(sample) ")
+            #expect(redacted == " <secret:pw> " || redacted.hasPrefix(" <secret:amp> "), "\(sample) -> \(redacted)")
+        }
+        #expect(store.redact("a&AMP;b&LT;c a&#38b&#60c") == "<secret:amp> <secret:amp>")
+        #expect(store.redact("&#112; \\u0070 &amp;") == "&#112; \\u0070 &amp;")
+    }
 }
