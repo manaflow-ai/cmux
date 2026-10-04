@@ -508,6 +508,7 @@ async fn a_recovered_permission_prompt_is_not_idle() {
     .await;
     let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
     assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
 
 /// A live host whose link this daemon lost (another owner took the host over
 /// and left) must not lock its session: the next prompt reattaches to the
