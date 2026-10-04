@@ -59,6 +59,9 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
     /// False: the item shows its icon only on a line (inline arrangement),
     /// like the account avatar beside Settings.
     public var showsLabel: Bool
+    /// Columns this item takes on a grid section's line (1...12, of the
+    /// arrangement's `columns`); nil = one tile (R53).
+    public var span: Int? = nil
 
     /// The app this item opens, for an app item.
     public var owningAppID: String? { ref.kind == LayoutItemRef.appKind ? ref.value : nil }
