@@ -27,9 +27,9 @@ import Testing
     }
 
     @Test func aWideWindowKeepsTheDockWidths() {
-        // 0.4 of a 2000 pt window leaves a strip well above the minimum.
-        let g = geometry(width: 2000, left: .docked, right: .docked)
-        #expect(g.stripWidth > 1000)
+        // Two 40% docks of a 3000 pt window leave about 600 pt: above the minimum.
+        let g = geometry(width: 3000, left: .docked, right: .docked)
+        #expect(g.stripWidth > 550)
     }
 
     @Test func aNarrowWindowKeepsHalfForTheStrip() {
