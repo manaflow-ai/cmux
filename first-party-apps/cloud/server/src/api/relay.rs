@@ -57,6 +57,12 @@ pub(crate) enum Next {
     Wake,
 }
 
+/// Op lines a relay call keeps waiting while it waits for its answer, the
+/// same bound as the inbox. One more op line is answered at once with
+/// `cmux.cloud.relay_busy` (retryable); it never waits and is never dropped
+/// without an answer.
+pub const RELAY_QUEUE_LINES: usize = 64;
+
 /// Host lines the inbox holds before the reader thread waits (the stdin
 /// pipe then pushes back on the host, as before the reader thread).
 const INBOX_LINES: usize = 64;
