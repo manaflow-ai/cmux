@@ -29,6 +29,8 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+#[cfg(unix)]
+mod link;
 mod local_owner;
 mod localization;
 mod machine;
@@ -45,8 +47,6 @@ mod provider_authority;
 #[cfg(unix)]
 mod provider_notice_identity;
 mod pty_input;
-#[cfg(unix)]
-mod link;
 #[cfg(unix)]
 mod remote_cli;
 #[cfg(not(unix))]
@@ -2402,7 +2402,6 @@ fn run_server(
     } else {
         None
     };
-
 
     let websocket_server = match (|| -> anyhow::Result<_> {
         Ok(match ws_addr {
