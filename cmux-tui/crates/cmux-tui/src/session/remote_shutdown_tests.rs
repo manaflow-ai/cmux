@@ -80,10 +80,12 @@ fn a_request_refused_during_a_cancelled_shutdown_stays_rejected() {
     let session = test_session(Box::new(SilentWriter));
     let request_session = session.clone();
     let worker = std::thread::spawn(move || {
-        request_session.request_with_deadline(
+        crate::client_log::start_test_log_capture();
+        let result = request_session.request_with_deadline(
             json!({"cmd": "identify"}),
             RequestDeadline::Fixed(Duration::from_secs(30)),
-        )
+        );
+        (result, crate::client_log::take_test_log_capture())
     });
     let deadline = Instant::now() + Duration::from_secs(1);
     let id = loop {
@@ -100,10 +102,14 @@ fn a_request_refused_during_a_cancelled_shutdown_stays_rejected() {
         "error_code": cmux_tui_core::server::DAEMON_SHUTDOWN_PENDING_CODE,
     }));
 
-    let error = worker
-        .join()
-        .expect("request worker panicked")
-        .expect_err("a refused request unexpectedly succeeded");
+    let (result, logs) = worker.join().expect("request worker panicked");
+    let error = result.expect_err("a refused request unexpectedly succeeded");
+    assert!(
+        logs.iter().any(|record| record.level == "WARN"
+            && record.area == "remote"
+            && record.message.contains("sent no shutdown notice")),
+        "{logs:?}"
+    );
     assert_eq!(
         error.downcast_ref::<RemoteRequestError>().and_then(RemoteRequestError::rejection_code),
         Some(cmux_tui_core::server::DAEMON_SHUTDOWN_PENDING_CODE),

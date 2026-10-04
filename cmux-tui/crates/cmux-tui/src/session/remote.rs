@@ -2919,6 +2919,7 @@ impl RemoteSession {
                 if let Some(shutdown) = self.request_shutdown_error() {
                     return Err(shutdown.into());
                 }
+                disconnect::log_missing_shutdown_notice();
             }
             Err(RemoteRequestError::Rejected { error: error.to_string(), code, delivery }.into())
         }

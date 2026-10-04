@@ -19,6 +19,19 @@ pub(super) fn is_shutdown_pending_refusal(code: Option<&str>, error: &str) -> bo
     }
 }
 
+/// Record that a refused request waited the whole grace without a shutdown
+/// notice or connection end: the daemon cancelled its shutdown, or it stalled.
+pub(super) fn log_missing_shutdown_notice() {
+    crate::client_log::log(
+        "WARN",
+        "remote",
+        &format!(
+            "daemon refused a request for a pending shutdown but sent no shutdown notice within {} s; the request stays refused",
+            SHUTDOWN_PENDING_GRACE.as_secs()
+        ),
+    );
+}
+
 /// The first terminal state of the session, with a condition that wakes
 /// waiters when it leaves `Active`.
 #[derive(Default)]
