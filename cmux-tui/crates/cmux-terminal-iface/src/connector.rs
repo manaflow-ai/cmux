@@ -53,10 +53,12 @@ pub enum ConnectorEvent {
 /// presence); the session host relays it and does not parse.
 pub trait HostLink: Send {
     /// The channel id of this link: the id [`TerminalConnector::close`]
-    /// takes and [`ConnectorEvent::End`] names. A second `connect` to the
-    /// same target while the link is up answers the same id. On the wire
-    /// the host assigns the id (`cmux.terminal.connector.open`); an
-    /// in-process connector names its own.
+    /// takes and [`ConnectorEvent::End`] names. One handle per channel: a
+    /// second `connect` to the same target while this handle lives is
+    /// refused with `invalid` ("already connected; use the open link").
+    /// Dropping the handle does not end the link. On the wire the host
+    /// assigns the id (`cmux.terminal.connector.open`); an in-process
+    /// connector names its own.
     fn channel(&self) -> &str;
     /// Where this link's bytes move ([`DataPlane`]).
     fn data_plane(&self) -> DataPlane;
