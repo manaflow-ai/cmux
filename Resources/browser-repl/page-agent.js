@@ -160,15 +160,25 @@
   function isOwnHandle(id) {
     return typeof id === "string" && id.endsWith("." + docToken);
   }
+  // An element belongs to this agent only while it is in this document. A
+  // same-origin page can move it into another frame's document (adoptNode,
+  // or appendChild into a same-origin iframe or popup); it stays connected
+  // there, but acting on it here would act under this frame's id (its
+  // point, its file chooser) on another document, so it resolves as gone.
+  const inThisDocument = (el) => !!el && el.ownerDocument === document;
+  const OTHER_DOCUMENT = "Element handle is from a previous document: the page moved its element into another document; take a new snapshot";
   function handleElement(id) {
     if (!isOwnHandle(id)) return null;
     const entry = handles.get(id);
-    return (entry && entry.deref()) || null;
+    const el = entry && entry.deref();
+    return inThisDocument(el) ? el : null;
   }
   function element(id) {
     if (!isOwnHandle(id)) throw agentError("stale", PREVIOUS_DOCUMENT);
-    const el = handleElement(id);
+    const entry = handles.get(id);
+    const el = entry && entry.deref();
     if (!el) throw agentError("stale", "Element handle is no longer available");
+    if (!inThisDocument(el)) throw agentError("stale", OTHER_DOCUMENT);
     return el;
   }
   // Past this many entries, the ref and handle tables also drop elements
@@ -276,7 +286,7 @@
   function refElement(ref) {
     const entry = refRegistry.get(ref);
     const el = entry && entry.deref();
-    return el && el.isConnected ? el : null;
+    return inThisDocument(el) && el.isConnected ? el : null;
   }
   function pruneRefs() {
     const large = refRegistry.size > TABLE_SOFT_LIMIT;

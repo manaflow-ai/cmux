@@ -128,7 +128,11 @@ Rules, and how they improve on the references:
   a previous document; take a new snapshot`) and never acts on the new
   document. An element handle (`locator.elementHandle()`) likewise fails
   `stale` (`Element handle is from a previous document; take a new
-  snapshot`) once its frame shows another document. Reference A renumbers a ref when its name
+  snapshot`) once its frame shows another document. Both are bound to the
+  frame's document too: when the page moves the element into another
+  document (`adoptNode`, or appending it into a same-origin iframe or popup),
+  the ref fails `stale` and the handle fails `stale` at once, and neither
+  acts on it there. Reference A renumbers a ref when its name
   changes; reference B reuses indices after removals.
 - **Roles** are Playwright's (`getByRole` finds them), except controls HTML
   has no ARIA role for: `summary` prints as `button`, an editable element as
