@@ -2,14 +2,19 @@
 // the markdown page runs unchanged in a plain browser. Calls go to POST /__cmux-markdown/op, where
 // the server implements the host ops (host.ts) on the `?file=` file. Two app roles are played here:
 // the file watcher (`cmux.markdown.changes`, from the server's hot-update event) and the key
-// dispatcher, which turns Cmd-S into the `save` page command. Nothing here ships.
+// dispatcher, which turns Cmd-S into the `save` page command. With `?pick` the page starts with no
+// file (the empty state, src/viewer-empty): `cmux.markdown.chooseFile` shows the in-page fallback
+// picker, and the file `cmux.markdown.open` answers becomes the bridge's file. Nothing here ships.
 import { PAGE_COMMAND } from "../shared/pageStreams";
 import { RECEIVE_NAME } from "../shared/pageClient";
 import { MARKDOWN_CHANGES, MARKDOWN_LOOK } from "./host";
+import { devOp, showDevPicker } from "../../viewer-empty/dev";
+import { MARKDOWN_CHOOSE_FILE_OP, MARKDOWN_OPEN_OP, MARKDOWN_RECENTS_OP } from "../../viewer-empty/ops";
 
 type Envelope = { t: string; id?: number; op?: string; params?: unknown; stream?: string; sub?: number };
 
-const file = new URLSearchParams(location.search).get("file") ?? "";
+let file = new URLSearchParams(location.search).get("file") ?? "";
+const picking = new URLSearchParams(location.search).has("pick");
 const streams = new Map<string, number>();
 const seqs = new Map<number, number>();
 let nextSub = 1;
@@ -40,7 +45,29 @@ async function postMessage(message: Envelope): Promise<unknown> {
   }
   if (message.t === "unsub") return null;
   if (message.t !== "call" || !message.op) return null;
+  if (picking && !file && message.op === "cmux.markdown.config")
+    return { t: "ok", id: message.id, value: { pick: true } };
+  if (message.op === MARKDOWN_CHOOSE_FILE_OP) {
+    const start = (message.params as { start?: unknown } | undefined)?.start;
+    return {
+      t: "ok",
+      id: message.id,
+      value: await showDevPicker("file", { start: typeof start === "string" ? start : null }),
+    };
+  }
+  if (message.op === MARKDOWN_RECENTS_OP) {
+    try {
+      return { t: "ok", id: message.id, value: await devOp("/__cmux-viewer/op", MARKDOWN_RECENTS_OP, {}) };
+    } catch (error) {
+      return { t: "err", id: message.id, code: "cmux.page.failed", message: String(error) };
+    }
+  }
   const { ok, body } = await op(message.op, message.params ?? {});
+  if (ok && message.op === MARKDOWN_OPEN_OP && typeof body.path === "string") {
+    // The opened file is the page's file from now on, as the app's host keeps it.
+    file = body.path;
+    history.replaceState(null, "", `/markdown?file=${encodeURIComponent(file)}`);
+  }
   if (!ok)
     return { t: "err", id: message.id, code: body.code, message: body.message ?? body.code, details: body.details };
   if (message.op === "cmux.markdown.openLink") {

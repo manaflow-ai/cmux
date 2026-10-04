@@ -2,7 +2,7 @@
 // file renders it: a toolbar (file, save status, rich text or source), the conflict banner, and the
 // editor or the source text. The editor mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
-import { useSyncExternalStore, type ChangeEvent } from "react";
+import { useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { L } from "./strings";
 import type { MarkdownMode, MarkdownStore } from "./store";
@@ -12,15 +12,19 @@ export interface MarkdownPageProps {
   strings: Strings;
   /** Mounts the rich text editor into its element (and unmounts it on null). */
   editorRef: (element: HTMLDivElement | null) => void;
+  /** The page with no file (store phase `empty`): the viewer empty state. */
+  emptyState?: () => ReactNode;
 }
 
 function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export function MarkdownPage({ store, strings, editorRef }: MarkdownPageProps) {
+export function MarkdownPage({ store, strings, editorRef, emptyState }: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const { t } = strings;
+
+  if (state.phase === "empty" && emptyState) return emptyState();
 
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (

@@ -17,8 +17,11 @@ import { MarkdownPage } from "./MarkdownPage";
 import { MarkdownStore } from "./store";
 import { bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { L } from "./strings";
+import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
+import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import "../shared/pageBase.css";
 import "./styles.css";
+import "../../viewer-empty/styles.css";
 
 const LABELS: Record<EditorLabel, string> = {
   frontmatter: L.frontmatter,
@@ -116,7 +119,13 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     codeTheme: (names, appearance) =>
       void host.setCodeThemes(codeThemes(names, appearance))?.then(() => editor?.refreshHighlight()),
   });
-  createRoot(root).render(<MarkdownPage store={store} strings={strings} editorRef={editorRef} />);
+  const emptyStrings = viewerEmptyStrings();
+  const emptyState = client
+    ? () => <MarkdownEmptyState client={client} strings={emptyStrings} open={(path) => store.openFile(path)} />
+    : undefined;
+  createRoot(root).render(
+    <MarkdownPage store={store} strings={strings} editorRef={editorRef} emptyState={emptyState} />,
+  );
   void store.start();
   return store;
 }
