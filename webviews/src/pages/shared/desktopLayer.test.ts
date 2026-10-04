@@ -13,7 +13,6 @@ const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /** First-party entries outside src/pages not on the layer yet, by owner (R139 rollout). */
 const pendingAdoption: Record<string, string> = {
-  "main.tsx": "hq-48 (diff viewer app entry)",
   "agent-session/acpmux/main.tsx": "ACP UI lead (agent pane)",
   "agent-activity/main.tsx": "ACP UI lead (agent activity)",
 };

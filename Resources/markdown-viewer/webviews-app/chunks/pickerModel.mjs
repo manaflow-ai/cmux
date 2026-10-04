@@ -22,6 +22,14 @@ import{r as e}from"./rolldown-runtime.mjs";import{c as t,d as n,s as r}from"./ve
     code {
       background-color: transparent;
     }
+    /* R139: the page selects nothing by default (pages/shared/desktop.css) and the shadow
+       root inherits that; the code text of each line is content, so it opts back in. Line
+       numbers, separators and buffers stay chrome (Pierre keeps them user-select: none). */
+    [data-line] {
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+    }
     /* The file header is never transparent (Lawrence): it paints the
        backdrop composited onto the theme color at full alpha, so scrolled
        code never shows through it, even over a see-through window. Its

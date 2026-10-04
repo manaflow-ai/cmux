@@ -112,7 +112,7 @@ export function MarkdownPage({ store, strings, editorRef, emptyState, onBack, on
       ) : null}
       {state.readOnly && state.phase === "ready" ? <div className="md-note">{t(L.readOnlyHelp)}</div> : null}
       <main className="md-scroll">
-        <div className="md-doc" ref={editorRef} hidden={state.mode !== "rich"} />
+        <div className="md-doc selectable" ref={editorRef} hidden={state.mode !== "rich"} />
         {state.mode === "source" ? (
           <SourceEditor
             key={state.revision}
