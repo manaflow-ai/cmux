@@ -6,6 +6,7 @@
 //! `cloud.file.transfer.changed` event. At most [`MAX_TRANSFERS`] run at
 //! once; more are refused (retryable), nothing queues.
 
+use super::cancel::Cancel;
 use super::key::TransferKey;
 use super::transfer::{Direction, TRANSFER_FAILED, Transfer, TransferError, TransferJob};
 use crate::api::CloudError;
@@ -102,7 +103,7 @@ impl Transfers {
         let worker_id = id.clone();
         let spawned =
             std::thread::Builder::new().name("cmux-cloud-transfer".into()).spawn(move || {
-                let result = transfer.run(&job, &key);
+                let result = transfer.run(&job, &key, &Cancel::default());
                 drop(key);
                 // A closed channel means the server is gone: nothing waits.
                 if done.send(Done { id: worker_id, result }).is_ok()

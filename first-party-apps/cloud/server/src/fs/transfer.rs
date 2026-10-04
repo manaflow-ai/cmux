@@ -10,6 +10,7 @@
 //! 4. [`Transfer`] runs the copy with the host key pinned. The real one is
 //!    [`OpenSshTransfer`]; tests use a fake.
 
+use super::cancel::Cancel;
 use super::key::TransferKey;
 pub use super::openssh::host_alias;
 use super::path::{guest_arg, local_arg};
@@ -29,6 +30,11 @@ use std::sync::Arc;
 pub use super::openssh::OpenSshTransfer;
 
 pub const TRANSFER_FAILED: &str = "cmux.cloud.transfer_failed";
+/// The code of a transfer that `cloud.file.transfer.cancel` stopped (its
+/// event says `state: cancelled`).
+pub const TRANSFER_CANCELLED: &str = "cmux.cloud.transfer_cancelled";
+/// `cloud.file.transfer.cancel {transfer}`.
+pub(crate) const CANCEL: &str = "cloud.file.transfer.cancel";
 pub const LOCAL_EXISTS: &str = "cmux.cloud.local_exists";
 /// The answer named no host key to pin. A host key the Cloud API did not
 /// give needs the user's host key sheet (not built yet): the transfer stops.
@@ -118,8 +124,12 @@ pub struct TransferError {
 
 pub trait Transfer: Send + Sync {
     /// Copies one file. The key is the one whose public half the endpoint
-    /// authorized; the implementation must not store it.
-    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError>;
+    /// authorized; the implementation must not store it. On `cancel` the
+    /// implementation stops the copy (it registers a hook that kills each
+    /// child it starts) and returns an error; the loop then removes a
+    /// pull's partial file.
+    fn run(&self, job: &TransferJob, key: &TransferKey, cancel: &Cancel)
+    -> Result<u64, TransferError>;
 }
 
 fn now_unix() -> i64 {
@@ -254,4 +264,14 @@ fn check_local(local: &std::path::Path, direction: Direction) -> Result<(), Clou
             }
         }
     }
+}
+
+/// `cloud.file.transfer.cancel {transfer}`.
+pub(crate) fn cancel<C: ControlPlane>(
+    _server: &mut Server<C>,
+    raw: &Value,
+) -> Result<Value, CloudError> {
+    let map = args::object(raw, &["transfer"])?;
+    let _transfer = args::id(map, "transfer")?;
+    Err(CloudError::new(codes::UNSUPPORTED, "not built yet"))
 }
