@@ -95,6 +95,7 @@ env:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       # The reusable package workflow declares an optional attestation job.
@@ -125,6 +126,7 @@ jobs:
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. publish-tree waits for them.
   cmux-next-daemon-tests:
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     name: cmux_next_ daemon tests (macOS)
     runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
     timeout-minutes: 60
@@ -940,7 +942,7 @@ jobs:
   publish-pr-tree:
     environment: artifacts
     name: publish pull request tree-addressed cmux-tui
-    if: github.event_name == 'pull_request_target'
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository
     needs: [build, cmux-next-daemon-tests]
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -971,6 +973,7 @@ jobs:
           BASE_COMMIT: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin "$BASE_COMMIT"
           git fetch --no-tags origin "$SOURCE_COMMIT"
           [[ "$(git cat-file -t "$SOURCE_COMMIT")" == commit ]]
           tui_tree="$(git rev-parse "$SOURCE_COMMIT:cmux-tui")"

@@ -213,6 +213,8 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "needs.publish-pr-tree.result == 'failure'" in requeue
     pr_publisher = workflow_job(artifacts, "publish-pr-tree")
     assert "github.event_name == 'pull_request_target'" in pr_publisher
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in pr_publisher
+    assert 'git fetch --no-tags origin "$BASE_COMMIT"' in pr_publisher
     assert "git show \"$BASE_COMMIT:scripts/ci/upload-r2-object.py\"" in pr_publisher
     assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
     assert "git mktree --missing" in pr_publisher
