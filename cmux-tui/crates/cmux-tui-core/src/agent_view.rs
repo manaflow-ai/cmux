@@ -62,12 +62,47 @@ impl OpExposure {
     /// `ops[]`). `scope_class` classifies a scope with `scope-classes.json`;
     /// `app_enabled` says whether an `app:<id>` owner is installed and
     /// enabled. Returns `None` for an op without a name or scope.
+    ///
+    /// Missing or unknown fields fail closed: no `mcp` block or an unknown
+    /// `expose` is [`McpExpose::Never`]; a mutation without a declared `risk`
+    /// is [`Risk::Destructive`], so it needs approval.
     pub fn from_ir(
-        _op: &serde_json::Value,
-        _scope_class: impl Fn(&str) -> ScopeClass,
-        _app_enabled: impl Fn(&str) -> bool,
+        op: &serde_json::Value,
+        scope_class: impl Fn(&str) -> ScopeClass,
+        app_enabled: impl Fn(&str) -> bool,
     ) -> Option<Self> {
-        None
+        let name = op["name"].as_str()?;
+        let scope = op["scope"].as_str()?;
+        let mcp = match op.pointer("/mcp/expose").and_then(serde_json::Value::as_str) {
+            Some("default") => McpExpose::Default,
+            Some("opt_in") => McpExpose::OptIn,
+            _ => McpExpose::Never,
+        };
+        let risk = match op["risk"].as_str() {
+            Some("read") => Risk::Read,
+            Some("mutate-own") => Risk::MutateOwn,
+            Some("mutate-shared") => Risk::MutateShared,
+            Some("execute") => Risk::Execute,
+            Some("send-external") => Risk::SendExternal,
+            Some("money") => Risk::Money,
+            Some(_) => Risk::Destructive,
+            None if op["kind"] == "mutation" => Risk::Destructive,
+            None => Risk::Read,
+        };
+        let app_disabled = op["owner"]
+            .as_str()
+            .and_then(|owner| owner.strip_prefix("app:"))
+            .is_some_and(|app| !app_enabled(app));
+        Some(Self {
+            name: name.to_owned(),
+            scope: scope.to_owned(),
+            scope_class: scope_class(scope),
+            risk,
+            mcp,
+            gesture_required: op["gesture"] == "required",
+            secret_output: op["secret_output"] == true,
+            app_disabled,
+        })
     }
 }
 
