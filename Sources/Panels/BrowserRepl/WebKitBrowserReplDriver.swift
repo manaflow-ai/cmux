@@ -44,8 +44,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor private var policyFailure: BrowserReplDriverError?
     /// Applies the domain policy to each frame a call reads or acts on, by
     /// WebKit's record of the frame and its document read in the driver's
-    /// own content world.
-    @MainActor private lazy var frameGate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
+    /// own content world. In a tab the session did not create it also
+    /// refuses every frame that shows a local document outside the
+    /// session's directories, whatever the policy.
+    @MainActor private lazy var frameGate: BrowserReplFrameGate = {
+        let gate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
+        let sessionID = self.sessionID
+        gate.localDocumentRoots = { [weak self] webView in
+            guard let self,
+                  BrowserReplTabAttachments.shared.attachment(showing: webView)?.creatorSessionID != sessionID else { return nil }
+            return self.currentFileRoots
+        }
+        return gate
+    }()
     /// Ties `<iframe>` elements to their child frames' ids.
     @MainActor private lazy var frameBinding = BrowserReplFrameBinding(world: BrowserReplDriverWorld.world)
 
@@ -353,7 +364,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             try checkPagePolicy(method: method, params: params)
             try await checkLocalDocumentOrigin(method: method, params: params)
-            let guardsInput = Self.isGuardedInput(method) && currentPolicy.isActive && tabToPrepare != nil
+            let guardsInput = Self.isGuardedInput(method) && tabToPrepare.map { frameGate.isActive(in: $0.webView) } == true
             if !guardsInput { try await checkFramePolicy(method: method, params: params) }
             let value: Any? = try await withAgentGestureClipboardQuarantine(
                 tabToPrepare,
@@ -569,10 +580,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// (`BrowserReplFrameGate.callAsyncJavaScript`).
     @MainActor
     private func checkFramePolicy(method: String, params: [String: Any]) async throws {
-        guard currentPolicy.isActive,
-              ["input.mouse", "input.drag", "input.key", "input.insertText", "tab.screenshot", "tab.pdf", "filechooser.respond"].contains(method),
+        guard ["input.mouse", "input.drag", "input.key", "input.insertText", "tab.screenshot", "tab.pdf", "filechooser.respond"].contains(method),
               let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
-              let panel = try? reachablePanel(id) else { return }
+              let panel = try? reachablePanel(id), frameGate.isActive(in: panel.webView) else { return }
         if method == "filechooser.respond", params["cancel"] as? Bool == true { return }
         let webView = panel.webView
         let frames = await BrowserReplFrameTree.frames(of: webView)

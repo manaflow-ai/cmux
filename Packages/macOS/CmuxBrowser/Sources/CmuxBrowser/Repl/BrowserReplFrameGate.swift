@@ -14,15 +14,29 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     /// nothing was recorded. Not part of equality: it describes the frame's
     /// history, not the document.
     public var makers: [BrowserReplDocumentMaker]?
+    /// For a local document (a `file:` URL, or a document of a local file's
+    /// origin under another URL), its URL without the fragment: every local
+    /// file has the same origin and place, so only this tells two of them
+    /// apart. Nil for any other document.
+    public var local: String?
 
-    public init(origin: String?, place: String, makers: [BrowserReplDocumentMaker]? = nil) {
+    public init(origin: String?, place: String, makers: [BrowserReplDocumentMaker]? = nil, local: String? = nil) {
         self.origin = origin
         self.place = place
         self.makers = makers
+        self.local = local
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.origin == rhs.origin && lhs.place == rhs.place
+        lhs.origin == rhs.origin && lhs.place == rhs.place && lhs.local == rhs.local
+    }
+
+    /// `url` without its fragment when the document is local (its origin
+    /// is a local file's, or `url` is a `file:` URL), else nil.
+    static func local(url: URL?, origin: String?) -> String? {
+        guard origin?.lowercased() == "file://" || url?.scheme?.lowercased() == "file" else { return nil }
+        let text = url?.absoluteString ?? ""
+        return text.firstIndex(of: "#").map { String(text[..<$0]) } ?? text
     }
 
     /// Whether the document has an opaque origin and a URL that names no
@@ -39,6 +53,7 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     public init(info: WKFrameInfo) {
         origin = Self.origin(of: info.securityOrigin)
         place = Self.place(of: info.request.url)
+        local = Self.local(url: info.request.url, origin: origin)
         if isOpaque { makers = BrowserReplDocumentProvenance.makers(of: info) }
     }
 
@@ -68,6 +83,7 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
         place = Self.place(of: url)
         let scheme = url?.scheme?.lowercased()
         origin = scheme == "http" || scheme == "https" ? place : nil
+        local = Self.local(url: url, origin: origin)
     }
 
     private static func place(of url: URL?) -> String {
@@ -245,8 +261,40 @@ public final class BrowserReplFrameGate {
     public var policy = BrowserReplDomainPolicy()
     /// For a tab the session did not create, the directories whose local
     /// files the session may read (its working and temporary directories);
-    /// nil for the session's own tabs. Set by the driver.
+    /// nil for the session's own tabs, whose content rules and navigation
+    /// checks keep other files out. Set by the driver.
+    ///
+    /// In such a tab a frame that shows any other local document (a file
+    /// outside the directories, or a document of a local file's origin
+    /// under another URL, whose file cannot be told) is judged like a frame
+    /// the policy blocks, whatever the policy
+    /// (``BrowserReplFileSandbox/localPageRefusal(url:documentOrigin:roots:)``):
+    /// a user's tab on a local page inside the directories may show such
+    /// files in its child frames. Only a local document can show a local
+    /// file in a frame, so a tab whose main frame shows a web page
+    /// (`http`, `https`) is left to the policy alone.
     public var localDocumentRoots: @MainActor (WKWebView) -> [String]? = { _ in nil }
+
+    /// The directories `webView`'s local documents are judged by, or nil
+    /// when they are not judged (``localDocumentRoots``).
+    private func localRoots(in webView: WKWebView) -> [String]? {
+        if let scheme = webView.url?.scheme?.lowercased(), scheme == "http" || scheme == "https" { return nil }
+        return localDocumentRoots(webView)
+    }
+
+    /// Whether the gate judges `webView`'s frames: a domain policy is in
+    /// force, or its local documents are judged (``localDocumentRoots``).
+    public func isActive(in webView: WKWebView) -> Bool {
+        policy.isActive || localRoots(in: webView) != nil
+    }
+
+    /// Why a frame of `webView` that shows `document` is refused: the
+    /// policy blocks it, or it is a local document the session may not read.
+    func blockReason(_ document: BrowserReplFrameDocument, in webView: WKWebView) -> String? {
+        if let reason = policy.blockReason(document: document) { return reason }
+        guard let local = document.local, let roots = localRoots(in: webView) else { return nil }
+        return BrowserReplFileSandbox.localPageRefusal(url: local, documentOrigin: document.origin, roots: roots)
+    }
     private let world: WKContentWorld
     /// Bounds each of the gate's own probes (a frame's document, its focus,
     /// the frame boxes); one that does not answer in time refuses the call
@@ -283,18 +331,18 @@ public final class BrowserReplFrameGate {
     /// the tree was read, or nil. The main frame without frame info is
     /// judged by the web view's URL.
     public func recordedBlockReason(of frame: BrowserReplFrame, in webView: WKWebView) -> String? {
-        guard policy.isActive else { return nil }
-        if let info = frame.info { return policy.blockReason(document: BrowserReplFrameDocument(info: info)) }
-        return policy.blockReason(document: BrowserReplFrameDocument(url: webView.url).withMakers(frame: nil, in: webView))
+        guard isActive(in: webView) else { return nil }
+        if let info = frame.info { return blockReason(BrowserReplFrameDocument(info: info), in: webView) }
+        return blockReason(BrowserReplFrameDocument(url: webView.url).withMakers(frame: nil, in: webView), in: webView)
     }
 
     /// Reads the document `frame` shows now and throws `blocked` when the
     /// policy blocks it. Returns the document, or nil without a policy.
     @discardableResult
     public func authorize(_ frame: BrowserReplFrame, in webView: WKWebView) async throws -> BrowserReplFrameDocument? {
-        guard policy.isActive else { return nil }
+        guard isActive(in: webView) else { return nil }
         let document = try await read(frame, in: webView)
-        if let reason = policy.blockReason(document: document) {
+        if let reason = blockReason(document, in: webView) {
             throw blocked(frame, document: document, reason: reason)
         }
         known[key(frame, webView)] = document
@@ -321,20 +369,21 @@ public final class BrowserReplFrameGate {
         contentWorld: WKContentWorld,
         userGesture: Bool = false
     ) async throws -> Any? {
-        guard policy.isActive else {
+        guard isActive(in: webView) else {
             return try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)
         }
         let key = key(frame, webView)
         var expected = known[key]
             ?? frame.info.map { BrowserReplFrameDocument(info: $0) }
             ?? BrowserReplFrameDocument(url: webView.url)
-        if policy.blockReason(document: expected) != nil, let current = try await authorize(frame, in: webView) {
+        if blockReason(expected, in: webView) != nil, let current = try await authorize(frame, in: webView) {
             expected = current
         }
         var bound = arguments
         for _ in 0..<3 {
             bound[Self.originArgument] = expected.origin ?? NSNull()
             bound[Self.placeArgument] = expected.place
+            bound[Self.localArgument] = expected.local ?? NSNull()
             let value = try await webView.browserReplCallAsyncJavaScript(
                 Self.documentCheck + body,
                 arguments: bound,
@@ -358,7 +407,7 @@ public final class BrowserReplFrameGate {
     /// or holds, a blocked frame. Overlapping content is not subtracted, and
     /// a blocked frame whose box cannot be found refuses every point.
     public func checkPointer(at points: [CGPoint], in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
-        guard policy.isActive, !points.isEmpty else { return }
+        guard isActive(in: webView), !points.isEmpty else { return }
         try await requireWholeTree(frames, in: webView)
         let tops = try blockedTops(frames, in: webView)
         guard !tops.isEmpty else { return }
@@ -378,7 +427,7 @@ public final class BrowserReplFrameGate {
     /// focused element, or its parent's focused element is its frame
     /// element). A frame that cannot answer counts as focused.
     public func checkFocus(in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
-        guard policy.isActive else { return }
+        guard isActive(in: webView) else { return }
         try await requireWholeTree(frames, in: webView)
         let blockedFrames = blocked(frames, in: webView)
         guard !blockedFrames.isEmpty else { return }
@@ -440,7 +489,7 @@ public final class BrowserReplFrameGate {
         frames: @MainActor () async -> [BrowserReplFrame],
         _ command: () async throws -> T
     ) async throws -> T {
-        guard policy.isActive else { return try await command() }
+        guard isActive(in: webView) else { return try await command() }
         try await checkFocus(in: webView, frames: await frames())
         let value = try await command()
         do {
@@ -488,7 +537,7 @@ public final class BrowserReplFrameGate {
         checkFocusAfter: Bool,
         _ input: () async throws -> T
     ) async throws -> T {
-        guard policy.isActive else { return try await input() }
+        guard isActive(in: webView) else { return try await input() }
         return try await loadHold.holding(webView) {
             let guards = try await installInputGuards(in: webView, frames: await frames())
             let value: T
@@ -618,7 +667,7 @@ public final class BrowserReplFrameGate {
     /// Throws `blocked` when any frame of the tab shows a page the policy
     /// blocks: a screenshot or PDF would show it.
     public func checkCapture(in webView: WKWebView, frames: [BrowserReplFrame]) throws {
-        if policy.isActive, let unread = frames.first(where: \.childFramesUnread) {
+        if isActive(in: webView), let unread = frames.first(where: \.childFramesUnread) {
             throw Self.incompleteTree(unread, documentCount: nil, treeCount: nil)
         }
         guard let entry = blocked(frames, in: webView).first else { return }
@@ -664,7 +713,7 @@ public final class BrowserReplFrameGate {
         blockedChildFrames: [String: String] = [:],
         capture: () async throws -> (image: CGImage, region: CGRect)
     ) async throws -> CGImage {
-        guard policy.isActive else { return try await capture().image }
+        guard isActive(in: webView) else { return try await capture().image }
         return try await loadHold.holding(webView) {
             let treeBefore = await frames()
             let before = try await captureCovers(in: webView, frames: treeBefore, alsoBlocked: blockedChildFrames, requireAlsoBlocked: true)
@@ -805,12 +854,12 @@ public final class BrowserReplFrameGate {
     /// document it shows now when it is still in `frames`. Other frames of
     /// the tab do not matter; the files go only to that frame's input.
     public func checkFileChooser(frame info: WKFrameInfo, in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
-        guard policy.isActive else { return }
+        guard isActive(in: webView) else { return }
         let refusal = { (shown: String, reason: String) in
             BrowserReplDriverError(code: "blocked", message: "The file chooser opened in a frame showing \(shown), which the domain policy blocks: \(reason); it may only be cancelled")
         }
         let recorded = BrowserReplFrameDocument(info: info)
-        if let reason = policy.blockReason(document: recorded) {
+        if let reason = blockReason(recorded, in: webView) {
             throw refusal(recorded.origin ?? recorded.place, reason)
         }
         let frame: BrowserReplFrame?
@@ -826,7 +875,7 @@ public final class BrowserReplFrameGate {
 
     /// The frames whose recorded documents the policy blocks.
     public func blocked(_ frames: [BrowserReplFrame], in webView: WKWebView) -> [(frame: BrowserReplFrame, reason: String)] {
-        guard policy.isActive else { return [] }
+        guard isActive(in: webView) else { return [] }
         return frames.compactMap { frame in
             recordedBlockReason(of: frame, in: webView).map { (frame, $0) }
         }
@@ -836,18 +885,24 @@ public final class BrowserReplFrameGate {
 
     private static let originArgument = "__cmuxDocumentOrigin"
     private static let placeArgument = "__cmuxDocumentPlace"
+    private static let localArgument = "__cmuxDocumentLocal"
     private static let movedMarker = "__cmuxDocumentMoved__"
 
     /// Runs first in every gated call. Only unforgeable `location` members
     /// and string operators: the content world's other globals may belong
-    /// to agent code.
+    /// to agent code. A local document must also be the same one: its
+    /// `href` is the approved URL followed by its own fragment.
     private static let documentCheck = """
-    if (location.origin !== \(originArgument) || location.protocol + "//" + location.host !== \(placeArgument)) return "\(movedMarker)";
+    if (location.origin !== \(originArgument) || location.protocol + "//" + location.host !== \(placeArgument)
+      || (location.origin === "file://" || location.protocol === "file:" ? location.href : null)
+        !== (\(localArgument) === null ? null : \(localArgument) + location.hash)) return "\(movedMarker)";
 
     """
 
     private static let readSource = """
-    return [location.origin, location.protocol + "//" + location.host];
+    const local = location.origin === "file://" || location.protocol === "file:";
+    return [location.origin, location.protocol + "//" + location.host,
+      local ? location.href.slice(0, location.href.length - location.hash.length) : null];
     """
 
     /// The boxes of the main frame's child frames at `indexes` (their
@@ -1195,10 +1250,11 @@ public final class BrowserReplFrameGate {
         } catch {
             throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) did not answer: \(error.localizedDescription)")
         }
-        guard let pair = value as? [Any], pair.count == 2, let place = pair[1] as? String else {
+        guard let read = value as? [Any], read.count == 3, let place = read[1] as? String else {
             throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) did not answer")
         }
-        return BrowserReplFrameDocument(origin: pair[0] as? String, place: place).withMakers(frame: frame.info, in: webView)
+        return BrowserReplFrameDocument(origin: read[0] as? String, place: place, local: read[2] as? String)
+            .withMakers(frame: frame.info, in: webView)
     }
 
     /// Runs one of the gate's own scripts in its world, failing with

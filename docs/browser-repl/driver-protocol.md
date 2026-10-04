@@ -395,7 +395,16 @@ native (`BrowserReplBoundary` in the session, and the driver):
   local file outside those directories, such as a user's tab opened on
   one before the session reached it, and on a tab the session did not
   create whose page is a document of a local file's origin under another
-  URL (an `about:blank` or `data:` page a file page wrote).
+  URL (an `about:blank` or `data:` page a file page wrote). In a tab the
+  session did not create, a child frame that shows such a document (a
+  local page inside the directories can frame files outside them, and
+  that tab has no content rules) is judged like a frame the domain policy
+  blocks, whatever the policy (see the frame rules below): script there
+  fails with `blocked`, also through a frame record from before it
+  navigated (a local document is bound by its URL, not only its origin),
+  input that would reach it and PDFs are refused, and a screenshot blanks
+  it. A tab whose main frame shows a web page (`http`, `https`) cannot
+  frame a local file, so it is left to the policy alone.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`; a `blob:` URL is judged by the origin in it, and one of
   an opaque origin, `blob:null/...`, is blocked) and `session.configure`
