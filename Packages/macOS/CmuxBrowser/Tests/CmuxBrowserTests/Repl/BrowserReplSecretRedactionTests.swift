@@ -240,6 +240,40 @@ struct BrowserReplSecretRedactionTests {
         #expect(output == "captured", "\(output)")
     }
 
+    /// A file the session did not write (a page's download, a secrets file)
+    /// can hold a secret in the clear. `fs.copyFile` writes a new file, so,
+    /// like `writeFile`, it writes the secret masked: the copy is a file a
+    /// tab may load from the session's directories, where capture masks for
+    /// the secret's domains do not apply.
+    @Test("fs.copyFile writes a secret held in its source masked, text and bytes")
+    func copyFileIsRedacted() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-copy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Data("download: \(Self.value)\n".utf8).write(to: work.appendingPathComponent("download.txt"))
+        var blob = Data([0xff, 0x00])
+        blob.append(Data(Self.value.utf8))
+        blob.append(Data([0x80]))
+        try blob.write(to: work.appendingPathComponent("blob.bin"))
+        let session = try #require(makeSession(ScriptedPageDriver(), cwd: work.path))
+        defer { session.close() }
+        let result = await run(session, """
+        const fs = await import("node:fs");
+        secrets.set("pw", "\(Self.value)", { domains: ["example.com"] });
+        fs.copyFileSync("./download.txt", "./copy.txt");
+        fs.copyFileSync("./blob.bin", "./copy.bin");
+        console.log("copied");
+        """)
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        let text = try String(contentsOf: work.appendingPathComponent("copy.txt"), encoding: .utf8)
+        #expect(text == "download: <secret:pw>\n", "\(text)")
+        let bytes = try Data(contentsOf: work.appendingPathComponent("copy.bin"))
+        var expected = Data([0xff, 0x00])
+        expected.append(Data("<secret:pw>".utf8))
+        expected.append(Data([0x80]))
+        #expect(bytes == expected, "\(Array(bytes))")
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
