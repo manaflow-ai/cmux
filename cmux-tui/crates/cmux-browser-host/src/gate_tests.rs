@@ -40,7 +40,8 @@ fn policy(gate: &Gate, op: &str, args: Value) -> Result<Value, String> {
 }
 
 fn agent_secret(gate: &Gate, domain: &str) {
-    secrets(gate, "set", json!({"name": "pw", "value": "s3cret-value", "domains": [domain]})).unwrap();
+    secrets(gate, "set", json!({"name": "pw", "value": "s3cret-value", "domains": [domain]}))
+        .unwrap();
 }
 
 fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
@@ -189,7 +190,8 @@ fn results_and_errors_going_back_into_the_vm_are_masked() {
 #[test]
 fn natives_expose_names_never_values() {
     let (gate, _) = make_gate(Value::Null, false);
-    let set = secrets(&gate, "set", json!({"name": "api", "value": "k-123", "domains": ["example.com"]}));
+    let set =
+        secrets(&gate, "set", json!({"name": "api", "value": "k-123", "domains": ["example.com"]}));
     assert_eq!(set.unwrap(), json!({"name": "api", "domains": ["example.com"], "totp": false}));
     gate.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
     let list = secrets(&gate, "list", json!({})).unwrap();
@@ -199,7 +201,10 @@ fn natives_expose_names_never_values() {
     assert_eq!(secrets(&gate, "has", json!({"name": "api"})).unwrap(), json!(true));
     assert_eq!(secrets(&gate, "delete", json!({"name": "api"})).unwrap(), json!(true));
     assert_eq!(secrets(&gate, "has", json!({"name": "api"})).unwrap(), json!(false));
-    assert!(secrets(&gate, "set", json!({"name": "bad name", "value": "v", "domains": ["a.test"]})).is_err());
+    assert!(
+        secrets(&gate, "set", json!({"name": "bad name", "value": "v", "domains": ["a.test"]}))
+            .is_err()
+    );
 }
 
 #[test]
@@ -218,12 +223,21 @@ fn owner_secrets_are_not_typed_until_tabs_can_be_sealed() {
 fn vm_code_cannot_replace_or_delete_owner_secrets() {
     let (gate, _) = make_gate(Value::Null, false);
     gate.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
-    assert!(secrets(&gate, "set", json!({"name": "pw", "value": "other", "domains": ["evil.test"]})).is_err());
+    assert!(
+        secrets(&gate, "set", json!({"name": "pw", "value": "other", "domains": ["evil.test"]}))
+            .is_err()
+    );
     assert!(secrets(&gate, "delete", json!({"name": "pw"})).is_err());
     // clear removes the agent's secrets only.
     secrets(&gate, "set", json!({"name": "api", "value": "k-123", "domains": ["a.test"]})).unwrap();
     secrets(&gate, "clear", json!({})).unwrap();
-    let names: Vec<String> = secrets(&gate, "list", json!({})).unwrap().as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect();
+    let names: Vec<String> = secrets(&gate, "list", json!({}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap().to_owned())
+        .collect();
     assert_eq!(names, vec!["pw".to_owned()]);
     assert_eq!(gate.mask("s3cret-value"), "<secret:pw>", "the owner secret is intact");
 }
@@ -284,7 +298,11 @@ fn secrets_load_takes_main_s_map_shape() {
     )
     .unwrap();
     let api = loaded.as_array().unwrap().iter().find(|s| s["name"] == "api").unwrap().clone();
-    assert_eq!(api, json!({"name": "api", "domains": ["example.com", "*.example.org"], "totp": false}));
+    // Patterns come in key order of the parsed map (serde_json sorts keys).
+    assert_eq!(
+        api,
+        json!({"name": "api", "domains": ["*.example.org", "example.com"], "totp": false})
+    );
     assert!(loaded.to_string().contains("\"totp\":true"));
     assert!(!loaded.to_string().contains("k-1"));
 }
@@ -297,16 +315,33 @@ fn policy_ops_answer_get_check_set_and_site() {
         json!({"allowed": null, "prohibited": [], "blockIPs": false, "locked": false})
     );
     assert_eq!(policy(&gate, "check", json!({"url": "https://a.test/"})).unwrap(), Value::Null);
-    let set = policy(&gate, "set", json!({"prohibited": ["a.test"], "title": "session.prohibitedDomains"})).unwrap();
+    let set = policy(
+        &gate,
+        "set",
+        json!({"prohibited": ["a.test"], "title": "session.prohibitedDomains"}),
+    )
+    .unwrap();
     assert_eq!(set["prohibited"], json!(["a.test"]));
     let reason = policy(&gate, "check", json!({"url": "https://a.test/x"})).unwrap();
     assert!(reason.as_str().unwrap().contains("session.prohibitedDomains"), "{reason}");
     policy(&gate, "set", json!({"blockIPs": true, "title": "session.blockIPAddresses"})).unwrap();
     assert_eq!(policy(&gate, "get", json!({})).unwrap()["blockIPs"], true);
-    policy(&gate, "set", json!({"allowed": ["b.test"], "lock": true, "title": "session.allowedDomains"})).unwrap();
-    let locked = policy(&gate, "set", json!({"allowed": null, "title": "session.allowedDomains"})).unwrap_err();
+    policy(
+        &gate,
+        "set",
+        json!({"allowed": ["b.test"], "lock": true, "title": "session.allowedDomains"}),
+    )
+    .unwrap();
+    let locked = policy(&gate, "set", json!({"allowed": null, "title": "session.allowedDomains"}))
+        .unwrap_err();
     assert_eq!(locked, "session.allowedDomains: the domain policy is locked for this session");
-    for (host, site) in [("www.example.com", "example.com"), ("a.b.example.co.uk", "example.co.uk"), ("x.co.at", "x.co.at"), ("localhost", "localhost"), ("127.0.0.1", "127.0.0.1")] {
+    for (host, site) in [
+        ("www.example.com", "example.com"),
+        ("a.b.example.co.uk", "example.co.uk"),
+        ("x.co.at", "x.co.at"),
+        ("localhost", "localhost"),
+        ("127.0.0.1", "127.0.0.1"),
+    ] {
         assert_eq!(policy(&gate, "site", json!({"host": host})).unwrap(), json!(site), "{host}");
     }
     assert!(policy(&gate, "nope", json!({})).is_err());

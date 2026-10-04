@@ -144,21 +144,27 @@ fn host_natives_return_json_and_throw_on_refusal() {
         "return JSON.parse(testNative.secrets('set', JSON.stringify({name: 'k', value: 'v', domains: ['a.test']})));",
         Duration::from_secs(5),
     );
-    assert_eq!(lines(&set), vec![r#"{"ok":{"name":"k","domains":[],"totp":false}}"#]);
+    assert_eq!(lines(&set), vec![r#"{"ok":{"domains":[],"name":"k","totp":false}}"#]);
     let refused = vm.eval(
         "return JSON.parse(testNative.policy('set', JSON.stringify({allowed: ['b.test']})));",
         Duration::from_secs(5),
     );
     assert_eq!(
         lines(&refused),
-        vec![r#"{"error":{"code":"forbidden","message":"the domain policy is locked for this session"}}"#]
+        vec![
+            r#"{"error":{"code":"forbidden","message":"the domain policy is locked for this session"}}"#
+        ]
     );
     assert_eq!(
         host.natives.lock().unwrap()[0].1,
         json!({"op": "set", "args": {"name": "k", "value": "v", "domains": ["a.test"]}})
     );
-    let bad = vm.eval("return JSON.parse(testNative.secrets('list', 'not json'));", Duration::from_secs(5));
-    assert_eq!(lines(&bad), vec![r#"{"error":{"code":"invalid","message":"secrets: the arguments must be JSON"}}"#]);
+    let bad = vm
+        .eval("return JSON.parse(testNative.secrets('list', 'not json'));", Duration::from_secs(5));
+    assert_eq!(
+        lines(&bad),
+        vec![r#"{"error":{"code":"invalid","message":"secrets: the arguments must be JSON"}}"#]
+    );
 }
 
 #[test]
@@ -177,7 +183,10 @@ fn natives_cover_resources_home_and_policy_reports() {
         Duration::from_secs(5),
     );
     assert_eq!(out.error, None, "{out:?}");
-    assert_eq!(lines(&out), vec![r##"["# guide",null,"string","function","function","undefined"]"##]);
+    assert_eq!(
+        lines(&out),
+        vec![r##"["# guide",null,"string","function","function","undefined"]"##]
+    );
 }
 
 #[test]
@@ -290,7 +299,10 @@ fn the_entry_points_and_natives_are_gone_before_the_first_cell() {
         Duration::from_secs(5),
     );
     assert_eq!(out.error, None, "{out:?}");
-    assert_eq!(lines(&out), vec![r#"["undefined","undefined","undefined","undefined","undefined","undefined"]"#]);
+    assert_eq!(
+        lines(&out),
+        vec![r#"["undefined","undefined","undefined","undefined","undefined","undefined"]"#]
+    );
     // The host still reaches the runtime: results, timers and events arrive.
     let out = vm.eval(
         "const info = await driver('tab.info', {targetId: 'T'}); await new Promise((r) => setTimeout(r, 5)); return [info.title, typeof events];",
