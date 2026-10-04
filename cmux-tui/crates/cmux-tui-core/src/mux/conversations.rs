@@ -4,7 +4,10 @@
 //! its events after each commit.
 
 use super::*;
-use crate::conversation_store::{ConversationStore, LOCAL_USER};
+use crate::conversation_store::{
+    ConversationEvent, ConversationStore, CreateOutcome, LOCAL_USER, OpOutcome,
+};
+use cmux_conversation::{Change, Op, Participant};
 
 impl Mux {
     /// Run `operation` on the conversation store, opening
@@ -37,6 +40,84 @@ impl Mux {
             self.emit(event);
         }
         Ok(value)
+    }
+
+    /// Local conversation owner events only (the Chief's daemon shell).
+    pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_conversations()
+    }
+
+    /// `conversation-create` as `actor` (already resolved by the caller):
+    /// commits, then publishes `conversation-changed` unless it replayed.
+    pub(crate) fn conversation_create_as(
+        &self,
+        idempotency_key: &str,
+        actor: &str,
+        title: &str,
+        participants: &[Participant],
+    ) -> anyhow::Result<CreateOutcome> {
+        self.conversation_write(
+            |store| store.create(idempotency_key, actor, title, participants),
+            |outcome| {
+                if outcome.replayed {
+                    return None;
+                }
+                let change =
+                    Change::Conversation { conversation: Box::new(outcome.summary.clone()) };
+                Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
+                    conversation: outcome.summary.id.clone(),
+                    rev: outcome.summary.rev,
+                    transaction: None,
+                    change: serde_json::to_value(change).ok()?,
+                })))
+            },
+        )
+    }
+
+    /// `conversation-op` as `actor`: commits, then publishes
+    /// `conversation-changed` unless it replayed.
+    pub(crate) fn conversation_op_as(
+        &self,
+        conversation: &str,
+        idempotency_key: &str,
+        actor: &str,
+        transaction: Option<Arc<str>>,
+        op: &Op,
+    ) -> anyhow::Result<OpOutcome> {
+        self.conversation_write(
+            |store| store.apply_op(conversation, idempotency_key, actor, op),
+            |outcome| {
+                if outcome.replayed {
+                    return None;
+                }
+                Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
+                    conversation: conversation.to_string(),
+                    rev: outcome.result.rev,
+                    transaction,
+                    change: outcome.result.change.clone(),
+                })))
+            },
+        )
+    }
+
+    /// `conversation-typing` as `actor`: checks the participant, then
+    /// publishes the typing event (never stored).
+    pub(crate) fn conversation_typing_as(
+        &self,
+        conversation: &str,
+        actor: &str,
+        on: bool,
+    ) -> anyhow::Result<()> {
+        self.conversation_write(
+            |store| store.check_typing(conversation, actor),
+            |_| {
+                Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Typing {
+                    conversation: conversation.to_string(),
+                    participant: actor.to_string(),
+                    on,
+                })))
+            },
+        )
     }
 
     /// The conversation principal of control client `client`: the agent it

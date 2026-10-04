@@ -68,6 +68,8 @@ enum MuxEventFilter {
     /// changes alone are left out: a busy terminal retitles itself many
     /// times a second, and the live tree corrects a stale title at once.
     LaunchSnapshot,
+    /// Local conversation owner events only (the Chief's daemon shell).
+    Conversations,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -124,6 +126,10 @@ impl MuxEventBroadcaster {
 
     pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::LaunchSnapshot)
+    }
+
+    pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Conversations)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -224,6 +230,7 @@ impl MuxEventFilter {
                     | MuxEvent::FrontendProjectionChanged { .. }
                     | MuxEvent::Empty
             ),
+            Self::Conversations => matches!(event, MuxEvent::Conversation(_)),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {

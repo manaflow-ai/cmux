@@ -6,16 +6,14 @@
 
 use std::sync::Arc;
 
-use cmux_conversation::{Change, Op, Participant, Reject};
+use cmux_conversation::{Op, Participant, Reject};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use super::{Mux, MuxEvent, validate_client_transaction};
+use super::{Mux, validate_client_transaction};
 use crate::conversation_search::ConversationSearchRejected;
-use crate::conversation_store::{
-    ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES,
-};
+use crate::conversation_store::{ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES};
 
 /// The local conversation owner: the `conversation-*` commands and the
 /// `conversation-changed` and `conversation-typing` events, on trusted local
@@ -153,21 +151,7 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
     let CreateParams { idempotency_key, actor, title, participants } = params;
     let actor = resolve_actor(mux, client, actor)?;
     let participants: Vec<Participant> = decode(participants, "participants")?;
-    let outcome = mux.conversation_write(
-        |store| store.create(&idempotency_key, &actor, &title, &participants),
-        |outcome| {
-            if outcome.replayed {
-                return None;
-            }
-            let change = Change::Conversation { conversation: Box::new(outcome.summary.clone()) };
-            Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
-                conversation: outcome.summary.id.clone(),
-                rev: outcome.summary.rev,
-                transaction: None,
-                change: serde_json::to_value(change).ok()?,
-            })))
-        },
-    )?;
+    let outcome = mux.conversation_create_as(&idempotency_key, &actor, &title, &participants)?;
     Ok(json!({"conversation": outcome.summary, "replayed": outcome.replayed}))
 }
 
@@ -206,20 +190,8 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
     validate_client_transaction(transaction.as_deref())?;
     let op: Op = decode(op, "op")?;
     let transaction: Option<Arc<str>> = transaction.map(Arc::from);
-    let outcome = mux.conversation_write(
-        |store| store.apply_op(&conversation, &idempotency_key, &actor, &op),
-        |outcome| {
-            if outcome.replayed {
-                return None;
-            }
-            Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
-                conversation: conversation.clone(),
-                rev: outcome.result.rev,
-                transaction: transaction.clone(),
-                change: outcome.result.change.clone(),
-            })))
-        },
-    )?;
+    let outcome =
+        mux.conversation_op_as(&conversation, &idempotency_key, &actor, transaction.clone(), &op)?;
     let result = outcome.result;
     let mut reply =
         json!({"rev": result.rev, "replayed": outcome.replayed, "change": result.change});
@@ -236,16 +208,7 @@ pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Re
     require_local(mux, client)?;
     let TypingParams { conversation, actor, on } = params;
     let actor = resolve_actor(mux, client, actor)?;
-    mux.conversation_write(
-        |store| store.check_typing(&conversation, &actor),
-        |_| {
-            Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Typing {
-                conversation: conversation.clone(),
-                participant: actor.clone(),
-                on,
-            })))
-        },
-    )?;
+    mux.conversation_typing_as(&conversation, &actor, on)?;
     Ok(json!({}))
 }
 

@@ -17,6 +17,7 @@ cmux-layout-reducer.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
+cmux-chief.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

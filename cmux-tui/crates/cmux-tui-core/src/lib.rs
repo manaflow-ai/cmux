@@ -12,6 +12,7 @@ mod agent_hooks;
 pub mod backoff;
 mod browser;
 mod browser_provider;
+pub mod chief;
 mod conversation_search;
 mod conversation_store;
 pub mod diagnostics;
