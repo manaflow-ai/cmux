@@ -11,8 +11,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::personal_store::{
-    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, subject, validate_appearance,
-    validate_browser_profile_ref, validate_name, validate_personal_json, write_order,
+    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, require_icon_asset, subject,
+    validate_appearance, validate_browser_profile_ref, validate_name, validate_personal_json,
+    write_order,
 };
 use super::{WorkspaceRegistry, new_uuid_v4};
 
@@ -145,6 +146,7 @@ impl WorkspaceRegistry {
             .map(|source| validate_personal_json("source", source, true))
             .transpose()?;
         let tx = self.connection.transaction()?;
+        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(&tx, icon))?;
         if let Some(existing) = read_browser_profile(&tx, &id)? {
             return Ok((existing, false));
         }
@@ -184,6 +186,7 @@ impl WorkspaceRegistry {
             update.icon.as_ref().and_then(Option::as_deref),
         )?;
         let tx = self.connection.transaction()?;
+        update.icon.clone().flatten().map_or(Ok(()), |icon| require_icon_asset(&tx, &icon))?;
         let before = read_browser_profile(&tx, id)?
             .ok_or_else(|| anyhow::anyhow!("unknown browser profile {id}"))?;
         if let Some(name) = &update.name {

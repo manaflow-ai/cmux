@@ -109,6 +109,7 @@ mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
 mod home;
+mod icon_assets;
 mod launch_snapshot;
 mod personal;
 mod raw_tab;
@@ -486,6 +487,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
@@ -2051,6 +2053,9 @@ enum Command {
     MoveBookmark(bookmarks::MoveParams),
     DeleteBookmark(bookmarks::DeleteParams),
     ImportBookmarks(bookmarks::ImportParams),
+    /// Asset blobs for icons (`icon-assets-v1`, server/icon_assets.rs).
+    PutBlob(icon_assets::PutParams),
+    GetBlob(icon_assets::GetParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -14577,6 +14582,8 @@ fn handle_command_with_cancellation(
         Command::MoveBookmark(params) => bookmarks::move_to(mux, params),
         Command::DeleteBookmark(params) => bookmarks::delete(mux, params),
         Command::ImportBookmarks(params) => bookmarks::import(mux, params),
+        Command::PutBlob(params) => icon_assets::put(mux, params),
+        Command::GetBlob(params) => icon_assets::get(mux, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),

@@ -201,6 +201,9 @@ class GeneratedClientMixin:
     def forget_session(self, session_id: str, *, force: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('forget-session', ForgetSessionRequest(session_id=session_id, force=force))
 
+    def get_blob(self, blob: str) -> JsonValue:
+        return self._invoke_command('get-blob', GetBlobRequest(blob=blob))
+
     def get_browser_provider(self) -> BrowserProviderSnapshot:
         return self._invoke_command('get-browser-provider', GetBrowserProviderRequest())
 
@@ -386,6 +389,9 @@ class GeneratedClientMixin:
 
     def process_info(self, surface: Id) -> ProcessInfoResult:
         return self._invoke_command('process-info', ProcessInfoRequest(surface=surface))
+
+    def put_blob(self, data: str, media_type: str) -> JsonValue:
+        return self._invoke_command('put-blob', PutBlobRequest(data=data, media_type=media_type))
 
     def put_frontend_projection(self, frontend: str, scope: str, subject_key: str, schema_version: int, projection: Union[JsonValue, None], *, expected_projection_revision: Union[int, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> FrontendProjection:
         return self._invoke_command('put-frontend-projection', PutFrontendProjectionRequest(frontend=frontend, scope=scope, subject_key=subject_key, schema_version=schema_version, projection=projection, expected_projection_revision=expected_projection_revision, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
@@ -715,6 +721,7 @@ GeneratedClientMixin.export_layout.__cmux_command__ = COMMANDS['export-layout']
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
+GeneratedClientMixin.get_blob.__cmux_command__ = COMMANDS['get-blob']
 GeneratedClientMixin.get_browser_provider.__cmux_command__ = COMMANDS['get-browser-provider']
 GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
 GeneratedClientMixin.get_frontend_browser_history.__cmux_command__ = COMMANDS['get-frontend-browser-history']
@@ -777,6 +784,7 @@ GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
 GeneratedClientMixin.pin_workspace.__cmux_command__ = COMMANDS['pin-workspace']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
+GeneratedClientMixin.put_blob.__cmux_command__ = COMMANDS['put-blob']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
 GeneratedClientMixin.put_session.__cmux_command__ = COMMANDS['put-session']
 GeneratedClientMixin.read_screen.__cmux_command__ = COMMANDS['read-screen']
