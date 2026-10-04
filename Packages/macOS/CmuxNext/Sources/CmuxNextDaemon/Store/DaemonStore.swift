@@ -40,6 +40,8 @@ public final class DaemonStore: StateResourceQueries {
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
     public let session = SessionStateStore()
+    /// Client titles for default-named workspaces (`WorkspaceModel.displayName`).
+    @ObservationIgnored public let titles = WorkspaceTitles()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
@@ -221,7 +223,7 @@ public final class DaemonStore: StateResourceQueries {
                                      update: { $0.update($1) }) {
             savedTabGroups = reordered
         }
-        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
+        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: { [titles] in WorkspaceModel($0, titles: titles) },
                                      update: { $0.update($1) }) {
             workspaces = reordered
         }

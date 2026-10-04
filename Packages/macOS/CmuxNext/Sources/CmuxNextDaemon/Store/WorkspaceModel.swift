@@ -34,12 +34,20 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var kind: String?
     /// The app of an app's companion workspace (`kind` "app_tabs").
     public internal(set) var app: String?
+    /// The name is still the store's default (`extra.default_title`).
+    public internal(set) var defaultTitle: Bool
+    /// The store's client titles (`DaemonStore.titles`).
+    @ObservationIgnored let titles: WorkspaceTitles
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
 
-    /// Custom title when set, else the name.
+    /// Custom title when set, else the client's localized title for a
+    /// default-named app companion workspace ("Home Tabs",
+    /// `WorkspaceTitles.appTabs`), else the name. Every reader (sidebar,
+    /// window title, palette) goes through here.
     public var displayName: String {
         if let title, !title.isEmpty { return title }
+        if kind == WorkspaceTitles.appTabsKind, defaultTitle, let app, let localized = titles.appTabs?(app) { return localized }
         return name
     }
 
@@ -54,7 +62,8 @@ public final class WorkspaceModel: Identifiable {
         }
     }
 
-    init(_ s: WorkspaceSnapshot) {
+    init(_ s: WorkspaceSnapshot, titles: WorkspaceTitles = WorkspaceTitles()) {
+        self.titles = titles
         id = Self.identity(s)
         key = s.key
         handle = s.id
@@ -70,6 +79,7 @@ public final class WorkspaceModel: Identifiable {
         markedUnread = s.markedUnread
         kind = s.kind
         app = s.app
+        defaultTitle = s.defaultTitle
         daemonUnreadCount = s.unreadCount
     }
 
@@ -90,6 +100,7 @@ public final class WorkspaceModel: Identifiable {
         if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
         if kind != s.kind { kind = s.kind }
         if app != s.app { app = s.app }
+        if defaultTitle != s.defaultTitle { defaultTitle = s.defaultTitle }
         if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
         if !screenGroupsFromState, screenGroups != s.screenGroups { screenGroups = s.screenGroups }
         if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {

@@ -2,37 +2,28 @@ import CmuxNextDaemon
 
 /// The title of an app's companion workspace (app-screens.md 2): new tabs
 /// sent to an app workspace land in an ordinary workspace right after it,
-/// stored by the daemon as `kind` "app_tabs" with `app` and the English
-/// default name "<App> Tabs". While the name is that default (and no custom
-/// title is set) the app shows "<App name> Tabs" in the user's language; a
-/// rename by the user wins.
-enum AppTabsTitle {
-    static let kind = "app_tabs"
-
-    /// An app's English display name (the daemon's default) and its name in
-    /// the user's language.
-    struct AppName: Equatable {
-        var english: String
-        var localized: String
-    }
-
-    /// The localized title for `workspace`, or nil when it keeps its own.
-    static func title(for workspace: WorkspaceModel, names: (String) -> AppName?) -> String? {
-        guard workspace.kind == kind, let app = workspace.app, workspace.title?.isEmpty ?? true,
-              let name = names(app), workspace.name == name.english + " Tabs" else { return nil }
-        return AppsAppStrings.tabsWorkspace(name.localized)
-    }
-}
-
+/// which the store marks `kind` "app_tabs" with `app`, and
+/// `extra.default_title` while its name is the store's default. The app
+/// shows "<App name> Tabs" in the user's language for it, through the one
+/// display-name path (`WorkspaceModel.displayName`, `WorkspaceTitles`).
 extension AppsService {
-    /// `AppTabsTitle` names from the app registry (observed).
-    func appTabsName(_ appID: String) -> AppTabsTitle.AppName? {
-        registry.app(appID).map { AppTabsTitle.AppName(english: $0.manifest.name.english, localized: $0.manifest.name.resolved()) }
+    /// "<App name> Tabs" for `appID`, or nil while the registry does not
+    /// list it (the stored name shows). Reads the registry under observation.
+    func appTabsTitle(_ appID: String) -> String? {
+        registry.app(appID).map { AppsAppStrings.tabsWorkspace($0.manifest.name.resolved()) }
     }
 
-    /// The sidebar title of `workspace` when it is an app's companion
-    /// workspace with its default name.
-    func appTabsTitle(_ workspace: WorkspaceModel) -> String? {
-        AppTabsTitle.title(for: workspace) { appTabsName($0) }
+    /// Gives the local store this app's titles for default-named app
+    /// companion workspaces.
+    func installWorkspaceTitles() {
+        services.machines.local.store.titles.appTabs = { [weak self] appID in self?.appTabsTitle(appID) }
     }
+
+    /// The Home app's English name, sent with `workspace.ensure_home` so the
+    /// store names Home's companion workspace for the CLI and TUI.
+    var homeDisplayName: String {
+        registry.app(Self.homeAppID)?.manifest.name.english ?? "Home"
+    }
+
+    static let homeAppID = "cmux/home"
 }

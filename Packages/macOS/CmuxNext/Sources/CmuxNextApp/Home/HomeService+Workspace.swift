@@ -27,10 +27,13 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
+        // The Home app's name for its companion workspace, only for a store
+        // that has one (`app-screens-v1`); older stores take no params.
+        let name = services.machines.local.supports(DaemonCapabilities.shared.appScreens) ? services.apps.homeDisplayName : nil
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             do {
-                let home = try await HomeWorkspaceClient(connection).ensureHome()
+                let home = try await HomeWorkspaceClient(connection).ensureHome(displayName: name)
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
                 homeWorkspaceStep = "ensured \(home)"

@@ -56,6 +56,7 @@ final class AppsService {
     }
 
     func start() {
+        installWorkspaceTitles()
         // task-owner: one-shot registry scan at launch; an open store lists the result.
         Task { [weak self] in
             await self?.registry.load()

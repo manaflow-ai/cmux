@@ -103,7 +103,7 @@ extension DaemonStore {
                     existing.update(delta.entity)
                 } else {
                     let index = min(max(delta.index ?? store.workspaces.count, 0), store.workspaces.count)
-                    store.workspaces.insert(WorkspaceModel(delta.entity), at: index)
+                    store.workspaces.insert(WorkspaceModel(delta.entity, titles: store.titles), at: index)
                 }
             }
         case .workspaceClosed(let delta):

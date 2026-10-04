@@ -17,10 +17,13 @@ public struct HomeWorkspaceClient: Sendable {
 
     /// The store's home workspace, created on the first call and the same
     /// workspace on every later one (any key replays it). Requires `workspace-kind-v1`.
-    public func ensureHome() async throws -> ResourceID {
+    /// `displayName` is the Home app's English name, for the stored name of
+    /// its companion workspace ("Home Tabs", `app-screens-v1`).
+    public func ensureHome(displayName: String? = nil) async throws -> ResourceID {
         let key = "cmux-next-home-" + UUID().uuidString.lowercased()
+        let params: [String: JSONValue] = displayName.map { ["display_name": .string($0)] } ?? [:]
         let result = try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "workspace.ensure_home", params: [:], idempotencyKey: key)
+            ResourceRequestEnvelope(id: id, operation: "workspace.ensure_home", params: params, idempotencyKey: key)
         }, as: ResourceMutationResult<EnsuredHome>.self)
         return result.value.workspaceID
     }

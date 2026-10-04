@@ -29,6 +29,9 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     /// The app of an app's companion workspace (`kind` "app_tabs",
     /// `app-screens-v1`); nil for every other workspace.
     public var app: String?
+    /// `extra.default_title`: the name is still the store's default (a
+    /// rename clears it), so a client may show its own localized title.
+    public var defaultTitle = false
     /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
     public var unreadCount: Int?
     /// Contiguous screen group runs in screen order (`screen-groups-v1`).
@@ -72,8 +75,13 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         self.unreadCount = unreadCount
     }
 
+    private struct Extra: Decodable {
+        var defaultTitle: Bool?
+        enum CodingKeys: String, CodingKey { case defaultTitle = "default_title" }
+    }
+
     enum CodingKeys: String, CodingKey {
-        case id, key, name, active, screens, group, color, icon, title, pinned, kind, app
+        case id, key, name, active, screens, group, color, icon, title, pinned, kind, app, extra
         case markedUnread = "marked_unread"
         case resourceID = "resource_id"
         case shortID = "short_id"
@@ -98,6 +106,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         markedUnread = try c.decodeIfPresent(Bool.self, forKey: .markedUnread) ?? false
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         app = (try? c.decodeIfPresent(String.self, forKey: .app)).flatMap { $0 }
+        defaultTitle = (try? c.decodeIfPresent(Extra.self, forKey: .extra))?.flatMap(\.defaultTitle) ?? false
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
         screenGroups = try c.decodeIfPresent([ScreenGroupSnapshot].self, forKey: .screenGroups) ?? []
     }

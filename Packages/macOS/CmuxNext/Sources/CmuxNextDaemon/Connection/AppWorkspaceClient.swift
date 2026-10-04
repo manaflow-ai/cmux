@@ -28,11 +28,15 @@ public struct AppWorkspaceClient: Sendable {
 
     /// The app's workspace, created on the first call and the same workspace
     /// on every later one (the store keys it by app; any key replays it).
-    public func ensureApp(_ app: String, kind: Kind = .app) async throws -> EnsuredApp {
+    /// `displayName` is the app's English name; the store names the app's
+    /// companion workspace "<displayName> Tabs" for clients (CLI, TUI) that
+    /// show the stored name.
+    public func ensureApp(_ app: String, kind: Kind = .app, displayName: String? = nil) async throws -> EnsuredApp {
         let key = "cmux-next-app-" + UUID().uuidString.lowercased()
-        let result = try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "workspace.ensure_app",
-                                    params: ["app": .string(app), "kind": .string(kind.rawValue)], idempotencyKey: key)
+        var params: [String: JSONValue] = ["app": .string(app), "kind": .string(kind.rawValue)]
+        if let displayName { params["display_name"] = .string(displayName) }
+        let result = try await connection.resourceRequest({ [params] id in
+            ResourceRequestEnvelope(id: id, operation: "workspace.ensure_app", params: params, idempotencyKey: key)
         }, as: ResourceMutationResult<EnsuredApp>.self)
         return result.value
     }

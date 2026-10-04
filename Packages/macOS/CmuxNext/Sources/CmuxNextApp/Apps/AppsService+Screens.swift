@@ -67,7 +67,7 @@ extension AppsService {
             throw AppScreenError.unsupported
         }
         guard let app = registry.app(appID), app.isActive else { throw AppsServiceError.unknownApp }
-        return try await AppWorkspaceClient(connection).ensureApp(app.manifest.id, kind: kind).workspaceID
+        return try await AppWorkspaceClient(connection).ensureApp(app.manifest.id, kind: kind, displayName: app.manifest.name.english).workspaceID
     }
 
     /// Shows the app workspace `id` in the active window once the local
