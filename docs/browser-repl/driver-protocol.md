@@ -489,7 +489,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   The driver refuses PDFs while any frame shows a blocked page, and file
   chooser answers other than `cancel` when the chooser's own frame (as
   WebKit recorded it when the chooser opened, and the document it shows
-  now) is blocked. A screenshot blanks, in gray, the box of each main-frame
+  now) is blocked, or `stale` when the frame tree no longer has that frame
+  (its document cannot be judged). A screenshot blanks, in gray, the box of each main-frame
   child frame that is or holds a blocked frame, as the tree is before and
   after the capture, and shows the rest of the page. While it is taken,
   each of those frame elements is also hidden from the driver's own world

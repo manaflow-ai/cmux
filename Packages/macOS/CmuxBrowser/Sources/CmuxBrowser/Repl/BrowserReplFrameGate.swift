@@ -798,8 +798,11 @@ public final class BrowserReplFrameGate {
 
     /// Throws `blocked` when the policy blocks the frame a file chooser
     /// opened from: as WebKit recorded it when the chooser opened, and the
-    /// document it shows now when it is still in `frames`. Other frames of
-    /// the tab do not matter; the files go only to that frame's input.
+    /// document it shows now. Throws `stale` when `frames` no longer has
+    /// that frame (it went away, or its id could not be read): the document
+    /// it shows cannot be judged, so the chooser may only be cancelled.
+    /// Other frames of the tab do not matter; the files go only to that
+    /// frame's input.
     public func checkFileChooser(frame info: WKFrameInfo, in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
         guard policy.isActive else { return }
         let refusal = { (shown: String, reason: String) in
@@ -816,7 +819,9 @@ public final class BrowserReplFrameGate {
             let id = BrowserReplFrame.frameID(of: info)
             frame = id.flatMap { id in frames.first { $0.frameID == id } }
         }
-        guard let frame else { return }
+        guard let frame else {
+            throw BrowserReplDriverError(code: "stale", message: "The frame the file chooser opened in is gone or cannot be read, so the document it shows cannot be checked against the domain policy; it may only be cancelled")
+        }
         try await authorize(frame, in: webView)
     }
 
