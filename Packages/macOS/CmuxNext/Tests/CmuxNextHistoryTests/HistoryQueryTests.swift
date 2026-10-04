@@ -50,6 +50,18 @@ struct HistoryQueryTests {
         #expect(HistoryQuery(range: .month).apply(to: Self.sample, now: Self.now).count == 3)
     }
 
+    @Test func implementationPagesAndPlaceholderLocationsAreHidden() {
+        let noise = [
+            page("history", "History", url: "cmux://history", ago: 1),
+            page("blank", "about:blank", url: "about:blank", ago: 2),
+            HistoryEntry(id: "location:history", kind: .location, time: Self.now,
+                         title: "History", detail: "cmux://history", payload: .location(
+                            HistoryLocation(key: .init(machine: "home", tab: "tab"), window: "w", workspace: "ws", pane: "p",
+                                            content: .browser, title: "History", url: "cmux://history"), isCurrent: false))
+        ]
+        #expect(HistoryQuery().apply(to: noise, now: Self.now).isEmpty)
+    }
+
     @Test func todayStartsAtMidnight() throws {
         let interval = try #require(HistoryRange.today.interval(now: Self.now, calendar: Self.calendar))
         #expect(interval.start == Self.calendar.startOfDay(for: Self.now))

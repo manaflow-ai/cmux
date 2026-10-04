@@ -67,14 +67,20 @@ struct HistoryPageView: View {
                 .onKeyPress(.downArrow) { model.moveSelection(1); return .handled }
                 .onKeyPress(.upArrow) { model.moveSelection(-1); return .handled }
                 .onSubmit { if let entry = model.entry(id: model.selection) ?? model.flatEntries.first { model.open(entry) } }
-            HStack(spacing: Metrics.panelInset) {
-                ForEach(HistoryPageModel.Filter.allCases, id: \.self) { filter in
-                    Button(HistoryStrings.filter(filter)) { model.filter = filter }
-                        .buttonStyle(.plain).font(Font(Typography.bodyEmphasized))
-                        .padding(.horizontal, Metrics.panelInset * 1.5).padding(.vertical, Metrics.panelInset / 2)
-                        .foregroundStyle(model.filter == filter ? colors.primary : colors.secondary)
-                        .background(model.filter == filter ? colors.selection : .clear, in: Capsule())
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Metrics.panelInset * 1.5) {
+                    ForEach(HistoryPageModel.Filter.allCases, id: \.self) { filter in
+                        Button(HistoryStrings.filter(filter)) { model.filter = filter }
+                            .buttonStyle(.plain).font(Font(Typography.bodyEmphasized))
+                            .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                            .foregroundStyle(model.filter == filter ? colors.primary : colors.secondary)
+                            .overlay(alignment: .bottom) {
+                                Rectangle().fill(model.filter == filter ? colors.primary : .clear)
+                                    .frame(height: 2)
+                            }
+                    }
                 }
+                .padding(.vertical, 3)
             }
         }
         .padding(Metrics.panelInset * 3)
