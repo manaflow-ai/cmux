@@ -61,4 +61,10 @@ import Testing
         let app = try PageDescriptor.appPage(id: "com.acme.diff", resource: "diff", namespaces: [])
         #expect(PageWebView.mayServe(app, from: URL(fileURLWithPath: "/tmp/acme")))
     }
+
+    @Test func documentAttributesBecomeDataAttributesBeforeThePageRuns() throws {
+        let script = try #require(PageWebView.attributesScript(["cloud-machines-layout": "cards", "Bad Name": "x"]))
+        #expect(script == #"document.documentElement.setAttribute("data-cloud-machines-layout", "cards");"#)
+        #expect(PageWebView.attributesScript([:]) == nil)
+    }
 }

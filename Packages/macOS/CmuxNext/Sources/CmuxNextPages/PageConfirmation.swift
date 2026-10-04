@@ -119,3 +119,22 @@ public final class AlertPageConfirmationPresenter: PageConfirmationPresenter {
         return response == .alertFirstButtonReturn
     }
 }
+
+public extension PageConfirmation {
+    /// The sheet for a confirmed namespace op (``PageDescriptor/confirmedOps``) run through
+    /// `cmux.app.action.run {action: <op>, args}`. `name` is the subject the args name (the machine's
+    /// display name or id); ops without a subject ask about the action itself.
+    static func forOp(_ op: String, kind: Kind, args: [String: String]) -> PageConfirmation {
+        let name = args["displayName"] ?? args["name"] ?? args["machine"] ?? args["snapshot"] ?? args["publication"]
+            ?? args["firewall"] ?? args["id"] ?? op
+        switch op {
+        case "cmux.cloud.publication.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudPublish, name))
+        case "cmux.cloud.firewall.create": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudFirewall, name))
+        case "cmux.cloud.billing.open": return PageConfirmation(kind: .custom, name: PageStrings.cloudBilling)
+        case "cmux.cloud.auth.sign_in": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignIn)
+        case "cmux.cloud.auth.sign_out": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignOut)
+        case "cmux.cloud.machine.connect": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, name))
+        default: return PageConfirmation(kind: kind, name: name)
+        }
+    }
+}

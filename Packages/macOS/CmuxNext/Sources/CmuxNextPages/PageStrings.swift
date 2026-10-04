@@ -21,6 +21,13 @@ nonisolated enum PageStrings {
     static var asksFor: String { t("pages.confirm.asksFor", "It asks for:") }
     static var opensWeb: String { t("pages.confirm.opensWeb", "It opens these web addresses:") }
 
+    static var cloudPublish: String { t("pages.confirm.cloud.publish", "Publish “%@” to the internet?") }
+    static var cloudFirewall: String { t("pages.confirm.cloud.firewall", "Change the firewall of “%@”?") }
+    static var cloudBilling: String { t("pages.confirm.cloud.billing", "Open billing in your browser?") }
+    static var cloudSignIn: String { t("pages.confirm.cloud.signIn", "Sign in to cmux Cloud?") }
+    static var cloudSignOut: String { t("pages.confirm.cloud.signOut", "Sign out of cmux Cloud?") }
+    static var cloudConnect: String { t("pages.confirm.cloud.connect", "Connect to “%@”?") }
+
     static func risk(_ risk: String) -> String {
         switch risk {
         case "restricted": t("pages.risk.restricted", "Restricted")

@@ -21,16 +21,22 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     public let actions: Set<String>
     /// The dispatcher commands this page takes on `cmux.page.command` (default: every page command).
     public let commands: Set<String>
+    /// Namespace ops the page may only run through `cmux.app.action.run {action: <op>, args}`: the
+    /// host shows the native confirmation of that kind, then runs the op as the user's own
+    /// (deleting data, money, publishing, signing in). The page never calls them directly.
+    public let confirmedOps: [String: PageConfirmation.Kind]
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
-                actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands) {
+                actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
+                confirmedOps: [String: PageConfirmation.Kind] = [:]) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
         self.nativeOps = nativeOps
-        self.denied = denied
+        self.denied = denied.union(confirmedOps.keys)
         self.actions = actions
         self.commands = commands
+        self.confirmedOps = confirmedOps
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -77,6 +83,20 @@ public nonisolated enum PageNativeOp {
 }
 
 public extension PageDescriptor {
+    /// The Cloud app page (`cmux/cloud`, plans/cmux-next/cloud-app.md L7; React page by the Cloud
+    /// lead). Deleting, publishing, firewall changes, billing, sign-in/out and connect run only
+    /// through the native confirmation.
+    static let cloud = PageDescriptor(
+        id: "cmux.cloud", resource: "cloud", namespaces: ["cmux.cloud."],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
+        confirmedOps: [
+            "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
+            "cmux.cloud.publication.delete": .delete, "cmux.cloud.firewall.delete": .delete,
+            "cmux.cloud.publication.create": .custom, "cmux.cloud.firewall.create": .custom,
+            "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,
+            "cmux.cloud.auth.sign_out": .custom, "cmux.cloud.machine.connect": .custom,
+        ])
+
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
