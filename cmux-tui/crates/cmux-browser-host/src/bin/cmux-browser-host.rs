@@ -42,6 +42,9 @@ mod unix {
         max_output: Option<u64>,
         timeout_ms: Option<u64>,
         code: Option<String>,
+        /// An inherited fd that carries the per-launch provider secret
+        /// (the daemon writes it and closes its end). Never argv or env.
+        provider_secret_fd: Option<i32>,
     }
 
     fn parse(args: &[String]) -> Result<Options, String> {
@@ -52,6 +55,7 @@ mod unix {
             max_output: None,
             timeout_ms: None,
             code: None,
+            provider_secret_fd: None,
         };
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
@@ -73,6 +77,13 @@ mod unix {
                         value("--timeout-ms")?
                             .parse()
                             .map_err(|_| "--timeout-ms: expected a number")?,
+                    );
+                }
+                "--provider-secret-fd" => {
+                    options.provider_secret_fd = Some(
+                        value("--provider-secret-fd")?
+                            .parse()
+                            .map_err(|_| "--provider-secret-fd: expected a file descriptor")?,
                     );
                 }
                 "-" => {
@@ -118,6 +129,40 @@ mod unix {
         }
     }
 
+    /// Reads the secret from `fd` (to its end), then serves the app's
+    /// provider socket on its own thread.
+    fn start_provider_listener(
+        socket: &std::path::Path,
+        owns_dir: bool,
+        fd: i32,
+        engines: &HostEngines,
+    ) -> Result<(), String> {
+        use std::os::fd::FromRawFd;
+        if fd < 3 {
+            return Err(format!("--provider-secret-fd {fd}: not an inherited descriptor"));
+        }
+        // SAFETY: the daemon passes this fd open for this process; it is read once and closed here.
+        let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+        let mut secret = String::new();
+        file.read_to_string(&mut secret).map_err(|e| format!("reading the secret: {e}"))?;
+        let secret = secret.trim().to_owned();
+        if secret.len() < 32 {
+            return Err("the provider secret is too short".into());
+        }
+        let path = cmux_browser_host::server::provider_socket_path(socket);
+        let listener = bind(&path, owns_dir).map_err(|e| e.to_string())?;
+        let slot = engines.provider_slot();
+        let bundle: Arc<str> = agent_bundle().into();
+        std::thread::Builder::new()
+            .name("cmux-browser-host-providers".into())
+            .spawn(move || {
+                let secret = cmux_browser_host::provider::ProviderSecret::new(secret);
+                let _ = cmux_browser_host::server::serve_providers(listener, secret, slot, bundle);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     fn serve_command(options: &Options) -> i32 {
         let owns_dir = std::env::var_os("CMUX_BROWSER_HOST_SOCKET").is_none_or(|p| p.is_empty());
         let listener = match bind(&options.socket, owns_dir) {
@@ -129,7 +174,14 @@ mod unix {
         };
         let cwd =
             std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "/".into());
-        let host = Arc::new(Host::new(Arc::new(HostEngines::new(agent_bundle())), cwd));
+        let engines = Arc::new(HostEngines::new(agent_bundle()));
+        if let Some(fd) = options.provider_secret_fd {
+            if let Err(error) = start_provider_listener(&options.socket, owns_dir, fd, &engines) {
+                eprintln!("cmux-browser-host: provider listener: {error}");
+                return 1;
+            }
+        }
+        let host = Arc::new(Host::new(engines, cwd));
         match serve(listener, host) {
             Ok(()) => 0,
             Err(error) => {

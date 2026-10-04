@@ -1,0 +1,397 @@
+//! The engine of a session bound to the app's provider (`cef` or `webkit`).
+//!
+//! The app announces its tabs (`hello`, `tab.announced`); a session lists
+//! them with `tabs.list` and names one by `targetId` (the app's store tab
+//! id) in every call. WebKit calls go to the app's driver as `call` frames
+//! ([`ProviderDriver`]). A CEF tab gets its own [`CdpDriver`] on a
+//! page-rooted relay (`cdp.attach`, `cdp` frames), shared by every session;
+//! the host translates the app's tab id to the page's CDP target id and back.
+//! Tab lifecycle calls (`tabs.open`, `tabs.close`, `tabs.activate`) go to the
+//! app, which owns tabs. Every call that names a tab passes the provider's
+//! refusal rules first (browser pages, the interim extension rule).
+
+use crate::cdp::CdpDriver;
+use crate::driver::{Driver, EventSink};
+use crate::protocol::{DriverError, DriverEvent};
+use crate::provider_link::ProviderDriver;
+use serde_json::{Value, json};
+use std::sync::{Arc, PoisonError};
+
+/// The relay alias of a CEF tab's page session.
+const PAGE_ALIAS: &str = "cmux-page";
+
+/// One CEF tab's CDP driver on its relay.
+pub struct CefTab {
+    driver: CdpDriver,
+    /// The page's CDP target id (the driver's tab id).
+    cdp_id: String,
+}
+
+/// A session's view of the provider: `engine` is `cef` or `webkit`.
+pub struct ProviderEngine {
+    provider: Arc<ProviderDriver>,
+    engine: String,
+    agent_source: Arc<str>,
+    subscription: u64,
+}
+
+impl ProviderEngine {
+    pub fn new(
+        provider: Arc<ProviderDriver>,
+        engine: &str,
+        agent_source: Arc<str>,
+        events: EventSink,
+    ) -> Result<ProviderEngine, DriverError> {
+        if let Some(reason) = provider.closed_reason() {
+            return Err(DriverError::closed(reason));
+        }
+        let subscription = provider.subscribe(events);
+        Ok(ProviderEngine { provider, engine: engine.to_owned(), agent_source, subscription })
+    }
+
+    fn tabs_list(&self) -> Value {
+        let tabs: Vec<Value> = self
+            .provider
+            .tab_list(Some(&self.engine))
+            .into_iter()
+            .map(|tab| {
+                json!({
+                    "targetId": tab.target_id, "engine": tab.engine, "url": tab.url,
+                    "title": tab.title, "workspace": tab.workspace, "profile": tab.profile,
+                    "visible": tab.visible,
+                })
+            })
+            .collect();
+        json!({ "tabs": tabs })
+    }
+
+    /// The CEF tab's driver, attaching its relay on first use (or again
+    /// after the relay closed).
+    fn cef_tab(&self, target_id: &str) -> Result<Arc<CefTab>, DriverError> {
+        let _attaching = self.provider.attach_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let known = self
+            .provider
+            .cef_tabs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(target_id)
+            .cloned();
+        if let Some(tab) = known
+            && tab.driver.is_open()
+        {
+            return Ok(tab);
+        }
+        let conn = self.provider.open_relay(target_id, PAGE_ALIAS)?;
+        let weak = Arc::downgrade(&self.provider);
+        let app_id = target_id.to_owned();
+        let cdp_id = Arc::new(std::sync::OnceLock::<String>::new());
+        let sink_cdp_id = cdp_id.clone();
+        let events: EventSink = Arc::new(move |event: DriverEvent| {
+            // The provider announces and retires tabs itself.
+            if matches!(event.name.as_str(), "tab.created" | "tab.closed") {
+                return;
+            }
+            let (Some(provider), Some(cdp)) = (weak.upgrade(), sink_cdp_id.get()) else { return };
+            let mut payload = event.payload;
+            rename_target(&mut payload, cdp, &app_id);
+            provider.publish(DriverEvent { name: event.name, payload });
+        });
+        let (driver, id) = CdpDriver::attach_page(conn, self.agent_source.clone(), events)
+            .inspect_err(|_| {
+                self.provider.close_relay(target_id);
+            })?;
+        let _ = cdp_id.set(id.clone());
+        let tab = Arc::new(CefTab { driver, cdp_id: id });
+        self.provider
+            .cef_tabs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(target_id.to_owned(), tab.clone());
+        Ok(tab)
+    }
+
+    fn call_cef(
+        &self,
+        method: &str,
+        target_id: &str,
+        params: &Value,
+    ) -> Result<Value, DriverError> {
+        let tab = self.cef_tab(target_id)?;
+        let mut params = params.clone();
+        params["targetId"] = Value::String(tab.cdp_id.clone());
+        let mut result = tab.driver.call(method, &params)?;
+        rename_target(&mut result, &tab.cdp_id, target_id);
+        Ok(result)
+    }
+}
+
+/// Replaces `"targetId": from` (at any depth) with `to`.
+fn rename_target(value: &mut Value, from: &str, to: &str) {
+    match value {
+        Value::Object(map) => {
+            for (key, item) in map.iter_mut() {
+                if key.ends_with("argetId") && item.as_str() == Some(from) {
+                    *item = Value::String(to.to_owned());
+                } else {
+                    rename_target(item, from, to);
+                }
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(|item| rename_target(item, from, to)),
+        _ => {}
+    }
+}
+
+impl Driver for ProviderEngine {
+    fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+        if let Some(reason) = self.provider.closed_reason() {
+            return Err(DriverError::closed(reason));
+        }
+        match method {
+            "tabs.list" => return Ok(self.tabs_list()),
+            // The app owns tabs: it opens them in the session's engine.
+            "tabs.open" => {
+                let mut params = params.clone();
+                params["engine"] = Value::String(self.engine.clone());
+                return self.provider.call(method, &params);
+            }
+            _ => {}
+        }
+        let Some(target_id) = params.get("targetId").and_then(Value::as_str) else {
+            return self.provider.call(method, params);
+        };
+        let Some(engine) = self.provider.tab_engine(target_id) else {
+            return Err(DriverError::not_found(format!("{method}: no tab {target_id}")));
+        };
+        if let Some(error) = self.provider.refusal(method, target_id) {
+            return Err(error);
+        }
+        if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
+            self.call_cef(method, target_id, params)
+        } else {
+            self.provider.call(method, params)
+        }
+    }
+
+    fn capabilities(&self) -> Vec<&'static str> {
+        if self.engine == "cef" { vec!["cdp"] } else { self.provider.capabilities() }
+    }
+}
+
+impl Drop for ProviderEngine {
+    fn drop(&mut self) {
+        self.provider.unsubscribe(self.subscription);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::{Frame, TabAnnounce, read_frame, write_frame};
+    use std::os::unix::net::UnixStream;
+    use std::sync::Mutex;
+
+    fn tab(target_id: &str, engine: &str) -> TabAnnounce {
+        TabAnnounce {
+            target_id: target_id.into(),
+            engine: engine.into(),
+            workspace: "w".into(),
+            profile: "p".into(),
+            url: "https://a.test/".into(),
+            title: "A".into(),
+            visible: true,
+        }
+    }
+
+    /// The app side: answers WebKit `call` frames, and plays one page per
+    /// attached CEF tab on its `cdp` frames (page-level messages carry no
+    /// sessionId). Records every frame it got.
+    struct FakeApp {
+        writer: Arc<Mutex<UnixStream>>,
+        frames: Arc<Mutex<Vec<Frame>>>,
+    }
+
+    impl FakeApp {
+        fn start(tabs: Vec<TabAnnounce>) -> (FakeApp, Arc<ProviderDriver>) {
+            let (app, host) = UnixStream::pair().unwrap();
+            let provider = ProviderDriver::start(
+                host.try_clone().unwrap(),
+                host,
+                crate::driver::discard_events(),
+                tabs,
+            )
+            .unwrap();
+            let writer = Arc::new(Mutex::new(app.try_clone().unwrap()));
+            let frames = Arc::new(Mutex::new(Vec::new()));
+            let (thread_writer, thread_frames) = (writer.clone(), frames.clone());
+            let mut reader = app;
+            std::thread::spawn(move || {
+                while let Ok(Some(frame)) = read_frame(&mut reader) {
+                    thread_frames.lock().unwrap().push(frame.clone());
+                    let reply = match frame {
+                        Frame::Call { id, method, .. } => Some(Frame::Result {
+                            id,
+                            result: Some(json!({"method": method})),
+                            error: None,
+                        }),
+                        Frame::Cdp { target_id, message } => {
+                            let message: Value = serde_json::from_str(&message).unwrap();
+                            let result = match message["method"].as_str().unwrap_or("") {
+                                "Target.getTargetInfo" => json!({"targetInfo": {
+                                    "targetId": format!("CDP-{target_id}"), "type": "page",
+                                    "url": "https://a.test/", "title": "A", "attached": true}}),
+                                "Page.getFrameTree" => json!({"frameTree": {"frame": {
+                                    "id": format!("CDP-{target_id}"), "loaderId": "L1",
+                                    "url": "https://a.test/"}}}),
+                                _ => json!({}),
+                            };
+                            let mut reply = json!({"id": message["id"], "result": result});
+                            if let Some(session) = message.get("sessionId") {
+                                reply["sessionId"] = session.clone();
+                            }
+                            Some(Frame::Cdp { target_id, message: reply.to_string() })
+                        }
+                        _ => None,
+                    };
+                    if let Some(reply) = reply
+                        && write_frame(&mut *thread_writer.lock().unwrap(), &reply).is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+            (FakeApp { writer, frames }, provider)
+        }
+
+        fn send(&self, frame: Frame) {
+            write_frame(&mut *self.writer.lock().unwrap(), &frame).unwrap();
+        }
+
+        fn access(&self, provider: &ProviderDriver, target: &str) {
+            self.send(Frame::TabAccess {
+                target_id: target.into(),
+                extension_host_access: false,
+                user_override: false,
+                extensions: Vec::new(),
+            });
+            // A round trip on a WebKit tab: the access frame was read first.
+            provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        }
+
+        fn attaches(&self, target: &str) -> usize {
+            self.frames
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|f| matches!(f, Frame::CdpAttach { target_id } if target_id == target))
+                .count()
+        }
+
+        fn cdp_messages(&self, target: &str) -> Vec<Value> {
+            self.frames
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|f| match f {
+                    Frame::Cdp { target_id, message } if target_id == target => {
+                        serde_json::from_str(message).ok()
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    fn engine(provider: &Arc<ProviderDriver>, kind: &str) -> ProviderEngine {
+        ProviderEngine::new(
+            provider.clone(),
+            kind,
+            Arc::from("/* agent */"),
+            crate::driver::discard_events(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_cef_tab_is_driven_through_its_relay_under_the_app_tab_id() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+        app.access(&provider, "C");
+        let cef = engine(&provider, "cef");
+        let info = cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
+        assert_eq!(info["targetId"], "C", "{info}");
+        assert_eq!(app.attaches("C"), 1);
+        let sent = app.cdp_messages("C");
+        assert_eq!(sent[0]["method"], "Target.getTargetInfo");
+        // The page's own messages carry no session on the wire.
+        assert!(sent.iter().all(|m| m.get("sessionId").is_none()), "{sent:?}");
+        assert!(sent.iter().any(|m| m["method"] == "Page.enable"));
+        // A second session shares the tab's relay.
+        let other = engine(&provider, "cef");
+        other.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
+        assert_eq!(app.attaches("C"), 1);
+    }
+
+    #[test]
+    fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+        let webkit = engine(&provider, "webkit");
+        let tabs = webkit.call("tabs.list", &json!({})).unwrap();
+        assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1);
+        assert_eq!(tabs["tabs"][0]["targetId"], "W");
+        assert_eq!(
+            webkit.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"],
+            "tab.info"
+        );
+        assert_eq!(app.attaches("W"), 0);
+        let cef = engine(&provider, "cef");
+        assert_eq!(cef.call("tabs.list", &json!({})).unwrap()["tabs"][0]["targetId"], "C");
+    }
+
+    #[test]
+    fn a_refused_tab_never_opens_a_relay() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+        let cef = engine(&provider, "cef");
+        // No tab.access report yet: refused, and the app saw no cdp.attach.
+        let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
+        assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
+        assert_eq!(app.attaches("C"), 0);
+        let missing = cef.call("tab.info", &json!({"targetId": "X"})).unwrap_err();
+        assert_eq!(missing.code, crate::protocol::ErrorCode::NotFound, "{missing}");
+    }
+
+    #[test]
+    fn a_closed_relay_attaches_again_and_a_gone_tab_is_not_found() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+        app.access(&provider, "C");
+        let cef = engine(&provider, "cef");
+        cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
+        // The app replaced the tab's browser: the next call attaches again.
+        app.send(Frame::Event {
+            name: "tab.relay.closed".into(),
+            payload: json!({"targetId": "C"}),
+        });
+        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
+        assert_eq!(app.attaches("C"), 2);
+        app.send(Frame::Event { name: "tab.gone".into(), payload: json!({"targetId": "C"}) });
+        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        let gone = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
+        assert_eq!(gone.code, crate::protocol::ErrorCode::NotFound, "{gone}");
+    }
+
+    #[test]
+    fn tabs_open_goes_to_the_app_with_the_session_engine() {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+        let cef = engine(&provider, "cef");
+        cef.call("tabs.open", &json!({"url": "https://b.test/"})).unwrap();
+        let frames = app.frames.lock().unwrap();
+        let open = frames
+            .iter()
+            .find_map(|f| match f {
+                Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(open["engine"], "cef");
+    }
+}

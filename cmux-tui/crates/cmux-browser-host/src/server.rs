@@ -85,6 +85,70 @@ pub fn serve(listener: UnixListener, host: Arc<Host>) -> io::Result<()> {
     Ok(())
 }
 
+/// The app's provider socket, next to the agent socket.
+pub fn provider_socket_path(agent_socket: &Path) -> PathBuf {
+    agent_socket.with_file_name("browser-host-provider.sock")
+}
+
+/// Serves the app's provider connections (plans/cmux-next/browser-host.md
+/// "Provider connection"): same uid, then `hello` with the per-launch
+/// secret. One provider at a time: a second one is refused while the first
+/// is connected, and replaces it after it disconnects.
+pub fn serve_providers(
+    listener: UnixListener,
+    secret: crate::provider::ProviderSecret,
+    slot: crate::engines::ProviderSlot,
+    agent_bundle: Arc<str>,
+) -> io::Result<()> {
+    // SAFETY: getuid(2) has no failure modes.
+    let uid = unsafe { libc::getuid() };
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        if peer_uid(&stream) != Some(uid) {
+            continue;
+        }
+        let (secret, slot, agent_bundle) = (secret.clone(), slot.clone(), agent_bundle.clone());
+        let _ = std::thread::Builder::new().name("cmux-browser-host-provider-accept".into()).spawn(
+            move || {
+                let _ = accept_provider(stream, &secret, &slot, &agent_bundle);
+            },
+        );
+    }
+    Ok(())
+}
+
+fn accept_provider(
+    stream: UnixStream,
+    secret: &crate::provider::ProviderSecret,
+    slot: &crate::engines::ProviderSlot,
+    agent_bundle: &str,
+) -> io::Result<()> {
+    use crate::provider_link::{ProviderDriver, accept};
+    let busy = || {
+        slot.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|provider| provider.closed_reason().is_none())
+    };
+    if busy() {
+        return Ok(());
+    }
+    let mut reader = stream.try_clone()?;
+    let mut writer = stream.try_clone()?;
+    let Ok(info) = accept(&mut reader, &mut writer, secret, agent_bundle) else {
+        return Ok(());
+    };
+    let driver = ProviderDriver::start(reader, writer, crate::driver::discard_events(), info.tabs)?;
+    let mut current = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if current.as_ref().is_some_and(|provider| provider.closed_reason().is_none()) {
+        // Another provider won the race: this one goes.
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        return Ok(());
+    }
+    *current = Some(driver);
+    Ok(())
+}
+
 fn handle(stream: UnixStream, host: &Host) -> io::Result<()> {
     let actor = peer_actor(&stream);
     let mut writer = stream.try_clone()?;
