@@ -123,7 +123,7 @@ pub struct RoleProc {
     ready: Readiness,
     grace: Duration,
     phase: Phase,
-    /// Start instants of failed runs inside the window.
+    /// Instants of failed runs (exits or failed spawns) inside the window.
     failures: Vec<Instant>,
     restarts: u32,
     last_exit: Option<String>,
@@ -241,6 +241,7 @@ impl RoleProc {
             self.phase = Phase::Stopping { pid, killed: false };
             return vec![Action::Terminate { pid }, Action::WakeAt(now + self.grace)];
         }
+        self.status_text = None;
         self.phase = match self.ready {
             Readiness::Started => Phase::Ready { pid },
             Readiness::Notify => Phase::Starting { pid: Some(pid) },

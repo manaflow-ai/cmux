@@ -12,8 +12,10 @@ mod coderouter;
 mod command;
 mod docs;
 mod federation;
+#[cfg(unix)]
 mod host_mount;
 mod lifecycle;
+#[cfg(unix)]
 pub(crate) use host_mount::{requested as host_requested, run as run_host};
 mod machine_server;
 pub(crate) use machine_server::is_lifecycle_scope;

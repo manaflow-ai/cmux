@@ -21,16 +21,18 @@ const ROLE_PATH: &str = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 /// Inherited variables (everything else is cleared).
 const INHERITED: &[&str] = &["HOME", "USER", "LOGNAME", "LANG", "TMPDIR"];
 
-/// The program path for `spec`, checked: a store name must stay inside
-/// `store_bin`; an absolute path must be a regular file that the user or
-/// root owns in a folder the user or root owns, writable by no one else.
+/// The program path for `spec`, checked: the canonical path (symlinks
+/// resolved) must be a regular file, and it and every folder up to `/` must
+/// belong to the user or root and be writable by no one else (a root-owned
+/// sticky folder such as `/tmp` is allowed). The caller execs that path.
 pub fn resolve(spec: &RoleSpec, paths: &RolePaths) -> Result<PathBuf, String> {
     let path = match &spec.program {
         Program::Store(name) => paths.store_bin.join(name),
         Program::Path(path) => PathBuf::from(path),
     };
+    let path = std::fs::canonicalize(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     check_owner(&path, true)?;
-    if let Some(dir) = path.parent() {
+    for dir in path.ancestors().skip(1) {
         check_owner(dir, false)?;
     }
     Ok(path)
@@ -48,7 +50,8 @@ fn check_owner(path: &Path, file: bool) -> Result<(), String> {
     if meta.uid() != me && meta.uid() != 0 {
         return Err(format!("{} belongs to another user", path.display()));
     }
-    if meta.mode() & 0o022 != 0 {
+    let sticky_root_dir = !file && meta.uid() == 0 && meta.mode() & 0o1000 != 0;
+    if meta.mode() & 0o022 != 0 && !sticky_root_dir {
         return Err(format!("{} is writable by group or others", path.display()));
     }
     Ok(())
@@ -142,7 +145,7 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
         .spawn(move || {
             let mut reader = BufReader::new(out_r);
             let mut line = Vec::new();
-            while reader.read_until(b'\n', &mut line).is_ok_and(|n| n > 0) {
+            while read_line_capped(&mut reader, &mut line, LOG_LINE_MAX).is_ok_and(|n| n > 0) {
                 if !line.ends_with(b"\n") {
                     line.push(b'\n');
                 }
@@ -161,15 +164,58 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
             .spawn(move || read_notify(notify_r, &name, pid, &tx))
             .map_err(|e| e.to_string())?;
     }
+    watch_exit(&name, pid, tx);
+    Ok(child)
+}
+
+/// Starts the thread that reports `pid`'s exit (without reaping it).
+#[cfg(unix)]
+pub fn watch_exit(name: &str, pid: u32, tx: &Sender<Msg>) {
     let tx = tx.clone();
-    std::thread::Builder::new()
-        .name(format!("role-{name}-wait"))
-        .spawn(move || {
+    let name = name.to_owned();
+    let spawned = std::thread::Builder::new().name(format!("role-{name}-wait")).spawn({
+        let tx = tx.clone();
+        let name = name.clone();
+        move || {
             wait_exit(pid);
             let _ = tx.send(Msg::Gone { name, pid });
-        })
-        .map_err(|e| e.to_string())?;
-    Ok(child)
+        }
+    });
+    if spawned.is_err() {
+        // No thread: report at once; the supervisor's `try_wait` decides.
+        let _ = tx.send(Msg::Gone { name, pid });
+    }
+}
+
+#[cfg(not(unix))]
+pub fn watch_exit(_name: &str, _pid: u32, _tx: &Sender<Msg>) {}
+
+/// Longest log line and notify line kept; the rest of a longer line is
+/// read and dropped.
+const LOG_LINE_MAX: usize = 64 * 1024;
+const NOTIFY_LINE_MAX: usize = 4096;
+
+/// `read_until(b'\n')` that keeps at most `max` bytes of the line. Returns
+/// the bytes consumed (0 at EOF).
+fn read_line_capped(reader: &mut impl BufRead, line: &mut Vec<u8>, max: usize) -> std::io::Result<usize> {
+    let mut consumed = 0;
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(consumed);
+        }
+        let (take, done) = match buf.iter().position(|b| *b == b'\n') {
+            Some(i) => (i + 1, true),
+            None => (buf.len(), false),
+        };
+        let room = max.saturating_sub(line.len()).min(take);
+        line.extend_from_slice(&buf[..room]);
+        reader.consume(take);
+        consumed += take;
+        if done {
+            return Ok(consumed);
+        }
+    }
 }
 
 #[cfg(not(unix))]
@@ -177,13 +223,15 @@ pub fn start(_spec: &RoleSpec, _paths: &RolePaths, _tx: &Sender<Msg>) -> Result<
     Err("process roles need a Unix host".to_owned())
 }
 
-/// `READY=1` and `STATUS=<text>` lines, at most 4 KiB each.
+/// `READY=1` and `STATUS=<text>` lines, at most 4 KiB each (longer lines
+/// are cut, bytes that are not UTF-8 replaced). The reader stays open for
+/// the role's life, so a status write never meets a closed pipe.
 fn read_notify(pipe: std::io::PipeReader, name: &str, pid: u32, tx: &Sender<Msg>) {
-    use std::io::Read;
-    let mut reader = BufReader::new(pipe.take(1 << 20));
-    let mut line = String::new();
-    while reader.read_line(&mut line).is_ok_and(|n| n > 0) {
-        let text = line.trim_end_matches(['\n', '\r']);
+    let mut reader = BufReader::new(pipe);
+    let mut line = Vec::new();
+    while read_line_capped(&mut reader, &mut line, NOTIFY_LINE_MAX).is_ok_and(|n| n > 0) {
+        let decoded = String::from_utf8_lossy(&line).into_owned();
+        let text = decoded.trim_end_matches(['\n', '\r']);
         let msg = if text == "READY=1" {
             Some(Msg::Ready { name: name.to_owned(), pid })
         } else {
@@ -193,10 +241,9 @@ fn read_notify(pipe: std::io::PipeReader, name: &str, pid: u32, tx: &Sender<Msg>
                 text: status.chars().take(4096).collect(),
             })
         };
-        if let Some(msg) = msg
-            && tx.send(msg).is_err()
-        {
-            return;
+        // The supervisor is gone: keep draining so the role never gets SIGPIPE.
+        if let Some(msg) = msg {
+            let _ = tx.send(msg);
         }
         line.clear();
     }
@@ -266,7 +313,7 @@ mod tests {
         std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o755)).unwrap();
         let paths = RolePaths { store_bin: bin.clone(), state: dir.path().join("state") };
         let store = spec(Program::Store("optchat-chief".to_owned()));
-        assert_eq!(resolve(&store, &paths).unwrap(), prog);
+        assert_eq!(resolve(&store, &paths).unwrap(), std::fs::canonicalize(&prog).unwrap());
         std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o777)).unwrap();
         assert!(resolve(&store, &paths).unwrap_err().contains("writable"));
         std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o755)).unwrap();
