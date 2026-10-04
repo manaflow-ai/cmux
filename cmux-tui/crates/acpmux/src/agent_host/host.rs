@@ -452,9 +452,18 @@ impl State {
                 ),
             });
             // An answer that cannot be carried still ends its request.
+            // For Claude only its final `result` (or a control answer) ends
+            // requests; other oversized lines carry tool output and are
+            // dropped with the note above.
+            let claude_answer = serde_json::from_str::<Value>(&line)
+                .ok()
+                .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned))
+                .is_some_and(|t| t == "result" || t == "control_response");
             if let Some(tr) = self.translator.clone() {
-                for m in tr.fail_pending("agent answer was over the size limit").await {
-                    self.push(Entry::In { msg: m.to_value() });
+                if claude_answer {
+                    for m in tr.fail_pending("agent answer was over the size limit").await {
+                        self.push(Entry::In { msg: m.to_value() });
+                    }
                 }
             } else if let Ok(v) = serde_json::from_str::<Value>(&line)
                 && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())

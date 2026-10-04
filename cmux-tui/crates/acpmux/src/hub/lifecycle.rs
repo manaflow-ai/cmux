@@ -438,6 +438,17 @@ impl Hub {
         {
             return Ok(child.clone());
         }
+        // A running agent host for this session is reached again, never
+        // started or initialized a second time.
+        if Self::host_record_live(&session.id) {
+            return match self.readopt(session).await {
+                Some(child) if child.is_alive().await => Ok(child),
+                _ => Err(RpcError::internal(
+                    "this session's agent host is still running but cannot be reached; close the session to end it",
+                )),
+            };
+        }
+
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
@@ -988,16 +999,6 @@ impl Hub {
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
         };
-        // Never start a second agent beside a host that may still run:
-        // adopt it again instead.
-        if Self::host_record_live(&session.id) {
-            return match self.readopt(session).await {
-                Some(child) if child.is_alive().await => Ok(child),
-                _ => Err(RpcError::internal(
-                    "this session's agent host is still running but cannot be reached; close the session to end it",
-                )),
-            };
-        }
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
         // Logged before the first entry, so a later controller counts every
