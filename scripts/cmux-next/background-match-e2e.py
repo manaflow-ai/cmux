@@ -183,7 +183,11 @@ try:
                     px = sample(png, *point)
                     card = region in cards
                     alpha_delta = abs(px[3] - strip[3])
-                    color_delta = max(abs(a - b) for a, b in zip(px[:3], strip[:3]))
+                    if card:
+                        # A tint: compare premultiplied, as it composites.
+                        color_delta = max(abs(a * px[3] - b * strip[3]) / 255 for a, b in zip(px[:3], strip[:3]))
+                    else:
+                        color_delta = max(abs(a - b) for a, b in zip(px[:3], strip[:3]))
                     good = (alpha_delta <= CARD_ALPHA and color_delta <= CARD_TINT) if card \
                         else max(alpha_delta, color_delta) <= opts.tolerance
                     report.append({"opacity": opacity, "blur": blur, "surface": name, "region": region, "card": card,
