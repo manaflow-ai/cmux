@@ -114,6 +114,11 @@ export const PAGES = {
     out: "webviews/src/pages/markdown/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/markdown/Localizable.xcstrings" }],
   },
+  // The code editor (cmux-page://cmux.editor/) has no Swift page; its table lives next to it.
+  editor: {
+    out: "webviews/src/pages/editor/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/editor/Localizable.xcstrings" }],
+  },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {
     out: "webviews/src/viewer-empty/generated/strings.json",
