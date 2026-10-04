@@ -2741,7 +2741,7 @@
       },
       "title" : "Next Workspace Group",
       "title_key" : "action.nextWorkspaceGroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -2772,7 +2772,7 @@
       },
       "title" : "Previous Workspace Group",
       "title_key" : "action.prevWorkspaceGroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
