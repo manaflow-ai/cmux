@@ -43,6 +43,9 @@ public nonisolated enum TerminalStreamPlan {
             [.output(data)]
         case .closed, .colorsChanged, .scrollChanged:
             []
+        case .snapshot:
+            // Views do not attach in snapshot mode yet (S2b slice 2).
+            []
         }
     }
 
