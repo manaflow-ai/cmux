@@ -158,6 +158,10 @@ import Testing
         let controlKeys = ["[", "]", "\\", "^", "_", "@", Shortcut.spaceKey].map {
             Shortcut($0, modifiers: [.control])
         }
+        let controlOptionSpace = Shortcut(Shortcut.spaceKey, modifiers: [.control, .option])
+        let controlArrows = [
+            Shortcut.leftArrowKey, Shortcut.rightArrowKey, Shortcut.upArrowKey, Shortcut.downArrowKey,
+        ].map { Shortcut($0, modifiers: [.control]) }
         let optionKeys = [
             Shortcut.leftArrowKey, Shortcut.rightArrowKey, Shortcut.upArrowKey, Shortcut.downArrowKey,
             Shortcut.returnKey, Shortcut.deleteKey, "\u{7F}",
@@ -168,10 +172,19 @@ import Testing
             String(UnicodeScalar(NSHomeFunctionKey)!), String(UnicodeScalar(NSEndFunctionKey)!),
             KeyBindingDefaults.pageUp, KeyBindingDefaults.pageDown,
         ] + functionKeys).map { Shortcut($0, modifiers: []) }
+        let systemKeys = [
+            Shortcut(Shortcut.spaceKey, modifiers: [.command]),
+            Shortcut("3", modifiers: [.command, .shift]),
+            Shortcut("4", modifiers: [.command, .shift]),
+            Shortcut("5", modifiers: [.command, .shift]),
+            Shortcut(Shortcut.escapeKey, modifiers: [.command, .option]),
+            Shortcut("`", modifiers: [.command]),
+            Shortcut("?", modifiers: [.command, .shift]),
+        ]
         // Ctrl-minus history and Ctrl-digit selection were explicitly approved
         // in #1259. Neither is part of this terminal-owned list. Cmd-C/V have
         // terminal-scoped handlers checked below; Cmd-K stays with Ghostty.
-        return letters + controlKeys + optionKeys + tuiKeys + [
+        return letters + controlKeys + [controlOptionSpace] + controlArrows + optionKeys + tuiKeys + systemKeys + [
             Shortcut(Shortcut.tabKey, modifiers: [.shift]),
             Shortcut(Shortcut.returnKey, modifiers: [.shift]),
             Shortcut("k", modifiers: [.command]),
