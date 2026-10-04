@@ -288,14 +288,21 @@ native (`BrowserReplBoundary` in the session, and the driver):
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
-  URL (`blocked`) and `session.configure` content rules, and calls the
+  URL (`blocked`; a `blob:` URL is judged by the origin in it, and one of
+  an opaque origin, `blob:null/...`, is blocked) and `session.configure`
+  content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
   policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`, `auth.request`,
   `frame.contentFrame(s)`, `input.*`, captures, clipboard, file chooser
   answers) on a tab that shows a blocked page, cancels main-frame
   navigations to blocked URLs in tabs the session created
   (`navigation.blocked`), and never navigates a user's tab away for the
-  policy. It also judges every frame, not only the main frame, by WebKit's
+  policy. A navigation to `about:` (`about:blank`) or `data:`, or to a
+  `blob:` of an opaque origin, takes its document from the frame that
+  started it, so it is judged by that frame's document as WebKit recorded
+  it (its source frame) and cancelled when the policy blocks that one; one
+  no page started (the agent's own) passes. The content rules judge a
+  `blob:` subresource or child frame by the origin in its URL. It also judges every frame, not only the main frame, by WebKit's
   record of it (`WKFrameInfo.securityOrigin` and URL) and by its document
   (`location.origin` and `location.protocol + "//" + location.host`, read
   in the driver's own content world; `location` cannot be forged by page or
@@ -330,16 +337,27 @@ native (`BrowserReplBoundary` in the session, and the driver):
   parent's shadow trees is inert meanwhile; a blocked frame in a closed
   shadow root, out of the driver's reach, refuses the input (`blocked`).
   After a key or inserted text the focus is checked again, still under the
-  guard. Then the guard comes off (an element the page made inert itself
-  stays inert), and the call fails with `blocked` when the page changed a
-  guarded element's `inert` attribute meanwhile. Residual: `inert` is an
-  attribute of the page's DOM, so the page sees it and can remove it; the
-  driver then reports `blocked` after the input, by which time the event
-  may have reached the frame (a detection, not a prevention). A frame the
-  tree read did not show as blocked (it navigated to a blocked page after
-  the read, or was created during the input) is not guarded, and an
-  allowed frame that holds the point or the focus keeps receiving input
-  while blocked frames are inert.
+  guard. The driver watches each guarded element's `inert` attribute from
+  its own content world and puts it back as soon as the page takes it off:
+  a mutation observer runs before the page's script returns control, so
+  before WebKit handles the next event. From before the tree read until the
+  guard comes off, no child frame of the tab loads a new document: the
+  navigation delegate decides a child frame's navigation only after the
+  input (`BrowserReplSubframeLoadHold`). A frame the page creates meanwhile
+  shows its initial empty document, which takes its parent's origin, and an
+  allowed frame cannot navigate to a blocked page; main-frame navigations
+  and new windows are not held. Then the guard comes off (an element the
+  page made inert itself stays inert), and the call fails with `blocked`
+  when the page changed a guarded element's `inert` attribute meanwhile.
+  Residual: `inert` is an attribute of the page's DOM, so the page sees it.
+  Within one event handler (for example the `keydown` of an agent's key) the
+  page can take it off and move the focus into the blocked frame before the
+  observer runs; the rest of that event (the key's text) may then reach the
+  frame, and the call fails with `blocked` afterwards. A child-frame
+  navigation whose response WebKit had already accepted when the hold began
+  can still commit during the input (WebKit reports no child-frame commit to
+  the app). An allowed frame that holds the point or the focus keeps
+  receiving input while blocked frames are inert.
   A page script's write to the tab's clipboard (`page-clipboard.js`) from
   a frame the creating session's policy blocks, judged by WebKit's record
   of the frame that sent it, is rejected, so `clipboard.read` never hands
@@ -349,7 +367,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   WebKit recorded it when the chooser opened, and the document it shows
   now) is blocked. A screenshot blanks, in gray, the box of each main-frame
   child frame that is or holds a blocked frame, as the tree is before and
-  after the capture, and shows the rest of the page; it is refused when
+  after the capture, and shows the rest of the page. While it is taken,
+  each of those frame elements is also hidden from the driver's own world
+  (`visibility: hidden` and `transition-property: none`, both `!important`
+  in its style attribute, which no style sheet, animation or transition
+  outranks), so a frame the page moves over other content and back within
+  the capture draws nothing; the driver puts that style back as soon as the
+  page changes it (before the next rendering) and refuses the capture
+  (`blocked`) when it did. From before the tree read until after the
+  capture (a PDF's too) no child frame loads a new document, so a frame the
+  page creates, or an allowed one it navigates, shows no blocked page in
+  it. The screenshot is refused when
   the main frame is blocked or a blocked frame's content cannot be hidden
   that way (its box is unknown, its frame element or an ancestor has
   `-webkit-box-reflect` or `filter`, or an element of the page has
@@ -392,6 +420,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   (`tab.created`) only when it is an `http`, `https`, `about:blank` or
   `blob:` (of such an origin) page that the browser's URL allowlist and
   the creating session's domain policy allow; otherwise it opens nothing.
+  An `about:blank` window (or one with no URL) takes the origin of the frame
+  that opened it, which can write into it, so it opens only when the policy
+  allows that frame's document as WebKit recorded it (the same holds for a
+  window of a user's tab sent to the session whose input it handles).
   Such a tab carries the session's content rules and page clipboard guard
   before it loads anything: the web view WebKit asks for loads the popup's
   request only after the session attached and put them on it, and a popup
@@ -455,6 +487,28 @@ native (`BrowserReplBoundary` in the session, and the driver):
   pasteboard write runs in a handler whose only per-page argument (the IPC
   connection) no Objective-C hook can see, so the redirect cannot route it
   by page or process.
+  Script the agent runs in its own world (`frame.evaluate` with `world:
+  "agent"`, and the runtime's reads and element actions there, such as
+  `focus` and `dispatchEvent`) runs without a user gesture (WebKit's
+  `_callAsyncJavaScript` with `withUserGesture: NO`; a WebKit without it
+  fails such calls with `unsupported`): `execCommand` is the native one in
+  that world, and a page handler such a script sets off would hold the
+  gesture too.
+  A user's tab has no page clipboard guard, since its pages keep the
+  browser's clipboard. An agent's trusted input there (`input.mouse`,
+  `input.drag`, `input.key`, `input.insertText`) and its page-world
+  `frame.evaluate` give the page a gesture, which WebKit honors for up to
+  10 s after (a timer set within 1 s, a fetch started in the gesture that
+  settles within 10 s; measured on macOS 27.0, 26A428). So from the start
+  of such a call until 11 s after it, the general-pasteboard lookups WebKit
+  makes (by name and through `+generalPasteboard`, for any web view) get a
+  private pasteboard that is emptied at every lookup: the page's
+  `execCommand("copy")` or Clipboard API write reaches nobody, the session
+  included, and a read finds nothing. WebKit does not say which web view
+  wrote, so a copy or paste the person makes in another web view of cmux
+  during that time does nothing (the terminal, text fields and other code
+  keep the system clipboard). A command the session runs in its own tab
+  (Meta+C) keeps its private pasteboard meanwhile.
 - Cookies: the domain policy applies by host, since a cookie belongs to a
   host and not an origin (a pattern's scheme and port do not narrow it).
   `cookies.clear` on a tab that shows a blocked page (its scope is that
