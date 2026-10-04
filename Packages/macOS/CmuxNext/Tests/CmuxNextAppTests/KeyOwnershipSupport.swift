@@ -13,6 +13,8 @@ enum KeyOwner: Equatable, CustomStringConvertible {
     case consumed
     /// The screen's primary input gets the key (R65).
     case primaryInput
+    /// The key waits for a loading page's primary input (type-ahead).
+    case typeAhead
 
     var description: String {
         switch self {
@@ -21,6 +23,7 @@ enum KeyOwner: Equatable, CustomStringConvertible {
         case .panel: "panel"
         case .consumed: "consumed"
         case .primaryInput: "primaryInput"
+        case .typeAhead: "typeAhead"
         }
     }
 }
