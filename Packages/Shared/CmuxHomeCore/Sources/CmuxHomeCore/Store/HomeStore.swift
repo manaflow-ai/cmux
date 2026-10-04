@@ -79,7 +79,9 @@ public final class HomeStore {
     /// (a resumed upload, a resend): the host says why. On the main actor.
     /// Resends that run out without an answer are not refusals and do not
     /// come here (see `HomeSendState.unanswered`).
-    @ObservationIgnored public var onRefusal: ((HomeIntent, HomeRejection) -> Void)?
+    @ObservationIgnored public var onRefusal: ((HomeIntent, HomeRejection) -> Void)? { didSet { chainedHooks += 1 } }
+    /// Closures installed on `onRefusal` so far (tests).
+    @ObservationIgnored var chainedHooks = 0
     /// An op other than a send (a tapback, a retraction, a read cursor)
     /// whose resends ran out without an answer: it left the log, so the
     /// change is gone from the transcript until an echo shows the owner
@@ -601,7 +603,7 @@ public final class HomeStore {
             try await uploadAndSubmitPasses(&key)
         } catch let rejection as HomeRejection {
             if background, let entry = log.entries.first(where: { $0.intent.key == key }), case .failed = entry.state {
-                onRefusal?(entry.intent, rejection)
+                reportRefusal(entry.intent, rejection)
             }
             throw rejection
         }
@@ -786,7 +788,7 @@ public final class HomeStore {
         uploads[key]?.waitingForReconnect = false
         leaveSendQueue(key)
         afterLogChange(entry.intent.op)
-        if case .sendMessage = entry.intent.op {} else { onUnanswered?(entry.intent) }
+        if case .sendMessage = entry.intent.op {} else { reportUnanswered(entry.intent) }
     }
 
     private func cancelBackoff(_ key: IdempotencyKey) {
@@ -1066,7 +1068,7 @@ public final class HomeStore {
                     _ = try await self.submit(next)
                 } catch let rejection as HomeRejection {
                     // Nobody awaits a resend: the host hears of the refusal.
-                    self.onRefusal?(next, rejection)
+                    self.reportRefusal(next, rejection)
                 } catch {}
             }
             self?.resendTask = nil
@@ -1207,6 +1209,19 @@ public final class HomeStore {
             gaps += 1
         }
     }
+
+    /// A refusal nobody awaits reaches the host.
+    func reportRefusal(_ intent: HomeIntent, _ rejection: HomeRejection) {
+        onRefusal?(intent, rejection)
+    }
+
+    /// An op that ran out of resends reaches the host.
+    func reportUnanswered(_ intent: HomeIntent) {
+        onUnanswered?(intent)
+    }
+
+    /// Hooks the store holds for views of conversations now (tests).
+    var registeredHookCount: Int { chainedHooks }
 
     private func settle() {
         let settled = log.settle(against: mirror)

@@ -32,6 +32,30 @@ import Testing
         store.stop()
     }
 
+    /// A screen loaded but never shown (`debugTapback`, a replaced
+    /// navigation root) gets no `viewDidDisappear`: freeing it still closes
+    /// its conversation, once.
+    @Test func aScreenFreedWithoutEverShowingClosesItsConversation() async {
+        let source = GatedHomeSource(MockHomeSource(options: .immediate))
+        let store = HomeStore(source: source)
+        store.start()
+        await until { store.me != nil && store.isOnline }
+        var screen: ConversationViewController?
+        autoreleasepool {
+            screen = ConversationViewController(store: store, conversation: id)
+            screen?.loadViewIfNeeded()
+        }
+        weak var freed = screen
+        await until { !store.transcript(for: id).isEmpty }
+        #expect(store.viewers[id] == 1)
+        autoreleasepool { screen = nil }
+        await until { freed == nil && store.viewers[id] == nil }
+        #expect(freed == nil, "the screen outlived its last reference")
+        #expect(store.viewers[id] == nil, "a freed screen left its conversation open")
+        #expect(source.closes == [id])
+        store.stop()
+    }
+
     @Test func noAccountYetOpensNothingAndBackClosesNothing() async {
         let source = GatedHomeSource(MockHomeSource(options: .immediate))
         let store = HomeStore(source: source)
