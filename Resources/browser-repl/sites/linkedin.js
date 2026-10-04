@@ -149,8 +149,9 @@
                   t.assertSignedIn("linkedin.post", page, SIGN_IN);
                   const box = page.locator('div[role="dialog"] div[role="textbox"]').first();
                   await box.waitFor({ timeout: 30000 });
-                  const shown = (await box.innerText()).replace(/\s+/g, " ");
-                  if (!shown.includes(text.trim().slice(0, 40).replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "linkedin.post: the composer did not receive the drafted text; nothing was posted");
+                  // The whole text, not its start: a page script or another
+                  // session could keep the drafted opening and add to it.
+                  if (!(await t.composerHolds(box, text))) throw new S.SiteError("compose_mismatch", "linkedin.post: the composer did not receive the drafted text, or holds more than it; nothing was posted");
                   // The member this composer page posts as, read in that page
                   // (its own session cookie) right before Post: the profile
                   // can switch accounts while the composer loads. The click

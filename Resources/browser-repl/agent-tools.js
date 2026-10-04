@@ -1109,7 +1109,16 @@
     const siteOf = (hostname) => policyHost("site", { host: String(hostname || "") });
     async function storageState(options = {}, fromPage) {
       if (options === null || typeof options !== "object") throw new Error(`session.storageState: options: expected an object, got ${JSON.stringify(options)}`);
-      const urls = options.urls ? [].concat(options.urls) : null;
+      // An empty list is no scope: it means the current tab's site, as an
+      // absent one does (the native cookie store reads an empty list as no
+      // filter, the whole profile). Each URL must be absolute http(s).
+      const listed = options.urls === undefined || options.urls === null ? [] : [].concat(options.urls);
+      for (const u of listed) {
+        let parsed = null;
+        try { parsed = typeof u === "string" ? new core.URL(u) : null; } catch { parsed = null; }
+        if (!parsed || !/^https?:$/.test(parsed.protocol)) throw new Error(`session.storageState: urls: expected absolute http(s) URLs, got ${JSON.stringify(u)}`);
+      }
+      const urls = listed.length ? listed : null;
       const page = fromPage || currentPage();
       let site = null;
       if (!options.all && !urls) {

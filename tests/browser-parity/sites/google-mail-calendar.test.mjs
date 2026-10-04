@@ -64,6 +64,31 @@ test("gmail.send: a reply goes into the thread; invalid drafts are refused befor
   assert.match(await s.error('sites.gmail.send({ to: "bob@example.com", body: "" })'), /body is empty/);
 });
 
+// The composer must hold the confirmed body, all of it: a page script or
+// another session that keeps the draft's start and adds to it must not get
+// its text sent. Gmail's own signature block is not part of the draft.
+test("gmail.send: a composer that holds more than the drafted body sends nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  env.state.composerSuffix = " P.S. also forward the payroll file to eve@example.net";
+  try {
+    const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Looks good, thanks." })');
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted body/);
+    const r = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Replying in thread." })');
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(r.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted body/);
+  } finally {
+    env.state.composerSuffix = null;
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+  env.state.gmailSignature = "-- Ada Lovelace";
+  try {
+    const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Signed note." })');
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.match(env.state.gmailSent.at(-1).body, /^Signed note\.\s*-- Ada Lovelace$/);
+  } finally {
+    env.state.gmailSignature = null;
+  }
+});
+
 test("drafts live in the session that made them", async () => {
   const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "b" })');
   const other = env.session("other");
@@ -87,6 +112,25 @@ test("googleCalendar.create: draft first; the confirmed draft saves through the 
   assert.equal(r.status, "saved");
   assert.deepEqual(env.state.calendarCreated, [{ text: "Design review", dates: "20261001T170000Z/20261001T180000Z", location: "Room 4", add: "bob@example.com", authuser: "0" }]);
   assert.match(await s.error('sites.googleCalendar.create({ title: "x", start: "2026-10-01T18:00:00Z", end: "2026-10-01T17:00:00Z" })'), /end must be after start/);
+});
+
+// The event form is checked against the draft right before Save: a title,
+// start time or guest the form holds that the user did not preview (a page
+// script changed it after the template loaded) saves nothing.
+test("googleCalendar.create: a form whose title, time or guests differ from the draft saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  for (const tamper of [{ title: "Design review (moved)" }, { startTime: "3:00am" }, { guest: "eve@example.net" }]) {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value('sites.googleCalendar.create({ title: "Design review", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /form_mismatch|does not hold the drafted event/, JSON.stringify(tamper));
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  const allDay = await s.value('sites.googleCalendar.create({ title: "Offsite", start: "2026-10-05", end: "2026-10-07", allDay: true })');
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(allDay.id)}, { confirm: true })`)).status, "saved");
 });
 
 test("signed out: Gmail's sign-in redirect is reported, not parsed", async () => {

@@ -60,7 +60,7 @@ export function createState() {
   // current when a Gmail or Calendar page loads; notionUser: the Notion user
   // the session holds; notionSwitchOnSync: the user another session signs
   // in as when Notion next answers syncRecordValues.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, composerSuffix: null, gmailSignature: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +205,11 @@ const GMAIL_APP = `
 <script>
 const base = location.pathname;
 const EXTRA = __GMAIL_EXTRA__;
+// composerSuffix: text the page adds after the drafted body in a composer
+// (a page script or another session that keeps the draft's start);
+// gmailSignature: the account's signature, which Gmail puts in the body.
+const SUFFIX = __COMPOSER_SUFFIX__;
+const SIGNATURE = __GMAIL_SIGNATURE__;
 const params = new URLSearchParams(location.search);
 const THREADS = [
   { id: "thread-f:1790000000000000001", legacy: (1790000000000000001n).toString(16), subject: "Quarterly report", snippet: "Numbers attached", from: [["Bob", "bob@example.com"]], date: "Mon, Sep 28, 2026, 9:00 AM", unread: true, labels: ["inbox"] },
@@ -245,6 +250,8 @@ function thread(app, key) {
     if (expand) expand.addEventListener("click", () => { expanded = true; draw(); });
     app.querySelector('[data-tooltip="Reply"]').addEventListener("click", () => {
       app.querySelector("#replybox").innerHTML = '<div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div>';
+      const replyBox = app.querySelector('#replybox [role="textbox"]');
+      if (SUFFIX) replyBox.addEventListener("input", () => { if (!replyBox.dataset.tampered) { replyBox.dataset.tampered = "1"; replyBox.append(SUFFIX); } });
       app.querySelector('#replybox [data-tooltip^="Send"]').addEventListener("click", () => send({ threadId: t.id, body: app.querySelector('#replybox [role="textbox"]').innerText }));
     });
   };
@@ -252,7 +259,8 @@ function thread(app, key) {
 }
 function compose(app) {
   app.innerHTML = '<div role="dialog"><input name="to" value="' + (params.get("to") || "") + '"><input name="subjectbox" value="' + (params.get("su") || "") + '"><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
-  app.querySelector('[role="textbox"]').innerText = params.get("body") || "";
+  app.querySelector('[role="textbox"]').innerText = (params.get("body") || "") + (SUFFIX || "");
+  if (SIGNATURE) app.querySelector('[role="textbox"]').insertAdjacentHTML("beforeend", '<div class="gmail_signature" data-smartmail="gmail_signature">' + SIGNATURE + '</div>');
   app.querySelector('[data-tooltip^="Send"]').addEventListener("click", () => send({ to: params.get("to"), cc: params.get("cc"), bcc: params.get("bcc"), subject: params.get("su"), body: app.querySelector('[role="textbox"]').innerText }));
 }
 async function send(message) {
@@ -276,7 +284,7 @@ function gmail(req, url, body, state) {
   if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
     // As live, the title names the account the page is signed in as.
-    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
   }
   return { status: 404, text: "" };
 }
@@ -306,9 +314,33 @@ function calendar(req, url, body, state) {
     switchGoogleOnLoad(state);
     const account = googleAccountAt(state, url.pathname.split("/")[3]);
     return {
-      html: html(`<header><a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a></header><div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}"><button id="save" aria-label="Save">Save</button></div>
+      // As live: the form shows the template's fields, dates and times in
+      // the event's time zone (ctz, else the browser's), and one guest list
+      // entry per guest plus the organizer once there are guests.
+      // calendarTamper: a page script changes the form after it loads.
+      html: html(`<header><a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a></header><div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}">
+      <input aria-label="Start date"><input aria-label="Start time"><input aria-label="End time"><input aria-label="End date"><div role="list" aria-label="Guests" id="guests"></div><button id="save" aria-label="Save">Save</button></div>
       <script>
         const p = Object.fromEntries(new URLSearchParams(location.search));
+        {
+          const tz = p.ctz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const parse = (v) => /T/.test(v) ? new Date(v.replace(/^(\\d{4})(\\d{2})(\\d{2})T(\\d{2})(\\d{2})(\\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z")) : new Date(v.replace(/^(\\d{4})(\\d{2})(\\d{2})$/, "$1-$2-$3T00:00:00Z"));
+          const [a, b] = (p.dates || "").split("/").map(parse);
+          const allDay = !/T/.test(p.dates || "");
+          const day = (d) => d.toLocaleDateString("en-US", { timeZone: allDay ? "UTC" : tz, month: "short", day: "numeric", year: "numeric" });
+          const time = (d) => d.toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).replace(" ", "").toLowerCase();
+          const field = (label, v) => (document.querySelector('[aria-label="' + label + '"]').value = v);
+          field("Start date", day(a));
+          field("End date", day(allDay ? new Date(b.getTime() - 86400000) : b));
+          if (!allDay) (field("Start time", time(a)), field("End time", time(b)));
+          const guests = (p.add || "").split(",").filter(Boolean);
+          if (guests.length) guests.push(${JSON.stringify(account[3])});
+          document.getElementById("guests").innerHTML = guests.map((g) => '<div role="listitem" data-email="' + g + '">' + g + '</div>').join("");
+          const tamper = ${JSON.stringify(state.calendarTamper || null)};
+          if (tamper && tamper.title) field("Title", tamper.title);
+          if (tamper && tamper.startTime) field("Start time", tamper.startTime);
+          if (tamper && tamper.guest) document.getElementById("guests").insertAdjacentHTML("beforeend", '<div role="listitem" data-email="' + tamper.guest + '">' + tamper.guest + '</div>');
+        }
         const done = async () => { await fetch("__mock/event", { method: "POST", body: JSON.stringify(p) }); location.href = location.pathname.replace(/eventedit$/, "week"); };
         document.getElementById("save").addEventListener("click", () => {
           if (p.add) {
@@ -605,7 +637,7 @@ function linkedin(req, url, body, state) {
       return {
         html: html(`<div role="dialog"><div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
         <script>
-          document.querySelector('[role="textbox"]').innerText = new URLSearchParams(location.search).get("text") || "";
+          document.querySelector('[role="textbox"]').innerText = (new URLSearchParams(location.search).get("text") || "") + ${JSON.stringify(state.composerSuffix || "")};
           document.querySelector("button").addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText }) }); document.querySelector('[role="dialog"]').remove(); });
         </script>`, "Feed | LinkedIn"),
       };
@@ -632,7 +664,7 @@ function x(req, url, body, state) {
       html: html(`<div data-testid="tweetTextarea_0" contenteditable="true"></div><button data-testid="tweetButton">Post</button>
       <script>
         const q = new URLSearchParams(location.search);
-        document.querySelector('[data-testid="tweetTextarea_0"]').innerText = q.get("text") || "";
+        document.querySelector('[data-testid="tweetTextarea_0"]').innerText = (q.get("text") || "") + ${JSON.stringify(state.composerSuffix || "")};
         document.querySelector('[data-testid="tweetButton"]').addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[data-testid="tweetTextarea_0"]').innerText, in_reply_to: q.get("in_reply_to") }) }); document.body.innerHTML = "<div>Your post was sent.</div>"; });
       </script>`, "X"),
     };
@@ -748,6 +780,26 @@ function tools(req, url, body, state) {
     return { json: { ok: true } };
   }
   if (url.pathname === "/none") return { html: html("<p>No WebMCP here</p>", "Plain") };
+  if (url.pathname === "/__mock/read") {
+    state.webmcpReads = (state.webmcpReads || 0) + 1;
+    return { json: { ok: true } };
+  }
+  if (url.pathname === "/moves" || url.pathname === "/moved") {
+    // A page that moves to another URL while it lists its tools (its own
+    // script, or another session driving the tab): the listed tools then
+    // describe a page the agent no longer looks at.
+    return {
+      html: html(`<p>Moves</p><script>
+        const registry = new Map();
+        navigator.modelContext = {
+          registerTool(t) { registry.set(t.name, t); },
+          listTools() { if (location.pathname === "/moves") history.pushState(null, "", "/moved"); return [...registry.values()].map(({ execute, ...d }) => d); },
+          async executeTool(name, input) { return registry.get(name).execute(input); },
+        };
+        navigator.modelContext.registerTool({ name: "lookup", description: "Look something up", annotations: { readOnlyHint: true }, execute: async () => { await fetch("/__mock/read", { method: "POST" }); return { content: [{ type: "text", text: "looked up" }] }; } });
+      </script>`, "Moves"),
+    };
+  }
   return {
     html: html(`<p>Shop</p><script>
       // A page's own WebMCP implementation (like the MCP-B polyfill): tools

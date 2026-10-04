@@ -106,13 +106,27 @@
     return { source: hoisted.join("\n") + (hoisted.length ? "\n" : "") + out, names: [...new Set(names)] };
   }
 
+  // Output reaches the caller's terminal, and page text (titles, names,
+  // values, URLs, error messages) is in it, so every printed line passes
+  // here: C0 controls but newline and tab, DEL and C1 controls print as
+  // visible escapes (`\u001b`), which no terminal interprets. A CRLF is a
+  // newline; a lone CR, which could overwrite a printed line, is escaped.
+  // The escapes are JSON's (`\r`, `\b`, `\f`, else `\u00xx`), so the native
+  // session still masks a registered secret that holds a control character
+  // (it masks a value's JSON-escaped form too).
+  const CONTROLS = /\r\n|[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+  const SHORT_ESCAPES = { "\r": "\\r", "\b": "\\b", "\f": "\\f" };
+  function printable(text) {
+    return String(text).replace(CONTROLS, (c) => (c === "\r\n" ? "\n" : SHORT_ESCAPES[c] || "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")));
+  }
+
   function formatError(e) {
     if (!e) return "Error: undefined";
     if (e instanceof Error) {
       const name = e.name || "Error";
-      return `${name}: ${e.message}`;
+      return printable(`${name}: ${e.message}`);
     }
-    return String(e);
+    return printable(String(e));
   }
 
   // Creates a REPL session. `globals` are merged into the scope; a global
@@ -313,7 +327,7 @@
     };
     return {
       print(level, text) {
-        text = String(text);
+        text = printable(text);
         total += text.length + 1;
         if (!file) {
           if (shown + text.length + 1 <= headCap) {
@@ -372,7 +386,7 @@
     // its own error reports (an event listener that threw) too. The native
     // session masks registered secrets in output, files and errors
     // (BrowserReplBoundary) and bounds what reaches it past the gate.
-    const gatedPrint = (level, text) => (gate ? gate.print(level, text) : host.print(level, text));
+    const gatedPrint = (level, text) => (gate ? gate.print(level, text) : host.print(level, printable(text)));
     const gatedHost = Object.create(host, {
       print: { value: gatedPrint },
       console: { value: Object.freeze({ error: (text) => gatedPrint("error", text) }) },
@@ -495,7 +509,7 @@
         native.clearTimer(id);
       },
       now: () => Date.now(),
-      print: (level, text) => native.print(level, text),
+      print: (level, text) => native.print(level, printable(text)),
       readResource: (relativePath) => native.readResource(relativePath),
       fsOp(op, args) {
         const r = JSON.parse(native.fs(op, JSON.stringify(args)));
@@ -522,7 +536,7 @@
         return { url: r.url, status: r.status, statusText: r.statusText, headers: Object.fromEntries(r.headers || []), base64: r.bodyBase64 || "", redirected: r.redirected };
       },
     };
-    host.console = Object.freeze({ error: (text) => native.print("error", text) });
+    host.console = Object.freeze({ error: (text) => native.print("error", printable(text)) });
     Object.freeze(host);
     const driver = {
       call: (method, params) => callAsync((id) => native.driverCall(id, method, JSON.stringify(params || {}))),
@@ -552,6 +566,6 @@
     delete root.CmuxBrowserRepl;
   }
 
-  ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, HARD_MAX_OUTPUT, formatError, installNativeHost };
+  ns.replHost = { timerDelay, printable, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, HARD_MAX_OUTPUT, formatError, installNativeHost };
   installNativeHost();
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -719,3 +719,116 @@ test("snapshot: the page walk stops at its node budget with a note, and frames p
     await server.close();
   }
 });
+
+test("snapshot: one huge text or value is cut at the snapshot's size budget with a note, per frame and in total", async () => {
+  // The node budget does not bound one node: a hostile page can put
+  // megabytes in one text node or field value, which would cross to the
+  // session, be kept as the diff baseline and be diffed. The walk stops at
+  // a size budget (characters), per frame and over all frames, and says so.
+  // `_maxSize` lowers it for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<button>First</button><p id="big"></p><textarea aria-label="Field"></textarea><button>Last</button><iframe title="inner" srcdoc="<button>Inner</button>"></iframe>';
+        document.getElementById("big").textContent = "A".repeat(5000000);
+        document.querySelector("textarea").value = "V".repeat(5000000);
+      });
+      await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+      const whole = await snapshot({ maxChars: Infinity });
+      const small = await snapshot({ maxChars: Infinity, _maxSize: 3000 });
+      const keep = (s) => s.tree.split("\\n").filter((l) => /button|iframe|^#/.test(l));
+      console.log("@@" + JSON.stringify({ wholeLength: whole.tree.length, whole: keep(whole), smallLength: small.tree.length, small: keep(small) }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { wholeLength, whole, smallLength, small } = JSON.parse(line.slice(2));
+    assert.ok(wholeLength < 2200000, `a 10,000,000-character page printed a ${wholeLength}-character tree`);
+    assert.match(whole[whole.length - 1], /^# the page is too large to read whole: the snapshot stopped after [\d,]+ characters/, whole.join("\n"));
+    assert.ok(smallLength < 3600, `the tree is ${smallLength} characters`);
+    assert.ok(small.some((l) => /button "First"/.test(l)), small.join("\n"));
+    assert.ok(!small.some((l) => /button "Last"|button "Inner"/.test(l)), small.join("\n"));
+    assert.match(small[small.length - 1], /^# the page is too large to read whole: the snapshot stopped after 3,000 characters/, small.join("\n"));
+  } finally {
+    await server.close();
+  }
+});
+
+test("snapshot: reading outside the walk (offscreen counts, table shape) stays within the walk's bounds", async () => {
+  // Counting the interactive elements outside the viewport, and telling a
+  // layout table from a data table, read DOM the walk does not visit. Both
+  // read lazily and stop at a bound: the offscreen count reads at most the
+  // walk's node budget of elements and then says it is a lower bound, and a
+  // table's shape is judged from its first 50 rows (a later row of another
+  // length does not make a 60,000-row table a layout table).
+  // `_maxNodes` lowers the budget for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<button>Seen</button><div id="off" style="position:absolute;top:100000px"></div>';
+        const off = document.getElementById("off");
+        const b = document.createElement("button");
+        b.textContent = "x";
+        for (let i = 0; i < 5000; i++) off.appendChild(b.cloneNode(true));
+      });
+      const offscreen = (await snapshot({ viewport: true, maxChars: Infinity, _maxNodes: 1000 })).tree.split("\\n").filter((l) => /outside the viewport/.test(l));
+      await page.evaluate(() => {
+        const t = document.createElement("table");
+        const tb = t.appendChild(document.createElement("tbody"));
+        const row = document.createElement("tr");
+        for (let j = 0; j < 3; j++) row.appendChild(document.createElement("td")).textContent = "c" + j;
+        for (let i = 0; i < 60000; i++) tb.appendChild(row.cloneNode(true));
+        tb.lastChild.appendChild(document.createElement("td")).textContent = "extra";
+        document.body.replaceChildren(t);
+      });
+      const table = (await snapshot({ maxChars: Infinity, _maxNodes: 200 })).tree.split("\\n").slice(2, 6);
+      console.log("@@" + JSON.stringify({ offscreen, table }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { offscreen, table } = JSON.parse(line.slice(2));
+    assert.equal(offscreen.length, 1, JSON.stringify(offscreen));
+    const m = /^# at least ([\d,]+) interactive elements outside the viewport are not shown/.exec(offscreen[0]);
+    assert.ok(m, offscreen[0]);
+    assert.ok(Number(m[1].replace(/,/g, "")) <= 1000, offscreen[0]);
+    assert.ok(table.some((l) => /^- table/.test(l)) && table.some((l) => /row: "c0 \| c1 \| c2"/.test(l)), table.join("\n"));
+  } finally {
+    await server.close();
+  }
+});
+
+// Page text reaches the caller's terminal. Escape sequences and other C0,
+// C1 and DEL controls a page puts in its text, title, option labels, URLs or
+// error messages print as visible escapes (`\u001b`), never raw, whichever
+// path prints them: console.log, the auto-printed value, a snapshot, page
+// tools, or an error. Newlines and tabs stay.
+test("printing: control characters from the page never reach the output raw", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  try {
+    const hostile = "A\u001b]0;pwned\u0007B\u001b[2JC\u009b31mD\u0090dcs\u009cE\u007fF\rG\u0000H";
+    const out = await runDevRepl(`
+await page.goto(${JSON.stringify(primary)} + "/index.html?controls");
+await page.evaluate((t) => {
+  document.title = t;
+  document.body.innerHTML = '<p id="p"></p><select aria-label="Pick"><option></option></select><a id="a" href="#">link</a>';
+  document.getElementById("p").textContent = t;
+  document.querySelector("option").textContent = t;
+  document.getElementById("a").href = "https://example.com/" + encodeURIComponent(t) + "#" + t;
+}, ${JSON.stringify(hostile)});
+console.log(await page.textContent("#p"));
+console.log([await page.title()]);
+console.log(await snapshot({ urls: true }));
+console.log(await page.evaluate(() => ({ text: document.title })));
+await page.evaluate((t) => { throw new Error(t); }, ${JSON.stringify(hostile)});`);
+    const raw = out.match(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu) || [];
+    assert.deepEqual(raw, [], `raw controls in output:\n${JSON.stringify(out)}`);
+    assert.match(out, /A\\u001b\]0;pwned\\u0007B/, out);
+    assert.match(out, /Uncaught .*A\\u001b/, out);
+  } finally {
+    await servers.close();
+  }
+});

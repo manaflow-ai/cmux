@@ -160,15 +160,25 @@
   function isOwnHandle(id) {
     return typeof id === "string" && id.endsWith("." + docToken);
   }
+  // An element belongs to this agent only while it is in this document. A
+  // same-origin page can move it into another frame's document (adoptNode,
+  // or appendChild into a same-origin iframe or popup); it stays connected
+  // there, but acting on it here would act under this frame's id (its
+  // point, its file chooser) on another document, so it resolves as gone.
+  const inThisDocument = (el) => !!el && el.ownerDocument === document;
+  const OTHER_DOCUMENT = "Element handle is from a previous document: the page moved its element into another document; take a new snapshot";
   function handleElement(id) {
     if (!isOwnHandle(id)) return null;
     const entry = handles.get(id);
-    return (entry && entry.deref()) || null;
+    const el = entry && entry.deref();
+    return inThisDocument(el) ? el : null;
   }
   function element(id) {
     if (!isOwnHandle(id)) throw agentError("stale", PREVIOUS_DOCUMENT);
-    const el = handleElement(id);
+    const entry = handles.get(id);
+    const el = entry && entry.deref();
     if (!el) throw agentError("stale", "Element handle is no longer available");
+    if (!inThisDocument(el)) throw agentError("stale", OTHER_DOCUMENT);
     return el;
   }
   // Past this many entries, the ref and handle tables also drop elements
@@ -276,7 +286,7 @@
   function refElement(ref) {
     const entry = refRegistry.get(ref);
     const el = entry && entry.deref();
-    return el && el.isConnected ? el : null;
+    return inThisDocument(el) && el.isConnected ? el : null;
   }
   function pruneRefs() {
     const large = refRegistry.size > TABLE_SOFT_LIMIT;
@@ -321,20 +331,41 @@
   // caption or table structure; otherwise a table that holds or sits in
   // another table, a single row or column, or rows of differing lengths mark
   // it as layout.
+  //
+  // This runs before the walk visits the table's content, outside its node
+  // budget, so it reads lazily and at most a bounded sample: the table's
+  // first TABLE_SAMPLE children, rows and cells per row, and TABLE_SCAN of
+  // its descendant elements when it looks for a nested table. A huge table
+  // is judged by its start.
+  const TABLE_SAMPLE = 50;
+  const TABLE_SCAN = 1000;
   const layoutTables = new WeakMap();
   const TABLE_PART_TAGS = new Set(["table", "thead", "tbody", "tfoot", "tr", "td", "th"]);
+  function hasColgroup(table) {
+    let n = 0;
+    for (let c = table.firstElementChild; c && n < TABLE_SAMPLE; c = c.nextElementSibling, n++) if (tagOf(c) === "colgroup") return true;
+    return false;
+  }
+  function holdsTable(table) {
+    const walker = table.ownerDocument.createTreeWalker(table, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let n = 0, el = walker.nextNode(); el && n < TABLE_SCAN; el = walker.nextNode(), n++) if (tagOf(el) === "table") return true;
+    return false;
+  }
   function isLayoutTable(table) {
     let layout = layoutTables.get(table);
     if (layout !== undefined) return layout;
     layout = false;
     if (!table.getAttribute("role") && !table.hasAttribute("summary") && !(Number(table.getAttribute("border")) > 0) &&
-        !(table.caption || table.tHead || table.tFoot || table.querySelector(":scope > colgroup"))) {
-      const rows = [...table.rows];
+        !(table.caption || table.tHead || table.tFoot || hasColgroup(table))) {
+      // Indexed reads walk only as far as the index (no `length`, no spread).
+      const rows = table.rows;
+      let rowCount = 0;
       let dataCell = false;
       const lengths = new Set();
-      for (const row of rows) {
+      for (let row; rowCount < TABLE_SAMPLE && (row = rows[rowCount]); rowCount++) {
         let length = 0;
-        for (const cell of row.cells) {
+        const cells = row.cells;
+        for (let i = 0, cell; i < TABLE_SAMPLE && (cell = cells[i]); i++) {
           length += cell.colSpan || 1;
           if (tagOf(cell) === "th" || cell.hasAttribute("scope") || cell.hasAttribute("headers") || cell.getAttribute("role")) dataCell = true;
         }
@@ -342,8 +373,8 @@
       }
       if (!dataCell) {
         const columns = Math.max(0, ...lengths);
-        const nested = !!table.querySelector("table") || !!(table.parentElement && table.parentElement.closest("td, th"));
-        layout = nested || rows.length <= 1 || columns <= 1 || lengths.size > 1;
+        const nested = holdsTable(table) || !!(table.parentElement && table.parentElement.closest("td, th"));
+        layout = nested || rowCount <= 1 || columns <= 1 || lengths.size > 1;
       }
     }
     layoutTables.set(table, layout);
@@ -620,6 +651,14 @@
   // host prints a note. The host can lower the node budget, never raise it.
   const MAX_NODES = 250000;
   const MAX_WALK_MS = 8000;
+  // The node budget does not bound one node: one text node or field value
+  // can hold megabytes, which would cross to the host and be kept and
+  // diffed there. The walk also stops at MAX_SIZE characters of what it
+  // returns (texts, names, values, URLs, and NODE_SIZE for each node's
+  // keys); the string that passes it is cut ("size"). The host can lower
+  // it, never raise it.
+  const MAX_SIZE = 2000000;
+  const NODE_SIZE = 32;
   // Reading the clock every node costs; every 256th is enough.
   function spend(ctx, count) {
     if (ctx.truncated) return false;
@@ -635,18 +674,38 @@
     return true;
   }
 
+  function chargeSize(ctx, count) {
+    if (ctx.sizeLeft >= count) {
+      ctx.sizeLeft -= count;
+      return true;
+    }
+    ctx.sizeLeft = 0;
+    if (!ctx.truncated) ctx.truncated = "size";
+    return false;
+  }
+  // `s` charged to the size budget, cut where the budget ends.
+  function fit(ctx, s) {
+    if (typeof s !== "string" || !s) return s;
+    const left = ctx.sizeLeft;
+    if (chargeSize(ctx, s.length)) return s;
+    let end = left;
+    // Never split a surrogate pair.
+    if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1])) end--;
+    return s.slice(0, end) + "…";
+  }
+
   function visitNode(n, out, ctx, parentVisible, parentAriaHidden, skipText) {
     if (ctx.visited.has(n) || !spend(ctx, 1)) return;
     ctx.visited.add(n);
     if (n.nodeType === 3) {
-      if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(n.nodeValue);
+      if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(fit(ctx, n.nodeValue));
       return;
     }
     if (n.nodeType === 1) visitElement(n, out, ctx, parentAriaHidden, skipText);
   }
 
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
-    if (visible && !skipText) out.push(pseudoText(el, "::before"));
+    if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before")));
     const assigned = tagOf(el) === "slot" ? el.assignedNodes() : [];
     if (assigned.length) {
       for (const child of assigned) {
@@ -666,7 +725,7 @@
       const owned = el.ownerDocument.getElementById(id);
       if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
     }
-    if (visible && !skipText) out.push(pseudoText(el, "::after"));
+    if (visible && !skipText && !ctx.truncated) out.push(fit(ctx, pseudoText(el, "::after")));
   }
 
   // Clipping by overflow. An element that lies entirely outside the box of
@@ -697,6 +756,23 @@
       bottom: y || paint ? top + (el.clientHeight || r.height) : Infinity,
     };
   }
+  // Counts the interactive elements in an offscreen subtree (viewport
+  // snapshots say how many they leave out). The walk does not visit these,
+  // so the count reads lazily and at most as many elements as the walk's
+  // node budget, over the whole snapshot, and stops at its deadline; past
+  // either the count is a lower bound (`offscreenMore`).
+  function countOffscreen(el, ctx) {
+    if (ctx.offscreenMore) return;
+    const walker = el.ownerDocument.createTreeWalker(el, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let n = el; n; n = walker.nextNode()) {
+      if (ctx.countLeft <= 0 || (++ctx.ticks % 256 === 0 && now() > ctx.deadline)) {
+        ctx.offscreenMore = true;
+        return;
+      }
+      ctx.countLeft--;
+      if (n.matches(INTERACTIVE_SELECTOR)) ctx.offscreen++;
+    }
+  }
   const overlaps = (r, c) => r.right > c.left + 0.5 && r.left < c.right - 0.5 && r.bottom > c.top + 0.5 && r.top < c.bottom - 0.5;
 
   function visitElement(el, out, ctx, parentAriaHidden, skipText) {
@@ -720,7 +796,7 @@
             }
           }
           if (ctx.viewport && !overlaps(r, ctx.viewport)) {
-            ctx.offscreen += el.querySelectorAll(INTERACTIVE_SELECTOR).length + (el.matches(INTERACTIVE_SELECTOR) ? 1 : 0);
+            countOffscreen(el, ctx);
             return;
           }
         }
@@ -774,7 +850,8 @@
     // inside it has a box (Wikipedia's zero-width "Jump up" backlinks).
     if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el)) return;
     const node = { role };
-    if (name) node.name = name;
+    chargeSize(ctx, NODE_SIZE);
+    if (name) node.name = fit(ctx, name);
     if (interactive || scrollable) node.act = 1;
     if (interactive || scrollable || role === "iframe" || (name && SCOPE_ROLES.has(role))) {
       node.ref = refFor(el);
@@ -792,17 +869,18 @@
       return;
     }
     const value = valueOf(el, role, tag);
-    if (value !== null) node.value = value;
+    if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
       const url = displayUrl(el);
-      if (url) node.url = url;
+      if (url) node.url = fit(ctx, url);
       const offsite = offsiteSummary(el);
-      if (offsite) node.offsite = offsite;
+      if (offsite) node.offsite = fit(ctx, offsite);
     }
     const placeholder = el.getAttribute("placeholder");
-    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = normalize(placeholder);
+    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = fit(ctx, normalize(placeholder));
     if (tag === "select") {
-      const option = (o) => (o.selected ? { name: normalize(o.label || o.textContent), selected: true } : { name: normalize(o.label || o.textContent) });
+      const optionName = (o) => (chargeSize(ctx, NODE_SIZE), fit(ctx, normalize(o.label || o.textContent)));
+      const option = (o) => (o.selected ? { name: optionName(o), selected: true } : { name: optionName(o) });
       // A list box shows its options; a drop-down shows them on request. A
       // closed drop-down prints its first INLINE_OPTIONS and a count, so only
       // those cross to the host.
@@ -811,7 +889,7 @@
       const listed = (map) => {
         const all = el.options;
         const list = [];
-        for (let i = 0; i < all.length && spend(ctx, 1); i++) list.push(map(all[i]));
+        for (let i = 0; i < all.length && !ctx.truncated && spend(ctx, 1); i++) list.push(map(all[i]));
         return list;
       };
       if (el.multiple || el.size > 1) node.children = listed((o) => Object.assign({ role: "option" }, option(o)));
@@ -819,7 +897,7 @@
       else {
         const all = el.options;
         node.options = [];
-        for (let i = 0; i < all.length && i < INLINE_OPTIONS; i++) node.options.push(option(all[i]));
+        for (let i = 0; i < all.length && i < INLINE_OPTIONS && !ctx.truncated; i++) node.options.push(option(all[i]));
         if (all.length > INLINE_OPTIONS) node.optionCount = all.length;
       }
     }
@@ -870,8 +948,8 @@
     return out.flatMap((c) => (typeof c === "string" ? c.split("\u0000").map(normalize).filter(Boolean) : [c]));
   }
 
-  // opts: { root: handle | null, showHidden, base, maxNodes } ->
-  // { nodes, max, offscreen, ms, visited, truncated: "nodes" | "time" | undefined }
+  // opts: { root: handle | null, showHidden, base, maxNodes, maxSize } ->
+  // { nodes, max, offscreen, ms, visited, size, truncated: "nodes" | "time" | "size" | undefined }
   const now = () => (global.performance && global.performance.now ? global.performance.now() : Date.now());
   function snapshot(opts) {
     return withReadCaches(() => readSnapshot(opts || {}));
@@ -896,16 +974,21 @@
       allOptions: !!opts.options,
       offscreen: 0,
       left: Math.min(MAX_NODES, opts.maxNodes > 0 ? Math.floor(opts.maxNodes) : MAX_NODES),
+      sizeLeft: Math.min(MAX_SIZE, opts.maxSize > 0 ? Math.floor(opts.maxSize) : MAX_SIZE),
+      countLeft: 0,
+      offscreenMore: false,
       deadline: started + MAX_WALK_MS,
       ticks: 0,
       truncated: undefined,
     };
     const budget = ctx.left;
+    ctx.countLeft = budget;
+    const sizeBudget = ctx.sizeLeft;
     const out = [];
     if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     const nodes = normalizeChildren(out);
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, ms: now() - started, visited: budget - ctx.left, truncated: ctx.truncated };
+    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, offscreenMore: ctx.offscreenMore || undefined, ms: now() - started, visited: budget - ctx.left, size: sizeBudget - ctx.sizeLeft, truncated: ctx.truncated };
   }
 
   // Table sizes, for leak checks (tests/browser-parity/perf).
@@ -1209,9 +1292,45 @@
         return tagOf(el) === "input" && (el.type || "").toLowerCase() === "file";
       case "multiple":
         return !!el.multiple;
+      case "composerText":
+        return composerText(el, arg);
       default:
         throw agentError("invalid", `Unknown read ${what}`);
     }
+  }
+
+  // All the text a composer will send: a field's value, else every text
+  // node in it, hidden ones too (they are sent), with a space at each block
+  // boundary and line break, read in this world (a page script cannot
+  // change what it returns). Elements matching `exclude` (the site's own
+  // signature or quoted text) are left out. Sites compare it whole with the
+  // confirmed draft before a public send.
+  const BLOCK_TAGS = new Set(["address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption", "figure",
+    "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "td",
+    "th", "tr", "ul"]);
+  function composerText(el, exclude) {
+    const tag = tagOf(el);
+    if (tag === "textarea" || tag === "input") return el.value;
+    let out = "";
+    let left = MAX_NODES;
+    const walk = (node) => {
+      for (let n = node.firstChild; n; n = n.nextSibling) {
+        if (--left < 0) throw agentError("invalid", "The composer holds too many nodes to compare");
+        if (n.nodeType === 3) out += n.nodeValue;
+        else if (n.nodeType === 1) {
+          if (exclude && n.matches(exclude)) {
+            out += " ";
+            continue;
+          }
+          const block = BLOCK_TAGS.has(tagOf(n));
+          if (block) out += " ";
+          walk(n);
+          if (block) out += " ";
+        }
+      }
+    };
+    walk(el);
+    return out;
   }
 
   // This frame's place in its parent's window.frames, or -1 (the main

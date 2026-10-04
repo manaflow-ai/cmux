@@ -38,6 +38,79 @@
     return d;
   };
 
+  // The event form, checked against the draft right before Save: the title,
+  // the start and end as the form shows them (dates and times in the
+  // event's time zone: the draft's timeZone, else this Mac's, which the
+  // browser and Calendar's default use), and the guests (the organizer, who
+  // Calendar lists once there are guests, aside). Fields are read through
+  // locators, in the agent's isolated world.
+  const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  function zonedParts(d, timeZone) {
+    const f = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", hourCycle: "h23" });
+    const o = {};
+    for (const part of f.formatToParts(d)) o[part.type] = part.value;
+    return { y: Number(o.year), m: Number(o.month), d: Number(o.day), h: Number(o.hour) % 24, min: Number(o.minute) };
+  }
+  // "Oct 1, 2026", "Thursday, October 1", "10/1/2026" or "2026-10-01".
+  function dateShows(text, p) {
+    const s = String(text || "").toLowerCase();
+    const nums = (s.match(/\d+/g) || []).map(Number);
+    const year = nums.find((n) => n >= 1000);
+    if (year !== undefined && year !== p.y) return false;
+    const small = nums.filter((n) => n < 1000);
+    const named = MONTHS.findIndex((m) => new RegExp(`\\b${m}`).test(s));
+    if (named >= 0) return named + 1 === p.m && small.length === 1 && small[0] === p.d;
+    return small.length === 2 && small.includes(p.m) && small.includes(p.d) && (p.m === p.d || small[0] !== small[1]);
+  }
+  // "5:00pm", "5pm", "17:00".
+  function timeShows(text, p) {
+    const m = /^\s*(\d{1,2})(?::(\d{2}))?\s*(a|p)?\.?\s*m?\.?\s*$/i.exec(String(text || ""));
+    if (!m) return false;
+    let h = Number(m[1]);
+    if (m[3]) {
+      if (h < 1 || h > 12) return false;
+      h = (h % 12) + (m[3].toLowerCase() === "p" ? 12 : 0);
+    }
+    return h === p.h && Number(m[2] || 0) === p.min;
+  }
+  async function fieldText(locator) {
+    if (!(await locator.count())) return null;
+    const one = locator.first();
+    const tag = String(await one._read("tagName", undefined, { timeout: 2000 }, "tag name")).toLowerCase();
+    return tag === "input" || tag === "textarea" ? one.inputValue({ timeout: 2000 }) : one.innerText({ timeout: 2000 });
+  }
+  async function checkForm(page, draft) {
+    const problems = [];
+    const field = (label) => fieldText(page.locator(`[role="main"] [aria-label="${label}"]`));
+    const title = await field("Title");
+    if (title === null || title.trim() !== draft.title.trim()) problems.push(`title ${JSON.stringify(title)}`);
+    const zone = draft.timeZone || new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // All-day dates are calendar days (UTC in the template); the form shows
+    // the last day, not the day after.
+    const start = draft.allDay ? zonedParts(draft.start, "UTC") : zonedParts(draft.start, zone);
+    const end = draft.allDay ? zonedParts(new Date(draft.end.getTime() - 86400000), "UTC") : zonedParts(draft.end, zone);
+    const startDate = await field("Start date");
+    const endDate = await field("End date");
+    if (!dateShows(startDate, start)) problems.push(`start date ${JSON.stringify(startDate)}`);
+    // The end date is shown only when it differs from the start.
+    if (endDate === null ? start.y !== end.y || start.m !== end.m || start.d !== end.d : !dateShows(endDate, end)) problems.push(`end date ${JSON.stringify(endDate)}`);
+    if (!draft.allDay) {
+      const startTime = await field("Start time");
+      const endTime = await field("End time");
+      if (!timeShows(startTime, start)) problems.push(`start time ${JSON.stringify(startTime)}`);
+      if (!timeShows(endTime, end)) problems.push(`end time ${JSON.stringify(endTime)}`);
+    }
+    const listed = page.locator('[role="main"] [data-email]');
+    const n = await listed.count();
+    const shown = new Set();
+    for (let i = 0; i < n && i < 200; i++) shown.add(String((await listed.nth(i).getAttribute("data-email", { timeout: 2000 })) || "").trim().toLowerCase());
+    if (n >= 200) problems.push("more than 200 guests");
+    shown.delete(String(draft.accountEmail).toLowerCase());
+    const want = new Set(draft.guests.map((g) => g.toLowerCase()));
+    if (shown.size !== want.size || [...want].some((g) => !shown.has(g))) problems.push(`guests ${[...shown].join(", ") || "none"}`);
+    return problems;
+  }
+
   S.register(
     "googleCalendar",
     (t) => {
@@ -79,7 +152,14 @@
             if (e.description) q.set("details", String(e.description));
             if (e.location) q.set("location", String(e.location));
             if (guests.length) q.set("add", guests.join(","));
-            if (e.timeZone) q.set("ctz", String(e.timeZone));
+            if (e.timeZone) {
+              try {
+                new Intl.DateTimeFormat("en-US", { timeZone: String(e.timeZone) });
+              } catch {
+                throw new S.SiteError("invalid", `googleCalendar.create: timeZone: expected an IANA time zone, got ${JSON.stringify(e.timeZone)}`);
+              }
+              q.set("ctz", String(e.timeZone));
+            }
             if (e.recurrence) q.set("recur", String(e.recurrence));
             const uid = e.uid === undefined ? 0 : e.uid;
             base(uid);
@@ -101,6 +181,9 @@
                   // The account this event editor saves as, read in the page
                   // right before Save (see gmail.send).
                   await g.checkPageAccount(t, "googleCalendar.create", page, accountEmail);
+                  // The form holds the drafted event, nothing else.
+                  const problems = await checkForm(page, { title: String(e.title), start, end, allDay: !!e.allDay, timeZone: e.timeZone || null, guests, accountEmail });
+                  if (problems.length) throw new S.SiteError("form_mismatch", `googleCalendar.create: the event form does not hold the drafted event (${problems.join("; ")}); nothing was saved. Make a new draft and show it to the user again`);
                   await save.first().click();
                   if (guests.length) {
                     const send = page.getByRole("button", { name: /^Send$/ });

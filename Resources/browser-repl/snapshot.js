@@ -922,10 +922,17 @@
   // millions; the walk stops here instead of pinning the page and the
   // session, and the snapshot says so. `_maxNodes` lowers it (tests).
   const MAX_SNAPSHOT_NODES = 250000;
+  // The most characters of page text, names, values and URLs one snapshot
+  // reads, over all its frames (the page agent's own bound per frame is the
+  // same): one text node or value can hold megabytes, which the node budget
+  // does not bound, and the tree is kept as the diff baseline. `_maxSize`
+  // lowers it (tests).
+  const MAX_SNAPSHOT_SIZE = 2000000;
   function nodeBudget(options) {
     if (!options._nodes) {
       const asked = options._maxNodes > 0 ? Math.floor(options._maxNodes) : MAX_SNAPSHOT_NODES;
-      options._nodes = { left: Math.min(asked, MAX_SNAPSHOT_NODES), total: Math.min(asked, MAX_SNAPSHOT_NODES), truncated: null };
+      const size = Math.min(options._maxSize > 0 ? Math.floor(options._maxSize) : MAX_SNAPSHOT_SIZE, MAX_SNAPSHOT_SIZE);
+      options._nodes = { left: Math.min(asked, MAX_SNAPSHOT_NODES), total: Math.min(asked, MAX_SNAPSHOT_NODES), sizeLeft: size, sizeTotal: size, truncated: null };
     }
     return options._nodes;
   }
@@ -933,14 +940,16 @@
   // Reads a frame's tree and, a few at a time, the trees of the frames
   // inside it. `share` is the part of the node budget this frame may read;
   // the frames inside it split what is left after it.
-  async function frameTree(page, frame, rootHandle, options, inner, share) {
+  async function frameTree(page, frame, rootHandle, options, inner, share, sizeShare) {
     const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
     const budget = nodeBudget(options);
     const maxNodes = Math.max(1, Math.min(share === undefined ? budget.left : share, budget.left));
+    const maxSize = Math.max(1, Math.min(sizeShare === undefined ? budget.sizeLeft : sizeShare, budget.sizeLeft));
     let called = 0;
-    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), maxNodes });
+    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), maxNodes, maxSize });
     const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
     budget.left -= Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
+    budget.sizeLeft -= Math.min(maxSize, Math.max(0, Number(r.size) || 0));
     if (r.truncated && !budget.truncated) budget.truncated = r.truncated;
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
@@ -952,7 +961,10 @@
     }
     page._noteRefMax(frame, r.max);
     const issued = [];
-    if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+    if (options.viewport) {
+      options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+      if (r.offscreenMore) options._offscreenMore = true;
+    }
     const iframes = [];
     const collect = (list) => {
       for (const n of list) {
@@ -980,15 +992,16 @@
     // The frames inside split what this frame left of the budget, so
     // reading them together cannot pass it.
     const childShare = iframes.length ? Math.floor(budget.left / iframes.length) : 0;
+    const childSizeShare = iframes.length ? Math.floor(budget.sizeLeft / iframes.length) : 0;
     await Promise.all(iframes.map(async (node) => {
       let child = null;
       try {
         if (batch) child = batch.get(node.frame) || null;
         else child = node.frame ? await limit(() => withDeadline(page, frame._contentFrame(node.frame), options._frameTimeout)) : null;
-        if (child && !child._detached && childShare < 1) {
-          node._child = { frame: child, overBudget: true };
-          budget.truncated = budget.truncated || "nodes";
-        } else if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, childShare) };
+        if (child && !child._detached && (childShare < 1 || childSizeShare < 1)) {
+          node._child = { frame: child, overBudget: childShare < 1 ? "node" : "size" };
+          budget.truncated = budget.truncated || (childShare < 1 ? "nodes" : "size");
+        } else if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, childShare, childSizeShare) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
         // The driver does not read a frame that shows a page the domain
@@ -1022,7 +1035,7 @@
           delete node._child;
           if (child && child.timedOut) node.unread = "timed out";
           if (child && child.blocked) node.unread = "blocked by the domain policy";
-          if (child && child.overBudget) node.unread = "the snapshot's node budget is used up";
+          if (child && child.overBudget) node.unread = `the snapshot's ${child.overBudget} budget is used up`;
           if (child && child.tree) {
             const inner = stitch(page, child.tree, focusChain && focused, shown);
             if (inner.length) node.children = inner;
@@ -1079,10 +1092,10 @@
     if (options.interactive) nodes = interactiveOnly(nodes);
     const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
-    const trailer = options.viewport ? [`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const trailer = options.viewport ? [`# ${options._offscreenMore ? "at least " : ""}${commas(options._offscreen || 0)} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
     const budget = nodeBudget(options);
     if (budget.truncated) {
-      const why = budget.truncated === "time" ? "after 8 s of reading" : `after ${commas(budget.total)} nodes`;
+      const why = budget.truncated === "time" ? "after 8 s of reading" : budget.truncated === "size" ? `after ${commas(budget.sizeTotal)} characters` : `after ${commas(budget.total)} nodes`;
       trailer.push(`# the page is too large to read whole: the snapshot stopped ${why}; the rest of the page is not shown. Snapshot a part of it (snapshot(ref) or snapshot(locator)) to read further`);
     }
     body.push(...trailer);

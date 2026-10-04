@@ -59,10 +59,17 @@ rules neither reference enforces together:
    `x-notion-active-user-header` set to the drafted user, so Notion runs
    the write as that user or refuses it. The remaining window is between
    that last check and the click (Gmail, Calendar, LinkedIn, X), which no
-   site API closes: none binds a click to an account. Drive, Docs, Sheets
+   site API closes: none binds a click to an account. Before Send or Post,
+   Gmail, LinkedIn and X compare the composer's whole text (read in the
+   agent's isolated world, hidden text included, whitespace collapsed)
+   with the confirmed draft, never just its start: a composer that holds
+   more or other text than the draft (a page script or another session
+   added to it) fails with `compose_mismatch` and sends nothing. Gmail's
+   own signature and quoted thread text are left out of the comparison.
+   Drive, Docs, Sheets
    and Slides drafts name the file by id (see "Editing Google files" for
    what else they bind), and a WebMCP draft fails when its tab left the
-   previewed URL or the page's tool changed (see "WebMCP calls").
+   previewed URL or document or the page's tool changed (see "WebMCP calls").
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -145,9 +152,9 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
-| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, body checked in the composer, the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
+| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
-| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked against the drafted email, Save, Send invitations only when the draft has guests | write [9], [14] |
+| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked against the drafted email, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's; the guests, organizer aside), failing with `form_mismatch` and saving nothing on any difference or a field it cannot read; Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
 | `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com` (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
@@ -157,9 +164,9 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues` and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
-| `linkedin.post(text)` | draft naming the member id and public identifier; confirmed: share composer (`/feed/?shareActive=true&text=`), text checked, the member checked in that page (Voyager `/me`), Post | write [9] |
+| `linkedin.post(text)` | draft naming the member id and public identifier; confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), Post | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
-| `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, text checked, Post | write [9] |
+| `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, the whole text checked, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
 | `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
@@ -206,6 +213,11 @@ the file back to verify.
 Rule for writes (reference B's confirmation taxonomy, [9] edits others can see):
 a write first opens the file's editor and reads its Share button. If it
 says "Private to only me", nobody else sees the edit and it runs at once.
+The label is read only from the editor's own Share button (the one
+element with its id, in the editor's header) and the labels inside it,
+which must agree; a sharing label anywhere else in the page counts for
+nothing, and a second, different one in the button makes the sharing
+unknown.
 Otherwise, including when the sharing cannot be read, the write returns a
 draft with the file, its title, the sharing text and the change, and runs
 only on `method(draftId, { confirm: true })`. Either way the write reloads
@@ -251,7 +263,13 @@ The draft binds the tool's descriptor (name, title, description, input
 schema and annotations as sorted-key JSON): its preview shows the schema,
 the annotations and a hash of the descriptor, and the confirmed call passes
 the descriptor into the page call, which runs the tool only when the page
-lists it with that same descriptor, else fails with `tool_changed`. A page
+lists it with that same descriptor, else fails with `tool_changed`. Every
+call, a confirmed draft or a `trustReadOnlyHint` one, runs only in the
+document and at the URL its tool was listed in: the listing marks its
+document (a value kept on the page's window, which a new document lacks)
+and notes its URL before it lists, and the page call checks both first and
+again right before the tool runs, else fails with `page_changed` and calls
+nothing (a reload, a navigation, or a `pushState` since the listing). A page
 that keeps the descriptor and swaps the implementation behind it is not
 detected: the page owns its tools' code, so a WebMCP preview describes what
 the page declares, never what its code does.

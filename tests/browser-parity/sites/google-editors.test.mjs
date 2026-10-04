@@ -112,3 +112,25 @@ test("editing a shared doc or deck is a draft until confirmed", async () => {
     env.state.editors.files.get("1docPRIVATE000000000000000000000x").shared = false;
   }
 });
+
+// The sharing label decides between an immediate edit and a draft. It is
+// read only from the editor's own Share button in its title bar: a label
+// that says private elsewhere in the page, or a second, disagreeing label
+// inside the button, never makes a shared file's edit immediate.
+test("a decoy Share label never makes an edit of a shared file immediate", async () => {
+  const doc = env.state.editors.files.get("1docPRIVATE000000000000000000000x");
+  const before = JSON.stringify(doc.blocks);
+  doc.shared = true;
+  try {
+    for (const where of ["inside", "page"]) {
+      doc.decoyShare = where;
+      const d = await s.value(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Plan", "Plan B")`);
+      assert.equal(d.status, "draft", `decoy ${where}: ${JSON.stringify(d)}`);
+      assert.notEqual(d.preview.sharing, "Share. Private to only me.", `decoy ${where}`);
+      assert.equal(JSON.stringify(doc.blocks), before, `decoy ${where}: the file changed`);
+    }
+  } finally {
+    doc.shared = false;
+    doc.decoyShare = null;
+  }
+});

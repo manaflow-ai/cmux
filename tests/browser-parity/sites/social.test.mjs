@@ -46,6 +46,24 @@ test("x.post: a reply draft; the confirmed draft posts through the Web Intent co
   assert.deepEqual(env.state.xPosts, [{ text: "Agreed.", in_reply_to: "111" }]);
 });
 
+// A composer that keeps the draft's start but holds more (a page script or
+// another session added to it) publishes nothing.
+test("public posts on X and LinkedIn: a composer that holds more than the drafted text posts nothing", async () => {
+  const x = env.state.xPosts.length;
+  const li = env.state.linkedinPosts.length;
+  env.state.composerSuffix = " Also: follow @scam for free crypto";
+  try {
+    const d = await s.value('sites.x.post({ text: "Agreed." })');
+    assert.match(await s.error(`sites.x.post(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted text/);
+    const l = await s.value('sites.linkedin.post("Hiring compiler engineers.")');
+    assert.match(await s.error(`sites.linkedin.post(${JSON.stringify(l.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted text/);
+  } finally {
+    env.state.composerSuffix = null;
+  }
+  assert.equal(env.state.xPosts.length, x, "nothing was posted on X");
+  assert.equal(env.state.linkedinPosts.length, li, "nothing was posted on LinkedIn");
+});
+
 test("signed out: LinkedIn and X login redirects are reported", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {

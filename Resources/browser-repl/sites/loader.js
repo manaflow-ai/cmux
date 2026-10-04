@@ -434,6 +434,18 @@
           await session.sleep(150);
         }
       },
+      // Whether the composer at `locator` holds exactly `expected`, all of
+      // it, before a public send: compared with whitespace collapsed (a
+      // line break in the draft and a block boundary in the composer are
+      // both one space) and zero-width characters dropped. A composer that
+      // keeps the draft's start and holds more (a page script, another
+      // session) fails. `exclude`: a selector for the site's own additions
+      // that are not the draft (Gmail's signature and quoted text).
+      async composerHolds(locator, expected, { exclude } = {}) {
+        const shown = await locator._read("composerText", exclude || null, {}, "composer text");
+        const norm = (v) => String(v || "").replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
+        return norm(shown) === norm(expected);
+      },
       // Throws not_signed_in when a tab landed on a sign-in page.
       assertSignedIn(name, page, patterns) {
         const url = page.url();

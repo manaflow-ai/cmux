@@ -94,3 +94,46 @@ console.log(JSON.stringify(out));`,
     await servers.close();
   }
 });
+
+// A same-origin page can move an element the agent holds into another
+// document (adoptNode, or appendChild into a same-origin iframe or popup).
+// The element stays connected, but in a document of another frame: a
+// handle or ref resolved there would act under the original frame's id
+// (its point, its file chooser). The agent refuses it as `stale`.
+test("a handle or ref whose element the page moved into another document fails stale", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  try {
+    const [out] = results(await runDevCells([
+      {
+        code: `
+await page.goto(${JSON.stringify(primary)} + "/index.html?adopt");
+await page.evaluate(() => {
+  window.clicks = [];
+  document.body.innerHTML = '<button id="moved">Moved</button><button id="kept">Kept</button><iframe srcdoc="<body></body>"></iframe>';
+  for (const b of document.querySelectorAll("button")) b.addEventListener("click", () => window.clicks.push(b.id));
+});
+await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.body); });
+const handle = await page.locator("#moved").elementHandle();
+const ref = /button "Kept" \\[ref=(e\\d+)\\]/.exec((await snapshot({ interactive: true })).tree)[1];
+await page.evaluate(() => {
+  const body = document.querySelector("iframe").contentDocument.body;
+  body.appendChild(document.getElementById("moved"));
+  body.appendChild(document.getElementById("kept"));
+});
+const out = {};
+out.handle = await handle.evaluate((el) => el.id).then((id) => "acted on " + id, (e) => e.message);
+out.dispatch = await handle.dispatchEvent("click").then(() => "dispatched", (e) => e.message);
+out.ref = await page.locator(ref).dispatchEvent("click", undefined, { timeout: 1500 }).then(() => "dispatched", (e) => e.message);
+out.clicks = await page.evaluate(() => window.clicks.join(","));
+console.log(JSON.stringify(out));`,
+      },
+    ]));
+    assert.match(out.handle, /stale|previous document|no longer/i, JSON.stringify(out));
+    assert.match(out.dispatch, /stale|previous document|no longer/i, JSON.stringify(out));
+    assert.doesNotMatch(out.ref, /^dispatched$/, JSON.stringify(out));
+    assert.equal(out.clicks, "", "no moved element was acted on");
+  } finally {
+    await servers.close();
+  }
+});

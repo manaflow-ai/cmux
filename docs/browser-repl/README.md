@@ -128,7 +128,11 @@ Rules, and how they improve on the references:
   a previous document; take a new snapshot`) and never acts on the new
   document. An element handle (`locator.elementHandle()`) likewise fails
   `stale` (`Element handle is from a previous document; take a new
-  snapshot`) once its frame shows another document. Reference A renumbers a ref when its name
+  snapshot`) once its frame shows another document. Both are bound to the
+  frame's document too: when the page moves the element into another
+  document (`adoptNode`, or appending it into a same-origin iframe or popup),
+  the ref fails `stale` and the handle fails `stale` at once, and neither
+  acts on it there. Reference A renumbers a ref when its name
   changes; reference B reuses indices after removals.
 - **Roles** are Playwright's (`getByRole` finds them), except controls HTML
   has no ARIA role for: `summary` prints as `button`, an editable element as
@@ -218,6 +222,9 @@ Rules, and how they improve on the references:
   that declares no header cell, caption, `thead`, `tfoot`, `colgroup`,
   `summary`, `border` or table role, and that holds or sits in another table,
   has one row or one column, or has rows of different lengths (Hacker News).
+  The shape is judged from the table's first 50 rows (and 50 cells of each)
+  and its first 1,000 descendant elements, so a huge table costs no more
+  than a small one to classify.
   Reference A drops all table structure.
 - **Structure with nothing in it** is not printed: an unnamed, ref-less
   container with no children (an empty `list`). An unnamed list item or cell
@@ -236,7 +243,9 @@ Rules, and how they improve on the references:
   "Submitted me@x.com", with the lines that locate it),
   `viewport` (only elements that intersect the viewport, with their
   ancestors, and a closing note `# N interactive elements outside the
-  viewport are not shown`; refs are the same as in a full snapshot),
+  viewport are not shown`; the count reads at most as many elements as the
+  snapshot's node budget and then reads `# at least N …`; refs are the same
+  as in a full snapshot),
   `showHidden`, `maxChars` (the print budget, see [Large output](#large-output)),
   `options`, `urls`.
 - **Size**: on the real-site corpus (tests/browser-parity) the snapshot holds
@@ -276,11 +285,14 @@ rest. Measurements: [performance.md](performance.md).
   always hold everything read, so code can search them for free. Reading
   is bounded too, because a hostile page can hold millions of nodes and the
   walk runs on the page's main thread: one snapshot reads at most 250,000
-  nodes over all its frames (frames inside a frame split what it left, and
-  one past the budget prints `[not read: the snapshot's node budget is used
-  up]`), and a frame's walk stops after 8 s. A cut snapshot ends with
-  `# the page is too large to read whole: the snapshot stopped after
-  250,000 nodes; …`; snapshot a part of the page (`snapshot(ref)`, a
+  nodes and 2,000,000 characters of text, names, values and URLs (one text
+  node or field value can hold megabytes) over all its frames (frames
+  inside a frame split what it left, and one past the budget prints
+  `[not read: the snapshot's node budget is used up]`, or `size budget`),
+  and a frame's walk stops after 8 s. The string that passes the size
+  budget is cut with `…`. A cut snapshot ends with `# the page is too large
+  to read whole: the snapshot stopped after 250,000 nodes; …` (or `after
+  2,000,000 characters`); snapshot a part of the page (`snapshot(ref)`, a
   locator) to read further. Printing a
   snapshot (the REPL's auto-print, `String(s)`, `console.log(s)`) shows at
   most `maxChars` characters, 20,000 by default (about 6,000 tokens; five
@@ -319,10 +331,16 @@ rest. Measurements: [performance.md](performance.md).
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out
   still has it.
-- **Control characters** in printed text (page titles and text can hold
-  terminal escape sequences) print visibly: newline and tab stay, other C0
-  controls print as their control pictures (ESC as `␛`), DEL as `␡` and C1
-  controls as `\u{9B}`. `--json` keeps the exact text.
+- **Control characters** in printed text (page titles, text, option
+  labels, URLs and error messages can hold terminal escape sequences)
+  print visibly, whatever printed them (`console.log`, the auto-printed
+  value, a snapshot, a page tool, an error): the session escapes them
+  before output leaves it, so `--json`, `mcp` and the output file get the
+  same text. Newline and tab stay, a CRLF is a newline, and every other C0
+  control, DEL and C1 control prints as its JSON escape (`\r`, `\b`, `\f`,
+  else `\u001b`). The terminal client also shows any control that reaches
+  it another way as its control picture (ESC as `␛`, DEL as `␡`) or, for
+  C1, as `\u{9B}`.
 
 ## Sessions and tabs
 
