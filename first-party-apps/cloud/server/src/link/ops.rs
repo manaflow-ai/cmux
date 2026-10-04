@@ -78,7 +78,7 @@ pub(crate) fn run<C: ControlPlane>(
             // The host's open token (a user run of an `openOps` op): the
             // link's bytes also get a frame link on the host channel.
             if let Some(token) = open_token {
-                server.request_frame_link(&id, token);
+                server.request_frame_link(&carrier, token);
             }
             Ok(carrier_json(&carrier))
         }

@@ -140,7 +140,10 @@ impl Attach {
 
     /// The opener of frame links' carrier ports (tests give a fake; the
     /// default connects to the carrier's local socket).
-    pub fn with_carrier_ports(mut self, opener: Box<dyn crate::connector::port::PortOpener>) -> Self {
+    pub fn with_carrier_ports(
+        mut self,
+        opener: Box<dyn crate::connector::port::PortOpener>,
+    ) -> Self {
         self.frames = crate::connector::frames::FrameLinks::new(opener);
         self
     }

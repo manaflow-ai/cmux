@@ -6,8 +6,8 @@
 use super::argv::{LinkPaths, link_command};
 use super::ops::LINK_UNAVAILABLE;
 use crate::api::host::{HostError, HostFrame, LINK_CHANGED, LINK_GET};
-use crate::connector::frames::{CONNECTOR_CLOSE, CONNECTOR_OPEN};
 use crate::api::{CloudError, ControlPlane};
+use crate::connector::frames::{CONNECTOR_CLOSE, CONNECTOR_OPEN};
 use crate::ops::Server;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};

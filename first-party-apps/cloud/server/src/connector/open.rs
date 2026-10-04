@@ -5,7 +5,7 @@
 use super::frames::CONNECTOR_OPEN;
 use crate::api::ControlPlane;
 use crate::api::host::HostError;
-use crate::link::CONNECTOR_KIND;
+use crate::link::{CONNECTOR_KIND, Carrier};
 use crate::ops::Server;
 use cmux_terminal_iface::OpenToken;
 use serde_json::{Value, json};
@@ -16,14 +16,29 @@ impl<C: ControlPlane> Server<C> {
     /// host consumes the token and checks the declaration, the grant and
     /// the kind; without a token nothing is asked (the carrier socket of
     /// the connect answer still works).
-    pub(crate) fn request_frame_link(&mut self, machine: &str, open_token: &OpenToken) {
-        if open_token.check().is_err() || !self.attach().frames.wants_open(machine) {
+    ///
+    /// LIMIT: the open goes out when the carrier is up. A connect that
+    /// waits longer than the token's 60 s life (a slow machine start) gets
+    /// `denied` from the host and no frame link (logged); the connect
+    /// answer's carrier socket still works, and a new user run retries.
+    ///
+    /// A frame link of an older generation of the machine (its end not seen
+    /// yet) ends first: its `end` goes out before this open, so the host
+    /// makes a new channel instead of answering the old one.
+    pub(crate) fn request_frame_link(&mut self, carrier: &Carrier, open_token: &OpenToken) {
+        let machine = carrier.target.as_str();
+        if open_token.check().is_err() {
+            return;
+        }
+        let frames = &mut self.attach_mut().frames;
+        frames.end_stale(machine, carrier.generation);
+        if !frames.wants_open(machine) {
             return;
         }
         let params =
             json!({ "kind": CONNECTOR_KIND, "target": machine, "open_token": open_token.as_str() });
-        let id = self.host_requests().request_each(CONNECTOR_OPEN, params);
-        self.attach_mut().frames.opening(id, machine);
+        let (id, request) = self.host_requests().request_each(CONNECTOR_OPEN, params);
+        self.attach_mut().frames.opening(id, machine, request);
     }
 
     /// The host's answer to `connector.open` request `id`. A refusal is
@@ -46,11 +61,11 @@ impl<C: ControlPlane> Server<C> {
         }
     }
 
-    /// Lines of `channel` were dropped (they overflowed during a relay
-    /// call): the channel ends, retryable.
-    pub(crate) fn frame_overflow(&mut self, channel: &str) {
+    /// Frame lines were dropped (they overflowed during a relay call):
+    /// every frame link ends, retryable.
+    pub(crate) fn frame_overflow(&mut self) {
         let lost = cmux_terminal_iface::Lost::new("frame lines overflowed", true);
-        self.attach_mut().frames.close(channel, lost);
+        self.attach_mut().frames.close_all(&lost);
     }
 
     /// One `data`/`credit`/`end` line from the host.

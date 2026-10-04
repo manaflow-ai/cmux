@@ -86,11 +86,8 @@ impl PortOpener for FakePorts {
         socket: &Path,
         wake: Option<LinkWake>,
     ) -> std::io::Result<Box<dyn CarrierPort>> {
-        let log = Arc::new(Mutex::new(PortLog {
-            socket: socket.to_owned(),
-            wake,
-            ..PortLog::default()
-        }));
+        let log =
+            Arc::new(Mutex::new(PortLog { socket: socket.to_owned(), wake, ..PortLog::default() }));
         self.0.lock().unwrap().push(Arc::clone(&log));
         Ok(Box::new(FakePort(log)))
     }
@@ -99,8 +96,8 @@ impl PortOpener for FakePorts {
 fn start() -> (Host, FakePorts) {
     let spawner = FakeSpawner::default();
     let ports = FakePorts::default();
-    let attach = attach(&spawner, &FakeTransport::default())
-        .with_carrier_ports(Box::new(ports.clone()));
+    let attach =
+        attach(&spawner, &FakeTransport::default()).with_carrier_ports(Box::new(ports.clone()));
     let edge = Edge::new(Arc::new(FakeTunnel::default()), Box::new(FakeTransfer::default()));
     let mut host = Host::start_with(FIXTURES, spawner, attach, edge);
     host.answer_of("1", "cloud.machine.list", json!({}));
@@ -183,7 +180,10 @@ fn carrier_bytes_go_to_the_host_as_data_frames_and_host_data_to_the_carrier() {
     // Credit only after the carrier took the bytes.
     ports.feed(0, PortEvent::Wrote(5));
     let credit = frame(&mut host, "credit");
-    assert_eq!(credit, json!({ "t": "credit", "channel": "link-1", "direction": "in", "bytes": 5 }));
+    assert_eq!(
+        credit,
+        json!({ "t": "credit", "channel": "link-1", "direction": "in", "bytes": 5 })
+    );
 }
 
 #[test]
@@ -210,11 +210,12 @@ fn a_closed_carrier_ends_the_channel_once() {
     assert_eq!(end["channel"], "link-1");
     assert_eq!(end["lost"]["retryable"], true);
     assert!(ports.port(0).lock().unwrap().shutdown);
-    host.answer_of("4", "cloud.port.list", json!({}));
-    let lines: Vec<Value> = std::iter::from_fn(|| host.next_within(std::time::Duration::ZERO))
-        .filter(|l| l["t"] == "end")
-        .collect();
-    assert!(lines.is_empty(), "one end per channel: {lines:?}");
+    // A late read result and a host frame after the end: no second end. The
+    // op result is the fence (the loop handles its lines in order).
+    ports.feed(0, PortEvent::Read(b"late".to_vec()));
+    host.send(&json!({ "t": "credit", "channel": "link-1", "direction": "out", "bytes": 1 }));
+    let lines = host.answer_of("4", "cloud.port.list", json!({}));
+    assert!(lines.iter().all(|l| l["t"] != "end" && l["t"] != "data"), "{lines:?}");
 }
 
 #[test]
@@ -247,12 +248,9 @@ fn the_hosts_end_frame_ends_the_link_without_an_end_back() {
     open_link(&mut host, &ports);
     host.send(&json!({ "t": "end", "channel": "link-1",
         "lost": { "reason": "closed", "retryable": true } }));
-    host.answer_of("4", "cloud.port.list", json!({}));
+    let lines = host.answer_of("4", "cloud.port.list", json!({}));
     assert!(ports.port(0).lock().unwrap().shutdown);
-    let ends: Vec<Value> = std::iter::from_fn(|| host.next_within(std::time::Duration::ZERO))
-        .filter(|l| l["t"] == "end")
-        .collect();
-    assert!(ends.is_empty(), "{ends:?}");
+    assert!(lines.iter().all(|l| l["t"] != "end"), "{lines:?}");
 }
 
 #[test]
@@ -276,8 +274,40 @@ fn a_link_that_goes_down_ends_its_frame_link() {
     let (mut host, ports) = start();
     open_link(&mut host, &ports);
     host.spawner.exit("vm-beta02", 1);
+    let down = next_where(&mut host, "link down or end", |l| {
+        l["event"] == "cloud.link.changed" || l["t"] == "end"
+    });
+    assert_eq!(down["state"], "down", "the link line comes before the end: {down}");
     let end = frame(&mut host, "end");
     assert_eq!(end["channel"], "link-1");
     assert_eq!(end["lost"]["retryable"], true, "a reconnect may work: {end}");
     assert!(ports.port(0).lock().unwrap().shutdown);
+
+    // A new user connect opens a new frame link on the new carrier.
+    host.send(&json!({ "type": "op", "id": "5", "op": "cloud.machine.connect",
+        "args": { "machine": "vm-beta02" }, "origin": "user", "idempotency_key": "c-5",
+        "open_token": "tok-2" }));
+    let request = next_where(&mut host, "a second connector.open", |l| l["t"] == "host.request");
+    assert_eq!(request["params"]["open_token"], "tok-2");
+    host.send(&json!({ "t": "host.result", "id": request["id"],
+        "value": { "channel": "link-2", "window_bytes": WINDOW } }));
+    host.answer_of("6", "cloud.port.list", json!({}));
+    assert_eq!(ports.count(), 2);
+    let second = ports.port(1).lock().unwrap().socket.clone();
+    assert_eq!(second, PathBuf::from("/tmp/cmux-test/vm-beta02-2.sock"));
+}
+
+#[test]
+fn frames_that_arrive_during_a_relay_call_are_applied_after_it() {
+    let (mut host, ports) = start();
+    open_link(&mut host, &ports);
+    // The list op waits for its relay answer; the data line comes meanwhile.
+    host.send(&json!({ "type": "op", "id": "4", "op": "cloud.machine.list", "args": {},
+        "origin": "user" }));
+    host.send(&json!({ "t": "data", "channel": "link-1", "offset": 2,
+        "bytes": STANDARD.encode(b"hi") }));
+    let lines = host.answer("4");
+    assert_eq!(lines.last().unwrap()["ok"], true, "{lines:?}");
+    host.answer_of("5", "cloud.port.list", json!({}));
+    assert_eq!(ports.port(0).lock().unwrap().writes, vec![b"hi".to_vec()]);
 }

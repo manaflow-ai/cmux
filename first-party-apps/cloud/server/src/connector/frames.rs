@@ -47,6 +47,8 @@ pub struct FrameLinks {
     links: BTreeMap<String, FrameLink>,
     /// Frame lines for the host, not sent yet.
     lines: Vec<Value>,
+    /// `connector.open` requests, sent after `lines`.
+    requests: Vec<Value>,
 }
 
 impl FrameLinks {
@@ -57,6 +59,7 @@ impl FrameLinks {
             opening: BTreeMap::new(),
             links: BTreeMap::new(),
             lines: Vec::new(),
+            requests: Vec::new(),
         }
     }
 
@@ -65,16 +68,31 @@ impl FrameLinks {
     }
 
     /// Whether a connect of `machine` should ask the host for a frame link:
-    /// none is open or being opened for it, and the bound has room.
+    /// no live one is open or being opened for it, and the bound has room.
+    /// A link whose pump ended (its `end` not sent yet) does not count.
     pub(crate) fn wants_open(&self, machine: &str) -> bool {
         let busy = self.opening.values().any(|m| m == machine)
-            || self.links.values().any(|l| l.machine == machine);
+            || self.links.values().any(|l| l.machine == machine && !l.pump.is_ended());
         !busy && self.opening.len() + self.links.len() < MAX_FRAME_LINKS
     }
 
-    /// A `connector.open` with host request `id` was sent for `machine`.
-    pub(crate) fn opening(&mut self, id: u64, machine: &str) {
+    /// Ends the frame links of `machine` that read an older carrier
+    /// generation than `generation` (a replaced link whose end did not
+    /// come yet).
+    pub(crate) fn end_stale(&mut self, machine: &str, generation: u64) {
+        for link in self.links.values_mut() {
+            if link.machine == machine && link.generation != generation {
+                link.pump.close(Lost::new("the link was replaced", true));
+            }
+        }
+    }
+
+    /// The `connector.open` `request` (host request `id`) for `machine`:
+    /// it goes out with the frame lines, after the `end` of any link it
+    /// replaces.
+    pub(crate) fn opening(&mut self, id: u64, machine: &str, request: Value) {
         self.opening.insert(id, machine.to_owned());
+        self.requests.push(request);
     }
 
     /// The machine of the `connector.open` that host request `id` answers.
@@ -156,6 +174,13 @@ impl FrameLinks {
         }
     }
 
+    /// Ends every link with `lost`.
+    pub(crate) fn close_all(&mut self, lost: &Lost) {
+        for link in self.links.values_mut() {
+            link.pump.close(lost.clone());
+        }
+    }
+
     /// The link of `machine` went down or was revoked: its frame links of
     /// that generation (any, when `generation` is `None`) end.
     pub(crate) fn link_down(&mut self, machine: &str, generation: Option<u64>, lost: &Lost) {
@@ -167,7 +192,8 @@ impl FrameLinks {
     }
 
     /// Moves every link's bytes as far as the credit allows and answers the
-    /// frame lines for the host; ended links release their carrier port.
+    /// frame lines for the host, then the `connector.open` requests; ended
+    /// links release their carrier port.
     pub(crate) fn take_lines(&mut self) -> Vec<Value> {
         let mut ended = Vec::new();
         for (channel, link) in &mut self.links {
@@ -182,7 +208,9 @@ impl FrameLinks {
                 link.port.shutdown();
             }
         }
-        std::mem::take(&mut self.lines)
+        let mut lines = std::mem::take(&mut self.lines);
+        lines.append(&mut self.requests);
+        lines
     }
 }
 

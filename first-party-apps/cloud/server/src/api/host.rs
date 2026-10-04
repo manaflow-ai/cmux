@@ -1,7 +1,7 @@
 //! Host-only ops on the server's JSON-lines channel: requests this server
 //! sends to its host (the app supervisor) and the host's answers and
-//! events. One frame shape for every host-only op (`cmux.host.link.get`,
-//! `cmux.terminal.connector.open`; `cmux.credential.relay` later):
+//! events. One frame shape for every host-only op (`cmux.host.link.get`
+//! and `cmux.terminal.connector.open` now; `cmux.credential.relay` later):
 //!
 //! - server -> host: `{"t":"host.request","id":n,"op":"...","params":{}}`
 //! - host -> server: `{"t":"host.result","id":n,"value":{...}}` or
@@ -12,8 +12,9 @@
 //! (`op:<name>` in `server.scopes`). At most one request per op waits at a
 //! time, so the waiting set and the outbox are bounded by the number of
 //! ops; the one exception, [`HostRequests::request_each`], is bounded by
-//! its caller (frame link opens: crate::connector::frames::MAX_FRAME_LINKS). Host frames arrive through the serve loop's inbox; only the loop
-//! thread reads or changes this state. No timer: an answer that never
+//! its caller (frame link opens: crate::connector::frames::MAX_FRAME_LINKS).
+//! Host frames arrive through the serve loop's inbox; only the loop thread
+//! reads or changes this state. No timer: an answer that never
 //! comes leaves the op waiting, and the op's users report it unavailable.
 
 use serde_json::{Value, json};
@@ -83,15 +84,15 @@ impl HostRequests {
         true
     }
 
-    /// Queues one `host.request` for `op` even when others of `op` wait
-    /// (one per target, such as `cmux.terminal.connector.open`); the caller
-    /// bounds how many wait. Returns the request id.
-    pub fn request_each(&mut self, op: &str, params: Value) -> u64 {
+    /// One `host.request` for `op` even when others of `op` wait (one per
+    /// target, such as `cmux.terminal.connector.open`), recorded as waiting
+    /// and returned with its id for the caller to send in its own order
+    /// (not queued here). The caller bounds how many wait.
+    pub fn request_each(&mut self, op: &str, params: Value) -> (u64, Value) {
         self.next_id += 1;
         self.waiting.insert(self.next_id, op.to_owned());
-        self.outbox
-            .push(json!({ "t": "host.request", "id": self.next_id, "op": op, "params": params }));
-        self.next_id
+        let frame = json!({ "t": "host.request", "id": self.next_id, "op": op, "params": params });
+        (self.next_id, frame)
     }
 
     /// Whether a request of `op` waits for its answer.

@@ -39,8 +39,11 @@ pub trait CarrierPort: Send {
 /// Opens carrier ports (tests give a fake).
 pub trait PortOpener: Send {
     /// Connects to the carrier socket at `socket`; each event calls `wake`.
-    fn open(&mut self, socket: &Path, wake: Option<LinkWake>)
-    -> std::io::Result<Box<dyn CarrierPort>>;
+    fn open(
+        &mut self,
+        socket: &Path,
+        wake: Option<LinkWake>,
+    ) -> std::io::Result<Box<dyn CarrierPort>>;
 }
 
 /// The real opener: a local stream socket.

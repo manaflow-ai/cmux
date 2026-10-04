@@ -7,7 +7,7 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use cmux_terminal_iface::{Direction, End, ExitStatus, Frame, FrameBody, Lost};
+use cmux_terminal_iface::{Direction, End, ExitStatus, Frame, FrameBody, Lost, MAX_EXIT_MESSAGE};
 use serde_json::{Value, json};
 
 /// The `t` of every frame line.
@@ -44,7 +44,7 @@ pub(crate) fn frame_from_line(line: &Value) -> Result<Frame, String> {
                 .map_err(|_| "credit bytes must fit in 32 bits")?,
         },
         Some("end") => FrameBody::End(match (line.get("exit"), line.get("lost")) {
-            (Some(_), None) => End::Exit(ExitStatus::default()),
+            (Some(exit), None) => End::Exit(exit_from(exit)),
             (None, Some(lost)) => End::Lost(Lost::new(
                 text(lost, "reason")?,
                 lost.get("retryable") == Some(&Value::Bool(true)),
@@ -54,6 +54,24 @@ pub(crate) fn frame_from_line(line: &Value) -> Result<Frame, String> {
         _ => return Err("t must be data, credit or end".into()),
     };
     Ok(Frame { channel, body })
+}
+
+/// `exit {code?, signal?, core_dumped, message?}` (the message cut to
+/// [`MAX_EXIT_MESSAGE`] bytes at a character boundary).
+fn exit_from(exit: &Value) -> ExitStatus {
+    let message = exit.get("message").and_then(Value::as_str).map(|m| {
+        let mut end = m.len().min(MAX_EXIT_MESSAGE);
+        while !m.is_char_boundary(end) {
+            end -= 1;
+        }
+        m[..end].to_owned()
+    });
+    ExitStatus {
+        code: exit.get("code").and_then(Value::as_i64).and_then(|c| i32::try_from(c).ok()),
+        signal: exit.get("signal").and_then(Value::as_str).map(str::to_owned),
+        core_dumped: exit.get("core_dumped") == Some(&Value::Bool(true)),
+        message,
+    }
 }
 
 /// The line for one frame of `channel`.
