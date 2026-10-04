@@ -15517,7 +15517,7 @@
       "nullable": true,
       "default": null,
       "since": 12,
-      "capability": "edge-docks-v1"
+      "capability": "dock-columns-v1"
      },
      "respawn": {
       "type": {

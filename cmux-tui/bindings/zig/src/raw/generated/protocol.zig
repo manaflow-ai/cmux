@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e";
+pub const ir_sha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4782,7 +4782,7 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .since = 12,
             .capability = "tab-drag-v1",
             .fields = &.{
-                .{ .name = "dock", .since = 12, .capability = "edge-docks-v1" },
+                .{ .name = "dock", .since = 12, .capability = "dock-columns-v1" },
                 .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
             },
         },

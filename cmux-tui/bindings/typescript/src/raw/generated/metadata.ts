@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e. */
+/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e" as const;
+export const SDK_IR_SHA256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1185,7 +1185,7 @@ export const COMMAND_METADATA = {
     "fields": {
       "dock": {
         "since": 12,
-        "capability": "edge-docks-v1"
+        "capability": "dock-columns-v1"
       },
       "respawn": {
         "since": 12,
@@ -14356,7 +14356,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "dock": {
-          "capability": "edge-docks-v1",
+          "capability": "dock-columns-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",

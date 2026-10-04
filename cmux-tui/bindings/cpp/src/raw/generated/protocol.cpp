@@ -29695,7 +29695,7 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand95FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand100FieldRequirements{{
-    {"dock", 12U, "edge-docks-v1"},
+    {"dock", 12U, "dock-columns-v1"},
     {"respawn", 12U, "tab-column-respawn-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand101FieldRequirements{{
