@@ -57,15 +57,15 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
-      /* Pierre's own background is the page's one viewer background, so file
-         headers, separators and code rows all paint the same opaque color. */
-      --diffs-light-bg: var(--cmux-diff-viewer-bg);
-      --diffs-dark-bg: var(--cmux-diff-viewer-bg);
+      /* Code rows and separators are clear over the page's one backdrop
+         (only html paints it, so a translucent backdrop never stacks). */
+      --diffs-light-bg: transparent;
+      --diffs-dark-bg: transparent;
       --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
       --diffs-bg-context-override: transparent;
       --diffs-bg-context-gutter-override: transparent;
-      --diffs-bg-separator-override: var(--cmux-diff-viewer-bg);
-      background-color: var(--cmux-diff-viewer-bg);
+      --diffs-bg-separator-override: transparent;
+      background-color: transparent;
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
@@ -79,7 +79,9 @@ export function codeViewUnsafeCSS(): string {
     code {
       background-color: transparent;
     }
-    /* The file header is opaque: scrolled code never shows through it. Its
+    /* The file header is never transparent (Lawrence): it paints the
+       backdrop composited onto the theme color at full alpha, so scrolled
+       code never shows through it, even over a see-through window. Its
        content is the slotted FileHeader (renderCustomHeader), so the row's
        height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
@@ -87,7 +89,7 @@ export function codeViewUnsafeCSS(): string {
       min-height: 0;
       display: flex;
       align-items: stretch;
-      background-color: var(--cmux-diff-viewer-bg);
+      background-color: var(--cmux-diff-solid-bg);
       border-bottom: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
@@ -158,7 +160,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
-      background-color: var(--cmux-diff-viewer-bg);
+      background-color: var(--cmux-diff-solid-bg);
     }
     [data-file-tree-search-container][data-open='false'] {
       display: none;
@@ -172,7 +174,7 @@ export function fileTreeUnsafeCSS(): string {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-viewer-bg);
+      background-color: var(--cmux-diff-solid-bg);
       padding-inline-start: 0;
       padding-inline-end: 2px;
       margin-inline-end: 2px;
@@ -196,7 +198,7 @@ export function fileTreeUnsafeCSS(): string {
       color: var(--trees-status-deleted);
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-viewer-bg) !important;
+      background-color: var(--cmux-diff-solid-bg) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;

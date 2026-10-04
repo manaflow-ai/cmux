@@ -2,6 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { App } from "../App";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appearance";
+import { installSolidBackdrop } from "../backdrop";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { createWebviewsRouter } from "../router";
@@ -28,6 +29,7 @@ export function mountDiffSurface(rootElement: HTMLElement): void {
   installWebviewStyles("diff", diffViewerStyles);
   installDiffLanguageHostAPI(config.payload?.languages);
   applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+  installSolidBackdrop();
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;
   }

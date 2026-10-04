@@ -83,7 +83,7 @@ export class MockAppsProvider implements PageClient {
           sandboxed: detail.tier === "unverified",
           scopes: detail.scopes.map((scope) => ({
             ...scope,
-            granted: !scope.optional && (detail.tier !== "unverified" || scope.risk === "read"),
+            granted: !scope.optional && (detail.tier !== "unverified" || scope.scope.endsWith(":read")),
           })),
         };
         return this.changed(app) as R;
@@ -212,8 +212,8 @@ export function sampleApps(): {
       latest_version: "1.2.0",
       install_count: 1200,
       scopes: [
-        { scope: "net:api.github.com", reason: "Reads your pull requests.", risk: "network", optional: false },
-        { scope: "workspace:read", reason: "Matches pull requests to workspaces.", risk: "read", optional: false },
+        { scope: "net:api.github.com", reason: "Reads your pull requests.", risk: "standard", optional: false },
+        { scope: "workspace:read", reason: "Matches pull requests to workspaces.", risk: "standard", optional: false },
       ],
       versions: [
         { version: "1.2.0", engines: "^1.0.0" },
@@ -233,7 +233,7 @@ export function sampleApps(): {
       categories: ["agents"],
       latest_version: "0.4.0",
       scopes: [
-        { scope: "integration:coderouter", reason: "Connects your accounts.", risk: "integration", optional: false },
+        { scope: "integration:coderouter", reason: "Connects your accounts.", risk: "sensitive", optional: false },
       ],
       versions: [{ version: "0.4.0", engines: "^1.0.0" }],
     },
@@ -251,13 +251,13 @@ export function sampleApps(): {
         {
           scope: "power:write",
           reason: "Holds a power assertion bound to the agent's terminal.",
-          risk: "mutate-own",
+          risk: "standard",
           optional: false,
         },
         {
           scope: "notifications:write",
           reason: "Says when it lets the Mac sleep.",
-          risk: "mutate-own",
+          risk: "standard",
           optional: true,
         },
       ],
@@ -273,7 +273,9 @@ export function sampleApps(): {
       tier: "unverified",
       categories: ["fun"],
       latest_version: "0.1.0",
-      scopes: [{ scope: "net:api.weather.example", reason: "Fetches the forecast.", risk: "network", optional: false }],
+      scopes: [
+        { scope: "net:api.weather.example", reason: "Fetches the forecast.", risk: "standard", optional: false },
+      ],
       versions: [{ version: "0.1.0", engines: "^1.0.0" }],
     },
   };
@@ -296,8 +298,8 @@ export function sampleApps(): {
       app: "cmux.github-prs",
       sandboxed: false,
       scopes: [
-        grant("net:api.github.com", "Reads your pull requests.", "network"),
-        grant("workspace:read", "Matches pull requests to workspaces.", "read"),
+        grant("net:api.github.com", "Reads your pull requests.", "standard"),
+        grant("workspace:read", "Matches pull requests to workspaces.", "standard"),
       ],
     },
   };

@@ -383,6 +383,11 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # macOS-only script behavior test (PlistBuddy, plutil): the "Bundle
+      # server helper" phase must not need the app's processed Info.plist.
+      - name: Script tests (bundle-server-helper)
+        run: bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+
       - name: Download pre-built GhosttyKit.xcframework
         run: |
           set -euo pipefail

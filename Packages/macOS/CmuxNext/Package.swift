@@ -333,7 +333,7 @@ let package = Package(
         .target(
             name: "CmuxNextPages",
             dependencies: ["CmuxNextDesign", "CmuxNextSettings"],
-            resources: [.copy("Resources/pages")],
+            resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

@@ -51,6 +51,7 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   team: p.team,
   ...(p.install ? { install: p.install } : {}),
   ...(p.grant ? { grant: p.grant } : {}),
+  ...(p.agent ? { agent: p.agent } : {}),
   stack_user_id: p.stack_user_id,
   ...(p.email !== undefined ? { email: p.email } : {}),
   ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
@@ -174,7 +175,7 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
     .handle("token", ({ payload }) =>
       Effect.gen(function* () {
         const r = yield* Effect.tryPromise({
-          try: () => rpc<RedeemResult>(userStub(payload.user).redeem(payload.user, payload.install, payload.nonce, payload.signature)),
+          try: () => rpc<RedeemResult>(userStub(payload.user).redeem(payload.user, payload.install, payload.nonce, payload.signature, payload.agent)),
           catch: () => new Forbidden({ code: "auth.forbidden", message: "token mint failed" })
         })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
@@ -437,6 +438,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           team: authed.team,
           ...(p.install ? { install: p.install } : {}),
           ...(p.grant ? { grant: p.grant } : {}),
+          ...(p.agent ? { agent: p.agent } : {}),
           stack_user_id: p.stack_user_id ?? "",
           ...(p.email !== undefined ? { email: p.email } : {}),
           ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),

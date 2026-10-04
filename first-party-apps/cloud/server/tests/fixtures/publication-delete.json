@@ -1,0 +1,12 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/publications/[id]/route.ts DELETE + deletePublication() (no customer data).",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/vm/publications/00000000-0000-4000-8000-000000000001"
+  },
+  "status": 200,
+  "body": {
+    "deleted": true,
+    "id": "00000000-0000-4000-8000-000000000001"
+  }
+}

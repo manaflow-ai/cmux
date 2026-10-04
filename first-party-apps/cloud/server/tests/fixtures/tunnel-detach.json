@@ -1,0 +1,13 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/tunnel/network/[operation]/route.ts + detachVmTunnelNetwork() (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/tunnel/network/detach"
+  },
+  "status": 200,
+  "body": {
+    "detached": true,
+    "tunnelId": "tun-test01",
+    "networkId": "vpc-test01"
+  }
+}
