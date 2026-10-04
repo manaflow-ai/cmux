@@ -7,10 +7,15 @@ import CoreText
 /// off the main actor inside `RowBitmaps`.
 enum PartDrawing {
     static func draw(_ ctx: CGContext, _ p: PartRow, body: CGRect, palette: HomePalette) {
-        if !p.outgoing {
+        // A media bubble's picture and placeholder are the row's media layer.
+        if !p.outgoing, p.media == nil {
             Canvas.fill(ctx, BubblePath.make(body: body, outgoing: false, tail: p.tail), palette.incomingBubble.cgColor)
         }
-        drawText(ctx, p.text, in: body, outgoing: p.outgoing, palette: palette)
+        switch p.content {
+        case .text(let text): drawText(ctx, text, in: body, outgoing: p.outgoing, palette: palette)
+        case .file(let file): AttachmentDrawing.drawChip(ctx, file, in: body, outgoing: p.outgoing, palette: palette)
+        case .media: break
+        }
         if p.failed { drawFailedBadge(ctx, body: body, palette: palette) }
         drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing, palette: palette)
     }

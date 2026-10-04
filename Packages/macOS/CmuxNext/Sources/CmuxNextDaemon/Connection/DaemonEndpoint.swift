@@ -89,6 +89,11 @@ public struct DaemonCapabilities: Sendable {
     /// `shell_args` on the terminal-creating commands, so bash and nushell
     /// get Ghostty's argv-based shell integration (`GhosttyShellIntegration`).
     public let terminalShellArgs = "terminal-shell-args-v1"
+    /// Echoed only by a connection whose terminals get Ghostty's shell
+    /// integration from this app (`DaemonConnectionConfiguration
+    /// .resolvesShellIntegration`): the daemon then starts the terminal's
+    /// `SHELL` as given and adds no integration of its own (R92 bug 2).
+    public let terminalFrontendShellIntegration = "terminal-frontend-shell-integration-v1"
     /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
     /// and window records, read before connecting (`LaunchSnapshot`).
     public let launchSnapshot = "launch-snapshot-v1"
@@ -179,7 +184,7 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
@@ -195,5 +200,14 @@ public struct DaemonCapabilities: Sendable {
     public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, sidebarLayout] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
-    public var advertised: [String] { required + optional + unservedByBundledDaemon }
+    /// `terminalFrontendShellIntegration` is not in it: only a connection
+    /// that resolves the integration echoes it (`handshakeCapabilities`).
+    public var advertised: [String] {
+        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration }
+    }
+
+    /// What a connection echoes in `set-client-info`.
+    public func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool) -> [String] {
+        resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised
+    }
 }

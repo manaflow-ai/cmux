@@ -134,7 +134,9 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
-use split_respawn::{SplitRespawnRequest, placement_spawn_options, shell_argv, split_tab};
+use split_respawn::{
+    SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
+};
 mod terminal_create;
 mod terminal_history;
 mod terminal_resources;
@@ -302,6 +304,12 @@ pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
+/// A client that echoes this in `set-client-info` resolves Ghostty's shell
+/// integration itself (into the terminal's `env` and `shell_args`): the
+/// terminals it creates start their `SHELL` exactly as given, and the host
+/// adds no integration of its own.
+pub const TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY: &str =
+    "terminal-frontend-shell-integration-v1";
 /// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`, `daemon`) on
 /// `notify`, the `notification` event, the tab marker and `list-notifications`; the daemon
 /// posts OSC 9, OSC 777 and OSC 99 from every terminal's output as `terminal`.
@@ -480,6 +488,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
         TERMINAL_SHELL_ARGS_CAPABILITY,
+        TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
@@ -5569,6 +5578,7 @@ impl ClientRegistry {
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
                     || capability == LOOPBACK_FORWARD_CAPABILITY
+                    || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || capability
                         == crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY
             }));
@@ -13674,7 +13684,13 @@ fn handle_command_with_cancellation(
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface =
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -13933,7 +13949,7 @@ fn handle_command_with_cancellation(
                 (None, Some(command)) if !command.is_empty() => {
                     Some(vec![platform::default_shell(), "-lc".to_string(), command])
                 }
-                (None, None) => shell_argv(&env, shell_args),
+                (None, None) => shell_argv(&env, shell_args, frontend_shell(mux, client)),
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
@@ -14154,7 +14170,13 @@ fn handle_command_with_cancellation(
             Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
         }
         Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface =
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -14170,7 +14192,13 @@ fn handle_command_with_cancellation(
             terminal_id,
             shell_args,
         } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface = mux.new_pane_right_with_options(
                 pane,
                 width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
@@ -14181,7 +14209,13 @@ fn handle_command_with_cancellation(
         }
         Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             let dir = parse_split_dir(&dir)?;
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
+            let spawn = placement_spawn_options(
+                cwd,
+                env.as_ref(),
+                terminal_id,
+                shell_args,
+                frontend_shell(mux, client),
+            )?;
             let surface =
                 mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -14333,11 +14367,11 @@ fn handle_command_with_cancellation(
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
             let edge = crate::TabDropEdge::parse(&edge)?;
-            let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
+            let outcome = split_tab(mux, client, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
-        Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
-        Command::NewRow(params) => rows::new_row(mux, params),
+        Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, client, params),
+        Command::NewRow(params) => rows::new_row(mux, client, params),
         Command::SetRowHeights(params) => rows::set_row_heights(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
@@ -24739,102 +24773,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
-    }
-
-    /// The argv the created terminal was spawned with (the in-process test
-    /// runtime records it instead of running it).
-    fn spawned_argv(mux: &Arc<Mux>, created: &Value) -> Vec<String> {
-        let surface = created["surface"].as_u64().expect("created surface");
-        mux.surface(surface).and_then(|surface| surface.spawn_argv()).expect("terminal surface")
-    }
-
-    #[test]
-    fn cmux_next_shell_args_start_the_terminals_shell_with_arguments() {
-        // A frontend passes Ghostty's shell-integration argv (bash --posix,
-        // nushell --execute) for the shell it put in the terminal's SHELL.
-        assert!(advertised_capabilities(false).contains(&TERMINAL_SHELL_ARGS_CAPABILITY));
-        let mux = test_mux();
-        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
-        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
-        let commands = [
-            ("new-tab", json!({})),
-            ("split", json!({"dir":"right"})),
-            ("new-pane", json!({})),
-            ("new-pane-right", json!({"width":0.5})),
-        ];
-        for (command, extra) in commands {
-            let mut request = json!({
-                "cmd":command,
-                "pane":pane,
-                "cols":60,
-                "rows":8,
-                "env":{"SHELL":"/opt/homebrew/bin/bash"},
-                "shell_args":["--posix"],
-            });
-            for (key, value) in extra.as_object().unwrap() {
-                request[key] = value.clone();
-            }
-            let created = run_json_command(&mux, request).unwrap();
-            assert_eq!(
-                spawned_argv(&mux, &created),
-                vec!["/opt/homebrew/bin/bash".to_string(), "--posix".to_string()],
-                "{command}"
-            );
-        }
-
-        let key = mux.with_state(|state| state.workspaces[0].key.clone());
-        let created = run_json_command(
-            &mux,
-            json!({
-                "cmd":"create-terminal",
-                "key":key,
-                "cols":60,
-                "rows":8,
-                "env":{"SHELL":"/opt/homebrew/bin/nu"},
-                "shell_args":["--execute", "use ghostty *"],
-                "origin":"test",
-                "mutation_id":"shell-args-create",
-            }),
-        )
-        .unwrap();
-        assert_eq!(
-            spawned_argv(&mux, &created),
-            vec![
-                "/opt/homebrew/bin/nu".to_string(),
-                "--execute".to_string(),
-                "use ghostty *".to_string()
-            ]
-        );
-        for conflicting in [json!({"argv":["/bin/sh"]}), json!({"command":"true"})] {
-            let mut request = json!({
-                "cmd":"create-terminal",
-                "key":key,
-                "shell_args":["-l"],
-                "origin":"test",
-                "mutation_id":"shell-args-conflict",
-            });
-            for (field, value) in conflicting.as_object().unwrap() {
-                request[field] = value.clone();
-            }
-            assert!(run_json_command(&mux, request).is_err(), "{conflicting}");
-        }
-    }
-
-    #[test]
-    fn cmux_next_shell_args_without_a_shell_env_use_the_default_shell() {
-        let mux = test_mux();
-        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
-        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
-        let created = run_json_command(
-            &mux,
-            json!({"cmd":"new-tab","pane":pane,"cols":60,"rows":8,"shell_args":["-l"]}),
-        )
-        .unwrap();
-        assert_eq!(spawned_argv(&mux, &created), vec![platform::default_shell(), "-l".to_string()]);
-        // No shell_args (or an empty list) keeps the plain default shell.
-        let plain =
-            run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"shell_args":[]})).unwrap();
-        assert_eq!(spawned_argv(&mux, &plain), vec![platform::default_shell()]);
     }
 
     #[test]

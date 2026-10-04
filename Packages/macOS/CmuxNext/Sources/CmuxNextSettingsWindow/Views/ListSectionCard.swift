@@ -18,7 +18,7 @@ struct ListSectionCard: View {
                 }
                 ForEach(rows) { row in
                     HStack(spacing: Metrics.space4) {
-                        Image(systemName: row.symbol).foregroundStyle(SettingsStyle.secondary)
+                        SettingsIconGlyph(icon: row.icon)
                             .frame(width: Metrics.iconSize + Metrics.space2)
                         Text(row.title)
                         if let subtitle = row.subtitle {
@@ -37,6 +37,20 @@ struct ListSectionCard: View {
                     .frame(maxWidth: .infinity, minHeight: SettingsStyle.rowHeight, alignment: .leading)
                     .padding(.horizontal, Metrics.space5)
             }
+        }
+    }
+}
+
+/// An icon value in a Settings row: an emoji as text, anything else as an SF
+/// Symbol (assets show a placeholder symbol until Settings draws assets).
+struct SettingsIconGlyph: View {
+    let icon: IconValue
+
+    var body: some View {
+        switch icon {
+        case .emoji(let text): Text(text)
+        case .symbol(let name): Image(systemName: name).foregroundStyle(SettingsStyle.secondary)
+        case .image, .svg: Image(systemName: "photo").foregroundStyle(SettingsStyle.secondary)
         }
     }
 }

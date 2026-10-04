@@ -249,7 +249,7 @@ public actor DaemonConnection {
         let replies = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
             PipelinedLine(SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
-                                               capabilities: configuration.advertisedCapabilities)),
+                                               capabilities: configuration.handshakeCapabilities)),
             PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
         ], timeout: configuration.requestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)

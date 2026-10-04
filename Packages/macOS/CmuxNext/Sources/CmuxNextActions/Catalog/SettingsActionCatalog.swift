@@ -145,6 +145,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["bug", "report", "contact"], category: .settings, symbol: "envelope",
                 surfaces: [.keyboard, .menu], cliName: "settings send-feedback", mainMenu: .help
             ),
+            // Every entrypoint (Help menu, palette, `cmux action run
+            // help.showCrashLogs`, the restart notice) opens the newest crash
+            // log in TextEdit (CrashRecoveryService.showCrashLogs).
+            ActionDescriptor(
+                id: "help.showCrashLogs",
+                title: String(localized: "action.help.showCrashLogs", defaultValue: "Show Crash Logs", bundle: .module),
+                keywords: ["crash", "report", "ips", "log", "diagnostics", "textedit"], category: .settings,
+                symbol: "doc.text.magnifyingglass", surfaces: [.palette, .menu], cliName: "settings show-crash-logs",
+                mainMenu: .help
+            ),
             ActionDescriptor(
                 id: "help.featureFlags",
                 title: String(localized: "action.help.featureFlags", defaultValue: "Feature Flags", bundle: .module),

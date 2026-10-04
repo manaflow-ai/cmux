@@ -7,9 +7,9 @@ import Testing
 /// pure geometry, and that layout tunables default to the old literals.
 @MainActor
 @Suite struct DropOverlayTests {
-    @Test func offersTwelveStylesWithTheOriginalGlassAsTheDefault() {
-        #expect(DropOverlayStyle.allCases.count == 12)
-        #expect(DropOverlayTunables.style.defaultValue == .glassFill)
+    @Test func offersThirteenStylesWithTheOutlineAsTheDefault() {
+        #expect(DropOverlayStyle.allCases.count == 13)
+        #expect(DropOverlayTunables.style.defaultValue == .outline)
         guard case .choice(let options) = DropOverlayTunables.style.descriptor.kind else {
             Issue.record("style is not a choice")
             return
@@ -23,7 +23,7 @@ import Testing
         let store = TunableStore()
         store.register(LayoutTunables.all)
         store.activate(file: nil)
-        #expect(DropOverlayTunables.style.value(in: store) == .glassFill)
+        #expect(DropOverlayTunables.style.value(in: store) == .outline)
         store.set("drop.overlay.style", .choice("splitPreview"))
         #expect(DropOverlayTunables.style.value(in: store) == .splitPreview)
         #expect(store.set("drop.overlay.style", .choice("sparkles")) == nil)
@@ -49,19 +49,37 @@ import Testing
         }
     }
 
-    @Test func highlightKeepsTheOriginalLookByDefault() {
+    /// tab-dnd (Lawrence 2026-10-04: "i dont like solid thing, id rather
+    /// just draw the border around where it will be dropped"): the default
+    /// draws a border exactly around the drop rect, no fill, and needs no
+    /// frame clock (the compositor animates it).
+    @Test func theDefaultIsABorderExactlyAroundTheDropRect() throws {
         let plane = NSView(frame: CGRect(x: 0, y: 0, width: 600, height: 400))
         let highlight = DropHighlightView(material: .opaque)
         plane.addSubview(highlight)
-        _ = highlight.show(CGRect(x: 0, y: 0, width: 300, height: 400), region: CGRect(x: 0, y: 0, width: 600, height: 400),
-                           zone: .left, text: "Split Left", inset: 0, cornerRadius: 6, pointer: .zero, animated: false)
-        #expect(highlight.style == .glassFill)
-        #expect(highlight.material == .opaque)
-        #expect(highlight.targetRect == CGRect(x: 0, y: 0, width: 300, height: 400))
+        let rect = CGRect(x: 0, y: 0, width: 300, height: 400)
+        let needsClock = highlight.show(rect, region: CGRect(x: 0, y: 0, width: 600, height: 400), zone: .left, text: "Split Left",
+                                        inset: 0, cornerRadius: 6, pointer: .zero, animated: true)
+        #expect(highlight.style == .outline)
+        #expect(!needsClock, "the outline moves on the compositor, not on a frame clock")
+        #expect(highlight.targetRect == rect)
         #expect(highlight.frame == plane.bounds)
-        #expect(highlight.alphaValue == 1)
+        let outline = try #require(highlight.outline)
+        #expect(outline.ringFrame == rect)
+        #expect(outline.ringWidth == 2)
+        #expect(!outline.ringHasFill)
+        #expect(!outline.showsChip, "a target the drop takes shows the border alone")
+        // A move to the next target is one compositor animation to its rect.
+        let next = CGRect(x: 300, y: 0, width: 300, height: 400)
+        #expect(!highlight.show(next, region: next, zone: .right, text: "Split Right", inset: 0, cornerRadius: 6, pointer: .zero,
+                                animated: true))
+        #expect(outline.ringFrame == next)
+        highlight.setNote("No room", refused: true)
+        #expect(highlight.isRefused)
+        #expect(outline.showsChip)
         _ = highlight.hide(animated: false)
-        #expect(highlight.isHidden)
+        #expect(!highlight.isShowing)
+        #expect(outline.ringOpacity == 0)
     }
 
     @Test func splitPreviewShowsBothPanesAtTheirFinalSizes() {
