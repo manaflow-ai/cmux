@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 5 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 6 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -112,7 +112,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E, D-F, D-G, D-H; rev 5 with the acpmux owner's design)
+## 6. Remote prompts to agents (D-A no waiver; D-E, D-F, D-G, D-H; rev 6)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -128,23 +128,41 @@ crashed, slow or unsure, the tool does not run.
    conversation files under `$MUX_HOME` (for another agent: its session's workspace root), and
    never for: `state/`, `*.token`, `.claude/`, `.env*`, the `MUX_AGENT_TOKEN_FILE` path, and any
    file of the pairing record or install keys. These deny paths win over the read root.
-3. **Own process (acpmux design 3).** A remote chain runs in its **own** Claude process (a fresh
-   spawn, or a resume-fork of the conversation's session), never in an existing local session.
-   Cancel and revocation kill that process group through the agent host. Known gap: a child that
-   an approved tool starts with `setsid` leaves the group and can survive; the approval text says
-   "an approved shell call can create work that persists".
-4. **Clean configuration (acpmux design 1, 5).** A remote-chain session starts with
-   `--setting-sources ""`, the injected `--settings` (bypass disabled per session:
-   `permissions.disableBypassPermissionsMode: "disable"`, `permissions.defaultMode: "default"`;
-   the daemon's fast-allow PreToolUse hook; the cmux-tui status hooks), `--strict-mcp-config`
-   and `--mcp-config <daemon file>`. User and repository `permissions.allow` rules, hooks and
-   `.mcp.json` never load (this also covers a child in another repository). The Claude Code
-   version is pinned and checked at spawn; profile wrappers (for example `claude-sr`) and extra
-   argv are refused for remote chains.
-5. **Gate before code (P3-H).** Before any code, a probe on the pinned version must show that
-   `disableBypassPermissionsMode` from `--settings` refuses bypass. Fallback if it does not:
-   `--permission-mode default` on every remote-chain spawn, and acpmux refuses any spawn with
-   `--dangerously-skip-permissions` in a remote chain.
+3. **Own fresh process (acpmux design 3; P1-K, DECISION: fresh start, proposal yes).** A remote
+   chain runs in its own Claude process and **never forks or resumes a local session** (acpmux
+   `fork()` copies the harness, argv, permission policy, modes, config options and models, and
+   `--resume --fork-session` brings the whole local transcript with its tool results). It starts
+   fresh with only the **remote projection** of the conversation's messages (section 8 structs)
+   as context, or it resumes an earlier **remote-chain** session of the same conversation and
+   install. Its configuration is built from scratch (rule 4): pinned `claude`, empty extra argv,
+   policy `daemon`, no copied modes, config options or models. Cancel and revocation kill its
+   process group through the agent host. Known gap: a child that an approved tool starts with
+   `setsid` leaves the group and can survive; the approval text says "an approved shell call can
+   create work that persists".
+4. **Clean configuration (acpmux design 1, 5; P2-L, P3-I).** A remote-chain session starts with
+   `--setting-sources ""`, `--settings` and `--mcp-config` passed as **inline JSON** (never as
+   files a same-uid tool could rewrite), and `--strict-mcp-config`. The settings carry only:
+   bypass disabled per session (`permissions.disableBypassPermissionsMode: "disable"`,
+   `permissions.defaultMode: "default"`), the daemon's fast-allow PreToolUse hook and the cmux-tui
+   status hooks; they set no `enabledPlugins` and no MCP-enable keys. The MCP config names only the
+   daemon's servers. User and repository `permissions.allow` rules, hooks and `.mcp.json` never
+   load. The Claude Code version is pinned and checked at spawn; profile wrappers (for example
+   `claude-sr`) and extra argv are refused. Writes to the gate's inputs (acpmux and daemon
+   configuration, the hook binary, the pinned Claude install) are never approvable in a remote
+   chain.
+5. **Gates before code (P3-H, P1-L).** Probes on the pinned version must show, before any code:
+   - `disableBypassPermissionsMode` from inline `--settings` refuses bypass. Fallback:
+     `--permission-mode default` on every remote spawn and refusal of
+     `--dangerously-skip-permissions`.
+   - user skills with `allowed-tools: Bash`, custom commands with `allowed-tools` or `!` lines,
+     agent definitions with `permissionMode: bypassPermissions`, plugins (hooks, MCP), and managed
+     settings, `managed-mcp.json` and managed hooks do **not** let a tool run without the daemon,
+     and no plugin hook runs.
+   - **DECISION (P1-L), proposal:** do both: in remote chains the `Skill` and `SlashCommand` tools
+     and custom subagent types are denied by the daemon (only built-in tools and the built-in
+     general subagent with no `permissionMode`), **and** the probe runs; at spawn, managed settings
+     that add allow rules, hooks or MCP servers refuse the remote chain unless they are named on a
+     reviewed list.
 6. **The decision is the daemon's (P1-H).** For a remote or unknown prompt, acpmux sends every
    `session/request_permission` to the daemon and **ignores** the session policy and rules
    (`MUX_POLICY`, which defaults to approve-all in the mux host, `--policy`, `acpmux session
@@ -157,24 +175,33 @@ crashed, slow or unsure, the tool does not run.
    cancelled.
 8. **Which agents (D-G).** Remote chains spawn only Claude Code in v1; any other harness and any
    auto or yolo mode is refused, also as a child.
-9. **Origin (acpmux design 2).** The origin is an ACP `_meta` field on the prompt that only the
-   daemon socket can set; an absent field means remote. acpmux's web listener and its peer and
+9. **Origin (acpmux design 2, P3-K).** The origin is an ACP `_meta` field on the prompt that only
+   the daemon can set: acpmux accepts `_meta.origin` only on prompts that arrive on its
+   daemon-only Unix socket (0600, peer uid check, and on macOS the cmux team signature of the
+   connecting binary) and strips it from every other path; an absent field means remote. acpmux's web listener and its peer and
    handoff paths stamp remote, or are disabled for remote-chain sessions. The origin is keyed by
    `(session, prompt id)`, stored durably with the prompt metadata and in the daemon store, and
    survives restarts and handoffs. No method can clear it. A prompt that contains any remote
    message is remote. The mark covers the prompt, its tool calls, its child sessions and its
    `[mux-event]` follow-ups; a later local message starts a new chain and never clears a running
    one.
-10. **Remote text is data (P2-E, P2-I).** The agent host passes remote text as one quoted data
-    block with a fixed prefix ("Message from <device>:"), so `/cmd`, `!x` and `@path` in it are
-    plain text: no slash command, no shell line, and no `@` file expansion. Verify the `@`
-    behavior on the pinned version.
+10. **Remote text is data (P2-E, P2-M).** Remote text is never prompt text: the agent host sends
+    it as an ACP **embedded resource** block (`mimeType text/plain`, an origin-tagged URI), next to
+    a fixed instruction text written by the agent host. So `/cmd`, `!x`, `@path` anywhere in it, a
+    fake `[mux-event]` line or a fake "Message from user_local:" line stay data. If the pinned
+    version does not keep an embedded resource out of prompt parsing, the fallback is a random
+    per-prompt nonce delimiter, and remote text that contains the nonce is refused.
 11. **Hooks (D-H).** Only the injected hooks run (rule 4): the cmux-tui status hooks (journal events,
     no command built from the text) and the daemon's fast-allow hook. No hook gets remote text as
     shell input. The mux host's memory hooks do not write `LOG.txt` or `TREE/` for a remote chain:
     the message and the reply go to a separate **origin-tagged remote log** (by file, no shell),
     which the memory view marks as remote and later local turns treat as untrusted. Moving any of
     it into `LOG.txt` or `TREE/` needs an approval with a presence proof.
+11a. **How the remote chain posts (P3-J).** The remote-chain process posts as `agent_mux` through
+    the same owner path as the local Chief: its replies go through the conversation outbox with the
+    same idempotency keys and the same agent turn budget (home.md 2), and every message it posts
+    carries `origin: remote`. The local Chief (one brain) learns of a remote chain only through the
+    origin-tagged remote log and the conversation messages, never through shared process state.
 12. **Approvals.** Each approval shows the exact command or call and its arguments, one approval
     per call. The text says that an approved shell call runs with the owner's full trust and can
     create work that persists. Each approval needs a presence proof (lane 15: the presence key with
@@ -185,6 +212,16 @@ crashed, slow or unsure, the tool does not run.
     process group and its queued outbox.
 
 Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
+- a remote chain in the Chief's conversation does not resume the local transcript and does not
+  inherit its harness, argv, policy, modes or config options.
+- a skill with `allowed-tools: Bash`, a custom command with a `!` line, an agent with
+  `permissionMode: bypassPermissions` and a plugin hook do not run anything without the daemon;
+  `Skill` and `SlashCommand` are denied.
+- `--settings` and `--mcp-config` are inline; only the daemon's MCP servers appear; no plugin is
+  enabled; an approval for a write to acpmux or daemon configuration is refused.
+- remote text that contains a fake closing delimiter, a fake `[mux-event]` line, or `@/etc/hosts`
+  in mid-text stays data.
+- `_meta.origin` set on any path other than the daemon-only socket is stripped.
 - bypass refused from `--settings` (gate, rule 5); `--dangerously-skip-permissions` refused.
 - a missing, crashing or slow PreToolUse hook ends in the daemon's decision.
 - a user `Bash(*)` allow rule does not skip the daemon; `MUX_POLICY=approve-all`, `--policy`,
