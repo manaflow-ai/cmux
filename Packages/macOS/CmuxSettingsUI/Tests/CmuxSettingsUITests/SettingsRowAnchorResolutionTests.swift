@@ -88,6 +88,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.reactGrabVersion",
+        "browser.showLinkHoverURL",
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.urlsToAlwaysOpenExternally",

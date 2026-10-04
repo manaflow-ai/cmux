@@ -81,6 +81,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserAskWhereToSaveDownloads"
     )
 
+    /// Shows a link's destination at the bottom-left of a browser pane while
+    /// the pointer is over the link.
+    public let showLinkHoverURL = DefaultsKey<Bool>(
+        id: "browser.showLinkHoverURL",
+        defaultValue: true,
+        userDefaultsKey: "browserShowLinkHoverURL"
+    )
+
     public let openTerminalLinksInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.openTerminalLinksInCmuxBrowser",
         defaultValue: true,

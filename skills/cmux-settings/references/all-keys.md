@@ -225,6 +225,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed. |
 | `browser.autoRestoreUnloadedPages` | boolean | `true` | Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When `false`, the tab shows the page's last snapshot until you click Restore. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
+| `browser.showLinkHoverURL` | boolean | `true` | Show a link's destination at the bottom-left of a browser pane while the pointer is over the link. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
 
 ## markdown

@@ -1,3 +1,4 @@
+import CmuxSettings
 public import Foundation
 
 /// The link destination a browser pane shows while the pointer is over a link.
@@ -8,6 +9,15 @@ public struct BrowserLinkHoverURL: Equatable, Sendable {
 
     /// The text to show in the pane's link hover indicator.
     public let displayString: String
+
+    /// Whether browser panes show the hovered link, per `browser.showLinkHoverURL`.
+    public static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        let setting = SettingCatalog().browser.showLinkHoverURL
+        if defaults.object(forKey: setting.userDefaultsKey) == nil {
+            return setting.defaultValue
+        }
+        return defaults.bool(forKey: setting.userDefaultsKey)
+    }
 
     /// Creates the hover text for `url`, or `nil` when there is no link to show.
     public init?(url: URL?) {

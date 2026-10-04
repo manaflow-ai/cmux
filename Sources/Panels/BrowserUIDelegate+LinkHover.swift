@@ -13,8 +13,7 @@ extension BrowserUIDelegate {
         withFlags flags: UInt,
         userInfo: Any?
     ) {
-        WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(
-            BrowserLinkHoverURL(hitTestResult: hitTestResult)?.displayString
-        )
+        let hover = BrowserLinkHoverURL.isEnabled() ? BrowserLinkHoverURL(hitTestResult: hitTestResult) : nil
+        WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(hover?.displayString)
     }
 }

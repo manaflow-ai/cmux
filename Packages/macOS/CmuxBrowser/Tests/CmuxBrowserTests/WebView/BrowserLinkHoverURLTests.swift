@@ -22,6 +22,17 @@ struct BrowserLinkHoverURLTests {
         #expect(BrowserLinkHoverURL(hitTestResult: NSObject()) == nil)
     }
 
+    @Test("Hover URLs show unless browser.showLinkHoverURL is off")
+    func settingDefaultsToOn() throws {
+        let suiteName = "BrowserLinkHoverURLTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        #expect(BrowserLinkHoverURL.isEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: "browserShowLinkHoverURL")
+        #expect(!BrowserLinkHoverURL.isEnabled(defaults: defaults))
+    }
+
     @Test("A very long link is capped before it reaches the indicator")
     func longLinkIsCapped() throws {
         let payload = String(repeating: "A", count: BrowserLinkHoverURL.maximumDisplayLength * 2)

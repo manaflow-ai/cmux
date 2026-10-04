@@ -622544,6 +622544,183 @@
           }
         }
       }
+    },
+    "settings.browser.showLinkHoverURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Link URLs on Hover"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار عنوان الرابط عند التمرير فوقه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link-URLs beim Überfahren anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la URL de los enlaces al pasar el puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’URL des liens au survol"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクにポインタを置いたときに URL を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크에 포인터를 올리면 URL 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "悬停时显示链接网址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑鼠懸停時顯示連結網址"
+          }
+        }
+      }
+    },
+    "settings.browser.showLinkHoverURL.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a link's destination at the bottom of a browser pane while the pointer is over it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض وجهة الرابط أسفل لوحة المتصفح عندما يكون المؤشر فوقه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das Ziel eines Links unten im Browserbereich an, solange sich der Zeiger darüber befindet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el destino de un enlace en la parte inferior del panel del navegador mientras el puntero está sobre él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche la destination d’un lien en bas du panneau du navigateur lorsque le pointeur le survole."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポインタがリンク上にある間、ブラウザペインの下部にリンク先を表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포인터가 링크 위에 있는 동안 브라우저 패널 하단에 링크의 대상 주소를 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指针停留在链接上时，在浏览器面板底部显示链接的目标地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標停留在連結上時，在瀏覽器面板底部顯示連結的目的地。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.link-hover-url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview رابط تمرير وجهة عنوان شريط الحالة معاينة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link überfahren ziel adresse statusleiste vorschau"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview enlace pasar puntero destino dirección barra de estado vista previa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview lien survol destination adresse barre d’état aperçu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview リンク ホバー URL リンク先 ステータスバー プレビュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 링크 호버 주소 대상 상태 표시줄 미리보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 链接 悬停 网址 目标 状态栏 预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 連結 懸停 網址 目的地 狀態列 預覽"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

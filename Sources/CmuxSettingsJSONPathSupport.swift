@@ -484,6 +484,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
         ),
         .init(
+            jsonKey: "showLinkHoverURL",
+            defaultsKey: SettingCatalog().browser.showLinkHoverURL.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
         ),
