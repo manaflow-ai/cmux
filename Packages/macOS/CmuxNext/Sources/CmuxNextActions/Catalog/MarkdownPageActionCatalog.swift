@@ -13,6 +13,27 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "square.and.arrow.down", surfaces: [.palette, .keyboard],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-save"
             ),
+            ActionDescriptor(
+                id: "markdownLink",
+                title: String(localized: "action.markdownLink", defaultValue: "Markdown: Insert Link", bundle: .module),
+                keywords: ["markdown", "link", "url"], defaultShortcut: Shortcut("k", modifiers: [.command]),
+                category: .browser, symbol: "link", surfaces: [.palette, .keyboard],
+                requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-link"
+            ),
+            ActionDescriptor(
+                id: "markdownBack",
+                title: String(localized: "action.markdownBack", defaultValue: "Markdown: Back", bundle: .module),
+                keywords: ["markdown", "back", "history"], defaultShortcut: Shortcut("[", modifiers: [.command]),
+                category: .browser, symbol: "chevron.backward", surfaces: [.palette, .keyboard],
+                requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-back"
+            ),
+            ActionDescriptor(
+                id: "markdownForward",
+                title: String(localized: "action.markdownForward", defaultValue: "Markdown: Forward", bundle: .module),
+                keywords: ["markdown", "forward", "history"], defaultShortcut: Shortcut("]", modifiers: [.command]),
+                category: .browser, symbol: "chevron.forward", surfaces: [.palette, .keyboard],
+                requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-forward"
+            ),
         ]
     }
 }
