@@ -59,3 +59,31 @@ fn handoff_commands_list_move_and_refuse_reads() {
     let missing = run(&mux, json!({"cmd":"feed-local-handoff-begin","item":"nope"})).unwrap_err();
     assert_eq!(response_error_code(&missing).as_deref(), Some("not_found"));
 }
+
+/// `feed-local-handoff-abort` (after `feed.adopt.cancel` answered
+/// `cancelled: true`) is trusted-local only and reopens the item; a CLI
+/// notice without a terminal is stamped with the `user` actor (P8 shape).
+#[test]
+fn handoff_abort_reopens_and_cli_notices_carry_the_user_actor() {
+    let mux = Mux::new_for_test("feed-local-abort", crate::SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    run(&mux, json!({"cmd":"notify","title":"done","body":"","surface":surface.id})).unwrap();
+    let item = run(&mux, json!({"cmd":"feed-local-list"})).unwrap()["items"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    run(&mux, json!({"cmd":"feed-local-handoff-begin","item":item})).unwrap();
+    let abort = json!({"cmd":"feed-local-handoff-abort","item":item});
+    let remote = run_as(&mux, false, abort.clone()).unwrap_err();
+    assert!(remote.to_string().contains("trusted local connection"), "{remote}");
+    let reopened = run(&mux, abort.clone()).unwrap();
+    assert_eq!(reopened["item"]["state"], "open");
+    assert_eq!(run(&mux, abort).unwrap(), reopened, "a repeated abort is idempotent");
+    run(&mux, json!({"cmd":"feed-local-read","items":[item]})).unwrap();
+
+    run(&mux, json!({"cmd":"notify","title":"plain","body":""})).unwrap();
+    let listed = run(&mux, json!({"cmd":"feed-local-list"})).unwrap();
+    let plain = listed["items"].as_array().unwrap().iter().find(|i| i["title"] == "plain").unwrap();
+    assert_eq!(plain["actor"]["kind"], "user");
+    assert_eq!(plain["actor"]["id"], "user_local");
+}

@@ -135,6 +135,41 @@ fn handing_off_survives_restart_and_moved_items_refuse_reads() {
     assert!(item.is_unread(), "a refused read queues nothing");
 }
 
+/// The handoff abort after `feed.adopt.cancel` answered `cancelled: true`:
+/// the frozen item is open again, and that survives a restart (B3: the app
+/// rebuilds its queue from `handing_off` items, so a reopened item leaves
+/// the queue). A moved item cannot be reopened.
+#[test]
+fn handoff_abort_reopens_the_item_durably() {
+    let root = root("abort");
+    let session = "feed-abort";
+    let mux = open(&root, session);
+    let surface = mux.new_workspace(None, None).unwrap();
+    post(&mux, "agent waiting", Some(surface.id));
+    let item = all(&mux).pop().unwrap();
+    mux.feed_local_handoff_begin(&item.id).unwrap();
+    drop(mux);
+
+    let mux = open(&root, session);
+    let reopened = mux.feed_local_handoff_abort(&item.id).unwrap();
+    assert_eq!((reopened.state, reopened.home.as_deref()), (ItemState::Open, None));
+    assert_eq!(mux.feed_local_handoff_abort(&item.id).unwrap(), reopened, "a repeat is a no-op");
+    drop(mux);
+
+    let mux = open(&root, session);
+    let filter = ListFilter { state: Some(ItemState::HandingOff), ..ListFilter::default() };
+    assert!(mux.feed_local_list(&filter).is_empty(), "the reopened item left the queue");
+    mux.feed_local_read(std::slice::from_ref(&item.id)).unwrap();
+    assert!(!all(&mux)[0].is_unread(), "the local owner takes ops on it again");
+
+    post(&mux, "second", Some(surface.id));
+    let second = all(&mux).pop().unwrap();
+    mux.feed_local_handoff_begin(&second.id).unwrap();
+    mux.feed_local_handoff_done(&second.id, "cloud").unwrap();
+    let error = mux.feed_local_handoff_abort(&second.id).unwrap_err();
+    assert_eq!(feed_error_code(&error).as_deref(), Some("feed.invalid_state"));
+}
+
 /// B2 and B7: the post commits with the notification, coalesces per
 /// terminal while the item is unread, and the tab ack reads it durably.
 #[test]
@@ -151,6 +186,10 @@ fn notifications_post_coalesce_and_ack_durably() {
     let actor = items[0].actor.as_ref().unwrap();
     assert_eq!(actor.kind, "terminal");
     assert_eq!(Some(&actor.id), items[0].context.terminal.as_ref());
+    assert!(actor.host.is_some(), "a terminal actor names its host (P8 shape)");
+    // Item ids have the cloud owner's shape, so feed.adopt keeps the same id.
+    let id = items[0].id.strip_prefix("fi_").expect("fi_ prefix");
+    assert!(id.len() == 20 && id.bytes().all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()));
     assert!(items[0].context.workspace.is_some() && items[0].context.tab.is_some());
     // Selecting never reads; the explicit ack does.
     mux.select_tab(None, Some(0), None);

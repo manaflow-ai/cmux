@@ -132,6 +132,30 @@ fn handoff_moves_once_and_repeats_are_idempotent() {
     assert_eq!(feed.list(&filter).len(), 1);
 }
 
+/// The handoff abort (`feed.adopt.cancel` answered `cancelled: true`): a
+/// handing-off item is owned here again. Repeating it on an open item is a
+/// no-op; a moved item refuses, because the cloud owns it.
+#[test]
+fn handoff_abort_unfreezes_only_a_handing_off_item() {
+    let mut feed = Feed::default();
+    feed.post(notice("a", "k1", Some("t1"), 1)).unwrap();
+    let (item, changes) = feed.handoff_abort("a", 2).unwrap();
+    assert_eq!(item.state, ItemState::Open);
+    assert!(changes.is_empty(), "an abort of an open item is a no-op");
+    feed.handoff_begin("a", 3).unwrap();
+    let (item, changes) = feed.handoff_abort("a", 4).unwrap();
+    assert_eq!((item.state, item.home.as_deref()), (ItemState::Open, None));
+    assert_eq!(changes.upserts, vec![item]);
+    feed.read(&["a".into()], 5).unwrap();
+    assert!(!feed.get("a").unwrap().is_unread(), "the reopened item takes ops again");
+
+    feed.post(notice("b", "k2", Some("t2"), 6)).unwrap();
+    feed.handoff_begin("b", 7).unwrap();
+    feed.handoff_done("b", "cloud", 8).unwrap();
+    assert_eq!(feed.handoff_abort("b", 9).unwrap_err().code(), "feed.invalid_state");
+    assert_eq!(feed.handoff_abort("nope", 9).unwrap_err().code(), "not_found");
+}
+
 #[test]
 fn prune_drops_old_read_and_moved_items_and_bounds_the_count() {
     let mut feed = Feed::default();
@@ -161,6 +185,7 @@ enum Op {
     ReadTerminal { terminal: u8 },
     Begin { item: u8 },
     Done { item: u8 },
+    Abort { item: u8 },
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -170,6 +195,7 @@ fn op() -> impl Strategy<Value = Op> {
         (0u8..3).prop_map(|terminal| Op::ReadTerminal { terminal }),
         (0u8..40).prop_map(|item| Op::Begin { item }),
         (0u8..40).prop_map(|item| Op::Done { item }),
+        (0u8..40).prop_map(|item| Op::Abort { item }),
     ]
 }
 
@@ -202,6 +228,12 @@ proptest! {
                 Op::ReadTerminal { terminal } => { let _ = feed.read_terminal(&format!("t{terminal}"), at); }
                 Op::Begin { item } => if let Some(id) = pick(item) { let _ = feed.handoff_begin(&id, at); },
                 Op::Done { item } => if let Some(id) = pick(item) { let _ = feed.handoff_done(&id, "cloud", at); },
+                Op::Abort { item } => if let Some(id) = pick(item) {
+                    let result = feed.handoff_abort(&id, at);
+                    if moved.contains_key(&id) {
+                        prop_assert_eq!(result.unwrap_err().code(), "feed.invalid_state");
+                    }
+                },
             }
             let mut keys = std::collections::HashSet::new();
             for item in feed.items() {
