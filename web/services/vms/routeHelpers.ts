@@ -38,6 +38,7 @@ import {
   type VmSnapshotNotFoundError,
   type VmFileNotFoundError,
   type VmFirewallRuleNotFoundError,
+  type VmFirewallRuleInvalidError,
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -742,6 +743,15 @@ const vmFirewallRuleNotFoundResponse = (error: VmFirewallRuleNotFoundError): Res
     details: { ruleId: error.ruleId },
   });
 
+const vmFirewallRuleInvalidResponse = (error: VmFirewallRuleInvalidError): Response =>
+  vmErrorResponse({
+    error: "vm_invalid_firewall_rule",
+    status: 400,
+    message: error.reason,
+    action: "Name your own Cloud VM, network, or tunnel as the destination.",
+    displayTitle: "Firewall rule not allowed",
+  });
+
 const vmFileNotFoundResponse = (error: VmFileNotFoundError): Response =>
   vmErrorResponse({
     error: "vm_file_not_found",
@@ -1092,6 +1102,7 @@ export const vmWorkflowErrorResponders = {
   VmSnapshotNotFoundError: (error) => vmSnapshotNotFoundResponse(error),
   VmFileNotFoundError: (error) => vmFileNotFoundResponse(error),
   VmFirewallRuleNotFoundError: (error) => vmFirewallRuleNotFoundResponse(error),
+  VmFirewallRuleInvalidError: (error) => vmFirewallRuleInvalidResponse(error),
   // Create-family failures need the caller's plan and operation copy; the
   // create, fork, and restore routes supply those as overrides.
   VmCreateInProgressError: () => null,
