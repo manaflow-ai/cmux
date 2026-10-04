@@ -26,6 +26,9 @@ export interface SignInRules {
   readonly allowed_classes: ReadonlyArray<string>
 }
 
+/** The principal of the plain member view in event effects (no user: no own devices). */
+const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
+
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Members see each other's public ids and display name in events, never email,
@@ -37,13 +40,19 @@ export class TeamDO extends OwnerDO<TeamState> {
       ...(p.team ? { team: p.team } : {}),
       ...(p.install ? { install: p.install } : {}),
       ...(p.display_name ? { display_name: p.display_name } : {})
-    }), { rowMode: { snapshotTable: TABLE_MEMBER, snapshotTail: 0 }, redact: { privateTables: TEAM_PRIVATE_TABLES } })
+    }), {
+      rowMode: { snapshotTable: TABLE_MEMBER, snapshotTail: 0 },
+      // Row-mode events carry the head to every subscriber: only the plain member view goes out (review P1).
+      // Admins get their full view in snapshots (subscriberView); managed devices come from reads.
+      redact: { privateTables: TEAM_PRIVATE_TABLES, state: (state) => ({ ...teamSubscriberView(state as TeamState, MEMBER_VIEW), managed_devices: {}, device_status: {} }) }
+    })
   }
 
   /** Members and hosts are rows ((f)); an old head moves its maps there on the first bind. */
   protected override bind(entity: string) {
     const engine = super.bind(entity)
-    if (engine.currentState.members !== undefined || engine.currentState.hosts !== undefined) this.submitSystem("team.rows_migrate", {}, "rows-migrate:v1")
+    // The key carries the head seq: a later head that again holds maps (a rollback) migrates again.
+    if (engine.currentState.members !== undefined || engine.currentState.hosts !== undefined) this.submitSystem("team.rows_migrate", {}, `rows-migrate:${engine.currentSeq}`)
     return engine
   }
 
