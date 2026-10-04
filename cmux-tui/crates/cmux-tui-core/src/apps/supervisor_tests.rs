@@ -548,11 +548,23 @@ fn a_failed_render_reports_mount_failed() {
 
 #[test]
 fn uninstall_fails_mounts_stops_the_host_and_clears_storage() {
-    let f = fixture();
-    f.install("cmux/demo");
-    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    // First-party apps are hide-only, so a third-party app shows removal.
+    let root = temp_dir();
+    let scopes = json!({ "workspace:read": "r", "storage:local": "s" });
+    write_app(&root.0.join("bundled"), "octo-demo", "octo/demo", scopes);
+    let path = root.0.join("bundled/octo-demo/cmux-app.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["repository"] = json!("https://github.com/octo/demo");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let rejected = f.supervisor.logs(CLIENT, "cmux/supervisor", false);
+    assert_eq!(app_entry(&f.supervisor.list(), "octo/demo")["available"], true, "{rejected}");
+    f.install("octo/demo");
+    f.set("s", "octo/demo", Origin::User, |o| o.grant = Some(("storage:local".into(), true)))
+        .unwrap();
+    f.mount("m1", "octo/demo", "cmux.section/1", json!({}));
     f.call("m1", "app.storage.set", json!({ "key": "k", "value": 1 }), false);
-    f.set("rm", "cmux/demo", Origin::User, |o| o.installed = Some(false)).unwrap();
+    f.set("rm", "octo/demo", Origin::User, |o| o.installed = Some(false)).unwrap();
     let failed = f.wait_event("apps-mount-failed");
     assert_eq!(failed["mount_id"], "m1");
     f.wait("host stopped", |e| e["event"] == "apps-host" && e["state"] == "stopped");
@@ -561,7 +573,7 @@ fn uninstall_fails_mounts_stops_the_host_and_clears_storage() {
         storage
             .as_ref()
             .unwrap()
-            .call("cmux/demo", "app.storage.get", &json!({ "key": "k" }))
+            .call("octo/demo", "app.storage.get", &json!({ "key": "k" }))
             .unwrap(),
         Value::Null
     );
@@ -953,7 +965,12 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
         ),
         (json!(true), json!("default"), json!(["workspace:read"]))
     );
-    // Removing it leaves a tombstone: a restart does not install it again.
+    // A shipped default: installed and hidden, still reachable by op and
+    // palette; first-party apps are hide-only.
+    assert_eq!(
+        (coderouter["hidden"].clone(), coderouter["hide_only"].clone()),
+        (json!(true), json!(true))
+    );
     let mut op = SetOp {
         key: "rm".into(),
         app: "cmux/coderouter".into(),
@@ -961,8 +978,16 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
         ..SetOp::default()
     };
     op.installed = Some(false);
-    supervisor.set(CLIENT, op).unwrap();
+    assert_eq!(supervisor.set(CLIENT, op).unwrap_err().code, "apps.first_party_hide_only");
     drop(supervisor);
+    // A mirror from before the rule holds a tombstone (installed false): the
+    // next start restores the app, installed and hidden.
+    let path = root.0.join("state/apps.json");
+    let mut file: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    file["mirror"]["apps"]["cmux/coderouter"]["installed"] = json!(false);
+    file["mirror"]["apps"]["cmux/coderouter"]["hidden"] = json!(false);
+    file["mirror"]["apps"]["cmux/coderouter"]["grants"] = json!([]);
+    std::fs::write(&path, file.to_string()).unwrap();
     let again = Supervisor::new(
         Config {
             state_dir: Some(root.0.join("state")),
@@ -982,7 +1007,22 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
         Box::new(Arc::new(FakeRouter::default())),
         Box::new(Arc::new(FakeFetcher::default())),
     );
-    assert_eq!(app_entry(&again.list(), "cmux/coderouter")["installed"], false);
+    let restored = app_entry(&again.list(), "cmux/coderouter");
+    assert_eq!(
+        (restored["installed"].clone(), restored["hidden"].clone(), restored["grants"].clone()),
+        (json!(true), json!(true), json!(["workspace:read"]))
+    );
+    // The restore was written back to apps.json.
+    let file: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(file["mirror"]["apps"]["cmux/coderouter"]["installed"], json!(true));
+}
+
+#[test]
+fn apps_list_marks_first_party_apps_hide_only() {
+    let f = fixture();
+    let list = f.supervisor.list();
+    assert_eq!(app_entry(&list, "cmux/demo")["hide_only"], json!(true));
+    assert_eq!(app_entry(&list, "local/spy")["hide_only"], json!(false));
 }
 
 /// Gate for the switch to the daemon supervisor: every bundled first-party
