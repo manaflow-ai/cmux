@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 71799a14bb8d885adbbde8e2cc0926dc4680aaf2e10340e614e25e9f26160581. */
+/* cmux-tui mux protocol 12, IR 7d267e604a027bbd7e41319cc00328c56de51465e0797bc45a3eb98c1159d839. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "71799a14bb8d885adbbde8e2cc0926dc4680aaf2e10340e614e25e9f26160581" as const;
+export const SDK_IR_SHA256 = "7d267e604a027bbd7e41319cc00328c56de51465e0797bc45a3eb98c1159d839" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3752,124 +3752,52 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
-  "ConversationAgentClass": {
-    "kind": "enum",
-    "values": [
-      "mux",
-      "agent"
-    ]
-  },
   "ConversationChange": {
-    "kind": "tagged_union",
-    "tag": "kind",
-    "variants": {
-      "conversation": {
-        "additional_properties": false,
-        "fields": {
-          "conversation": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "ref",
-              "name": "ConversationSummary"
-            }
-          },
-          "kind": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "literal",
-              "value": "conversation"
-            }
-          }
-        },
-        "kind": "object"
-      },
-      "message": {
-        "additional_properties": false,
-        "fields": {
-          "kind": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "literal",
-              "value": "message"
-            }
-          },
-          "message": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "ref",
-              "name": "ConversationMessage"
-            }
-          }
-        },
-        "kind": "object"
-      },
-      "message-updated": {
-        "additional_properties": false,
-        "fields": {
-          "kind": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "literal",
-              "value": "message-updated"
-            }
-          },
-          "message": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "ref",
-              "name": "ConversationMessage"
-            }
-          }
-        },
-        "kind": "object"
-      },
-      "read-cursor": {
-        "additional_properties": false,
-        "fields": {
-          "kind": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "literal",
-              "value": "read-cursor"
-            }
-          },
-          "participant": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "scalar",
-              "name": "string"
-            }
-          },
-          "seq": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "scalar",
-              "name": "uint64"
-            }
-          }
-        },
-        "kind": "object"
-      }
-    }
-  },
-  "ConversationEmojiReaction": {
-    "additional_properties": false,
+    "additional_properties": true,
     "fields": {
-      "emoji": {
+      "conversation": {
+        "description": "kind conversation.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationSummary"
+        }
+      },
+      "kind": {
+        "description": "Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties.",
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "message": {
+        "description": "kind message or message-updated.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationMessage"
+        }
+      },
+      "participant": {
+        "description": "kind read-cursor.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "description": "kind read-cursor.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -3976,89 +3904,76 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "kind": "object"
   },
   "ConversationPart": {
-    "kind": "tagged_union",
-    "tag": "type",
-    "variants": {
-      "text": {
-        "additional_properties": false,
-        "fields": {
-          "runs": {
-            "nullable": false,
-            "presence": "optional",
-            "type": {
-              "items": {
-                "kind": "ref",
-                "name": "ConversationTextRun"
-              },
-              "kind": "array"
-            }
-          },
-          "text": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "scalar",
-              "name": "string"
-            }
-          },
-          "type": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "literal",
-              "value": "text"
-            }
-          }
-        },
-        "kind": "object"
+    "additional_properties": true,
+    "fields": {
+      "host": {
+        "description": "type work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
       },
-      "work": {
-        "additional_properties": false,
-        "fields": {
-          "host": {
-            "nullable": false,
-            "presence": "optional",
-            "type": {
-              "kind": "scalar",
-              "name": "string"
-            }
+      "preview": {
+        "description": "type work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "runs": {
+        "description": "type text.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ConversationTextRun"
           },
-          "preview": {
-            "nullable": false,
-            "presence": "optional",
-            "type": {
-              "kind": "scalar",
-              "name": "string"
-            }
-          },
-          "session": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "scalar",
-              "name": "string"
-            }
-          },
-          "status": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "ref",
-              "name": "ConversationWorkStatus"
-            }
-          },
-          "type": {
-            "nullable": false,
-            "presence": "required",
-            "type": {
-              "kind": "literal",
-              "value": "work"
-            }
-          }
-        },
-        "kind": "object"
+          "kind": "array"
+        }
+      },
+      "session": {
+        "description": "type work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "status": {
+        "description": "type work. Known values: running, done, failed, waiting.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "text": {
+        "description": "type text.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "type": {
+        "description": "Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
       }
-    }
+    },
+    "kind": "object"
   },
   "ConversationPartRef": {
     "additional_properties": false,
@@ -4094,11 +4009,12 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "agent_class": {
+        "description": "Known values: mux, agent. Other values are future classes.",
         "nullable": false,
         "presence": "optional",
         "type": {
-          "kind": "ref",
-          "name": "ConversationAgentClass"
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "display_name": {
@@ -4118,22 +4034,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "kind": {
+        "description": "Known values: human, agent. Other values are future kinds.",
         "nullable": false,
         "presence": "required",
         "type": {
-          "kind": "ref",
-          "name": "ConversationParticipantKind"
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
     "kind": "object"
-  },
-  "ConversationParticipantKind": {
-    "kind": "enum",
-    "values": [
-      "human",
-      "agent"
-    ]
   },
   "ConversationReaction": {
     "additional_properties": false,
@@ -4174,17 +4084,27 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "kind": "object"
   },
   "ConversationReactionKind": {
-    "kind": "untagged_union",
-    "variants": [
-      {
-        "kind": "ref",
-        "name": "ConversationTapbackReaction"
+    "additional_properties": true,
+    "fields": {
+      "emoji": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
       },
-      {
-        "kind": "ref",
-        "name": "ConversationEmojiReaction"
+      "tapback": {
+        "description": "Known values: love, like, dislike, laugh, emphasize, question.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
       }
-    ]
+    },
+    "kind": "object"
   },
   "ConversationSearchHit": {
     "additional_properties": false,
@@ -4362,31 +4282,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
-  "ConversationTapback": {
-    "kind": "enum",
-    "values": [
-      "love",
-      "like",
-      "dislike",
-      "laugh",
-      "emphasize",
-      "question"
-    ]
-  },
-  "ConversationTapbackReaction": {
-    "additional_properties": false,
-    "fields": {
-      "tapback": {
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "ref",
-          "name": "ConversationTapback"
-        }
-      }
-    },
-    "kind": "object"
-  },
   "ConversationTextRun": {
     "additional_properties": false,
     "fields": {
@@ -4424,15 +4319,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
-  },
-  "ConversationWorkStatus": {
-    "kind": "enum",
-    "values": [
-      "running",
-      "done",
-      "failed",
-      "waiting"
-    ]
   },
   "CopyResult": {
     "additional_properties": false,

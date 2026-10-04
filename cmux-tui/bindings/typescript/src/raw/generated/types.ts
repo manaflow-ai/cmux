@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 71799a14bb8d885adbbde8e2cc0926dc4680aaf2e10340e614e25e9f26160581. */
+/* cmux-tui mux protocol 12, IR 7d267e604a027bbd7e41319cc00328c56de51465e0797bc45a3eb98c1159d839. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -127,25 +127,18 @@ export type ColumnPin = {
   "mode": string;
 };
 
-export type ConversationAgentClass = "mux" | "agent";
-
-export type ConversationChange = ({ "kind": "conversation" } & {
-  "conversation": ConversationSummary;
-  "kind": "conversation";
-}) | ({ "kind": "message" } & {
-  "kind": "message";
-  "message": ConversationMessage;
-}) | ({ "kind": "message-updated" } & {
-  "kind": "message-updated";
-  "message": ConversationMessage;
-}) | ({ "kind": "read-cursor" } & {
-  "kind": "read-cursor";
-  "participant": string;
-  "seq": bigint;
-});
-
-export type ConversationEmojiReaction = {
-  "emoji": string;
+export type ConversationChange = {
+  /** kind conversation. */
+  "conversation"?: ConversationSummary;
+  /** Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties. */
+  "kind": string;
+  /** kind message or message-updated. */
+  "message"?: ConversationMessage;
+  /** kind read-cursor. */
+  "participant"?: string;
+  /** kind read-cursor. */
+  "seq"?: bigint;
+  [key: string]: JsonValue;
 };
 
 export type ConversationMessage = {
@@ -162,17 +155,23 @@ export type ConversationMessage = {
   "seq": bigint;
 };
 
-export type ConversationPart = ({ "type": "text" } & {
-  "runs"?: Array<ConversationTextRun>;
-  "text": string;
-  "type": "text";
-}) | ({ "type": "work" } & {
+export type ConversationPart = {
+  /** type work. */
   "host"?: string;
+  /** type work. */
   "preview"?: string;
-  "session": string;
-  "status": ConversationWorkStatus;
-  "type": "work";
-});
+  /** type text. */
+  "runs"?: Array<ConversationTextRun>;
+  /** type work. */
+  "session"?: string;
+  /** type work. Known values: running, done, failed, waiting. */
+  "status"?: string;
+  /** type text. */
+  "text"?: string;
+  /** Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties. */
+  "type": string;
+  [key: string]: JsonValue;
+};
 
 export type ConversationPartRef = {
   "message_id": string;
@@ -181,13 +180,13 @@ export type ConversationPartRef = {
 
 export type ConversationParticipant = {
   "acp_session"?: string;
-  "agent_class"?: ConversationAgentClass;
+  /** Known values: mux, agent. Other values are future classes. */
+  "agent_class"?: string;
   "display_name": string;
   "id": string;
-  "kind": ConversationParticipantKind;
+  /** Known values: human, agent. Other values are future kinds. */
+  "kind": string;
 };
-
-export type ConversationParticipantKind = "human" | "agent";
 
 export type ConversationReaction = {
   "at": string;
@@ -196,7 +195,12 @@ export type ConversationReaction = {
   "part_index": number;
 };
 
-export type ConversationReactionKind = (ConversationTapbackReaction) | (ConversationEmojiReaction);
+export type ConversationReactionKind = {
+  "emoji"?: string;
+  /** Known values: love, like, dislike, laugh, emphasize, question. */
+  "tapback"?: string;
+  [key: string]: JsonValue;
+};
 
 export type ConversationSearchHit = {
   "author": string;
@@ -226,20 +230,12 @@ export type ConversationTabRecord = {
   "owner": string;
 };
 
-export type ConversationTapback = "love" | "like" | "dislike" | "laugh" | "emphasize" | "question";
-
-export type ConversationTapbackReaction = {
-  "tapback": ConversationTapback;
-};
-
 export type ConversationTextRun = {
   "length": number;
   "link"?: string;
   "mention"?: string;
   "start": number;
 };
-
-export type ConversationWorkStatus = "running" | "done" | "failed" | "waiting";
 
 export type CopyResult = {
   "mode": "screen" | "selection" | "scrollback";

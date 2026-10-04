@@ -12,10 +12,12 @@ import java.util.Objects;
 
 public final class ConversationParticipant implements WireValue {
     private final Field<String> acpSession;
-    private final Field<ConversationAgentClass> agentClass;
+    /** Known values: mux, agent. Other values are future classes. */
+    private final Field<String> agentClass;
     private final String displayName;
     private final String id;
-    private final ConversationParticipantKind kind;
+    /** Known values: human, agent. Other values are future kinds. */
+    private final String kind;
 
     private ConversationParticipant(Builder builder) {
         this.acpSession = builder.acpSession;
@@ -31,10 +33,10 @@ public final class ConversationParticipant implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<String> acpSession() { return acpSession; }
-    public Field<ConversationAgentClass> agentClass() { return agentClass; }
+    public Field<String> agentClass() { return agentClass; }
     public String displayName() { return displayName; }
     public String id() { return id; }
-    public ConversationParticipantKind kind() { return kind; }
+    public String kind() { return kind; }
 
     public static ConversationParticipant fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConversationParticipant");
@@ -45,14 +47,14 @@ public final class ConversationParticipant implements WireValue {
         }
         Object rawAgentClass = Wire.optional(object, "agent_class");
         if (!Wire.isMissing(rawAgentClass)) {
-            builder.agentClass(ConversationAgentClass.fromWire(rawAgentClass));
+            builder.agentClass(Wire.string(rawAgentClass, "ConversationParticipant.agent_class"));
         }
         Object rawDisplayName = Wire.required(object, "display_name");
         builder.displayName(Wire.string(rawDisplayName, "ConversationParticipant.display_name"));
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.string(rawId, "ConversationParticipant.id"));
         Object rawKind = Wire.required(object, "kind");
-        builder.kind(ConversationParticipantKind.fromWire(rawKind));
+        builder.kind(Wire.string(rawKind, "ConversationParticipant.kind"));
         return builder.build();
     }
 
@@ -81,19 +83,19 @@ public final class ConversationParticipant implements WireValue {
 
     public static final class Builder {
         private Field<String> acpSession = Field.omitted();
-        private Field<ConversationAgentClass> agentClass = Field.omitted();
+        private Field<String> agentClass = Field.omitted();
         private String displayName;
         private boolean displayNameSet;
         private String id;
         private boolean idSet;
-        private ConversationParticipantKind kind;
+        private String kind;
         private boolean kindSet;
 
         public Builder acpSession(String value) {
             this.acpSession = Field.of(value);
             return this;
         }
-        public Builder agentClass(ConversationAgentClass value) {
+        public Builder agentClass(String value) {
             this.agentClass = Field.of(value);
             return this;
         }
@@ -107,7 +109,7 @@ public final class ConversationParticipant implements WireValue {
             this.idSet = true;
             return this;
         }
-        public Builder kind(ConversationParticipantKind value) {
+        public Builder kind(String value) {
             this.kind = value;
             this.kindSet = true;
             return this;

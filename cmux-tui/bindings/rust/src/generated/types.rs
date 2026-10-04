@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 71799a14bb8d885adbbde8e2cc0926dc4680aaf2e10340e614e25e9f26160581.
+// cmux-tui mux protocol 12, IR 7d267e604a027bbd7e41319cc00328c56de51465e0797bc45a3eb98c1159d839.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -224,41 +224,24 @@ pub struct ColumnPin {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConversationAgentClass {
-    #[serde(rename = "mux")]
-    Mux,
-    #[serde(rename = "agent")]
-    Agent,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum ConversationChange {
-    #[serde(rename = "conversation")]
-    Conversation {
-        conversation: ConversationSummary,
-    },
-    #[serde(rename = "message")]
-    Message {
-        message: ConversationMessage,
-    },
-    #[serde(rename = "message-updated")]
-    MessageUpdated {
-        message: ConversationMessage,
-    },
-    #[serde(rename = "read-cursor")]
-    ReadCursor {
-        participant: String,
-        seq: u64,
-    },
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationEmojiReaction {
-    pub emoji: String,
+pub struct ConversationChange {
+    /// kind conversation.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationSummary>,
+    /// Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties.
+    pub kind: String,
+    /// kind message or message-updated.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub message: Option<ConversationMessage>,
+    /// kind read-cursor.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub participant: Option<String>,
+    /// kind read-cursor.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
 }
 
 #[rustfmt::skip]
@@ -282,23 +265,30 @@ pub struct ConversationMessage {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ConversationPart {
-    #[serde(rename = "text")]
-    Text {
-        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-        runs: Option<Vec<ConversationTextRun>>,
-        text: String,
-    },
-    #[serde(rename = "work")]
-    Work {
-        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-        host: Option<String>,
-        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-        preview: Option<String>,
-        session: String,
-        status: ConversationWorkStatus,
-    },
+pub struct ConversationPart {
+    /// type work.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// type work.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    /// type text.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub runs: Option<Vec<ConversationTextRun>>,
+    /// type work.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// type work. Known values: running, done, failed, waiting.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// type text.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties.
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
 }
 
 #[rustfmt::skip]
@@ -313,20 +303,13 @@ pub struct ConversationPartRef {
 pub struct ConversationParticipant {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub acp_session: Option<String>,
+    /// Known values: mux, agent. Other values are future classes.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub agent_class: Option<ConversationAgentClass>,
+    pub agent_class: Option<String>,
     pub display_name: String,
     pub id: String,
-    pub kind: ConversationParticipantKind,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConversationParticipantKind {
-    #[serde(rename = "human")]
-    Human,
-    #[serde(rename = "agent")]
-    Agent,
+    /// Known values: human, agent. Other values are future kinds.
+    pub kind: String,
 }
 
 #[rustfmt::skip]
@@ -339,11 +322,15 @@ pub struct ConversationReaction {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ConversationReactionKind {
-    ConversationTapbackReaction(ConversationTapbackReaction),
-    ConversationEmojiReaction(ConversationEmojiReaction),
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationReactionKind {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+    /// Known values: love, like, dislike, laugh, emphasize, question.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub tapback: Option<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
 }
 
 #[rustfmt::skip]
@@ -382,29 +369,6 @@ pub struct ConversationTabRecord {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConversationTapback {
-    #[serde(rename = "love")]
-    Love,
-    #[serde(rename = "like")]
-    Like,
-    #[serde(rename = "dislike")]
-    Dislike,
-    #[serde(rename = "laugh")]
-    Laugh,
-    #[serde(rename = "emphasize")]
-    Emphasize,
-    #[serde(rename = "question")]
-    Question,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationTapbackReaction {
-    pub tapback: ConversationTapback,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationTextRun {
     pub length: u32,
@@ -413,19 +377,6 @@ pub struct ConversationTextRun {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mention: Option<String>,
     pub start: u32,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConversationWorkStatus {
-    #[serde(rename = "running")]
-    Running,
-    #[serde(rename = "done")]
-    Done,
-    #[serde(rename = "failed")]
-    Failed,
-    #[serde(rename = "waiting")]
-    Waiting,
 }
 
 #[rustfmt::skip]

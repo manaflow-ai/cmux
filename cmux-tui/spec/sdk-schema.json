@@ -6518,20 +6518,6 @@
    },
    "kind": "object"
   },
-  "ConversationParticipantKind": {
-   "kind": "enum",
-   "values": [
-    "human",
-    "agent"
-   ]
-  },
-  "ConversationAgentClass": {
-   "kind": "enum",
-   "values": [
-    "mux",
-    "agent"
-   ]
-  },
   "ConversationParticipant": {
    "kind": "object",
    "fields": {
@@ -6545,11 +6531,12 @@
     },
     "kind": {
      "type": {
-      "kind": "ref",
-      "name": "ConversationParticipantKind"
+      "kind": "scalar",
+      "name": "string"
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "description": "Known values: human, agent. Other values are future kinds."
     },
     "display_name": {
      "type": {
@@ -6561,11 +6548,12 @@
     },
     "agent_class": {
      "type": {
-      "kind": "ref",
-      "name": "ConversationAgentClass"
+      "kind": "scalar",
+      "name": "string"
      },
      "presence": "optional",
-     "nullable": false
+     "nullable": false,
+     "description": "Known values: mux, agent. Other values are future classes."
     },
     "acp_session": {
      "type": {
@@ -6638,151 +6626,100 @@
    },
    "additional_properties": false
   },
-  "ConversationWorkStatus": {
-   "kind": "enum",
-   "values": [
-    "running",
-    "done",
-    "failed",
-    "waiting"
-   ]
-  },
   "ConversationPart": {
-   "kind": "tagged_union",
-   "tag": "type",
-   "variants": {
-    "text": {
-     "kind": "object",
-     "fields": {
-      "type": {
-       "type": {
-        "kind": "literal",
-        "value": "text"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "text": {
-       "type": {
-        "kind": "scalar",
-        "name": "string"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "runs": {
-       "type": {
-        "kind": "array",
-        "items": {
-         "kind": "ref",
-         "name": "ConversationTextRun"
-        }
-       },
-       "presence": "optional",
-       "nullable": false
-      }
-     },
-     "additional_properties": false
-    },
-    "work": {
-     "kind": "object",
-     "fields": {
-      "type": {
-       "type": {
-        "kind": "literal",
-        "value": "work"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "session": {
-       "type": {
-        "kind": "scalar",
-        "name": "string"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "host": {
-       "type": {
-        "kind": "scalar",
-        "name": "string"
-       },
-       "presence": "optional",
-       "nullable": false
-      },
-      "status": {
-       "type": {
-        "kind": "ref",
-        "name": "ConversationWorkStatus"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "preview": {
-       "type": {
-        "kind": "scalar",
-        "name": "string"
-       },
-       "presence": "optional",
-       "nullable": false
-      }
-     },
-     "additional_properties": false
-    }
-   }
-  },
-  "ConversationTapback": {
-   "kind": "enum",
-   "values": [
-    "love",
-    "like",
-    "dislike",
-    "laugh",
-    "emphasize",
-    "question"
-   ]
-  },
-  "ConversationTapbackReaction": {
    "kind": "object",
+   "additional_properties": true,
    "fields": {
-    "tapback": {
-     "type": {
-      "kind": "ref",
-      "name": "ConversationTapback"
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false
-  },
-  "ConversationEmojiReaction": {
-   "kind": "object",
-   "fields": {
-    "emoji": {
+    "type": {
      "type": {
       "kind": "scalar",
       "name": "string"
      },
      "presence": "required",
-     "nullable": false
+     "nullable": false,
+     "description": "Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties."
+    },
+    "text": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "type text."
+    },
+    "runs": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ConversationTextRun"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "type text."
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "type work."
+    },
+    "host": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "type work."
+    },
+    "status": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "type work. Known values: running, done, failed, waiting."
+    },
+    "preview": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "type work."
     }
-   },
-   "additional_properties": false
+   }
   },
   "ConversationReactionKind": {
-   "kind": "untagged_union",
-   "variants": [
-    {
-     "kind": "ref",
-     "name": "ConversationTapbackReaction"
+   "kind": "object",
+   "additional_properties": true,
+   "fields": {
+    "tapback": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Known values: love, like, dislike, laugh, emphasize, question."
     },
-    {
-     "kind": "ref",
-     "name": "ConversationEmojiReaction"
+    "emoji": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
     }
-   ]
+   }
   },
   "ConversationReaction": {
    "kind": "object",
@@ -7015,104 +6952,53 @@
    "additional_properties": false
   },
   "ConversationChange": {
-   "kind": "tagged_union",
-   "tag": "kind",
-   "variants": {
+   "kind": "object",
+   "additional_properties": true,
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties."
+    },
     "message": {
-     "kind": "object",
-     "fields": {
-      "kind": {
-       "type": {
-        "kind": "literal",
-        "value": "message"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "message": {
-       "type": {
-        "kind": "ref",
-        "name": "ConversationMessage"
-       },
-       "presence": "required",
-       "nullable": false
-      }
+     "type": {
+      "kind": "ref",
+      "name": "ConversationMessage"
      },
-     "additional_properties": false
+     "presence": "optional",
+     "nullable": false,
+     "description": "kind message or message-updated."
     },
-    "message-updated": {
-     "kind": "object",
-     "fields": {
-      "kind": {
-       "type": {
-        "kind": "literal",
-        "value": "message-updated"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "message": {
-       "type": {
-        "kind": "ref",
-        "name": "ConversationMessage"
-       },
-       "presence": "required",
-       "nullable": false
-      }
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
      },
-     "additional_properties": false
+     "presence": "optional",
+     "nullable": false,
+     "description": "kind read-cursor."
     },
-    "read-cursor": {
-     "kind": "object",
-     "fields": {
-      "kind": {
-       "type": {
-        "kind": "literal",
-        "value": "read-cursor"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "participant": {
-       "type": {
-        "kind": "scalar",
-        "name": "string"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "seq": {
-       "type": {
-        "kind": "scalar",
-        "name": "uint64"
-       },
-       "presence": "required",
-       "nullable": false
-      }
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
      },
-     "additional_properties": false
+     "presence": "optional",
+     "nullable": false,
+     "description": "kind read-cursor."
     },
     "conversation": {
-     "kind": "object",
-     "fields": {
-      "kind": {
-       "type": {
-        "kind": "literal",
-        "value": "conversation"
-       },
-       "presence": "required",
-       "nullable": false
-      },
-      "conversation": {
-       "type": {
-        "kind": "ref",
-        "name": "ConversationSummary"
-       },
-       "presence": "required",
-       "nullable": false
-      }
+     "type": {
+      "kind": "ref",
+      "name": "ConversationSummary"
      },
-     "additional_properties": false
+     "presence": "optional",
+     "nullable": false,
+     "description": "kind conversation."
     }
    }
   },
