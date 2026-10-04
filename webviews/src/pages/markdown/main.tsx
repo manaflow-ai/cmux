@@ -1,6 +1,8 @@
 // Boots the markdown editor page: cmux-page://cmux.markdown/ serves webviews/markdown-page.html
 // from the webviews-app build, which loads this module. The host installs the cmuxPage bridge
 // (host.ts lists the ops); the dev server installs a stand-in (devBridge.ts) before this runs.
+// DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";

@@ -52,6 +52,7 @@ const snapshot = {
 
 async function mount(extra: Record<string, unknown> = {}) {
   const calls: string[] = [];
+  const touches: string[] = [];
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const record =
@@ -71,7 +72,7 @@ async function mount(extra: Record<string, unknown> = {}) {
         onJump: record("jump"),
         onOpenSession: record("session"),
         onShowAll: record("all"),
-        onModeChange: record("mode"),
+        onTouched: () => touches.push("touched"),
         ...extra,
       }),
     ),
@@ -87,7 +88,7 @@ async function mount(extra: Record<string, unknown> = {}) {
     act(async () => {
       field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, ...init }));
     });
-  return { container, root, field, type, key, calls };
+  return { container, root, field, type, key, calls, touches };
 }
 
 test("the field has the keyboard when the screen appears, and the cards show recent chats", async () => {
@@ -113,7 +114,22 @@ test("! turns the tab into a terminal at once and forwards what follows", async 
   await act(async () => root.unmount());
 });
 
-test("a prompt lists the agents; Enter asks the first, Tab switches to Search and Enter searches", async () => {
+// R81: the "!" frame shows the terminal at once (a placeholder over the same background, the
+// typed command and a cursor) while the daemon starts the shell; the field keeps the keyboard.
+test("! shows a terminal placeholder in the same render, echoing what is typed", async () => {
+  const { container, root, field, type } = await mount();
+  await type("!");
+  const terminal = container.querySelector(".nt-terminal");
+  expect(terminal).not.toBeNull();
+  expect(container.querySelector(".nt-screen")!.hasAttribute("data-converting")).toBe(true);
+  expect(container.querySelector(".nt-terminal .nt-cursor")).not.toBeNull();
+  await type("!ls -la");
+  expect(container.querySelector(".nt-terminal-command")!.textContent).toBe("ls -la");
+  expect(dom.window.document.activeElement).toBe(field);
+  await act(async () => root.unmount());
+});
+
+test("one input (R86): a prompt lists the agents and an explicit search row; no Search/Ask mode", async () => {
   const { container, root, type, key, calls } = await mount();
   await type("fix the build");
   const titles = () => [...container.querySelectorAll(".nt-row")].map((row) => row.getAttribute("data-type"));
@@ -121,13 +137,13 @@ test("a prompt lists the agents; Enter asks the first, Tab switches to Search an
   // Each agent row wears its brand mark (design/agent-icons).
   const marks = [...container.querySelectorAll('.nt-row[data-type="agent"] svg.agent-mark')];
   expect(marks.map((svg) => svg.getAttribute("data-agent"))).toEqual(["claude", "openai"]);
+  expect(container.querySelector(".nt-mode")).toBeNull();
   await key("Enter");
   expect(calls).toEqual(["ask:claude:fix the build"]);
-  await key("Tab");
-  expect(container.querySelector(".nt-screen")!.getAttribute("data-mode")).toBe("search");
-  expect(titles()).toEqual(["search", "agent", "agent"]);
+  await key("ArrowDown");
+  await key("ArrowDown");
   await key("Enter");
-  expect(calls).toEqual(["ask:claude:fix the build", "mode:search", "search:fix the build"]);
+  expect(calls).toEqual(["ask:claude:fix the build", "search:fix the build"]);
   await act(async () => root.unmount());
 });
 
@@ -142,13 +158,21 @@ test("an address opens on Enter; Down then Enter picks the next row", async () =
   await act(async () => root.unmount());
 });
 
-test("the remembered mode and agent come from the host", async () => {
-  const { container, root, type, key, calls } = await mount({ mode: "search", lastAgent: "codex" });
-  expect(container.querySelector(".nt-screen")!.getAttribute("data-mode")).toBe("search");
+test("the remembered agent comes from the host and leads the rows", async () => {
+  const { root, type, key, calls } = await mount({ lastAgent: "codex" });
   await type("hello");
-  await key("ArrowDown");
   await key("Enter");
   expect(calls).toEqual(["ask:codex:hello"]);
+  await act(async () => root.unmount());
+});
+
+// R81: the host recycles only a strictly untouched page, so the first input reports itself once.
+test("the first user input reports the page as touched, once", async () => {
+  const { root, type, key, touches } = await mount();
+  await key("ArrowDown");
+  await type("h");
+  await type("he");
+  expect(touches).toEqual(["touched"]);
   await act(async () => root.unmount());
 });
 

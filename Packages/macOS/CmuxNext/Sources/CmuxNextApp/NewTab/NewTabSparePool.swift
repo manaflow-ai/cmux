@@ -23,6 +23,9 @@ nonisolated struct NewTabSpareSlot<Spare> {
     }
 
     mutating func drop() -> Spare? { take() }
+
+    /// The spare, left in the slot.
+    var peek: Spare? { spare }
 }
 
 /// Instant new tab (plans/cmux-next/new-tab.md section 2): ONE prewarmed new
@@ -72,6 +75,7 @@ final class NewTabSparePool {
 
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
+        services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
         observeWindows()
         if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
             retarget(window)
@@ -137,6 +141,29 @@ final class NewTabSparePool {
         return (view, window !== target)
     }
 
+    /// A closed new tab page that never became a chat or a terminal: reset to
+    /// the spare context (the page remounts its screen) and parked as the
+    /// spare, so the close does no teardown and the pool builds nothing (R81).
+    /// False when the slot is full or no page is likely.
+    /// Why the last closed new tab page was not recycled (`debug.new_tab`).
+    private(set) var lastRecycleRefusal: String?
+
+    func recycle(_ view: AgentPaneView) -> Bool {
+        lastRecycleRefusal = !slot.shouldWarm ? "slot full" : !isLikely ? "not likely" : view.model.newTab == nil ? "became a chat"
+            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
+        guard lastRecycleRefusal == nil else { return false }
+        BenchSpans.measure("pool.recycle") {
+            view.adoptNewTab(NewTabPage.sparePage(services))
+            // Out of the view tree now (as cheap as a close); back into the window at the next
+            // quiet moment: putting a WKWebView back into a window costs a 15-20 ms commit, which
+            // in the close frame dropped a frame on every Cmd-W (R81 bench).
+            view.removeFromSuperview()
+            slot.parked(view)
+        }
+        scheduleWarm()
+        return true
+    }
+
     func record(_ opening: Opening) {
         openings.append(opening)
         if openings.count > Self.maximumOpenings { openings.removeFirst(openings.count - Self.maximumOpenings) }
@@ -164,7 +191,7 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm, target != nil else { return }
+        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
@@ -180,11 +207,25 @@ final class NewTabSparePool {
         warmTimer.schedule(after: Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
+    /// A recycled spare not yet back in the window.
+    private var unparked: AgentPaneView? {
+        guard let view = slot.peek, view.superview == nil else { return nil }
+        return view
+    }
+
     private func warmNow() {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
+        if let view = unparked, let content = target?.contentView {
+            park(in: content)
+            view.frame = parking.bounds
+            view.autoresizingMask = [.width, .height]
+            BenchSpans.measure("pool.park") { parking.addSubview(view) }
+            return
+        }
         guard isLikely, slot.shouldWarm, let content = target?.contentView,
-              let view = services.agentTabs.makeSpare(NewTabPage.sparePage(services)) else { return }
+              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
+        else { return }
         park(in: content)
         view.frame = parking.bounds
         view.autoresizingMask = [.width, .height]

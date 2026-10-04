@@ -1412,6 +1412,59 @@ describe("direct client session state", () => {
     }
   });
 
+  test("a streamed thought is one item that grows, not one item per chunk", async () => {
+    const thought = (seq: number, text: string): EventRecord => ({
+      sessionId: "a",
+      seq,
+      at: seq,
+      dir: "in",
+      kind: "agent_thought_chunk",
+      msg: {
+        method: "session/update",
+        params: { sessionId: "a", update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } } },
+      },
+    });
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? {
+            session: { sessionId: "a", status: "idle" },
+            events: [
+              userEvent("a", 6, "prompt"),
+              thought(7, "Looking at "),
+              thought(8, "the code"),
+              thought(9, " now."),
+            ],
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    const client = await connect();
+    await settle();
+    const activity = latest().rows.find((row) => row.kind === "activity");
+    expect(activity?.items).toEqual([{ kind: "thought", text: "Looking at the code now." }]);
+    client.close();
+  });
+
+  test("rows keep the daemon's event order even when wall-clock times disagree", async () => {
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? {
+            session: { sessionId: "a", status: "idle" },
+            // The reply's time stamp is earlier than its prompt's (two clocks, or one millisecond).
+            events: [
+              { ...userEvent("a", 6, "prompt"), at: 2_000 },
+              { ...chunkEvent(7, "reply"), at: 1_000 },
+            ],
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    const client = await connect();
+    await settle();
+    expect(texts()).toEqual(["prompt", "reply"]);
+    client.close();
+  });
+
   test("without a display (no frame scheduler) each delta snapshots at once", async () => {
     const previous = AcpmuxDirectClient.scheduleFrame;
     AcpmuxDirectClient.scheduleFrame = undefined;

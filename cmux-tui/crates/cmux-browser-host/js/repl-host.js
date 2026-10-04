@@ -345,6 +345,8 @@
         const info = JSON.parse(errorJSON);
         const e = new Error(info.message);
         e.code = info.code;
+        if (info.errorName) e.errorName = info.errorName;
+        if (info.data !== undefined) e.data = info.data;
         p.reject(e);
       } else p.resolve(resultJSON === null || resultJSON === undefined ? undefined : JSON.parse(resultJSON));
     };

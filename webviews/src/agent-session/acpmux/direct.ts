@@ -272,6 +272,53 @@ export const nextFrame = (run: () => void) => {
   setTimeout(once, 50);
 };
 
+/// A thought chunk continues the thought it follows: a thought streams into one growing item,
+/// not one row per chunk.
+export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActivity[] {
+  const last = items.at(-1);
+  if (last?.kind === "thought" && !last.tool) return [...items.slice(0, -1), { ...last, text: last.text + text }];
+  return [...items, { kind: "thought", text }];
+}
+
+/// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
+/// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
+/// Rows made without an event (a prompt still sending or one that failed, the typing row) order
+/// after every event, in the order they were made.
+const LOCAL_ROW_ORDER = Number.MAX_SAFE_INTEGER / 2;
+
+export class OrderedRows extends Map<string, AcpmuxRow> {
+  private readonly order = new Map<string, number>();
+  private local = 0;
+  /// The sequence number of the event being reduced.
+  current: number | undefined;
+
+  override set(id: string, row: AcpmuxRow): this {
+    if (!this.order.has(id)) this.order.set(id, this.current ?? LOCAL_ROW_ORDER + (this.local += 1));
+    return super.set(id, row);
+  }
+
+  override delete(id: string): boolean {
+    this.order.delete(id);
+    return super.delete(id);
+  }
+
+  override clear(): void {
+    this.order.clear();
+    super.clear();
+  }
+
+  /// Drops every row but those `keep` accepts, which keep their place in the order.
+  retain(keep: (row: AcpmuxRow) => boolean): void {
+    // A Map visits the entries left after a delete, so deleting while iterating is safe.
+    for (const row of this.values()) if (!keep(row)) this.delete(row.id);
+  }
+
+  /// The rows in event order (wall-clock time breaks a tie).
+  sorted(): AcpmuxRow[] {
+    return [...this.values()].sort((a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at);
+  }
+}
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 export class AcpmuxDirectClient {
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
@@ -291,7 +338,7 @@ export class AcpmuxDirectClient {
     }
   >();
   private events: EventRecord[] = [];
-  private rows = new Map<string, AcpmuxRow>();
+  private rows = new OrderedRows();
   private sessions: Session[] = [];
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
@@ -891,9 +938,8 @@ export class AcpmuxDirectClient {
   private rebuild(): void {
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     const inFlight = new Set(this.optimisticPromptRows.values());
-    const local = [...this.rows.values()].filter((row) => row.failed || inFlight.has(row.id));
-    this.rows.clear();
-    for (const row of local) this.rows.set(row.id, row);
+    // Those rows keep their place in the order.
+    this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
@@ -949,6 +995,15 @@ export class AcpmuxDirectClient {
   }
 
   private reduce(event: EventRecord): void {
+    this.rows.current = event.seq;
+    try {
+      this.reduceEvent(event);
+    } finally {
+      this.rows.current = undefined;
+    }
+  }
+
+  private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
     if (update?.sessionUpdate === USAGE_KIND) {
@@ -1067,7 +1122,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
-        items: [...(existing?.items ?? []), { kind: "thought", text }],
+        items: appendThought(existing?.items ?? [], text),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -1106,7 +1161,7 @@ export class AcpmuxDirectClient {
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
   /// behind this turn) or one that failed to send did not start a turn.
   private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
-    const rows = [...this.rows.values()].filter((row) => !row.pending && !row.failed).sort((a, b) => a.at - b.at);
+    const rows = this.rows.sorted().filter((row) => !row.pending && !row.failed);
     let start = rows.length;
     while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
     const user = rows[start - 1];
@@ -1135,7 +1190,7 @@ export class AcpmuxDirectClient {
     this.listener({
       type: "snapshot",
       protocolVersion: 1,
-      rows: [...this.rows.values()].sort((a, b) => a.at - b.at),
+      rows: this.rows.sorted(),
       sessions: this.sessions.map((session) => {
         let entry = this.sessionEntries.get(session);
         if (!entry) {

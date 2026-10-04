@@ -133,6 +133,12 @@ export type PreparedRow = {
   text: string;
   /// The row's markdown blocks, as the estimator measures them (conversation/Markdown.tsx draws them).
   blocks: Token[];
+  /// A growing row (a streaming reply) lexes once the text before its last safe block boundary
+  /// (lastBlockBoundary): those blocks and where they end. Only the text after it is lexed again.
+  closedBlocks: Token[];
+  closedEnd: number;
+  /// The characters the last update lexed (tests, perf).
+  lexedLength: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
 };
@@ -348,15 +354,35 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
   }
 }
 
+/// Lexes `text` into `entry`, reusing the blocks before the last safe boundary when `text` grew.
+function lexIncrementally(entry: PreparedRow, text: string): void {
+  if (!text.startsWith(entry.text.slice(0, entry.closedEnd))) {
+    entry.closedBlocks = [];
+    entry.closedEnd = 0;
+  }
+  entry.lexedLength = 0;
+  const boundary = lastBlockBoundary(text, entry.closedEnd);
+  if (boundary > entry.closedEnd) {
+    const chunk = text.slice(entry.closedEnd, boundary);
+    entry.closedBlocks = [...entry.closedBlocks, ...markdownBlocks(chunk)];
+    entry.lexedLength += chunk.length;
+    entry.closedEnd = boundary;
+  }
+  const tail = text.slice(entry.closedEnd);
+  entry.lexedLength += tail.length;
+  entry.blocks = [...entry.closedBlocks, ...markdownBlocks(tail)];
+  entry.text = text;
+}
+
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {
-    entry = { text: row.text, blocks: markdownBlocks(row.text), prepared: new Map() };
+    entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
-  } else if (entry.text !== row.text) {
-    entry.text = row.text;
-    entry.blocks = markdownBlocks(row.text);
+  }
+  if (entry.text !== row.text || entry.lexedLength === 0) {
+    lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
@@ -438,6 +464,7 @@ import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
 import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
 /// The pane header: the agent the session runs (its first prompt already titles the session
 /// picker and opens the transcript), and a status only when it says something to act on.

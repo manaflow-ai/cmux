@@ -24,6 +24,12 @@ final class SidebarSectionHeaderView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// A drag from a press (window points): true once the region drags.
+    var onDragged: ((NSPoint, NSEvent) -> Bool)?
+    var onDragEnded: (() -> Void)?
+    private var pressLocation: NSPoint?
+    private var didDrag = false
+
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -75,7 +81,22 @@ final class SidebarSectionHeaderView: NSView {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
-    override func mouseDown(with event: NSEvent) { onPress?() }
+    /// A click toggles on release; a drag moves the section (R77).
+    override func mouseDown(with event: NSEvent) {
+        pressLocation = event.locationInWindow
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let pressLocation, onDragged?(pressLocation, event) == true else { return }
+        didDrag = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { pressLocation = nil; didDrag = false }
+        guard pressLocation != nil else { return }
+        if didDrag { onDragEnded?() } else { onPress?() }
+    }
 
     override func rightMouseDown(with event: NSEvent) {
         guard let onContextMenu else { return super.rightMouseDown(with: event) }
