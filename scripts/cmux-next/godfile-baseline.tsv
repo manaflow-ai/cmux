@@ -61,7 +61,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2820	83
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1940	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1219	34
-rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27674	789
+rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27613	786
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	10411	434
 rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_protocol.rs	1234	54
@@ -80,7 +80,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/tests/browser_runtime.rs	1947	24
 rust-file	cmux-tui/crates/cmux-tui-core/tests/pty.rs	2255	47
 rust-file	cmux-tui/crates/cmux-tui-machine-protocol/src/lib.rs	2169	70
 rust-file	cmux-tui/crates/cmux-tui/src/agent_hook_install.rs	3937	139
-rust-file	cmux-tui/crates/cmux-tui/src/app.rs	47141	1576
+rust-file	cmux-tui/crates/cmux-tui/src/app.rs	47140	1576
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	4463	146
