@@ -43,6 +43,8 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
         var historyGate: Gate?
         /// Holds every unsubscribe until the test opens it; it takes effect after.
         var unsubscribeGate: Gate?
+        /// Holds every conversation subscribe until the test opens it; it takes effect after.
+        var subscribeGate: Gate?
         /// When set, the inbox is the leased account's, and listing without a
         /// lease is refused (`cloud_signed_out`).
         var inboxBySubject: [String: [CloudInboxEntry]]?
@@ -168,6 +170,7 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
     }
 
     func subscribe(_ conversation: String) async throws -> CloudSubscription {
+        if let gate = script.withLock({ $0.subscribeGate }) { await gate.pass() }
         record(.subscribe(conversation))
         daemon.withLock { _ = $0.subscribed.insert(conversation) }
         let (state, account) = script.withLock { ($0.subscribeState, $0.subscribeAccount) }

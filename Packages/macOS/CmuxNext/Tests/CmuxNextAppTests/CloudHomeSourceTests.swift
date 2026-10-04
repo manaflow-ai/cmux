@@ -666,6 +666,55 @@ import Testing
         #expect(daemon.ops.count == 1)
     }
 
+    /// A close queues its unsubscribe behind the subscribe it ends, so the
+    /// daemon never ends up streaming a conversation the source no longer
+    /// tracks (round-5 review, minor 3).
+    @Test func aCloseRightAfterAReopenNeverLeavesTheDaemonSubscribed() async throws {
+        let unsubscribes = Gate()
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)], unsubscribeGate: unsubscribes))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        source.close(ConversationID(dm))
+        await unsubscribes.arrived()
+        let subscribes = Gate()
+        daemon.script.withLock { $0.subscribeGate = subscribes }
+        let reopen = Task { try? await source.snapshot(of: ConversationID(dm), tail: 10) }
+        for _ in 0..<500 { await Task.yield() }
+        source.close(ConversationID(dm))
+        unsubscribes.open()
+        await subscribes.arrived()
+        // Room for an unsubscribe that does not wait for the subscribe to overtake it.
+        try await Task.sleep(for: .milliseconds(200))
+        subscribes.open()
+        _ = await reopen.value
+        @Sendable func count(_ calls: [FakeCloudDaemon.Call], _ call: FakeCloudDaemon.Call) -> Int { calls.filter { $0 == call }.count }
+        #expect(await daemon.wait { count($0, .unsubscribe(dm)) == 2 && count($0, .subscribe(dm)) == 2 })
+        #expect(!daemon.subscribed.contains(dm), "the daemon streams a closed conversation: \(daemon.calls)")
+    }
+
+    /// An edit made outside a transcript (mark read from the inbox, a
+    /// quick reply) subscribes its conversation so the edit can go out;
+    /// with no transcript showing it, the subscription ends after the op.
+    /// An open transcript keeps its own.
+    @Test func anEditOutsideATranscriptEndsTheSubscriptionItMade() async throws {
+        let other = "conv_dm_01J0000000000000000000000Q"
+        let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm), F.entry(other)],
+                                                            heads: [dm: F.head(dm), other: F.head(other)]))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(other), tail: 10)
+        _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_open_read"),
+                                               op: .setReadCursor(conversation: ConversationID(other), seq: 1)))
+
+        let mark = tape.all.count
+        let read = HomeIntent(key: IdempotencyKey("cmk_inbox_read"), op: .setReadCursor(conversation: ConversationID(dm), seq: 1))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(read) }
+        #expect(await tape.wait { $0.dropFirst(mark).contains(.ownerRecovered) })
+        _ = try await source.submit(read)
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) }, "the edit left a subscription no close ends")
+        #expect(!daemon.calls.contains(.unsubscribe(other)), "an edit ended an open transcript's subscription")
+        #expect(!daemon.subscribed.contains(dm))
+    }
+
     /// Revoked keys are kept per account and pruned when that account
     /// signs in again: its own keys never commit as another account, and
     /// the set does not only grow.
