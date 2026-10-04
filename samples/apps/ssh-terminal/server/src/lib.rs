@@ -21,4 +21,4 @@ mod terminal;
 
 pub use backend::{ANSWERS_QUERIES, APP_ID, MAX_WRITE_BYTES, SSH_ID, SSH_KIND, SshBackend};
 pub use output::{MAX_UNREAD, RETAINED};
-pub use session::{MAX_DETACHED, MAX_PENDING_INPUT};
+pub use session::{MAX_BUFFERED_BYTES, MAX_DETACHED, MAX_PENDING_INPUT};

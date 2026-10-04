@@ -2,9 +2,11 @@
 //! event (exit or lost).
 //!
 //! Bounds (README, "Resume"):
-//! - at most [`MAX_UNREAD`] bytes wait for the session host. When it does
-//!   not take them, the reader stops reading from the SSH channel, the SSH
-//!   window fills and the far end blocks. Bytes are never dropped.
+//! - at most [`MAX_UNREAD`] bytes wait for the session host (one SSH packet,
+//!   at most 32 KiB, is never split). When the host does not take them, the
+//!   reader stops. The SSH client then fills its small channel queue and
+//!   stops reading the TCP socket; TCP flow control stops the far end.
+//!   Bytes are never dropped while the terminal is open.
 //! - at most [`RETAINED`] already delivered bytes stay for `resume`. Older
 //!   bytes are gone; a resume from before them gives `lost`.
 
@@ -25,6 +27,8 @@ struct Log {
     end: Option<ByteEvent>,
     end_delivered: bool,
     attached: bool,
+    /// Closed by the session host: bytes are discarded, nobody reads.
+    closed: bool,
 }
 
 impl Log {
@@ -61,6 +65,7 @@ impl Default for Output {
                 end: None,
                 end_delivered: false,
                 attached: true,
+                closed: false,
             }),
             room: Notify::new(),
         }
@@ -78,6 +83,9 @@ impl Output {
         loop {
             {
                 let mut log = self.lock();
+                if log.closed {
+                    return;
+                }
                 if log.unread() == 0 || log.unread() + data.len() <= MAX_UNREAD {
                     log.bytes.extend(data);
                     return;
@@ -134,11 +142,29 @@ impl Output {
         self.lock().attached = false;
     }
 
+    /// The terminal is closed: drop kept bytes and wake a waiting reader so
+    /// it can drain the channel and end.
+    pub fn close(&self) {
+        {
+            let mut log = self.lock();
+            log.closed = true;
+            log.attached = false;
+            log.bytes.clear();
+        }
+        self.room.notify_one();
+    }
+
+    /// Bytes that arrived before the shell request was answered (bounded by
+    /// the caller).
+    pub fn push_early(&self, data: &[u8]) {
+        self.lock().bytes.extend(data);
+    }
+
     /// Attaches again from `offset`. False when `offset` is outside the kept
     /// bytes or a terminal is still attached.
     pub fn attach_at(&self, offset: u64) -> bool {
         let mut log = self.lock();
-        if log.attached || offset < log.start || offset > log.end_offset() {
+        if log.attached || log.closed || offset < log.start || offset > log.end_offset() {
             return false;
         }
         log.delivered = offset;
@@ -202,5 +228,20 @@ mod tests {
         assert_eq!(events[0], ByteEvent::Output(b"bye".to_vec()));
         assert!(matches!(events[1], ByteEvent::Exit(_)));
         assert!(out.take().is_empty());
+    }
+
+    #[test]
+    fn close_releases_a_waiting_reader_and_discards_bytes() {
+        let rt = runtime();
+        let out = Arc::new(Output::default());
+        rt.block_on(out.push(&vec![b'a'; MAX_UNREAD]));
+        let pusher = rt.spawn({
+            let out = out.clone();
+            async move { out.push(b"b").await }
+        });
+        out.close();
+        rt.block_on(pusher).unwrap();
+        assert!(out.take().is_empty());
+        assert!(!out.attach_at(0), "a closed terminal cannot be resumed");
     }
 }

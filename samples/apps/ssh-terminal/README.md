@@ -14,8 +14,9 @@ Plan: `plans/cmux-next/cloud-app.md` (package C3) and
 
 - An app outside the cmux tree implements the backend trait with no cmux
   crate at run time. The trait is a local mirror (`server/src/iface.rs`) of the
-  shape that the ghostty-next lead chose; the cmux Cloud app server uses the
-  same mirror. Both swap to the real crate the same way when it lands.
+  shape that the ghostty-next lead chose. The cmux Cloud rescue shell
+  (cloud-app.md 3.4, package C2) copies the same mirror, so both swap to the
+  real crate the same way when it lands.
 - Bytes mode is enough for a plain shell: the backend only moves bytes. The
   local session host parses them, owns the VT state, snapshots and journal,
   and answers terminal queries (`answersQueries: false`).
@@ -29,13 +30,13 @@ Plan: `plans/cmux-next/cloud-app.md` (package C3) and
 | Op or event | SSH mapping |
 | --- | --- |
 | `open {kind: "ssh", target: conn_…, grid, env.TERM?}` | resolve the handle, TCP connect, key exchange, host key check, public key auth through the credential handle, session channel, PTY request (grid), shell |
-| `write {seq, bytes}` | channel data, in `seq` order (out-of-order chunks wait, at most 256; a used seq is refused) |
+| `write {seq, bytes}` | channel data, in `seq` order (out-of-order chunks wait, at most 256 ahead; a used seq is refused). A full buffer (1 MiB of unsent input) answers `Unavailable {retryable: true}` and changes nothing; no call waits |
 | `resize {cols, rows}` | `window-change` |
 | `signal` | SSH `signal` (INT, TERM, HUP, KILL) |
-| `close` | channel close (`Now` also ends the SSH connection) |
+| `close` | `Graceful`: unsent input, then EOF, then channel close. `Now`: unsent input is dropped. Both end the SSH connection; output after close is discarded |
 | event `output` | channel data and stderr data, in order; the byte offset is the running total |
 | event `exit {code}` | the server sent `exit-status` (or `exit-signal`, code empty) or closed the channel |
-| event `lost` | the channel ended with no exit and no close: the transport dropped, or 3 keepalives (15 s apart) got no answer |
+| event `lost` | the channel ended with no exit and no close: the transport dropped, or 3 keepalives in a row (15 s apart) got no answer |
 
 `command` and `cwd` in `open` are refused: this sample opens the login shell
 only.
@@ -52,16 +53,22 @@ certificates are refused (not supported in the sample).
 
 The backend keeps a session alive when the session host drops the terminal
 handle without `close` (for example a session host restart while the app
-server keeps running). `resume_token` is `ssh:<terminal>@<offset>`, where
-offset is the next output byte the session host has not received.
+server keeps running). `resume_token` is `ssh:<terminal>@<offset>#<nonce>`:
+offset is the next output byte the session host has not received; nonce is
+128 random bits per session, so a guessed token never attaches.
 
-- At most 64 KiB of unread output waits per terminal. When it is full, the
-  backend stops reading from the SSH channel; the SSH window fills and the far
-  end blocks. No byte is dropped.
+- At most 64 KiB of unread output waits per terminal (plus one SSH packet,
+  at most 32 KiB). When it is full, the backend stops reading the channel.
+  The SSH client then fills its 8-message channel queue and stops reading
+  the TCP socket, so TCP flow control stops the far end. About 320 KiB per
+  terminal (plus kernel socket buffers) is the most a fast server can make
+  the client hold. No byte is dropped while the terminal is open.
 - At most 64 KiB of already delivered output stays for replay. `resume` from
   an offset inside that window continues there; an older offset, a gone
-  session or a second attach gives a terminal whose only event is `lost`.
+  session or a wrong nonce gives a terminal whose only event is `lost`.
+  `resume` while a terminal is attached is `Invalid`.
 - At most 16 detached sessions stay; the oldest is closed after that.
+- A session that exited or was lost drops its SSH connection at once.
 - An SSH session does not outlive the app server process. After an app server
   restart, every resume gives `lost`.
 
@@ -73,6 +80,11 @@ order under concurrent writers, resize, exit status, lost, close, resume).
 Another backend copies the `vectors` module and implements `FarEnd` for its
 own far end. The far end must run this tiny shell: a line `echo X` answers
 `X\r\n`; a line `exit N` exits with status N.
+
+The SSH-specific tests (`server/tests/ssh_backend.rs`) also cover the host
+key refusal before any byte, the credential handle, RSA (rsa-sha2) signing,
+writes that never wait, connections that end on close and on exit, stale
+handles, resume nonces, eviction and calls from inside an async runtime.
 
 The tests run an in-process SSH server (`russh` server on 127.0.0.1) inside
 the test, never a real sshd and never a real host. Keys are made in memory in
@@ -119,6 +131,14 @@ Registry id: `app:example/ssh-terminal/ssh`.
    exports `ANSWERS_QUERIES`.
 7. The mirror's `LocalId` allows 32 characters; the interface schema allows 64.
 8. `ExitStatus` has no signal name for `exit-signal`.
+9. A credential handle that signs any bytes the app sends gives the app a
+   signing oracle. The host must parse the payload as an SSH user-auth
+   request (`session id || USERAUTH_REQUEST` for the resolved user and key)
+   before it signs. The sample's `CredentialHandle::sign` cannot enforce
+   that; the real host op must.
+10. The mirrored trait is synchronous. `open` and `resume` wait for the
+    network; called from inside an async runtime they return
+    `Unsupported`. The real async trait removes this rule.
 
 ## Build and test
 

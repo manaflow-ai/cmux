@@ -3,10 +3,10 @@
 //! The ghostty-next lead owns the real interface and the Rust traits
 //! (plans/cmux-next/ghostty-next-switch.md 3.3, module `terminal_backend` in
 //! cmux-tui-core). They are not on feat-cmux-next yet. This file copies the
-//! shape that the cmux Cloud app server uses for the same interface
-//! (`first-party-apps/cloud/server/src/{connector,rescue}/iface.rs`, helper
-//! C2), so both implementations swap to the real crate the same way: delete
-//! this file and import the real types. Keep the names and keep it small.
+//! shape that the cmux Cloud rescue shell (cloud-app.md 3.4, package C2)
+//! copies too, so both implementations swap to the real crate the same way:
+//! delete this file and import the real types. Keep the names and keep it
+//! small.
 //!
 //! An outside author cannot depend on a cmux crate yet, so this sample copies
 //! the shape instead of depending on the Cloud app server.

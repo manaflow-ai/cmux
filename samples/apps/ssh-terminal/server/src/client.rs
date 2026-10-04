@@ -3,10 +3,12 @@
 
 use crate::handles::{CredentialHandle, HostKeyDecision, HostKeyPolicy, SshConnection, SshTarget};
 use crate::iface::{BackendError, Grid};
+use crate::output::MAX_UNREAD;
 use russh::client::{self, Handle, Msg};
+use russh::keys::Algorithm;
 use russh::keys::agent::AgentIdentity;
 use russh::keys::{HashAlg, PublicKeyOrCertificate};
-use russh::{Channel, ChannelMsg, SendError};
+use russh::{Channel, ChannelMsg, ChannelReadHalf, ChannelWriteHalf, SendError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -76,6 +78,17 @@ impl russh::Signer for HandleSigner {
         async move {
             let signature = credential.sign(hash_alg, &to_sign).map_err(SignError::Handle)?;
             let algorithm = signature.algorithm();
+            let key_algorithm = credential.public_key().algorithm();
+            let expected = if key_algorithm.clone().is_rsa() {
+                Algorithm::Rsa { hash: hash_alg }
+            } else {
+                key_algorithm
+            };
+            if algorithm != expected {
+                return Err(SignError::Handle(BackendError::Invalid(format!(
+                    "the credential signed with {algorithm}, not {expected}"
+                ))));
+            }
             let name = algorithm.as_str().as_bytes();
             let blob = signature.as_bytes();
             let total = 8 + name.len() + blob.len();
@@ -89,12 +102,21 @@ impl russh::Signer for HandleSigner {
     }
 }
 
+/// An open shell: the connection, both channel halves and any bytes that
+/// came before the shell request was answered.
+pub struct Opened {
+    pub ssh: Handle<HostKeyGate>,
+    pub read: ChannelReadHalf,
+    pub write: ChannelWriteHalf<Msg>,
+    pub early: Vec<u8>,
+}
+
 /// Connects, checks the host key, authenticates and opens a shell channel.
 pub async fn connect(
     connection: &SshConnection,
     term: &str,
     grid: Grid,
-) -> Result<(Handle<HostKeyGate>, Channel<Msg>), BackendError> {
+) -> Result<Opened, BackendError> {
     let refusal = Arc::new(Mutex::new(None));
     let gate = HostKeyGate {
         target: connection.target.clone(),
@@ -107,7 +129,7 @@ pub async fn connect(
             Err(BackendError::Unavailable { reason: "connect timed out".into(), retryable: true })
         });
     match result {
-        Ok(pair) => Ok(pair),
+        Ok(opened) => Ok(opened),
         Err(error) => {
             let refused = refusal.lock().ok().and_then(|mut slot| slot.take());
             Err(refused.unwrap_or(error))
@@ -124,19 +146,27 @@ async fn connect_inner(
     gate: HostKeyGate,
     term: &str,
     grid: Grid,
-) -> Result<(Handle<HostKeyGate>, Channel<Msg>), BackendError> {
+) -> Result<Opened, BackendError> {
     let config = Arc::new(client::Config {
+        // Dead peer: the connection ends after 3 unanswered keepalives (45 s).
         keepalive_interval: Some(Duration::from_secs(15)),
-        keepalive_max: 3,
+        keepalive_max: 2,
+        // Small per-channel queue and packets: when the session host stops
+        // taking output, the client stops reading TCP after about 256 KiB.
+        channel_buffer_size: 8,
+        maximum_packet_size: 32 * 1024,
         ..Default::default()
     });
     let target = &connection.target;
     let address = (target.host.as_str(), target.port);
     let mut session =
         client::connect(config, address, gate).await.map_err(|e| unavailable("connect", e))?;
-    let hash_alg =
-        session.best_supported_rsa_hash().await.map_err(|e| unavailable("auth", e))?.flatten();
     let credential = connection.credential.clone();
+    let hash_alg = if credential.public_key().algorithm().is_rsa() {
+        session.best_supported_rsa_hash().await.map_err(|e| unavailable("auth", e))?.flatten()
+    } else {
+        None
+    };
     let auth = session
         .authenticate_publickey_with(
             target.user.clone(),
@@ -162,22 +192,39 @@ async fn connect_inner(
         .request_pty(true, term, cols, rows, 0, 0, &[])
         .await
         .map_err(|e| unavailable("pty", e))?;
-    expect_success(&mut channel, "pty").await?;
+    let mut early = Vec::new();
+    expect_success(&mut channel, "pty", &mut early).await?;
     channel.request_shell(true).await.map_err(|e| unavailable("shell", e))?;
-    expect_success(&mut channel, "shell").await?;
-    Ok((session, channel))
+    expect_success(&mut channel, "shell", &mut early).await?;
+    let (read, write) = channel.split();
+    Ok(Opened { ssh: session, read, write, early })
 }
 
-/// Waits for the reply to a request. Nothing else arrives before a shell
-/// starts, so any other message is a protocol error.
-async fn expect_success(channel: &mut Channel<Msg>, what: &str) -> Result<(), BackendError> {
-    match channel.wait().await {
-        Some(ChannelMsg::Success) => Ok(()),
-        Some(ChannelMsg::Failure) => Err(BackendError::Unavailable {
-            reason: format!("the server refused the {what} request"),
-            retryable: false,
-        }),
-        Some(_) => Err(unavailable(what, "unexpected message before the reply")),
-        None => Err(unavailable(what, "the channel closed")),
+/// Waits for the reply to a request. Output that comes first is kept (at
+/// most [`MAX_UNREAD`]); window adjustments are skipped.
+async fn expect_success(
+    channel: &mut Channel<Msg>,
+    what: &str,
+    early: &mut Vec<u8>,
+) -> Result<(), BackendError> {
+    loop {
+        match channel.wait().await {
+            Some(ChannelMsg::Success) => return Ok(()),
+            Some(ChannelMsg::Failure) => {
+                return Err(BackendError::Unavailable {
+                    reason: format!("the server refused the {what} request"),
+                    retryable: false,
+                });
+            }
+            Some(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. }) => {
+                if early.len() + data.len() > MAX_UNREAD {
+                    return Err(unavailable(what, "too much output before the reply"));
+                }
+                early.extend_from_slice(&data);
+            }
+            Some(ChannelMsg::WindowAdjusted { .. }) => {}
+            Some(_) => return Err(unavailable(what, "unexpected message before the reply")),
+            None => return Err(unavailable(what, "the channel closed")),
+        }
     }
 }
