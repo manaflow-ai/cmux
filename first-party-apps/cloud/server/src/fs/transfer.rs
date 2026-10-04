@@ -11,6 +11,7 @@
 //!    [`OpenSshTransfer`]; tests use a fake.
 
 use super::key::TransferKey;
+pub use super::openssh::host_alias;
 use super::path::{guest_arg, local_arg};
 use crate::api::{CloudError, ControlPlane, Origin, args, codes};
 use crate::app_env::SshFiles;
@@ -27,6 +28,9 @@ pub use super::openssh::OpenSshTransfer;
 
 pub const TRANSFER_FAILED: &str = "cmux.cloud.transfer_failed";
 pub const LOCAL_EXISTS: &str = "cmux.cloud.local_exists";
+/// The answer named no host key to pin. A host key the Cloud API did not
+/// give needs the user's host key sheet (not built yet): the transfer stops.
+pub const HOST_KEY_UNPINNED: &str = "cmux.cloud.host_key_unpinned";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -54,6 +58,13 @@ impl ScpEndpoint {
     /// an expiry in the future (`now` is Unix seconds).
     pub fn decode(answer: Value, now: i64) -> Result<Self, CloudError> {
         let bad = |why: &str| CloudError::new(codes::BAD_RESPONSE, format!("scp-endpoint: {why}"));
+        let key = answer.get("hostPublicKey").and_then(Value::as_str).unwrap_or_default();
+        if key.trim().is_empty() {
+            return Err(CloudError::new(
+                HOST_KEY_UNPINNED,
+                "cmux Cloud gave no host key for this machine; a new host key needs your confirmation in cmux",
+            ));
+        }
         let endpoint: Self = serde_json::from_value(answer).map_err(|e| bad(&e.to_string()))?;
         if endpoint.username != "cmux" || endpoint.port == 0 {
             return Err(bad("unexpected user or port"));
@@ -129,6 +140,14 @@ pub(crate) fn run<C: ControlPlane>(
     let local = local_arg(map, "localPath")?;
     let guest = guest_arg(map, "path")?.literal_for_transfer()?.to_owned();
     check_local(&local, direction)?;
+    // The children's environment and the app's OpenSSH files, before any
+    // Cloud API call: without a data folder nothing starts.
+    let app_env = server.attach().env().clone();
+    let no_data = |e: std::io::Error| {
+        CloudError::new(TRANSFER_FAILED, format!("no private OpenSSH folder for the transfer: {e}"))
+    };
+    let child_env = app_env.child_env().map_err(no_data)?;
+    let ssh = app_env.ssh_files().map_err(no_data)?;
     let carrier =
         crate::link::ops::connect(server, &machine, origin, key.map(|k| format!("{k}/start")))?;
     let transfer_key = TransferKey::generate()?;
@@ -140,6 +159,11 @@ pub(crate) fn run<C: ControlPlane>(
     )?;
     let endpoint = ScpEndpoint::decode(answer, now_unix())?;
     let (edge, _) = server.edge_parts();
+    // The loop thread is the only writer of known_hosts: the endpoint's
+    // host key is pinned there before the copy starts.
+    edge.pin_host_key(&ssh, &machine, &endpoint.host_public_key).map_err(|e| {
+        CloudError::new(TRANSFER_FAILED, format!("could not pin the machine's host key: {e}"))
+    })?;
     let handler = edge.forward_handler(&carrier, "localhost", endpoint.port);
     let mut route = Listener::bind(handler).map_err(|e| {
         CloudError::new(TRANSFER_FAILED, format!("could not listen on 127.0.0.1: {e}"))
@@ -159,9 +183,9 @@ pub(crate) fn run<C: ControlPlane>(
         guest: guest.clone(),
         endpoint,
         route: route.local_addr(),
-        env: Vec::new(),
-        ssh: SshFiles::default(),
-        temp_dir: std::env::temp_dir(),
+        env: child_env,
+        ssh,
+        temp_dir: app_env.temp_dir(),
     };
     let result = edge.transfer.run(&job, &transfer_key);
     route.close();

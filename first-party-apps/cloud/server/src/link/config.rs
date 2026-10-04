@@ -140,7 +140,14 @@ impl<C: ControlPlane> Server<C> {
         attach.supervisor.pump();
         for machine in attach.supervisor.live_machines() {
             let Some(endpoint) = attach.endpoints.get(&machine).cloned() else { continue };
-            let command = link_command(&paths, &machine, &endpoint);
+            let command = match attach.env.child_env() {
+                Ok(env) => link_command(&paths, &machine, &endpoint, &env),
+                Err(e) => {
+                    eprintln!("cmux-cloud: no private home for the link to {machine}: {e}");
+                    attach.supervisor.disconnect(&machine);
+                    continue;
+                }
+            };
             if let Err(failure) = attach.supervisor.respawn(&machine, &command) {
                 eprintln!("cmux-cloud: the link to {machine} did not restart: {failure:?}");
             }
