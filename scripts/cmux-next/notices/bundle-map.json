@@ -19,17 +19,17 @@
     {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
       "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
-      "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Frameworks/libcmux_cef_shim.dylib",
       "what": "first-party CEF shim (links CEF)",
-      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*",
       "what": "first-party CEF helper processes (link CEF)",
-      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Resources/bin/cmux",
