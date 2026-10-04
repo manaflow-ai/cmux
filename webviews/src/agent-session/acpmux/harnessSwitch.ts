@@ -15,6 +15,21 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 // back to the composer, marks the harness in the picker, and offers Retry. While a turn streams,
 // a harness pick applies to the next turn: the stream keeps drawing and the next prompt opens the
 // new chat. The store outlives a connection, so a reconnect resumes the switch on the new client.
+//
+// TODO(intents): port onto the IntentStore (webviews/src/protocol/intents, hq48-zero-latency,
+// plans/cmux-next/zero-latency.md) once it lands on feat-cmux-next. The plan: one resource,
+// "session", so its per-resource FIFO orders the switch before the prompts and picks made during
+// it. Kinds: `harness.switch` (apply: the target harness on a new chat; op: leave, session/new,
+// attach; supersede and abortSuperseded, an aborted op discarding the session it started),
+// `prompt.send` (apply: the queued row; the op resolves once session/prompt is written, not at
+// turn end, so later prompts and picks are not held for a turn; onPriorRefused "cancel", whose
+// cancellation hands text and attachments back to the composer), `model.set`, `mode.set`,
+// `config.set` (apply: the chip; base from the session summary through resync on every client
+// snapshot; confirm "event" retired by `receive` when the summary reports the picked value,
+// because acpmux echoes no opid). The client is the IntentSender, with link loss mapped to
+// ProtocolErrorCode.closed so setSender on reconnect resends. What stays outside the store:
+// the deferred phase while a turn streams (the switch op holds the attach until the next
+// prompt), the reuse of the empty chat just left, and the prewarm hint.
 
 type Catalog = AcpmuxSnapshot["catalog"];
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
