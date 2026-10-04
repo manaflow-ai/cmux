@@ -450,6 +450,102 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(error.message.contains("256 MiB"), "\(error.message)")
         #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root) == ["large.bin"])
     }
+
+    private func makeFileSystem(
+        _ scratch: Scratch,
+        budget: BrowserReplWriteBudget,
+        isCancelled: @escaping @Sendable () -> Bool = { false }
+    ) -> BrowserReplFileSystem {
+        BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: scratch.root),
+            temporaryDirectory: scratch.base + "/tmp",
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: budget,
+            isCancelled: isCancelled
+        )
+    }
+
+    @Test("writeFile past one call's limit is refused and keeps the existing file")
+    func largeWriteIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: scratch.root + "/file.txt"))
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(perCall: 1000, perSession: 1 << 20))
+
+        let result = fs.perform("writeFile", arguments: ["path": "file.txt", "base64": Data(count: 1001).base64EncodedString()])
+
+        guard case .failure(let error) = result else {
+            Issue.record("a write past the limit was made")
+            return
+        }
+        #expect(error.code == "EFBIG")
+        #expect(error.message.contains("1000 bytes"), "\(error.message)")
+        #expect(FileManager.default.contents(atPath: scratch.root + "/file.txt") == Data("keep".utf8))
+    }
+
+    @Test("Writes, appends and copies share one session budget; past it they are refused with a way out")
+    func sessionBudgetIsShared() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let budget = BrowserReplWriteBudget(perCall: 2000, perSession: 4000)
+        let fs = makeFileSystem(scratch, budget: budget)
+        // A session that changes its root keeps its budget.
+        let moved = makeFileSystem(scratch, budget: budget)
+        let chunk = Data(count: 1500).base64EncodedString()
+
+        let first = fs.perform("writeFile", arguments: ["path": "a.bin", "base64": chunk])
+        let appended = fs.perform("writeFile", arguments: ["path": "a.bin", "base64": chunk, "append": true])
+        let tooMuch = moved.perform("copyFile", arguments: ["from": "a.bin", "to": "b.bin"])
+        let small = moved.perform("writeFile", arguments: ["path": "c.bin", "base64": Data(count: 1000).base64EncodedString()])
+        let past = moved.perform("writeFile", arguments: ["path": "d.bin", "base64": "eA=="])
+
+        #expect(first.failureCode == "ok" && appended.failureCode == "ok" && small.failureCode == "ok")
+        // 3,000 bytes is past one call's 2,000.
+        #expect(tooMuch.failureCode == "EFBIG")
+        guard case .failure(let error) = past else {
+            Issue.record("a write past the session's budget was made")
+            return
+        }
+        #expect(error.code == "EDQUOT")
+        #expect(error.message.contains("cmux browser repl reset"), "\(error.message)")
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d.bin"))
+    }
+
+    @Test("A cancelled copy or write stops between chunks and a copy leaves no file")
+    func cancelledCopyStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let size = 3 * BrowserReplFileSystem.chunkBytes
+        try Data(count: size).write(to: URL(fileURLWithPath: scratch.root + "/source.bin"))
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { true })
+
+        let copied = fs.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"])
+        let written = fs.perform("writeFile", arguments: ["path": "written.bin", "base64": Data(count: size).base64EncodedString()])
+
+        #expect(copied.failureCode == "ECANCELED")
+        #expect(written.failureCode == "ECANCELED")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root).sorted() == ["source.bin", "written.bin"])
+        let partial = try FileManager.default.attributesOfItem(atPath: scratch.root + "/written.bin")[.size] as? NSNumber
+        #expect((partial?.intValue ?? size) < size)
+    }
+
+    @Test("copyFile copies the bytes, the mode and replaces the destination")
+    func copyKeepsBytesAndMode() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let bytes = Data((0..<(2 * BrowserReplFileSystem.chunkBytes + 7)).map { UInt8(truncatingIfNeeded: $0) })
+        try bytes.write(to: URL(fileURLWithPath: scratch.root + "/source.bin"))
+        #expect(chmod(scratch.root + "/source.bin", 0o640) == 0)
+        try Data("old".utf8).write(to: URL(fileURLWithPath: scratch.root + "/copy.bin"))
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget())
+
+        #expect(fs.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"]).failureCode == "ok")
+
+        #expect(FileManager.default.contents(atPath: scratch.root + "/copy.bin") == bytes)
+        let mode = try FileManager.default.attributesOfItem(atPath: scratch.root + "/copy.bin")[.posixPermissions] as? NSNumber
+        #expect(mode?.intValue == 0o640)
+    }
 }
 
 private extension Result where Success == Any, Failure == BrowserReplFileSystemError {

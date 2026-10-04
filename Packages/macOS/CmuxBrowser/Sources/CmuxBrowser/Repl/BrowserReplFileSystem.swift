@@ -26,7 +26,12 @@ import Foundation
 /// Files are opened with `O_NONBLOCK` and checked with `fstat` before any
 /// read or write: a FIFO, socket or device fails with `EINVAL` at once
 /// instead of waiting for its other end, and `readFile` refuses a file over
-/// `maxReadFileBytes`. No lock is held across operations or sessions: the
+/// `maxReadFileBytes`. One `writeFile` (also an append) or `copyFile` writes
+/// at most ``BrowserReplWriteBudget/maximumBytesPerCall`` and a session at
+/// most ``BrowserReplWriteBudget/maximumBytesPerSession`` in all, each
+/// refused before anything is written, and they write in chunks that stop
+/// when the session cancels the call (its cell timed out or the session
+/// closed). No lock is held across operations or sessions: the
 /// descriptor walk is what keeps two sessions on one root, or a session and
 /// another process, from racing each other's checks, so a slow operation
 /// holds only its own session's thread.
@@ -44,24 +49,45 @@ public struct BrowserReplFileSystem: Sendable {
     /// Each root's directory, held open from when the fs first opened it.
     let rootDirectories: BrowserReplRootDirectories
 
+    /// What the session may still write, shared by its fs copies.
+    let writeBudget: BrowserReplWriteBudget
+
+    /// Whether the session cancelled the running call; long writes and
+    /// copies check it between chunks.
+    let isCancelled: @Sendable () -> Bool
+
     /// - Parameter temporaryDirectory: The session's private temporary
     ///   directory (`os.tmpdir()` in the REPL), never a directory other
     ///   sessions or apps share; `nil` gives the sandbox root only.
     public init(sandbox: BrowserReplFileSandbox, temporaryDirectory: String? = nil) {
-        self.init(sandbox: sandbox, temporaryDirectory: temporaryDirectory, rootDescriptor: nil, temporaryDescriptor: nil)
+        self.init(
+            sandbox: sandbox,
+            temporaryDirectory: temporaryDirectory,
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: BrowserReplWriteBudget(),
+            isCancelled: { false }
+        )
     }
 
     /// Opens each root that exists now and holds it open; a root that does
     /// not exist yet is held from when an operation first opens or creates
     /// it. `rootDescriptor` and `temporaryDescriptor` are the roots'
     /// directories the caller already holds open (the session created them).
+    /// `writeBudget` is what the session may still write (shared when the
+    /// session moves to another root), and `isCancelled` tells a long write
+    /// or copy to stop.
     init(
         sandbox: BrowserReplFileSandbox,
         temporaryDirectory: String?,
         rootDescriptor: BrowserReplDescriptor?,
-        temporaryDescriptor: BrowserReplDescriptor?
+        temporaryDescriptor: BrowserReplDescriptor?,
+        writeBudget: BrowserReplWriteBudget,
+        isCancelled: @escaping @Sendable () -> Bool
     ) {
         self.sandbox = sandbox
+        self.writeBudget = writeBudget
+        self.isCancelled = isCancelled
         let temporaryRoot = temporaryDirectory.map {
             BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized($0))
         }
@@ -121,6 +147,8 @@ public struct BrowserReplFileSystem: Sendable {
             let location = try locate(.write)
             guard let name = location.name else { throw Self.isDirectoryError }
             let append = arguments["append"] as? Bool == true
+            // Refused before the file is opened, so an existing file is kept.
+            try writeBudget.take(data.count, syscall: "write", display: display)
             // Truncated only once it is known to be a regular file.
             let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY | (append ? O_APPEND : 0)
             let descriptor = openat(location.directory.fd, name, flags, 0o666)
@@ -200,20 +228,26 @@ public struct BrowserReplFileSystem: Sendable {
         case "copyFile":
             let fromDisplay = try raw("from")
             let pair = "\(fromDisplay)' -> '\(try raw("to"))"
-            let (source, _) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
+            let (source, size) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
             let destination = try locate(.write, key: "to")
             guard let name = destination.name else { throw Self.isDirectoryError }
+            try writeBudget.take(size, syscall: "copyfile", display: pair)
             // Copy next to the destination, then swap it in, so a failed copy
             // leaves an existing destination untouched.
             let staging = ".\(name).cmux-copy-\(UUID().uuidString)"
             let descriptor = openat(destination.directory.fd, staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o666)
             guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "copyfile", display: pair) }
             let copy = BrowserReplDescriptor(descriptor)
-            guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_STAT | COPYFILE_XATTR)) == 0,
-                  renameat(destination.directory.fd, staging, destination.directory.fd, name) == 0 else {
-                let number = errno
+            do {
+                try copyData(from: source, to: copy, size: size, display: pair)
+                // Mode, times and extended attributes, as fcopyfile's own copy.
+                guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR)) == 0,
+                      renameat(destination.directory.fd, staging, destination.directory.fd, name) == 0 else {
+                    throw Self.posixError(errno, syscall: "copyfile", display: pair)
+                }
+            } catch {
                 unlinkat(destination.directory.fd, staging, 0)
-                throw Self.posixError(number, syscall: "copyfile", display: pair)
+                throw error
             }
             return NSNull()
         default:
@@ -523,11 +557,16 @@ public struct BrowserReplFileSystem: Sendable {
         }
     }
 
+    /// How much a long write or copy writes between checks for cancellation.
+    static let chunkBytes = 1 << 20
+
+    /// Writes `data` in chunks, stopping when the call is cancelled.
     private func writeAll(_ data: Data, to file: BrowserReplDescriptor, display: String) throws {
         try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
             var offset = 0
             while offset < bytes.count {
-                let count = write(file.fd, bytes.baseAddress! + offset, bytes.count - offset)
+                if offset > 0, isCancelled() { throw Self.cancelledError(syscall: "write", display: display) }
+                let count = write(file.fd, bytes.baseAddress! + offset, min(bytes.count - offset, Self.chunkBytes))
                 if count < 0 {
                     if errno == EINTR { continue }
                     throw Self.posixError(errno, syscall: "write", display: display)
@@ -535,6 +574,46 @@ public struct BrowserReplFileSystem: Sendable {
                 offset += count
             }
         }
+    }
+
+    /// Copies `source`'s bytes to `destination` in chunks, stopping when the
+    /// call is cancelled. `size` was taken from the write budget; a source
+    /// that grows meanwhile takes the rest as it is read, up to one call's
+    /// limit.
+    private func copyData(from source: BrowserReplDescriptor, to destination: BrowserReplDescriptor, size: Int, display: String) throws {
+        var buffer = [UInt8](repeating: 0, count: Self.chunkBytes)
+        var copied = 0
+        while true {
+            if copied > 0, isCancelled() { throw Self.cancelledError(syscall: "copyfile", display: display) }
+            let count = read(source.fd, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw Self.posixError(errno, syscall: "copyfile", display: display)
+            }
+            if count == 0 { return }
+            if copied + count > size {
+                try writeBudget.take(copied + count - max(size, copied), syscall: "copyfile", display: display, callBytes: copied + count)
+            }
+            try buffer.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < count {
+                    let written = write(destination.fd, bytes.baseAddress! + offset, count - offset)
+                    if written < 0 {
+                        if errno == EINTR { continue }
+                        throw Self.posixError(errno, syscall: "copyfile", display: display)
+                    }
+                    offset += written
+                }
+            }
+            copied += count
+        }
+    }
+
+    private static func cancelledError(syscall: String, display: String) -> BrowserReplFileSystemError {
+        BrowserReplFileSystemError(
+            code: "ECANCELED",
+            message: "ECANCELED: operation canceled because its cell timed out or the session ended, \(syscall) '\(display)'"
+        )
     }
 
     /// Opens the directory at `location` for listing.
@@ -664,6 +743,62 @@ public struct BrowserReplFileSystem: Sendable {
         default: code = "EIO"
         }
         return BrowserReplFileSystemError(code: code, message: "\(code): \(nsError.localizedDescription), \(operation) '\(path)'")
+    }
+}
+
+/// What a session's fs may still write: at most `perCall` bytes in one
+/// `writeFile` or `copyFile`, and `perSession` in all over the session's
+/// life, so agent code cannot fill the disk. Shared by the fs copies of one
+/// session.
+final class BrowserReplWriteBudget: @unchecked Sendable {
+    /// The most one `writeFile` (also an append) or `copyFile` writes, 256 MiB.
+    static let maximumBytesPerCall = 256 << 20
+    /// The most a session's fs writes over its life, 2 GiB.
+    static let maximumBytesPerSession = 2 << 30
+
+    let perCall: Int
+    let perSession: Int
+    private let lock = NSLock()
+    private var written = 0
+
+    init(perCall: Int = BrowserReplWriteBudget.maximumBytesPerCall, perSession: Int = BrowserReplWriteBudget.maximumBytesPerSession) {
+        self.perCall = perCall
+        self.perSession = perSession
+    }
+
+    /// Takes `count` bytes from the budget, or throws `EFBIG` when the call
+    /// (`callBytes` in all, `count` by default) is past `perCall`, or
+    /// `EDQUOT` when the session's budget is used up.
+    func take(_ count: Int, syscall: String, display: String, callBytes: Int? = nil) throws {
+        try checkCall(callBytes ?? count, syscall: syscall, display: display)
+        let taken: Bool = lock.withLock {
+            guard written + count <= perSession else { return false }
+            written += count
+            return true
+        }
+        guard taken else {
+            throw BrowserReplFileSystemError(
+                code: "EDQUOT",
+                message: "EDQUOT: the REPL session has written its limit of \(Self.describe(perSession)) of files, \(syscall) '\(display)'; reset the session (cmux browser repl reset NAME) to write more"
+            )
+        }
+    }
+
+    /// Throws `EFBIG` when one call of `count` bytes is past `perCall`.
+    func checkCall(_ count: Int, syscall: String, display: String) throws {
+        guard count <= perCall else {
+            throw BrowserReplFileSystemError(
+                code: "EFBIG",
+                message: "EFBIG: file too large, \(syscall) '\(display)': fs writes at most \(Self.describe(perCall)) in one call (this one is \(count) bytes)"
+            )
+        }
+    }
+
+    /// `256 MiB`, `2 GiB` or `1000 bytes`.
+    private static func describe(_ bytes: Int) -> String {
+        if bytes >= 1 << 30, bytes % (1 << 30) == 0 { return "\(bytes >> 30) GiB" }
+        if bytes >= 1 << 20, bytes % (1 << 20) == 0 { return "\(bytes >> 20) MiB" }
+        return "\(bytes) bytes"
     }
 }
 

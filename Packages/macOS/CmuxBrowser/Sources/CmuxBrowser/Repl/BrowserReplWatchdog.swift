@@ -146,6 +146,13 @@ final class BrowserReplWatchdog: @unchecked Sendable {
         lock.withLock { terminationRequested = true }
     }
 
+    /// Whether the running script is to be terminated (a timeout asked, or
+    /// the session closed): native work on the thread checks it to stop
+    /// early too.
+    var isTerminationRequested: Bool {
+        lock.withLock { terminationRequested }
+    }
+
     /// Ends a request; never one `close()` made.
     func clearTermination() {
         lock.withLock { terminationRequested = closed }

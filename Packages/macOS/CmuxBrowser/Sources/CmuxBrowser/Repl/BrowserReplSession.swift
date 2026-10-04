@@ -364,13 +364,18 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.boundary = BrowserReplBoundary(typedSecrets: { driver.typedSecretRedaction() })
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
-        self.watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit)
+        let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit)
+        self.watchdog = watchdog
         self.fetcher = BrowserReplFetcher(driver: driver)
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
             temporaryDirectory: privateTemporaryDirectory,
             rootDescriptor: cwdDescriptor,
-            temporaryDescriptor: privateTemporaryDescriptor
+            temporaryDescriptor: privateTemporaryDescriptor,
+            writeBudget: BrowserReplWriteBudget(),
+            // A cell's timeout and close() ask the watchdog to stop the
+            // running script; a long fs write or copy stops with it.
+            isCancelled: { watchdog.isTerminationRequested }
         )
         self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), maximumTimers: maxPendingTimers) { [weak self] id in
             self?.fireTimer(id)
@@ -948,7 +953,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                 sandbox: sandbox,
                 temporaryDirectory: fileSystem.temporaryRoot,
                 rootDescriptor: nil,
-                temporaryDescriptor: fileSystem.temporaryRoot.flatMap { fileSystem.rootDirectories.descriptor(at: 1, for: $0) }
+                temporaryDescriptor: fileSystem.temporaryRoot.flatMap { fileSystem.rootDirectories.descriptor(at: 1, for: $0) },
+                writeBudget: fileSystem.writeBudget,
+                isCancelled: fileSystem.isCancelled
             )
             // The runtime removes the `__cmuxNative` global before agent code
             // runs; the session keeps its own reference.
@@ -1168,6 +1175,15 @@ public final class BrowserReplSession: @unchecked Sendable {
                     ?? #"{"error":{"code":"EIO","message":"error"}}"#
             }
             if op == "writeFile", let base64 = args["base64"] as? String {
+                // Past one call's limit it is refused before it is decoded
+                // and scanned (the least it can decode to, less padding).
+                let decodedAtLeast = max(0, base64.utf8.count / 4 * 3 - 2)
+                do {
+                    try self.fileSystem.writeBudget.checkCall(decodedAtLeast, syscall: "write", display: args["path"] as? String ?? "")
+                } catch {
+                    let refusal = error as? BrowserReplFileSystemError
+                    return failure(refusal?.code ?? "EFBIG", refusal?.message ?? "\(error)")
+                }
                 do {
                     args["base64"] = try self.boundary.redactFileContents(base64)
                 } catch {
