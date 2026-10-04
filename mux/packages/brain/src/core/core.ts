@@ -194,7 +194,7 @@ export class Core {
   private readonly pendingChildren = new Map<string, SessionSummary>();
   /** Later `session_changed` inputs of a child with a pending finish, in order (replayed after it). */
   private readonly heldChanges = new Map<string, SessionSummary[]>();
-  /** Rejections per outstanding prompt (the retry backoff), until acpmux accepts it. */
+  /** Rejections per outstanding prompt (the retry backoff), until acpmux accepts it. Memory only: a restart resets the budget. */
   private readonly promptRejections = new Map<string, number>();
   /** Failed session lists in a row (the retry backoff). */
   private sessionsFailures = 0;
@@ -285,10 +285,11 @@ export class Core {
       }
       case "prompt_settled":
         this.accept(input.prompt_id);
-        if (input.rejected === true && this.state.prompts[input.prompt_id]) {
+        // A refusal of the prompt whose turn runs is stale (a duplicate's answer): ignored.
+        if (input.rejected === true && this.state.prompts[input.prompt_id] && this.folder.running?.promptId !== input.prompt_id) {
           const rejections = (this.promptRejections.get(input.prompt_id) ?? 0) + 1;
           if (rejections > MAX_PROMPT_RETRIES) {
-            this.stopRefusedPrompt(input.prompt_id, input.error ?? "refused");
+            this.stopRefusedPrompt(input.prompt_id, input.error || "refused");
             break;
           }
           this.promptRejections.set(input.prompt_id, rejections);
@@ -302,8 +303,10 @@ export class Core {
           this.outboxTimerAt = undefined;
           this.flushOutbox();
         } else if (input.key.startsWith(PROMPT_TIMER_PREFIX)) {
-          // Answered or dropped meanwhile: nothing to send.
-          this.sendPrompt(input.key.slice(PROMPT_TIMER_PREFIX.length));
+          // Only a prompt still refused: one acpmux accepted (its rejections are cleared),
+          // whose turn runs, or that was answered or dropped meanwhile sends nothing.
+          const promptId = input.key.slice(PROMPT_TIMER_PREFIX.length);
+          if (this.promptRejections.has(promptId) && this.folder.running?.promptId !== promptId) this.sendPrompt(promptId);
         } else if (input.key === SESSIONS_TIMER) {
           if (this.pendingPermissions.length > 0 && this.acpmuxUp) this.emit({ kind: "fetch_sessions" });
         }

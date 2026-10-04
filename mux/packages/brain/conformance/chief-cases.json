@@ -9,6 +9,14 @@
   "Text rules: trim and to_lines whitespace is the JavaScript set (\\s, String.prototype.trim); cuts count UTF-16 units and never split a surrogate pair; an empty promptId is no prompt id; an empty memory summary counts as missing; only string fields of a permission request count.",
   "A connected input while that port is up counts as a disconnect first. A child's session_changed inputs wait behind its pending finish (fetch_child_events) and are replayed in order."
  ],
+ "rules": {
+  "agent_mux": "agent_mux",
+  "chief_conversation_title": "Chief",
+  "chief_display_name": "Chief",
+  "default_conversation_key": "home-chief",
+  "mux_session_name": "mux",
+  "user_local": "user_local"
+ },
  "cases": [
   {
    "name": "wake 1:1: a human message wakes the Chief; its turn is the reply, keyed by the turn, with typing",
@@ -13263,6 +13271,1158 @@
         {
          "type": "text",
          "text": "(turn failed: no agent session)"
+        }
+       ]
+      }
+     }
+    ],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "prompts: a retry timer that fires after acpmux accepted the prompt, or while its turn runs, sends nothing; a refusal of a running prompt is ignored",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_1",
+        "conversation": "conv_a",
+        "seq": 1,
+        "client_msg_id": "c_conv_a_1",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hello"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": []
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] hello",
+          "seq": 1,
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": "busy"
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:1",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 1
+       }
+      },
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 1000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985601006
+      }
+     ]
+    },
+    {
+     "now": 1790985600007,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 1,
+       "dir": "mux",
+       "kind": "user_message",
+       "msg": {
+        "promptId": "m_conv_a_1"
+       }
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601007,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601008,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 2,
+       "dir": "mux",
+       "kind": "turn_started",
+       "msg": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": true
+      }
+     ]
+    },
+    {
+     "now": 1790985601009,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601010,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601011,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601012,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601013,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601014,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601015,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601016,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601017,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601018,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601019,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601020,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601021,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 3,
+       "dir": "agent",
+       "kind": "agent_message_chunk",
+       "msg": {
+        "params": {
+         "update": {
+          "content": {
+           "type": "text",
+           "text": "real answer"
+          }
+         }
+        }
+       }
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985601022,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 4,
+       "dir": "mux",
+       "kind": "turn_end",
+       "msg": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 4,
+        "prompts": {},
+        "answered": [
+         "m_conv_a_1"
+        ],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "turn:s_mux:2",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "turn:s_mux:2",
+           "parts": [
+            {
+             "type": "text",
+             "text": "real answer"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "turn:s_mux:2",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "turn:s_mux:2",
+        "parts": [
+         {
+          "type": "text",
+          "text": "real answer"
+         }
+        ]
+       }
+      },
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": false
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 4,
+    "prompts": {},
+    "answered": [
+     "m_conv_a_1"
+    ],
+    "outbox": [
+     {
+      "conversation": "conv_a",
+      "idempotency_key": "turn:s_mux:2",
+      "op": {
+       "kind": "message.send",
+       "client_msg_id": "turn:s_mux:2",
+       "parts": [
+        {
+         "type": "text",
+         "text": "real answer"
+        }
+       ]
+      }
+     }
+    ],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "prompts: an empty refusal text reads as refused",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_1",
+        "conversation": "conv_a",
+        "seq": 1,
+        "client_msg_id": "c_conv_a_1",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hello"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": []
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] hello",
+          "seq": 1,
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:1",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 1
+       }
+      },
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 1000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985601006
+      }
+     ]
+    },
+    {
+     "now": 1790985630006,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985630007,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 2000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985632007
+      }
+     ]
+    },
+    {
+     "now": 1790985660007,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985660008,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 4000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985664008
+      }
+     ]
+    },
+    {
+     "now": 1790985690008,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985690009,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 8000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985698009
+      }
+     ]
+    },
+    {
+     "now": 1790985720009,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985720010,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 16000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985736010
+      }
+     ]
+    },
+    {
+     "now": 1790985750010,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985750011,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 30000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985780011
+      }
+     ]
+    },
+    {
+     "now": 1790985780011,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985780012,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 30000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985810012
+      }
+     ]
+    },
+    {
+     "now": 1790985810012,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985810013,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 30000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985840013
+      }
+     ]
+    },
+    {
+     "now": 1790985840013,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985840014,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 30000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985870014
+      }
+     ]
+    },
+    {
+     "now": 1790985870014,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985870015,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 30000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985900015
+      }
+     ]
+    },
+    {
+     "now": 1790985900015,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985900016,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": ""
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [
+         "m_conv_a_1"
+        ],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "failed:m_conv_a_1",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "failed:m_conv_a_1",
+           "parts": [
+            {
+             "type": "text",
+             "text": "(turn failed: refused)"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 refused 11 times; giving up: refused"
+      },
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "failed:m_conv_a_1",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "failed:m_conv_a_1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "(turn failed: refused)"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [
+     "m_conv_a_1"
+    ],
+    "outbox": [
+     {
+      "conversation": "conv_a",
+      "idempotency_key": "failed:m_conv_a_1",
+      "op": {
+       "kind": "message.send",
+       "client_msg_id": "failed:m_conv_a_1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "(turn failed: refused)"
         }
        ]
       }

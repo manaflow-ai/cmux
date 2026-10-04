@@ -7,7 +7,7 @@
 import type { AcpmuxEvent, SessionSummary } from "../src/core/acp.ts";
 import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } from "../src/core/conversation.ts";
 import { Core, type Effect, type Input } from "../src/core/core.ts";
-import { CORPUS_FORMAT, type Corpus, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
+import { CORPUS_FORMAT, type Corpus, corpusRules, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
 import { PARENT_TAG } from "../src/core/rules.ts";
 import { type ChildRecord, type HostStateData, loadState } from "../src/core/state.ts";
 
@@ -1749,5 +1749,5 @@ export async function buildCorpus(): Promise<Corpus> {
   }
   const memory = await memoryCases();
   checkMemory(memory);
-  return { format: CORPUS_FORMAT, notes: NOTES, cases, memory };
+  return { format: CORPUS_FORMAT, notes: NOTES, rules: corpusRules(), cases, memory };
 }
