@@ -415,11 +415,11 @@ struct RemoteTmuxMirrorTargetingTests {
             "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
         ])
         try harness.drainThroughPaneRects([
-            1: ["%0 0 0 80 24 1 off :0 \"example-host.test\""],
+            1: [harness.paneRectLine(paneID: 0, index: 0, title: "example-host.test", width: 80, height: 24)],
             2: [
-                "%4 0 0 60 40 1 off :0 \"example-host.test\"",
-                "%5 61 0 59 20 0 off :1 \"example-host.test\"",
-                "%8 61 21 59 19 0 off :2 \"example-host.test\"",
+                harness.paneRectLine(paneID: 4, index: 0, title: "example-host.test"),
+                harness.paneRectLine(paneID: 5, index: 1, title: "example-host.test", x: 61, width: 59, height: 20),
+                harness.paneRectLine(paneID: 8, index: 2, title: "example-host.test", x: 61, y: 21, width: 59, height: 19),
             ],
         ])
         #expect(try harness.surfaceTitles() == ["editor", "logs", "logs [2]", "logs [3]"])
@@ -429,7 +429,9 @@ struct RemoteTmuxMirrorTargetingTests {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] editor"])
-        try harness.drainThroughPaneRects([1: ["%0 0 0 80 24 1 off :0 \"example-host.test\""]])
+        try harness.drainThroughPaneRects([1: [
+            harness.paneRectLine(paneID: 0, index: 0, title: "example-host.test", width: 80, height: 24),
+        ]])
         #expect(try harness.surfaceTitles() == ["editor"])
     }
 
@@ -437,15 +439,17 @@ struct RemoteTmuxMirrorTargetingTests {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] logs"])
-        try harness.drainThroughPaneRects([2: ["%4 0 0 80 24 1 off :0 \"example-host.test\""]])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "example-host.test", width: 80, height: 24),
+        ]])
         #expect(try harness.surfaceTitles() == ["logs"])
 
         harness.connection.handleMessageForTesting(.layoutChange(
             windowId: 2, layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}", visibleLayout: nil, zoomed: false
         ))
         try harness.drainThroughPaneRects([2: [
-            "%4 0 0 60 40 1 off :0 \"example-host.test\"",
-            "%5 61 0 59 40 0 off :1 \"example-host.test\"",
+            harness.paneRectLine(paneID: 4, index: 0, title: "example-host.test"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "example-host.test", x: 61, width: 59),
         ]])
 
         #expect(try harness.surfaceTitles() == ["logs", "logs [2]"])
@@ -458,31 +462,40 @@ struct RemoteTmuxMirrorTargetingTests {
             "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
         ])
         try harness.drainThroughPaneRects([2: [
-            harness.paneRectLine(paneID: 4, index: 0, title: "example-host.test"),
-            harness.paneRectLine(paneID: 5, index: 1, title: "run: build"),
-            harness.paneRectLine(paneID: 8, index: 2, title: "run: publish"),
+            harness.metadataPaneRectLine(paneID: 4, index: 0, title: "example-host.test"),
+            harness.metadataPaneRectLine(paneID: 5, index: 1, title: "run: build"),
+            harness.metadataPaneRectLine(paneID: 8, index: 2, title: "run: publish"),
         ]])
 
         #expect(try harness.surfaceTitles() == ["logs", "run: build", "run: publish"])
     }
 
-    @Test func octalEscapedPaneTitleMetadataKeepsLiveTitlesDistinctFromHostDefaults() throws {
+    @Test func escapedPaneTitleMetadataPreservesLiteralBackslashOctalText() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         let layout = "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
         harness.publishListWindows(["@2 \(layout) \(layout) [] logs"])
         try harness.drainThroughPaneRects([2: [
-            harness.octalEscapedPaneRectLine(paneID: 4, index: 0, title: "example-host.test"),
-            harness.octalEscapedPaneRectLine(paneID: 5, index: 1, title: "example-host.test"),
+            harness.metadataPaneRectLine(paneID: 4, index: 0, title: "path\\037suffix \\123"),
+            harness.metadataPaneRectLine(paneID: 5, index: 1, title: "trailing\\\\"),
         ]])
 
-        harness.connection.handleMessageForTesting(.subscriptionChanged(
-            name: "cmux_title_all",
-            paneId: 5,
-            value: "run: db-migration"
-        ))
+        #expect(try harness.surfaceTitles() == ["path\\037suffix \\123", "trailing\\\\"])
+    }
 
-        #expect(try harness.surfaceTitles() == ["logs", "run: db-migration"])
+    @Test func paneTitleMetadataMarkerTextInTitlesDoesNotStealTheBoundary() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        let layout = "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
+        harness.publishListWindows(["@2 \(layout) \(layout) [] logs"])
+        try harness.drainThroughPaneRects([2: [
+            harness.metadataPaneRectLine(paneID: 4, index: 0, title: "cmux_title_metadata_v1"),
+            harness.metadataPaneRectLine(paneID: 5, index: 1, title: "suffix cmux_title_metadata_v1"),
+        ]])
+
+        #expect(try harness.surfaceTitles() == [
+            "cmux_title_metadata_v1", "suffix cmux_title_metadata_v1",
+        ])
     }
 
     @Test func cmuxPaneRenameTargetsItsTmuxPaneAndRemoteRenameReturnsToCmux() throws {
@@ -512,6 +525,28 @@ struct RemoteTmuxMirrorTargetingTests {
         ))
         #expect(try harness.surfaceTitles() == ["shell-a", "tests"])
         #expect(harness.workspace.panelCustomTitles[panePanel.id] == nil)
+    }
+
+    @Test func cmuxPaneRenameEscapesTmuxFormatsLiterally() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0,5 abcd,120x40,0,0,5 [] logs",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 5, index: 0, title: "shell-b"),
+        ]])
+
+        let mirror = try #require(harness.workspace.remoteTmuxWindowMirrors.values.first)
+        let panePanel = try #require(mirror.panel(forPane: 5))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id,
+            title: "release #{pane_id}",
+            propagateToCloud: false
+        ))
+        #expect(try harness.finishCommands().contains(
+            "select-pane -t @2.%5 -T 'release ##{pane_id}'"
+        ))
     }
 
     @Test func cmuxPaneRenameUsesLiveProjectionWhileSurfaceIndexReconciles() throws {
@@ -694,15 +729,49 @@ struct RemoteTmuxMirrorTargetingTests {
         }
 
         func paneTitleMetadata(title: String) -> String {
-            [title, "example-host.test", "example-host"].joined(separator: "\u{1f}")
+            [tmuxFormatQuoted(title), tmuxFormatQuoted("example-host.test"), tmuxFormatQuoted("example-host")]
+                .joined(separator: "\u{1f}")
         }
 
-        func paneRectLine(paneID: Int, index: Int, title: String) -> String {
-            "%\(paneID) 0 0 60 40 \(index == 0 ? 1 : 0) off :\(index) \"\(title)\"\u{1f}\(paneTitleMetadata(title: title))"
+        func tmuxFormatQuoted(_ value: String) -> String {
+            value.unicodeScalars.map { scalar in
+                let isPlainASCII = (0x61...0x7a).contains(scalar.value)
+                    || (0x41...0x5a).contains(scalar.value)
+                    || (0x30...0x39).contains(scalar.value)
+                    || [0x2e, 0x5f, 0x2d, 0x3a, 0x2f].contains(scalar.value)
+                if isPlainASCII {
+                    return String(scalar)
+                } else {
+                    return "\\" + String(scalar)
+                }
+            }.joined()
         }
 
-        func octalEscapedPaneRectLine(paneID: Int, index: Int, title: String) -> String {
-            paneRectLine(paneID: paneID, index: index, title: title)
+        func paneRectLine(
+            paneID: Int,
+            index: Int,
+            title: String,
+            x: Int = 0,
+            y: Int = 0,
+            width: Int = 60,
+            height: Int = 40
+        ) -> String {
+            "%\(paneID) \(x) \(y) \(width) \(height) \(index == 0 ? 1 : 0) off :\(index) \"\(title)\""
+        }
+
+        func metadataPaneRectLine(
+            paneID: Int,
+            index: Int,
+            title: String,
+            x: Int = 0,
+            y: Int = 0,
+            width: Int = 60,
+            height: Int = 40
+        ) -> String {
+            paneRectLine(
+                paneID: paneID, index: index, title: title,
+                x: x, y: y, width: width, height: height
+            ) + "cmux_title_metadata_v1\u{1f}\(paneTitleMetadata(title: title))"
                 .replacingOccurrences(of: "\u{1f}", with: "\\037")
         }
 
@@ -720,6 +789,14 @@ struct RemoteTmuxMirrorTargetingTests {
             )
             let snapshot = try #require(TerminalController.shared.controlSurfaceList(routing: routing))
             return snapshot.surfaces.map(\.title)
+        }
+
+        func finishCommands() throws -> [String] {
+            writer.close()
+            let data = try pipe.fileHandleForReading.readToEnd() ?? Data()
+            return String(decoding: data, as: UTF8.self)
+                .split(separator: "\n")
+                .map(String.init)
         }
 
         func tearDown() {

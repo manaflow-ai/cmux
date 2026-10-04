@@ -9,7 +9,7 @@ extension RemoteTmuxWindowMirror {
               let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
               let connection else { return false }
         return connection.send(
-            "select-pane -t @\(windowId).%\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(name))"
+            "select-pane -t @\(windowId).%\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
         )
     }
 
