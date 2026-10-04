@@ -919,7 +919,7 @@ jobs:
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             compile_workers_running() {
               local compiler pid args pgrep_status
-              # Compiler names are global on an owned Mac. Inspect their
+              # Compiler names are global on a persistent Mac. Inspect their
               # command lines and only wait for workers carrying this job's
               # DerivedData path; another runner's compile must not block the
               # retry or make it discard a different job's state.
