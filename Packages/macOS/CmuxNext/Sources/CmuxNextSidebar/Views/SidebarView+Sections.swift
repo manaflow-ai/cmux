@@ -19,6 +19,11 @@ extension SidebarView {
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
             region.onAccessory = { [weak self] id in self?.model.send(.activateItemAccessory(id)) }
+            // A drop gives the layout the order the band showed (R77).
+            region.onReorder = { [weak self] subject, shown in
+                guard let self, let op = SidebarRegionReorder.op(for: subject, shown: shown, document: self.model.layout) else { return }
+                self.model.send(.layout(op))
+            }
         }
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
         belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
