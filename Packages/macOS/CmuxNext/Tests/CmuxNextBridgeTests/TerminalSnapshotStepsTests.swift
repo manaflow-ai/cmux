@@ -36,6 +36,23 @@ struct TerminalSnapshotStepsTests {
         #expect(steps == [.grid(columns: 100, rows: 30), .snapshot(ready), .output(Data("new".utf8))])
     }
 
+    /// During a resize drag several READYs queue up: only the newest one is
+    /// restored (each restore re-applies the config and waits for the lane).
+    @Test func aReadyDropsOlderQueuedReadys() async {
+        let queue = TerminalStepQueue(highWater: 1 << 20)
+        let older = TerminalSnapshotFrame(phase: .ready, generation: 2, offset: 10, version: 1,
+                                          cols: 90, rows: 30, data: Data("OLD".utf8))
+        await queue.push(.grid(columns: 90, rows: 30))
+        await queue.push(.snapshot(older))
+        await queue.push(.status(.connected))
+        await queue.push(.grid(columns: 100, rows: 30))
+        await queue.push(.snapshot(ready))
+        queue.finish()
+        var steps: [TerminalStreamPlan.Step] = []
+        while let step = await queue.next() { steps.append(step) }
+        #expect(steps == [.grid(columns: 90, rows: 30), .status(.connected), .grid(columns: 100, rows: 30), .snapshot(ready)])
+    }
+
     /// History is bulk data: it counts toward the high-water mark like output,
     /// while a READY never waits (it supersedes what is queued).
     @Test func historyCountsTowardBackpressure() async {
@@ -60,6 +77,12 @@ struct TerminalSnapshotStepsTests {
         driver.input(Data("x".utf8))
         driver.start()
         // Steps until the restore (grid first); a status step may come between.
+        // The step queue ignores task cancellation: a guard ends it instead.
+        let guardTask = Task {
+            try? await Task.sleep(for: .seconds(20))
+            driver.cancelSteps()
+        }
+        defer { guardTask.cancel() }
         var steps: [TerminalStreamPlan.Step] = []
         while let step = await driver.nextStep() {
             steps.append(step)

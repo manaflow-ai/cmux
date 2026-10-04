@@ -120,6 +120,27 @@ import Testing
         #expect(try admit(ownHistory) == nil)
     }
 
+    /// History is bulk data: it counts toward the reader's backpressure like
+    /// output, so a long scrollback stops the socket instead of piling up in
+    /// the app. A READY (one screen) never blocks the reader.
+    @Test func historyCountsTowardReaderBackpressure() async {
+        let queue = TerminalEventQueue(highWater: 1 << 20, lowWater: 1 << 10)
+        queue.push(.snapshot(TerminalSnapshotFrame(phase: .ready, generation: 1, offset: 0, version: 1,
+                                                   cols: 80, rows: 24, data: Data(count: 64))))
+        #expect(queue.bufferedOutputBytes == 0)
+        queue.push(.snapshot(TerminalSnapshotFrame(phase: .history, generation: 1, offset: 0, version: 1, data: Data(count: 300))))
+        #expect(queue.bufferedOutputBytes == 300)
+        _ = await queue.next()
+        _ = await queue.next()
+        #expect(queue.bufferedOutputBytes == 0)
+    }
+
+    /// A READY without its grid cannot lock the mirror's grid: not admitted.
+    @Test func readyWithoutAGridIsIgnored() {
+        let gridless = line(#"{"event":"snapshot","surface":3,"phase":"ready","generation":1,"offset":0,"version":1,"data":""}"#)
+        #expect(TerminalAttachment.decodeAttachEvent(name: "snapshot", line: gridless, surface: 3) == nil)
+    }
+
     /// Digest compare needs the viewer to encode its own READY
     /// (ghostty-next.md 2.1); v1 decodes nothing from it.
     @Test func digestIsNotAViewEvent() {
