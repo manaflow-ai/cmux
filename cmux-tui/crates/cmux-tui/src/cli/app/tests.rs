@@ -7,7 +7,7 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. } | AppCommand::Events { .. } => panic!("expected a call"),
+        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => panic!("expected a call"),
     }
 }
 
@@ -411,7 +411,7 @@ fn a_user_only_key_is_refused_without_confirm_and_waits_for_the_person_with_it()
 fn only_a_confirmed_settings_write_waits_without_a_deadline() {
     let timeout = |words: &[&str]| match parse(&args(words)).unwrap().unwrap() {
         AppCommand::Call { timeout, .. } => timeout,
-        AppCommand::Open { .. } | AppCommand::Events { .. } => panic!("expected a call"),
+        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => panic!("expected a call"),
     };
     assert_eq!(timeout(&["settings", "set", "a.b", "1", "--confirm"]), None);
     assert_eq!(timeout(&["settings", "reset", "a.b", "--confirm"]), None);
