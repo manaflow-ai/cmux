@@ -264,6 +264,52 @@ struct BrowserReplFileSystemTests {
     }
 }
 
+/// Another local process can change the tree between the REPL's path check
+/// and its system call; the checks and the calls must be the same.
+@Suite("Browser REPL fs against other processes")
+struct BrowserReplFileSystemRaceTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    @Test("A directory another process swaps with a link to outside the root is never written or read through")
+    func externalLinkSwapNeverEscapes() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(atPath: scratch.root + "/sub", withIntermediateDirectories: true)
+        try Data("inside".utf8).write(to: URL(fileURLWithPath: scratch.root + "/sub/secret.txt"))
+        try fileManager.createSymbolicLink(atPath: scratch.root + "/alt", withDestinationPath: scratch.outside)
+        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root), temporaryDirectory: scratch.base + "/tmp")
+        let escaped = scratch.outside + "/written.txt"
+        let root = scratch.root
+        let done = BrowserReplRaceFlag()
+
+        // Not through the REPL's fs: renamex_np swaps the directory and the
+        // link in one step, as any other process of the user can.
+        let swapping = Task.detached {
+            while !done.isSet { _ = renamex_np(root + "/sub", root + "/alt", UInt32(RENAME_SWAP)) }
+        }
+        let probing = Task.detached { () -> String? in
+            defer { done.set() }
+            let payload = Data("x".utf8).base64EncodedString()
+            for _ in 0..<20_000 {
+                _ = fs.perform("writeFile", arguments: ["path": "sub/written.txt", "base64": payload])
+                if FileManager.default.fileExists(atPath: escaped) { return "wrote \(escaped)" }
+                if case .success(let value) = fs.perform("readFile", arguments: ["path": "sub/secret.txt"]),
+                   let data = Data(base64Encoded: value as? String ?? ""),
+                   String(decoding: data, as: UTF8.self) == "secret" {
+                    return "read \(scratch.outside)/secret.txt"
+                }
+            }
+            return nil
+        }
+        let escape = await probing.value
+        await swapping.value
+
+        #expect(escape == nil, "\(escape ?? "")")
+        #expect(!fileManager.fileExists(atPath: escaped))
+    }
+}
+
 /// A flag one task sets and another polls.
 private final class BrowserReplRaceFlag: @unchecked Sendable {
     private let lock = NSLock()
