@@ -10,7 +10,11 @@ port for every paired machine. Same network only: no relay yet.
   peer list
   serve [--session-socket PATH]     run the link; with a session socket, paired
                                     peers reach that daemon's remote entry only
-  dial --host ID                    bridge stdin and stdout to a paired host's daemon
+  dial --host ID [--service daemon|ssh]
+                                    bridge stdin and stdout to a paired install or Cloud
+                                    host; one JSON line on stderr, exit 0 ok, 2 unknown host,
+                                    3 not authorized, 4 paused, 5 unreachable, 6 no link,
+                                    64 bad usage
   install-agent [--session-socket PATH]   run `serve` as a launchd agent (macOS)
   uninstall-agent
 
