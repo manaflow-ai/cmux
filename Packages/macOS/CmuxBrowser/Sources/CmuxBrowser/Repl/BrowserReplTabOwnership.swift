@@ -98,6 +98,18 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// Open requests remembered at most; a later event of an older one goes
     /// only to the creator and the sessions with a network listener.
     static let maximumTrackedRequests = 1000
+    /// Navigations a session's own input started, newest last, so a download
+    /// one of them turns into (its response arrives after the input ended)
+    /// can be told to be that session's (``takeDownloadStarter(urls:at:)``).
+    private var navigationStarts: [NavigationStart] = []
+    private struct NavigationStart: Sendable, Equatable {
+        let url: String
+        let sessionID: String
+        let at: ContinuousClock.Instant
+    }
+    /// How long a started navigation can claim the download it becomes.
+    static let navigationStartLifetime: Duration = .seconds(60)
+    static let maximumNavigationStarts = 64
 
     public init() {}
 
@@ -122,6 +134,7 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         handledEvents.removeValue(forKey: sessionID)
         handlerOrder.removeAll { $0 == sessionID }
         inputSessionIDs.removeAll { $0 == sessionID }
+        navigationStarts.removeAll { $0.sessionID == sessionID }
         for index in requestRecipients.indices { requestRecipients[index].sessionIDs.remove(sessionID) }
         guard creatorSessionID == sessionID else { return false }
         creatorSessionID = nil
@@ -245,6 +258,40 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     public func recipient(for event: BrowserReplTabEvent) -> String? {
         if case .session(let sessionID) = route(for: event) { return sessionID }
         return nil
+    }
+
+    /// Records a navigation the page starts (WebKit's navigation action for
+    /// `url`) as the acting session's, when exactly one session's input is
+    /// in flight (``inputSessionID``); otherwise it is nobody's.
+    public mutating func noteNavigationAction(url: String, at now: ContinuousClock.Instant = .now) {
+        guard let sessionID = inputSessionID, attachedSessionIDs.contains(sessionID) else { return }
+        navigationStarts.removeAll { now - $0.at > Self.navigationStartLifetime }
+        navigationStarts.append(NavigationStart(url: url, sessionID: sessionID, at: now))
+        if navigationStarts.count > Self.maximumNavigationStarts { navigationStarts.removeFirst() }
+    }
+
+    /// The session whose input started the navigation a download came from
+    /// (its request's URL is one of `urls`), within
+    /// ``navigationStartLifetime``; that record is used up. `nil` when no
+    /// session's input started it (the user's, or the page's own).
+    public mutating func takeDownloadStarter(urls: [String], at now: ContinuousClock.Instant = .now) -> String? {
+        navigationStarts.removeAll { now - $0.at > Self.navigationStartLifetime }
+        guard let index = navigationStarts.lastIndex(where: { urls.contains($0.url) }) else { return nil }
+        return navigationStarts.remove(at: index).sessionID
+    }
+
+    /// The session a download goes to (it stays in the temporary directory
+    /// and the session reads it), or `nil` for the user's download location.
+    /// In a tab a session created, the attached creator, or the session
+    /// with a handler for downloads there. In a user's tab only `startedBy`,
+    /// the session whose own input started it, and only while it has a
+    /// handler for downloads: a file the user downloads never reaches a
+    /// session that listens.
+    public func downloadRecipient(startedBy: String?) -> String? {
+        if isSessionOwned { return recipient(for: .download) }
+        guard let startedBy, attachedSessionIDs.contains(startedBy),
+              handledEvents[startedBy]?.contains(.download) == true else { return nil }
+        return startedBy
     }
 
     /// Parses `tab.handleEvents` names.

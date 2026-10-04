@@ -8582,9 +8582,10 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         let downloadID = UUID().uuidString
         try? FileManager.default.removeItem(at: destURL)
         storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
+        let requestURL = download.originalRequest?.url
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename, downloadID)
-            self?.replAttachment?()?.downloadDidStart(id: downloadID, url: response.url, suggestedFilename: safeFilename)
+            self?.replAttachment?()?.downloadDidStart(id: downloadID, url: response.url, requestURL: requestURL, suggestedFilename: safeFilename)
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=<redacted>")

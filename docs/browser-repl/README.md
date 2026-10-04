@@ -415,7 +415,12 @@ rest. Measurements: [performance.md](performance.md).
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that
   page (`page.on("dialog")`, `page.on("filechooser")`,
   `page.waitForEvent("download")` and the like) goes to the session instead,
-  only while the handler is registered. When several sessions drive one tab,
+  only while the handler is registered; a download, though, only when the
+  navigation it came from started while the page handled that session's
+  own call (a click, key or navigation; its response may come later). A
+  file the user downloads in their tab, or one the page starts by itself,
+  keeps the user's download location and never reaches a session, and
+  neither does one another session's call started. When several sessions drive one tab,
   each dialog, file chooser and download goes to one of them, and only that
   session can answer it: the creating session; else, for a dialog or file
   chooser the page opens while it handles one session's own call, that

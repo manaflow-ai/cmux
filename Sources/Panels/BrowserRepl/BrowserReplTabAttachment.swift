@@ -1129,10 +1129,23 @@ final class BrowserReplTabAttachment {
         sessionDownloads[id] != nil
     }
 
-    /// Reports a download to the one session that takes downloads in this
-    /// tab; the decision, and that session, hold for the download's life.
-    func downloadDidStart(id: String, url: URL?, suggestedFilename: String) {
-        guard let owner = recipient(for: .download) else { return }
+    /// Records a navigation the page starts, for the download it may become
+    /// (``BrowserReplTabOwnership/noteNavigationAction(url:at:)``).
+    func noteNavigationAction(_ url: URL) {
+        ownership.noteNavigationAction(url: url.absoluteString)
+    }
+
+    /// Reports a download to the one session it goes to
+    /// (``BrowserReplTabOwnership/downloadRecipient(startedBy:)``): in a
+    /// user's tab only one the session's own input started, never a file
+    /// the user downloads. The decision, and that session, hold for the
+    /// download's life; any other download takes the user's normal path.
+    /// - Parameters:
+    ///   - url: The response's URL.
+    ///   - requestURL: The URL of the request that started the download.
+    func downloadDidStart(id: String, url: URL?, requestURL: URL?, suggestedFilename: String) {
+        let starter = ownership.takeDownloadStarter(urls: [requestURL, url].compactMap { $0?.absoluteString })
+        guard isAttached, let owner = ownership.downloadRecipient(startedBy: starter), sinks[owner] != nil else { return }
         sessionDownloads[id] = owner
         emit("download.started", [
             "downloadId": id,
