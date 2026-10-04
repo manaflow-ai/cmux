@@ -14,7 +14,7 @@ import type { Env } from "../src/env.ts"
  */
 const testEnv = env as unknown as Env & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; HOME_ADDRESS_KEY: string }
 const worker = (exports as unknown as { default: Fetcher }).default
-type Stub = DurableObjectStub & { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string; code?: string }> }>; readOp(e: string, p: Principal, op: string, params: unknown): Promise<any>; readInbox(e: string, p: Principal, op: string, params: unknown): Promise<unknown> }
+type Stub = DurableObjectStub & { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string; code?: string }> }>; readOp(e: string, p: Principal, op: string, params: unknown): Promise<any>; readInbox(e: string, p: Principal, op: string, params: unknown): Promise<unknown>; homeDmLink(e: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null> }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const stub = (ns: any, name: string): Stub => ns.get(ns.idFromName(name))
 const DAY = 24 * 3600_000
@@ -219,6 +219,37 @@ describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { 
       }
     })
     expect(await drainUntil((e) => e?.unread !== 2)).toMatchObject({ unread: 1, mentions: 0, preview: expect.stringContaining("still here") })
+  })
+
+  it("a DM from before the consent markers keeps the pair connected after the sweep deletes its msgkey rows", async () => {
+    const alice = userIdFor(testEnv.STACK_PROJECT_ID, "home-hy-consent-alice")
+    const bob = userIdFor(testEnv.STACK_PROJECT_ID, "home-hy-consent-bob")
+    const id = homeConversation.dmConversationId(alice, bob)
+    const conv = stub(testEnv.CONVERSATION_DO, id)
+    const reach: homeConversation.HumanReach = { user: bob, display_name: "Bob Example", shared_team: true, connected: false, allow_requests_from: "anyone" }
+    const asAlice: Principal = { ...session(alice), home_reach: [reach] }
+    const asBob: Principal = { ...session(bob), display_name: "Bob Example", email: "b@example.com" }
+    const opened = await conv.submit(id, asAlice, { t: "op", op: "dm.open", params: { id, retention_days: 30, participants: [{ id: alice, kind: "human", display_name: "Alice Example" }, { id: bob, kind: "human", display_name: "Bob Example" }] }, idempotency_key: "open" })
+    expect(opened.frames.find((f) => f.t === "result" || f.t === "reject")).toMatchObject({ t: "result" })
+    for (const [who, key] of [[asAlice, "a-old"], [asBob, "b-old"]] as const) {
+      const sent = await conv.submit(id, who, { t: "op", op: "message.send", params: { client_msg_id: key, parts: [{ type: "text", text: key }] }, idempotency_key: key })
+      expect(sent.frames.find((f) => f.t === "result" || f.t === "reject")).toMatchObject({ t: "result" })
+    }
+    // A DM from before the markers: msgkey rows only. Age both messages past the window.
+    const aged = new Date(Date.now() - 40 * DAY).toISOString()
+    await runInDurableObject(conv, async (_i, state) => {
+      state.storage.sql.exec("DELETE FROM own_rows WHERE tbl = 'consent'")
+      for (const row of state.storage.sql.exec<{ k: string; json: string }>("SELECT k, json FROM own_rows WHERE tbl = 'msg'").toArray()) {
+        state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...(JSON.parse(row.json) as homeConversation.Message), created_at: aged }), row.k)
+      }
+    })
+    // The runtime may already have fired the alarm on its own; this runs any sweep still due.
+    await runDurableObjectAlarm(conv)
+    await runInDurableObject(conv, async (_i, state) => {
+      expect(state.storage.sql.exec("SELECT k FROM own_rows WHERE tbl = 'msgkey'").toArray()).toEqual([])
+      expect(state.storage.sql.exec<{ k: string }>("SELECT k FROM own_rows WHERE tbl = 'consent' ORDER BY k").toArray().map((r) => r.k)).toEqual([alice, bob].sort())
+    })
+    expect(await conv.homeDmLink(id, alice, bob)).toMatchObject({ consented: true })
   })
 
   it("schedules the alarm for the earliest due work: an open invite's expiry", async () => {
