@@ -60,3 +60,14 @@ test("refuses non-SVG and oversized input", () => {
     reason: "tooLarge",
   });
 });
+
+test("matches the daemon's stricter value rules: no backslash, no colon, no protocol-relative URL", () => {
+  const out = clean(
+    `<svg ${NS}><path d="M0 0" fill="url(//e.x/p)"/><path d="M0 0" fill="url(#a\\:b)"/><path d="M0 0" stroke="u\\rl(x)"/><use href="#ok"/><use href="#a:b"/><rect fill="url(#g)"/></svg>`,
+  );
+  expect(out).not.toContain("e.x");
+  expect(out).not.toContain("\\");
+  expect(out).not.toContain("#a:b");
+  expect(out).toContain('href="#ok"');
+  expect(out).toContain('fill="url(#g)"');
+});
