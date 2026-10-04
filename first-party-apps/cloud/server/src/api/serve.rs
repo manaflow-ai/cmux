@@ -7,6 +7,7 @@
 
 use super::relay::{HostRelay, Next, Waker};
 use super::wire::Request;
+use crate::app_env::AppEnv;
 use crate::link::Attach;
 use crate::ops::Server;
 use crate::ports::{Edge, EdgeDown};
@@ -16,9 +17,9 @@ use std::sync::Arc;
 
 /// Serves ops until the host closes the channel.
 pub fn serve<R: BufRead + Send + 'static, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
-    // Link details come from the host (`cmux.host.link.get`), never from
-    // the environment.
-    serve_with(relay, Attach::real(), Edge::real())
+    // Link details come from the host (`cmux.host.link.get`); the only
+    // environment read is the allowlist (crate::app_env).
+    serve_with(relay, Attach::real().with_env(AppEnv::from_process()), Edge::real())
 }
 
 /// [`serve`] with the attach state and the files and ports edge given

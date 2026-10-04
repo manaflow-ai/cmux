@@ -25,7 +25,8 @@ const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha"];
 /// A server whose host has not given link details yet.
 fn host() -> Host {
     let spawner = FakeSpawner::default();
-    let attach = Attach::new(Box::new(spawner.clone()), None, Box::new(FakeTransport::default()));
+    let attach = Attach::new(Box::new(spawner.clone()), None, Box::new(FakeTransport::default()))
+        .with_env(attach_common::test_env());
     let edge = Edge::new(Arc::new(FakeTunnel::default()), Box::new(FakeTransfer::default()));
     Host::start_with(FIXTURES, spawner, attach, edge)
 }

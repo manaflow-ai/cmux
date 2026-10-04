@@ -130,6 +130,9 @@ pub(crate) fn connect<C: ControlPlane>(
     }
     let paths = server.link_paths()?;
     let attach = server.attach_mut();
+    let child_env = attach.env.child_env().map_err(|e| {
+        CloudError::new(LINK_UNAVAILABLE, format!("no private home for the link: {e}"))
+    })?;
     let start_key = match start_key {
         Some(key) => key,
         None => format!("link-{}/start", attach.attempt_nonce()),
@@ -163,7 +166,7 @@ pub(crate) fn connect<C: ControlPlane>(
         }
     };
     let endpoint = AttachEndpoint::decode(answer)?;
-    let command = link_command(&paths, machine, &endpoint);
+    let command = link_command(&paths, machine, &endpoint, &child_env);
     server.attach_mut().endpoints.insert(machine.to_owned(), endpoint);
     server.attach_mut().supervisor.spawn_and_wait(machine, &command).map_err(|f| match f {
         LinkFailure::Revoked(reason) => CloudError::new(LINK_REVOKED, reason),

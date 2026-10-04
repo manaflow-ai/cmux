@@ -163,6 +163,10 @@ fn a_failed_transfer_is_a_typed_error_and_endpoint_answers_are_checked() {
     rig.server.control_plane_mut().respond("POST", "/api/vm/vm-alpha01/scp-endpoint", 200, bad);
     let err = rig.server.handle(&push(&local, "p-2")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.bad_response", "only one Ed25519 host key is accepted");
+    let mut unpinned = common::FakeControlPlane::fixture_body("scp-endpoint");
+    unpinned.as_object_mut().unwrap().remove("hostPublicKey");
+    let err = ScpEndpoint::decode(unpinned, 1_791_100_000).unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.host_key_unpinned", "never a transfer to an unpinned key");
     let mut expired = common::FakeControlPlane::fixture_body("scp-endpoint");
     expired["expiresAtUnix"] = json!(1);
     assert!(ScpEndpoint::decode(expired, 1_791_100_000).is_err());

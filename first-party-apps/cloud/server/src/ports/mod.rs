@@ -71,6 +71,8 @@ pub struct Edge {
     pub(crate) proxies: BTreeMap<String, Forward>,
     /// Closes by link state since the last [`Edge::take_events`], in order.
     events: Vec<EdgeDown>,
+    /// The host key pinned for each machine (`<data>/ssh/known_hosts`).
+    pinned: BTreeMap<String, String>,
 }
 
 /// A tunnel for platforms without Unix sockets: every open fails.
@@ -92,6 +94,7 @@ impl Edge {
             forwards: BTreeMap::new(),
             proxies: BTreeMap::new(),
             events: Vec::new(),
+            pinned: BTreeMap::new(),
         }
     }
 
@@ -102,7 +105,32 @@ impl Edge {
         let tunnel: Arc<dyn PortTunnel> = Arc::new(LoopbackTunnel);
         #[cfg(not(unix))]
         let tunnel: Arc<dyn PortTunnel> = Arc::new(NoTunnel);
-        Self::new(tunnel, Box::new(OpenSshTransfer::default()))
+        Self::new(tunnel, Box::new(OpenSshTransfer::system()))
+    }
+
+    /// Pins `host_key` (from the Cloud API's scp-endpoint answer) for
+    /// `machine` in the app's known_hosts and rewrites the file (atomic
+    /// rename). Only the loop thread calls this. A key the Cloud API did not
+    /// give is never pinned here: new keys of other hosts go through the
+    /// user's host key sheet (crate::fs::transfer::HOST_KEY_UNPINNED).
+    pub(crate) fn pin_host_key(
+        &mut self,
+        ssh: &crate::app_env::SshFiles,
+        machine: &str,
+        host_key: &str,
+    ) -> std::io::Result<()> {
+        if self.pinned.get(machine).map(String::as_str) == Some(host_key)
+            && ssh.known_hosts.is_file()
+        {
+            return Ok(());
+        }
+        self.pinned.insert(machine.to_owned(), host_key.to_owned());
+        let text: String = self
+            .pinned
+            .iter()
+            .map(|(m, key)| format!("{} {key}\n", crate::fs::transfer::host_alias(m)))
+            .collect();
+        crate::app_env::write_private(&ssh.known_hosts, text.as_bytes())
     }
 
     fn listeners(&self) -> usize {
