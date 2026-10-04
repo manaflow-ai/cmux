@@ -81,9 +81,15 @@ nonisolated final class CloudHomeSource: HomeSource {
         /// out under another identity (the owner scopes keys per actor). An
         /// account's own keys leave when it signs in again.
         var revoked: [String: String] = [:]
-        /// The unsubscribes sent so far, in order. A subscribe waits for them,
-        /// so a late unsubscribe never ends a subscription made after it.
-        var unsubscribing: Task<Void, Never>?
+        /// The subscribes and unsubscribes sent so far, one after another in
+        /// the order they were queued, so a late unsubscribe never ends a
+        /// subscription made after it and an unsubscribe never overtakes the
+        /// subscribe it ends. A new connection starts a new queue.
+        var wire: Task<Void, Never>?
+        /// Conversations a transcript shows now (read with `snapshot(of:)`
+        /// and not closed since). An edit from outside a transcript
+        /// subscribes a conversation for itself and ends that after the op.
+        var viewed: Set<ConversationID> = []
         /// This source's inbox stream revision: one per inbox event it publishes.
         var inboxRev: Revision = 0
         /// A read or op failed in a way that leaves intents unconfirmed; the
@@ -152,6 +158,8 @@ nonisolated final class CloudHomeSource: HomeSource {
             let ended = cleared && link == state.link ? Array(state.targets.keys) : []
             // The same account on a new connection: its open conversations subscribe again.
             let kept = cleared ? [] : state.recent
+            // Another connection's queue orders nothing on this one.
+            if link != state.link { state.wire = nil }
             if let old = state.commands, !ended.isEmpty {
                 // The previous account's subscriptions end before the next one subscribes.
                 Self.chainUnsubscribes(ended, commands: old, &state)
@@ -372,15 +380,18 @@ nonisolated final class CloudHomeSource: HomeSource {
     func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
         let (commands, identity, generation) = try requireEndpoint()
         // The user opens it: a socket the owner closed may be allowed now.
-        state.withLock { _ = $0.closed.remove(conversation) }
+        state.withLock { state in
+            state.closed.remove(conversation)
+            state.viewed.insert(conversation)
+        }
         await subscribe(conversation, commands: commands, generation: generation)
         let page = try await reply(for: identity) { try await commands.snapshot(conversation.rawValue, tail: tail) }
         let summary = CloudHomeMapping.summary(page.conversation, identity: identity)
         return state.withLock { state in
             if state.generation == generation {
                 state.heads[conversation] = summary
-                // The user opened it: its stream may show it again.
-                state.removed.remove(conversation)
+                // The user opened it (and has not closed it since): its stream may show it again.
+                if state.viewed.contains(conversation) { state.removed.remove(conversation) }
             }
             return ConversationPage(conversation: joined(conversation, state) ?? summary,
                                     messages: page.messages.map { CloudHomeMapping.message($0, identity: identity) })
@@ -439,7 +450,15 @@ nonisolated final class CloudHomeSource: HomeSource {
         }
         func edit(_ op: CloudConversationOp, in conversation: ConversationID) async throws -> HomeOpResult {
             try requireEditable(conversation, commands: commands, generation: generation)
-            let result = try await send(op, in: conversation)
+            let result: CloudConversationOpResult
+            do {
+                result = try await send(op, in: conversation)
+            } catch let rejection as HomeRejection {
+                // A resend follows a transient failure and needs the socket live.
+                if Self.isFinal(rejection) { endEditSubscription(conversation, generation: generation) }
+                throw rejection
+            }
+            endEditSubscription(conversation, generation: generation)
             return HomeOpResult(rev: result.rev ?? 0, replayed: result.replayed, conversation: conversation)
         }
         switch intent.op {
@@ -494,6 +513,7 @@ nonisolated final class CloudHomeSource: HomeSource {
     func close(_ conversation: ConversationID) {
         var ending: (any CloudConversationCommands)?
         publish { state in
+            state.viewed.remove(conversation)
             guard state.targets.removeValue(forKey: conversation) != nil else { return nil }
             state.recent.removeAll { $0 == conversation }
             ending = state.commands
@@ -674,12 +694,12 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     /// Subscribes once per conversation; the least recently used of 64 makes room.
     private func subscribe(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) async {
-        let start = state.withLock { state -> Bool in
-            guard state.generation == generation else { return false }
+        let sent = state.withLock { state -> Task<Result<CloudSubscription, any Error>, Never>? in
+            guard state.generation == generation else { return nil }
             if state.targets[conversation] != nil {
                 state.recent.removeAll { $0 == conversation }
                 state.recent.append(conversation)
-                return false
+                return nil
             }
             if state.recent.count >= CloudConversationSubscribeRequest.maxSubscriptions {
                 let oldest = state.recent.removeFirst()
@@ -689,12 +709,11 @@ nonisolated final class CloudHomeSource: HomeSource {
             }
             state.targets[conversation] = Target(state: "connecting")
             state.recent.append(conversation)
-            return true
+            return Self.chainSubscribe(conversation, commands: commands, &state)
         }
-        guard start else { return }
-        await state.withLock { $0.unsubscribing }?.value
+        guard let sent else { return }
         do {
-            let reply = try await commands.subscribe(conversation.rawValue)
+            let reply = try await sent.value.get()
             let live = state.withLock { state -> Bool in
                 // A socket on another account's lease is not this account's state.
                 if let account = reply.account, state.identity?.cloudID != CloudIdentity.cloudID(stackUserID: account) { return false }
@@ -954,13 +973,43 @@ nonisolated final class CloudHomeSource: HomeSource {
         state.withLock { Self.chainUnsubscribes(ids, commands: commands, &$0) }
     }
 
-    /// Queues unsubscribes after the ones queued before (call with the lock held).
+    /// Queues unsubscribes after the subscribes and unsubscribes queued
+    /// before (call with the lock held).
     private static func chainUnsubscribes(_ ids: [ConversationID], commands: any CloudConversationCommands, _ state: inout State) {
-        let prior = state.unsubscribing
+        let prior = state.wire
         // task-owner: one unsubscribe per conversation, after the earlier ones; ends with the replies
-        state.unsubscribing = Task {
+        state.wire = Task {
             await prior?.value
             for id in ids { _ = try? await commands.unsubscribe(id.rawValue) }
+        }
+    }
+
+    /// Queues a subscribe after the subscribes and unsubscribes queued
+    /// before; the task answers with its reply (call with the lock held).
+    private static func chainSubscribe(_ id: ConversationID, commands: any CloudConversationCommands,
+                                       _ state: inout State) -> Task<Result<CloudSubscription, any Error>, Never> {
+        let prior = state.wire
+        // task-owner: one subscribe, after the earlier ones; ends with its reply
+        let sent = Task { () -> Result<CloudSubscription, any Error> in
+            await prior?.value
+            do { return .success(try await commands.subscribe(id.rawValue)) } catch { return .failure(error) }
+        }
+        // task-owner: the queue's link to that subscribe; ends with it
+        state.wire = Task { _ = await sent.value }
+        return sent
+    }
+
+    /// The op of an edit made outside a transcript ended: no transcript
+    /// shows its conversation, so the subscription `requireEditable` made
+    /// for it ends, queued after the op's reply. An echo that the daemon
+    /// relays only after that unsubscribe does not reach this source; the
+    /// inbox entry still moves with UserDO's event.
+    private func endEditSubscription(_ conversation: ConversationID, generation: UInt64) {
+        state.withLock { state in
+            guard state.generation == generation, !state.viewed.contains(conversation), let commands = state.commands,
+                  state.targets.removeValue(forKey: conversation) != nil else { return }
+            state.recent.removeAll { $0 == conversation }
+            Self.chainUnsubscribes([conversation], commands: commands, &state)
         }
     }
 
