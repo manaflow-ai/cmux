@@ -120,6 +120,18 @@ public final class BrowserReplSession: @unchecked Sendable {
 
         var isFinished: Bool { lock.withLock { finished } }
 
+        /// Whether the session's thread has reached this evaluation. It is
+        /// current from submission on, but JavaScript that runs on the
+        /// thread before it began (a callback queued ahead of it) is not
+        /// its work.
+        private var began = false
+        var hasBegun: Bool { lock.withLock { began } }
+
+        /// Call on the session's thread when it starts this evaluation.
+        func markBegun() {
+            lock.withLock { began = true }
+        }
+
         func append(_ line: BrowserReplOutputLine) {
             lock.withLock {
                 guard !finished else { return }
@@ -530,10 +542,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     }
 
     /// Runs `body`, which calls into `context`, as one watchdog run under
-    /// the cell running now, and clears the exception it left.
+    /// the cell running now, and clears the exception it left. A cell that
+    /// is current but has not begun on the thread is not running: a
+    /// callback queued ahead of it is not its work, so the callback budget
+    /// bounds it instead of that cell's timeout.
     private func enter(_ context: JSContext, _ body: () -> Void) {
         watchdog.absorbTermination(in: context)
-        watchdog.run(evalID: stateLock.withLock { currentEval?.id }, body)
+        let running = stateLock.withLock { currentEval.flatMap { $0.hasBegun ? $0.id : nil } }
+        watchdog.run(evalID: running, body)
         context.exception = nil
     }
 
@@ -568,6 +584,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         // A timeout or close() may have finished the evaluation before the
         // thread reached it.
         guard !state.isFinished, !isClosedNow else { return }
+        state.markBegun()
         if let cwd, cwd != fileSystem.sandbox.root {
             var sandbox = BrowserReplFileSandbox(root: cwd)
             sandbox.inheritReadableFiles(from: fileSystem.sandbox)

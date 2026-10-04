@@ -459,7 +459,9 @@ Entry points the runtime defines, called by the app:
   timer, an event, a cancel) is bounded, since agent code can start work
   outside a cell (timers, event handlers): one that starts while a cell
   runs ends at that cell's timeout; one that started outside a cell, or
-  whose cell has ended, is terminated after 10 s. After the session closes
+  whose cell has ended, is terminated after 10 s. A cell runs from when
+  the session's thread starts it, so a callback queued ahead of a
+  submitted cell counts as outside a cell. After the session closes
   (`cmux browser repl reset`, idle expiry) every script is terminated and
   the app makes no further call into the context.
 - `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
