@@ -45,7 +45,11 @@ fn stat_answer(revision: &str, size: u64) -> String {
     .to_string()
 }
 
-fn write(target: &DialTarget, params: Value, len: u64) -> Result<Value, cmux_cloud::api::CloudError> {
+fn write(
+    target: &DialTarget,
+    params: Value,
+    len: u64,
+) -> Result<Value, cmux_cloud::api::CloudError> {
     write_reconciled(&LinkDaemonFiles, target, params, len, &Cancel::default())
 }
 
