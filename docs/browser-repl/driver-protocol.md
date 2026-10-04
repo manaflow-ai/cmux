@@ -182,9 +182,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   Results, events, fetch responses, output, errors, written files and
   files read back are redacted by the session. Another session that drives the same tab
   (`tabs.use`) does not hold the secret, so the driver remembers each value
-  it typed, by tab, until the tab closes, and masks it in every result,
+  it typed, by tab, typing session and secret name, from before it types
+  until the tab closes (sessions whose secrets share a name keep separate
+  values), and masks it as typed, `<secret:name>`, in every result,
   event and error it returns to any other session, and in their captures;
   once the typing session ends, also for a later session of the same name.
+  A TOTP secret's typed value is its code, masked as that literal.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session.

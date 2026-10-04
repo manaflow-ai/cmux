@@ -175,16 +175,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             return .failure(Self.closedError)
         }
-        return maskingTypedSecrets(result, method: method)
+        // The store is cached per change of the typed values; the scan of
+        // the result runs off the main thread.
+        guard let store = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID) else { return result }
+        return await Self.maskingTypedSecrets(result, method: method, store: store)
     }
 
     /// A result with the secrets other sessions typed into tabs masked
     /// (``BrowserReplTypedSecrets``): this session does not hold them, so
     /// its own redaction would not. Screenshots and PDFs get them as
     /// capture masks instead (``typedSecretMasks(_:)``).
-    @MainActor
-    private func maskingTypedSecrets(_ result: Result<String, BrowserReplDriverError>, method: String) -> Result<String, BrowserReplDriverError> {
-        guard let store = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID) else { return result }
+    private static func maskingTypedSecrets(
+        _ result: Result<String, BrowserReplDriverError>,
+        method: String,
+        store: BrowserReplSecretStore
+    ) async -> Result<String, BrowserReplDriverError> {
         switch result {
         case .success(let json):
             return method == "tab.screenshot" || method == "tab.pdf" ? result : .success(store.redactJSON(json))
@@ -1860,17 +1865,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 frames: frames
             )
         }
-        try await withWindow(panel) { webView, _ in
-            try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
-            await BrowserReplNativeInput.roundTrip(webView)
-        }
-        // The value is in the tab now: other sessions that read the tab do
-        // not hold the secret, so the tab keeps it masked for them.
+        // Recorded before typing: other sessions that read the tab do not
+        // hold the secret, so the tab keeps it masked for them, also when
+        // typing fails partway and part of the value is already in the page.
+        // A value refused by the domain check is masked without being typed,
+        // which hides nothing a reader needs.
         if let name = params["secretName"] as? String {
             let domains = (params["secretDomains"] as? [[String: Any]] ?? []).compactMap(BrowserReplDomainPattern.from(json:))
             BrowserReplTabAttachments.shared.typedSecrets.record(
                 tab: panel.id.uuidString, name: name, value: text, domains: domains, typist: sessionID
             )
+        }
+        try await withWindow(panel) { webView, _ in
+            try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
+            await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
     }

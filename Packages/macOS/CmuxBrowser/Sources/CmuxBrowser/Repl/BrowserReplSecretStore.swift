@@ -24,6 +24,9 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         public let value: String
         public let domains: [BrowserReplDomainPattern]
         public let totp: Bool
+        /// The name shown in its mask, `<secret:maskName>`: `name`, except
+        /// for a typed value registered under an internal key.
+        let maskName: String
     }
 
     private let lock = NSLock()
@@ -52,7 +55,21 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         if isTOTP, Self.base32Decode(value) == nil { throw invalid("secrets: a TOTP secret must be base32") }
         lock.withLock {
             if entries[name] == nil { order.append(name) }
-            entries[name] = Entry(name: name, value: value, domains: domains, totp: isTOTP)
+            entries[name] = Entry(name: name, value: value, domains: domains, totp: isTOTP, maskName: name)
+            rebuildLocked()
+        }
+    }
+
+    /// Registers `value` as a literal under the internal `key`, masked as
+    /// `<secret:maskName>`. For values another session typed
+    /// (``BrowserReplTypedSecrets``): the value is the text the field holds
+    /// (a TOTP secret's code, not its seed), so no TOTP rule applies, and
+    /// `key` keeps values that share a name apart.
+    func setLiteral(key: String, maskName: String, value: String, domains: [BrowserReplDomainPattern]) {
+        guard !value.isEmpty else { return }
+        lock.withLock {
+            if entries[key] == nil { order.append(key) }
+            entries[key] = Entry(name: key, value: value, domains: domains, totp: false, maskName: maskName)
             rebuildLocked()
         }
     }
@@ -186,7 +203,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     private func rebuildLocked() {
         codeCache = nil
         totpKeys = order.compactMap { entries[$0] }.filter(\.totp).compactMap { entry in
-            Self.base32Decode(entry.value).map { (entry.name, $0, entry.domains) }
+            Self.base32Decode(entry.value).map { (entry.maskName, $0, entry.domains) }
         }
         matchers = order.compactMap { entries[$0] }
             .sorted { $0.value.count > $1.value.count }
@@ -203,7 +220,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                     .filter { !$0.isEmpty }
                     .sorted { $0.count > $1.count }
                 return Matcher(
-                    mask: "<secret:\(entry.name)>",
+                    mask: "<secret:\(entry.maskName)>",
                     bytes: Data(value.utf8),
                     literals: literals,
                     encoded: Self.percentEncodedPattern(value)
