@@ -318,7 +318,7 @@ impl VmHost for Gate {
         if let Some(inputs) = &self.inputs
             && let Some(planned) = inputs.plan(method, &params)
         {
-            inputs.publish(planned);
+            inputs.publish(planned, &|event| self.driver.send_session_event(event));
         }
         let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
         let target = target.as_deref();

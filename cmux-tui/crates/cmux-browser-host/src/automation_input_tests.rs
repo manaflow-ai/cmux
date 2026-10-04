@@ -94,7 +94,7 @@ fn recorder() -> (InputEmitter, Arc<Mutex<Vec<Value>>>) {
 
 fn emit(emitter: &InputEmitter, method: &str, params: Value) {
     if let Some(planned) = emitter.plan(method, &params) {
-        emitter.publish(planned);
+        emitter.publish(planned, &|_| false);
     }
 }
 

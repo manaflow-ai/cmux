@@ -117,6 +117,8 @@ fn point_of(params: &Value) -> Option<Point> {
 /// Publishes one session's inputs on its event sink.
 pub struct InputEmitter {
     session_id: String,
+    /// The session's sink, for drivers with no session event path of their
+    /// own (`Driver::send_session_event` returns false: headless).
     sink: EventSink,
     /// The next `seq`; held while an event is built and sent, so events
     /// leave in `seq` order with no gap.
@@ -193,8 +195,10 @@ impl InputEmitter {
         }
     }
 
-    /// Publishes a planned input with the next `seq`.
-    pub fn publish(&self, planned: Planned) {
+    /// Publishes a planned input with the next `seq`: through `via` (the
+    /// driver's own session event path), or the session sink when `via`
+    /// returns false. Exactly one of them gets the event.
+    pub fn publish(&self, planned: Planned, via: &dyn Fn(DriverEvent) -> bool) {
         let mut seq = self.seq.lock().unwrap_or_else(PoisonError::into_inner);
         let event = AutomationInputEvent {
             v: 1,
@@ -211,7 +215,10 @@ impl InputEmitter {
         };
         let Ok(payload) = serde_json::to_value(&event) else { return };
         *seq += 1;
-        (self.sink)(DriverEvent { name: EVENT.to_owned(), payload });
+        let event = DriverEvent { name: EVENT.to_owned(), payload };
+        if !via(event.clone()) {
+            (self.sink)(event);
+        }
     }
 }
 
