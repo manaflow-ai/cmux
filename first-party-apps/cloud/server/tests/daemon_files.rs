@@ -87,12 +87,19 @@ fn answers_and_errors_map_as_the_request_file_says() {
         ("fs.too_large", "cmux.cloud.file_too_large"),
         ("fs.something_new", "cmux.cloud.upstream_error"),
     ] {
-        let line = json!({ "id": 1, "ok": false, "error": { "code": daemon, "message": "m" } });
+        // The daemon's v12 envelope (decision D1): text in "error", the code
+        // in "error_code", details in "error_details".
+        let line = json!({ "id": 1, "ok": false, "error": "m", "error_code": daemon });
         let err = decode_answer("fs.stat", line.to_string().as_bytes()).unwrap_err();
         assert_eq!(err.code, ours, "{daemon}");
         assert_eq!(err.upstream_code.as_deref(), Some(daemon));
         assert_eq!(fs_error(daemon, "m").code, ours);
     }
+    let line = json!({ "id": 1, "ok": false, "error": "changed", "error_code": "fs.revision_mismatch",
+        "error_details": { "current": "s3-m9" } });
+    let err = decode_answer("fs.write", line.to_string().as_bytes()).unwrap_err();
+    assert_eq!(err.message, "changed");
+    assert_eq!(err.details, Some(json!({ "current": "s3-m9" })), "details are kept");
     let err = decode_answer("fs.stat", b"not json").unwrap_err();
     assert_eq!(err.code, "cmux.cloud.bad_response");
 }
