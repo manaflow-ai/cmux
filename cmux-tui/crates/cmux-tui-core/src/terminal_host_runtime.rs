@@ -835,6 +835,7 @@ mod unix {
         Ok(colors)
     }
 
+    mod barrier_sync;
     mod control_responses;
     mod standby;
     use control_responses::ControlResponseWaiter;
@@ -2765,10 +2766,10 @@ mod unix {
             let mut file =
                 OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
             file.write_all(&bytes)?;
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?;
             fs::rename(&temporary, path)?;
             if let Some(parent) = path.parent() {
-                File::open(parent)?.sync_all()?;
+                barrier_sync::barrier_sync_dir(parent)?;
             }
             Ok(())
         })();
@@ -4664,7 +4665,7 @@ mod unix {
                 let _ = fs::remove_file(&path);
                 return Err(error.into());
             }
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?; // why no full sync: barrier_sync.rs
             Ok(Self { file, path })
         }
     }
@@ -4692,19 +4693,11 @@ mod unix {
     pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
         prepare_private_dir(root)?;
         let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
+        let (file, existed) = barrier_sync::open_lock_file(&path)
             .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
         validate_terminal_host_publication_lock(root, &path, &file)?;
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
-        file.sync_all()?;
-        File::open(root)?.sync_all()?;
+        barrier_sync::sync_new_lock_file(&file, root, existed)?;
         Ok(())
     }
 
@@ -4901,6 +4894,7 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
+        crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
         let shared = match spawn_host_runtime(&launch, &bootstrapped) {
             Ok(shared) => shared,
             Err(error) => {
@@ -4926,6 +4920,7 @@ mod unix {
         let listener = UnixListener::bind(&endpoint)?;
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
+        crate::debug_spans::mark("host.endpoint_bound");
 
         let start_nonce = CapabilityToken::random()?;
         let record = TerminalHostRecord {
@@ -4949,6 +4944,7 @@ mod unix {
         let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
+        crate::debug_spans::mark("host.lease_acquired");
         let mut guard = HostServiceGuard {
             shared: shared.clone(),
             endpoint,
@@ -4964,6 +4960,8 @@ mod unix {
         // leave behind an undiscoverable terminal process.
         write_record(Path::new(&launch.record_path), &record)?;
         guard.published = true;
+        crate::debug_spans::mark("host.record_written");
+        crate::debug_spans::finish(crate::debug_spans::take());
 
         // Integration failure-injection seam for the narrow record-before-
         // Ready crash window. It is inherited only by explicitly configured
@@ -5082,6 +5080,7 @@ mod unix {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
         let pty = cmux_pty::open(initial_pty_size)?;
+        crate::debug_spans::mark("host.pty_opened");
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
@@ -5095,6 +5094,7 @@ mod unix {
             command.cwd(cwd);
         }
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let mut child = SpawnedPtyChild::new(child, process_group_leader);
         let pid = child.child().process_id();
