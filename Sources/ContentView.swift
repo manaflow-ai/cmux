@@ -11089,10 +11089,10 @@ struct ContentView: View {
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
             let externalNavigationHandler = BrowserExternalNavigationHandler()
             for pullRequest in pullRequests {
-                // The external-open rules outrank the embedded-browser
-                // preference: rule-listed sites cannot work in the embedded
-                // web view at all.
-                let openedEmbedded = !externalNavigationHandler.linkEscapesToSystemBrowser(pullRequest.url)
+                let destination = externalNavigationHandler.sidebarLinkDestination(
+                    for: pullRequest.url, prefersEmbeddedBrowser: true
+                )
+                let openedEmbedded = destination == .embeddedBrowser
                     && tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil
                 if openedEmbedded || NSWorkspace.shared.open(pullRequest.url) {
                     openedCount += 1
@@ -12753,11 +12753,8 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
-            // The external-open rules outrank the embedded-browser preference
-            // here just like on the SwiftUI sidebar path: rule-listed sites
-            // cannot work in the embedded web view at all.
-            if preferBrowser,
-               !BrowserExternalNavigationHandler().linkEscapesToSystemBrowser(url),
+            if BrowserExternalNavigationHandler()
+                .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: preferBrowser) == .embeddedBrowser,
                let tabManager,
                tabManager.openBrowser(
                    inWorkspace: workspaceId,
@@ -15000,12 +14997,8 @@ struct VerticalTabsSidebar: View, Equatable {
         opensInCmuxBrowser: Bool
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
-        // The external-open rules outrank the embedded-browser preference:
-        // a matching link goes to the system browser even when the setting
-        // prefers embedded, because rule-listed sites cannot work in the
-        // embedded web view at all.
-        if opensInCmuxBrowser,
-           !BrowserExternalNavigationHandler().linkEscapesToSystemBrowser(url),
+        if BrowserExternalNavigationHandler()
+            .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: opensInCmuxBrowser) == .embeddedBrowser,
            tabManager.openBrowser(
                inWorkspace: workspace.id,
                url: url,
