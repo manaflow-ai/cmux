@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 
-use super::remove_terminal_runtime_from_state;
 #[cfg(unix)]
 use super::insert_surface_checked;
+use super::remove_terminal_runtime_from_state;
 use super::{Mux, commit_terminal_lifecycle};
 use crate::model::State;
 use crate::resource::TerminalPublicId;
