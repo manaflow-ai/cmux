@@ -56,7 +56,18 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
   P8's window adds HelloGate, the nonce and step 2 (install_id + proof, role not repeated; proof =
   HMAC-SHA256(key, "cmux-frontend-hello-v1" || 0x00 || install_id || 0x00 || nonce)). P8
   needs its own window after the origin window (hmac + sha2 edges in cmux-local-auth).
-- peer_key = `install:<id>` (proven) or `token:<pid>.<pidversion>` (audit token), never pid alone.
+- peer_key = `token:<pid>.<pidversion>` (audit token), never pid alone. The `install:<id>` form
+  is UNUSED (5c decision 2026-10-04, P8 landing): a page_relay connection sends no install_id and
+  gets no nonce, so an `install:<id>` key on the main connection would never match its relay, and
+  DEV builds (prover B) could never issue a confirmation. The install-key proof sets only
+  verified_app; the audit token already binds the main and relay connections to one app process,
+  and another process cannot forge it. Caveats (ad349 review):
+  - The key names the PROCESS. If the page relay ever moves into a helper process (XPC, a WebKit
+    helper), issue fails closed (relay_mismatch). Accepted.
+  - On Linux the key is pid + process start time, which exec does not change (macOS exec bumps
+    the pid version). Rule: the app opens its daemon sockets close-on-exec (the Swift
+    `LineTransport` sets FD_CLOEXEC, P8), so a program it execs cannot inherit them. Linux has no
+    verified app today; a future Linux app must keep the same rule.
 - `set-client-info` stays a label only and never sets the role.
 - A connection with no client-hello is the legacy client role: never user, never page_relay.
 - verified_app (P8) = role main declared on that connection AND (install-key proof OR prover A).

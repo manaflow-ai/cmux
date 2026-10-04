@@ -110,7 +110,10 @@ Rules:
     "cmux-frontend-hello-v1" 0 install_id 0 nonce) -> `{verified,
     install_id, connection_id}`; checks run in constant time. Any other line
     closes the window; no retry; the identity never changes. page_relay and
-    connections with no hello are never the verified app.
+    connections with no hello are never the verified app. The hello is the
+    origin window's (server/client_hello.rs); either prover sets
+    `ConnectionOrigin::verified_app` and never changes the connection's
+    audit-token `peer_key` (request-origin.md).
   - Prover A (signed builds): the peer's audit token (read at accept, never a
     pid) satisfies `anchor apple generic and certificate leaf[subject.OU] =
     <daemon team> and identifier <id>`, where id is the signed identifier of
