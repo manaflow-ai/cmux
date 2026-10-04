@@ -3,7 +3,7 @@
 and before/after proof). Run on cmux-lawrence-2 or a fleet Mac, never on a
 laptop. Launches the tagged app itself (no-activate, scratch config), opens
 the Home fixture tab (`debug.home_native_fixture.open`, the real Home view
-over the mock owner), then Home itself (Cmd-1), captures each with
+over the mock owner), then the Chief tab (Cmd-W, Cmd-1), captures each with
 `debug.window_snapshot`, and kills only the app it started.
 
 Usage: home-snapshot.py --tag <tag> [--out DIR] [--size 1100x720]
@@ -76,7 +76,9 @@ try:
     print("fixture:", rpc("debug.home_native_fixture.open"), flush=True)
     time.sleep(4)
     print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}.png")}), flush=True)
-    rpc("debug.key", {"key": "1", "modifiers": ["cmd"], "origin": "user"})
+    # Close the fixture tab: the home workspace's Chief tab shows.
+    rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})
+    rpc("debug.key", {"key": "1", "modifiers": ["cmd"]})
     time.sleep(5)
     print("home:", json.dumps(rpc("debug.home"))[:400], flush=True)
     print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-chief-{opts.tag}.png")}), flush=True)

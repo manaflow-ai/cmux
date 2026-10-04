@@ -89,6 +89,18 @@ final class HeaderBackdropView: NSView {
         CATransaction.commit()
     }
 
+    /// cmux: the tint in the theme's background, so the header over empty
+    /// transcript is the background itself (Messages' grey `c` read as a
+    /// lighter band on a darker cmux pane); rows under it keep the fitted
+    /// gain (1 - a) and blur. A clear background (see-through window)
+    /// leaves the blur alone.
+    func setTint(_ color: NSColor) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        tint.backgroundColor = color.withAlphaComponent(1).cgColor
+        tint.opacity = Float(params.a * color.alphaComponent)
+        CATransaction.commit()
+    }
+
     /// The view's height: the header plus its fade.
     var totalHeight: CGFloat { params.height + params.fade }
 

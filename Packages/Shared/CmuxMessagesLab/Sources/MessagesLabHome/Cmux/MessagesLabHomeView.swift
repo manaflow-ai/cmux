@@ -77,6 +77,7 @@ public final class MessagesLabHomeView: NSView {
         guard Fixture.theme != theme else { return }
         Fixture.theme = theme
         RowBitmaps.shared.removeAll()
+        controller.host.headerBackdrop.setTint(Fixture.background)
         if let demo = controller.demo {
             let inactiveNow = Fixture.inactive
             demo.setInactive(!inactiveNow)

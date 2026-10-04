@@ -685,7 +685,8 @@ enum Strings {
         default: return String(localized: "file.kind.document", defaultValue: "Document", bundle: .module)
         }
     }
-    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "iMessage", bundle: .module) }
+    // cmux: not "iMessage" (Apple's service name).
+    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "Message", bundle: .module) }
     static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply", bundle: .module) }
     static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply", bundle: .module) }
     static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy", bundle: .module) }
