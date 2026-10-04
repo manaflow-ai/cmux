@@ -150,7 +150,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         return button.convert(button.bounds, to: nil)
     }
     /// Whether a history button is enabled (tests).
-    func historyButtonEnabled(_ direction: LocationTrailDirection) -> Bool { true }
+    func historyButtonEnabled(_ direction: LocationTrailDirection) -> Bool { toolbarBand.historyButton(direction).isEnabled }
     /// A click on a history button (tests).
     func pressHistoryButton(_ direction: LocationTrailDirection) { toolbarBand.onHistory?(direction) }
 
