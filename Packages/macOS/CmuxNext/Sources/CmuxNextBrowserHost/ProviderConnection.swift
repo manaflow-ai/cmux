@@ -86,6 +86,15 @@ public nonisolated final class ProviderConnection: Sendable {
         return ProviderConnection(fd: fd)
     }
 
+    /// The pid of the process at the other end (`LOCAL_PEERPID`), nil when
+    /// the socket cannot tell.
+    public var peerPID: pid_t? {
+        var pid: pid_t = 0
+        var length = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 else { return nil }
+        return pid
+    }
+
     /// Why the connection ended, nil while it is open.
     public var closeReason: String? { state.withLock { $0.closed } }
 

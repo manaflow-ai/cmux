@@ -10,9 +10,15 @@ import Foundation
 public nonisolated struct CDPRawIDMap: Sendable {
     /// Raw id -> host id of commands sent and not answered yet.
     public private(set) var pending: [Int: Int] = [:]
-    private var next = CEFDevToolsRawMessage.firstRawID
+    private var next: Int
 
-    public init() {}
+    /// `firstRawID` continues an earlier relay's ids for the same tab.
+    public init(firstRawID: Int? = nil) {
+        next = firstRawID.flatMap { CEFDevToolsRawMessage.isRawID($0) ? $0 : nil } ?? CEFDevToolsRawMessage.firstRawID
+    }
+
+    /// The raw id the next command gets.
+    public var nextRawID: Int { next }
 
     /// The host's command with a raw id, or nil when it has no single
     /// integer top-level "id" (the shim would refuse it).

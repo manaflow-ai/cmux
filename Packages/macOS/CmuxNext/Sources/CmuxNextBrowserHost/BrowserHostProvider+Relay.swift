@@ -35,7 +35,7 @@ extension BrowserHostProvider {
         guard relays[targetID] == nil else { return }
         relayGeneration += 1
         let gen = relayGeneration
-        var session = RelaySession(generation: gen)
+        var session = RelaySession(generation: gen, map: CDPRawIDMap(firstRawID: rawIDCursor[targetID]))
         let deadline = DemandTimer(owner: "browser-host.relay-prepare", clock: clock)
         deadline.schedule(after: prepareDeadline) { @MainActor [weak self] in
             self?.prepareFailed(targetID, gen, "the tab's page did not start in time")
@@ -109,6 +109,7 @@ extension BrowserHostProvider {
         }
         // Stored before the send: a reply may arrive while it runs.
         relays[targetID] = session
+        rawIDCursor[targetID] = session.map.nextRawID
         let result = relay?.send(targetID: targetID, message: out.message) ?? .noBrowser
         if result != .sent { relays[targetID]?.map.forget(rawID: out.rawID) }
         switch result {

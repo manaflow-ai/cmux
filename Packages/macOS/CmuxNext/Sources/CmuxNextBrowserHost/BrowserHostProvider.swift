@@ -77,6 +77,10 @@ public final class BrowserHostProvider {
     // CDP relays of the current connection (`+Relay`).
     @ObservationIgnored var relays: [String: RelaySession] = [:]
     @ObservationIgnored var relayGeneration = 0
+    /// The next raw CDP id per tab, kept across relays and links: the host
+    /// restarts its ids for every relay, and a late reply of an old relay
+    /// must find no mapping.
+    @ObservationIgnored var rawIDCursor: [String: Int] = [:]
 
     public init(identity: ProviderIdentity,
                 credentials: any ProviderCredentialsSource,
@@ -198,6 +202,14 @@ public final class BrowserHostProvider {
         }
         guard gen == generation else {
             link.close()
+            return
+        }
+        // The host proves itself before the secret leaves the app: a
+        // same-uid process that took the socket path first gets nothing.
+        guard let peer = link.peerPID, peer == credentials.hostPID else {
+            logger.error("browser host provider: the socket's peer is not the browser host; hello not sent")
+            link.close(reason: "the socket's peer is not the browser host")
+            scheduleRetry(gen)
             return
         }
         currentCredentials = credentials
