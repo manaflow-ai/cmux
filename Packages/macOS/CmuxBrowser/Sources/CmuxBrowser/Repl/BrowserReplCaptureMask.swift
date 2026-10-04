@@ -140,6 +140,16 @@ public struct BrowserReplCaptureMask {
         }
     }
 
+    /// A mask whose capture is judged by `gate` (its domain policy).
+    public init(
+        secretMasks: [[String: Any]],
+        gate: BrowserReplFrameGate,
+        blockedChildFrames: BlockedChildFrames = .refuse,
+        probe: BrowserReplScriptProbe = BrowserReplScriptProbe()
+    ) {
+        self.init(secretMasks: secretMasks, policy: gate.policy, blockedChildFrames: blockedChildFrames, probe: probe)
+    }
+
     public var isEmpty: Bool { masks.isEmpty }
 
     /// Runs `capture` with the values masked in `webView`, or throws

@@ -190,4 +190,29 @@ struct BrowserReplLocalFrameGateTests {
         }
         #expect(error?.code == "blocked", "an opaque document of unknown maker was read in a user's local tab: \(String(describing: error))")
     }
+
+    /// The driver judges the tree before a capture, but a frame can show a
+    /// file outside the roots by the time the capture is taken. The capture
+    /// mask judges the documents the capture shows by the gate, also with
+    /// no domain policy: a PDF, which cannot blank a frame, is refused, and
+    /// a screenshot is handed the frame to blank.
+    @Test func aCaptureJudgesTheLocalDocumentsItShowsWithoutAPolicy() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let page = try await LocalPage.load(scratch)
+        let gate = Self.gate(page)
+        let outside = try #require(page.frame(containing: "/outside/page.html"))
+        var captured = false
+        let pdf = await BrowserReplFrameGateTests.error {
+            try await BrowserReplCaptureMask(secretMasks: [], gate: gate, blockedChildFrames: .refuse)
+                .run(in: page.webView, frames: { page.frames.map(\.info) }) { captured = true }
+        }
+        #expect(pdf?.code == "blocked", "a PDF of a frame showing a file outside the roots was allowed: \(String(describing: pdf))")
+        #expect(!captured)
+        let handed = try await BrowserReplCaptureMask(secretMasks: [], gate: gate, blockedChildFrames: .handToCapture)
+            .run(in: page.webView, frames: { page.frames.map(\.info) }) { blockedChildFrames in blockedChildFrames }
+        #expect(handed[outside.frameID] != nil, "the frame showing a file outside the roots was not handed to the screenshot: \(handed)")
+        let inside = try #require(page.frame(containing: "/work/inside.html"))
+        #expect(handed[inside.frameID] == nil)
+    }
 }
