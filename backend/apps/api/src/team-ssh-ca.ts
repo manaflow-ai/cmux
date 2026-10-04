@@ -288,7 +288,7 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
     const again = await resume(deps, p, params, idem, key, JSON.parse(row.body) as Prepared, bound)
     if (again) return again
   }
-  const cls = classFor(deps.state(), p, params)
+  const cls = classFor(deps.state(), p, params, deps.rows)
   const since = deps.now() - RATE_WINDOW_MS
   const byIdentity = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_certs WHERE identity = ? AND issued_at > ?`, p.identity, since).toArray()[0]!.n
   const byUser = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_certs WHERE user = ? AND issued_at > ?`, user, since).toArray()[0]!.n

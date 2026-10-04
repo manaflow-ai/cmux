@@ -1,7 +1,7 @@
 import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
-import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, memberUpsert, roleOf, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
+import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
@@ -66,9 +66,12 @@ export const teamDomain: Domain<TeamState> = {
         const members = Object.values(state.members ?? {})
         const hosts = Object.values(state.hosts ?? {})
         const { members: _m, hosts: _h, ...rest } = state
+        // Counts add only the map entries that have no row yet (a head may hold both after a rollback).
+        const newMembers = members.filter((m) => !ctx.rows?.get(TABLE_MEMBER, m.user)).length
+        const newHosts = hosts.filter((h) => !ctx.rows?.get(TABLE_HOST, h.id)).length
         return {
           ok: true,
-          state: { ...rest, member_count: members.length, host_count: hosts.length },
+          state: { ...rest, member_count: (state.member_count ?? 0) + newMembers, host_count: (state.host_count ?? 0) + newHosts },
           writes: [...members.map(memberUpsert), ...hosts.flatMap(hostUpsert)],
           ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
           value: { members: members.length, hosts: hosts.length }
