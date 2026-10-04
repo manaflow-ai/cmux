@@ -566,6 +566,56 @@ test("frames: without the driver's frame identity, an iframe is not matched to a
   assert.equal(await main._contentFrame("h1"), null);
 });
 
+test("frames: a click in a nested frame never lands on another element: a transformed <iframe> is refused, a covering element in the parent intercepts", async () => {
+  // The frame's point in the tab is its owner <iframe>'s box plus the point
+  // in the frame. A scale (or rotation, zoom) on the <iframe> or an ancestor
+  // moves the frame's content away from that sum, and an element of the
+  // parent can cover the <iframe>: the trusted click would land there.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const scene = async (frameStyle, extra) => {
+        await page.goto(${JSON.stringify(server.origins.primary + "/")});
+        await page.evaluate(([frameStyle, extra]) => {
+          window.clicked = [];
+          document.body.style.margin = "0";
+          document.body.innerHTML = extra + '<iframe style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;' + frameStyle + '" srcdoc="<body style=margin:0><button style=position:absolute;left:400px;top:400px;width:100px;height:40px onclick=parent.clicked.push(&quot;target&quot;)>Target</button><button style=position:absolute;left:100px;top:160px;width:100px;height:40px onclick=parent.clicked.push(&quot;other&quot;)>Other</button></body>"></iframe>';
+          for (const b of document.querySelectorAll("[data-decoy]")) b.onclick = () => window.clicked.push(b.dataset.decoy);
+        }, [frameStyle, extra]);
+        await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+        let error = null;
+        try {
+          await page.frameLocator("iframe").getByRole("button", { name: "Target" }).click({ timeout: 1500 });
+        } catch (e) {
+          error = String(e.message || e).split("\\n").slice(0, 2).join(" ");
+        }
+        return { clicked: await page.evaluate(() => window.clicked), error };
+      };
+      const decoy = (name, left, top) => '<button data-decoy="' + name + '" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:200px;height:200px;z-index:0">' + name + '</button>';
+      const r = {
+        scaled: await scene("transform:scale(0.5);transform-origin:0 0", decoy("decoy", 350, 350)),
+        rotated: await scene("transform:rotate(180deg)", decoy("decoy", 350, 350)),
+        covered: await scene("", '<div data-decoy="overlay" style="position:absolute;left:0;top:0;width:700px;height:700px;z-index:5"></div>'),
+        translated: await scene("transform:translate(30px, 20px)", ""),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    for (const name of ["scaled", "rotated"]) {
+      assert.deepEqual(r[name].clicked, [], `${name}: the click landed on ${JSON.stringify(r[name].clicked)}`);
+      assert.match(r[name].error || "", /transform/, `${name}: ${r[name].error}`);
+    }
+    assert.deepEqual(r.covered.clicked, [], `covered: the click landed on ${JSON.stringify(r.covered.clicked)}`);
+    assert.match(r.covered.error || "", /intercepts pointer events/, r.covered.error);
+    // A translation keeps the frame's geometry: the click reaches the target.
+    assert.deepEqual(r.translated, { clicked: ["target"], error: null });
+  } finally {
+    await server.close();
+  }
+});
+
 test("network: requests that never finish are not kept without bound", () => {
   const { session } = fakeSession();
   const page = session.pageFor("t1");
