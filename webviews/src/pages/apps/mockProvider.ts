@@ -76,6 +76,7 @@ export class MockAppsProvider implements PageClient {
           hidden: false,
           sandboxed: detail.tier === "unverified",
           source: "user",
+          tier: detail.tier,
           icon: detail.icon,
         };
         this.grants[app] = {
@@ -89,6 +90,8 @@ export class MockAppsProvider implements PageClient {
         return this.changed(app) as R;
       }
       case AppsOps.uninstall:
+        // First-party apps are hidable, never removable (FIRST-PARTY-APPS); the owner refuses.
+        if (this.installed[app]?.tier === "first-party") throw pageError("cmux.apps.first_party", app);
         delete this.installed[app];
         delete this.grants[app];
         return this.changed(app) as R;
@@ -278,8 +281,23 @@ export function sampleApps(): {
       ],
       versions: [{ version: "0.1.0", engines: "^1.0.0" }],
     },
+    // The store itself: installed and first party; the page never lists it (FIRST-PARTY-APPS).
+    "cmux/app-store": {
+      ...base,
+      id: "cmux/app-store",
+      name: "App Store",
+      description: "Find and manage cmux apps.",
+      publisher: "cmux",
+      publisher_verified: true,
+      tier: "first-party",
+      categories: ["productivity"],
+      latest_version: "1.0.0",
+      scopes: [],
+      versions: [{ version: "1.0.0", engines: "^1.0.0" }],
+    },
   };
   details["cmux.github-prs"].installed = true;
+  details["cmux/app-store"].installed = true;
   const installed: Record<string, InstalledApp> = {
     "cmux.github-prs": {
       id: "cmux.github-prs",
@@ -289,8 +307,19 @@ export function sampleApps(): {
       hidden: false,
       sandboxed: false,
       source: "default",
+      tier: "first-party",
       icon: { path: ICON },
       update: { version: "1.2.0" },
+    },
+    "cmux/app-store": {
+      id: "cmux/app-store",
+      name: "App Store",
+      version: "1.0.0",
+      enabled: true,
+      hidden: false,
+      sandboxed: false,
+      source: "default",
+      tier: "first-party",
     },
   };
   const grants: Record<string, Grants> = {

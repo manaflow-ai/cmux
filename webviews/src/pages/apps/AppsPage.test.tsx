@@ -89,12 +89,25 @@ describe("AppsPage", () => {
     expect($(".apps-detail-name")).toBeNull();
   });
 
-  test("Installed lists apps with Update, Permissions and Logs", async () => {
+  test("Installed lists apps with Update, Permissions and Logs; first-party apps hide, never remove", async () => {
     const provider = new MockAppsProvider();
     await render(provider, "#/installed");
-    expect($$(".apps-installed-row .apps-name")[0]?.textContent).toContain("GitHub PRs");
+    expect($$(".apps-installed-row .apps-name").map((name) => name.textContent)).toEqual(["GitHub PRs1.1.0"]);
     const buttons = () => $$(".apps-installed-actions .apps-button");
-    expect(buttons().map((button) => button.textContent)).toEqual(["Update", "Permissions", "Logs", "Remove"]);
+    expect(buttons().map((button) => button.textContent)).toEqual(["Update", "Permissions", "Logs", "Hide"]);
+    await click(buttons().find((button) => button.textContent === "Hide"));
+    expect(provider.calls.find((call) => call.op === AppsOps.set)?.params).toEqual({
+      app: "cmux.github-prs",
+      hidden: true,
+    });
+    expect(provider.calls.some((call) => call.op === AppsOps.uninstall)).toBe(false);
+    expect(buttons().map((button) => button.textContent)).toContain("Show");
+    await click(buttons().find((button) => button.textContent === "Show"));
+    expect(provider.calls.filter((call) => call.op === AppsOps.set).at(-1)?.params).toEqual({
+      app: "cmux.github-prs",
+      hidden: false,
+    });
+    provider.calls.length = 0;
     await click(buttons().find((button) => button.textContent === "Logs"));
     expect($(".apps-logs")?.textContent).toContain("cmux.github-prs started");
     await click(buttons().find((button) => button.textContent === "Permissions"));
@@ -104,6 +117,15 @@ describe("AppsPage", () => {
       app: "cmux.github-prs",
       enabled: false,
     });
+  });
+
+  test("a first-party listing offers Hide, not Remove; the store is not a listing", async () => {
+    const provider = new MockAppsProvider();
+    await render(provider, "#/discover?app=cmux.github-prs");
+    expect($$(".apps-detail-actions .apps-button").map((button) => button.textContent)).toEqual(["Open", "Hide"]);
+    await render(provider, "#/discover?app=cmux/app-store");
+    expect($(".apps-detail-name")).toBeNull();
+    expect($$(".apps-card .apps-name").map((name) => name.textContent)).not.toContain("App Store");
   });
 
   test("split layout shows the list and the selected detail side by side", async () => {
