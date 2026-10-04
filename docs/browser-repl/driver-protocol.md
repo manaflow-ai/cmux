@@ -360,10 +360,34 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the session's working or temporary directory, judged by the path as
   written (`..` resolved without the file system) and refused when a part
   of it below that directory is a symbolic link. The browser loads a file
-  with read access to its directory, so a page could otherwise read files
+  with read access to a directory, so a page could otherwise read files
   the session's `fs` cannot; cmux's internal schemes and `javascript:` are
-  refused too. A string without a scheme that looks like a path (`/`, `~`,
-  `.`) is refused.
+  refused too. The driver checks the path again and starts the load while
+  no REPL `fs.rename` can run (in any session; `rename` is the only `fs`
+  call that can put a link at a path), and gives the page read access to
+  the session directory that holds the file, which must still be the
+  directory the session began with (same identity, no link on its path).
+  WebKit resolves that directory when it grants it and refuses a file
+  outside it, so a link another session or process swaps in below it
+  after the check leads nowhere outside (measured on macOS 27.0). A file
+  navigation in a workspace whose browser waits for a remote proxy is
+  refused rather than started later outside that check. In a tab the
+  session created, and its popups, the same rule holds for what the page
+  loads, whoever starts it: the navigation delegate cancels a navigation of
+  any frame to a file it refuses (`navigation.blocked`; a page, a redirect,
+  history), and content rules block `file:` subresources and child frames
+  outside the directories (matched on the URL as WebKit spells it, so a
+  file inside them spelled another way is blocked too; an encoded `/` is
+  blocked). WebKit itself refuses a file outside the directory a load
+  granted (measured on macOS 27.0); these hold also when the web process
+  holds a wider grant. A window a page opens from any tab a session drives
+  never loads a local file through cmux's own navigation. A string without a scheme that looks like a path (`/`, `~`,
+  `.`) is refused. The same rule refuses the session's reads and input
+  (the calls a blocked page refuses, `blocked`) on any tab that shows a
+  local file outside those directories, such as a user's tab opened on
+  one before the session reached it, and on a tab the session did not
+  create whose page is a document of a local file's origin under another
+  URL (an `about:blank` or `data:` page a file page wrote).
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`; a `blob:` URL is judged by the origin in it, and one of
   an opaque origin, `blob:null/...`, is blocked) and `session.configure`
@@ -379,7 +403,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   started it, so it is judged by that frame's document as WebKit recorded
   it (its source frame) and cancelled when the policy blocks that one; one
   no page started (the agent's own) passes. The content rules judge a
-  `blob:` subresource or child frame by the origin in its URL. It also judges every frame, not only the main frame, by WebKit's
+  `blob:` subresource or child frame by the origin in its URL. A document
+  of an opaque origin whose URL names no host (a `data:` frame, a sandboxed
+  `about:srcdoc`, a `blob:` of an opaque origin) is judged by the pages that
+  made it: the navigation delegate records, for every navigation to such a
+  URL in any tab, the document that started it (WebKit's source frame; one
+  that is itself opaque passes on its own makers, and a new tab's first
+  load is the app's), and the driver refuses reads and input on the
+  document (and blanks or makes inert its frame) when the policy blocks one
+  of them. A frame keeps every maker recorded for it for its life (WebKit
+  does not say which child-frame navigation committed). Under a locked
+  policy such a document is refused also when cmux has no record of who
+  made it (a document loaded before cmux saw the navigation, or a frame
+  with more than 16 makers). It also judges every frame, not only the main frame, by WebKit's
   record of it (`WKFrameInfo.securityOrigin` and URL) and by its document
   (`location.origin` and `location.protocol + "//" + location.host`, read
   in the driver's own content world; `location` cannot be forged by page or

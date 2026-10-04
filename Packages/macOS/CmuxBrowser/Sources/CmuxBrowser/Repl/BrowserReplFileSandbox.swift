@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+public import Foundation
 
 /// A Node-style file system error for the REPL `fs` global.
 public struct BrowserReplFileSystemError: Error, Equatable, Sendable {
@@ -172,6 +172,123 @@ public struct BrowserReplFileSandbox: Sendable {
         }
     }
 
+    /// Why a session may not read or act on a tab that shows `url`, or nil.
+    ///
+    /// A local file outside `roots` (the session's working and temporary
+    /// directories), by the rule ``navigationRefusal(_:roots:)`` applies to
+    /// the session's own navigations, is refused: the tab may be a user's
+    /// that shows a file the session's `fs` cannot read, and the browser let
+    /// its page read that file's directory. So is any other document of a
+    /// local file's origin (`documentOrigin` `file://`: an `about:blank` or
+    /// `data:` document a file page wrote), whose maker cannot be told; the
+    /// caller passes `documentOrigin` only for tabs the session did not
+    /// create, whose file pages no session check stood before.
+    public static func localPageRefusal(url: String, documentOrigin: String?, roots: [String]) -> String? {
+        if URL(string: url)?.scheme?.lowercased() == "file" {
+            guard let reason = navigationRefusal(url, roots: roots) else { return nil }
+            return "the tab shows the local file \(url), which a REPL session may not read: \(reason)"
+        }
+        if documentOrigin?.lowercased() == "file://" {
+            return "the tab shows \(url.isEmpty ? "a document" : url) of a local file's origin, which a REPL session may not read; open files inside the session's directories with tabs.open"
+        }
+        return nil
+    }
+
+    /// WebKit content rules that keep pages in a session's tabs from loading
+    /// local files outside `roots` (the session's working and temporary
+    /// directories) as subresources or child frames, whatever read access
+    /// their web process holds.
+    ///
+    /// Every `file:` load is blocked, then one under a root's path (also by
+    /// its `/var`, `/tmp` alias, and with the `localhost` host) is let
+    /// through, matched case-sensitively on the URL as WebKit spells it
+    /// (percent-encoded). A path that spells a root another way is blocked,
+    /// which only refuses more. An encoded slash (`%2F`) is blocked again:
+    /// a file name with one would name a path the rule did not judge. A
+    /// link below a root is resolved by WebKit's own read-access check,
+    /// which refuses a file outside the directory it granted. Main-frame
+    /// documents are left to the navigation checks, which report the block.
+    public static func contentRules(roots: [String]) -> [[String: Any]] {
+        var rules: [[String: Any]] = []
+        func add(_ filter: String, _ action: String, caseSensitive: Bool = false) {
+            for var trigger in [
+                ["url-filter": filter, "resource-type": fileSubresources] as [String: Any],
+                ["url-filter": filter, "resource-type": ["document"], "load-context": ["child-frame"]],
+            ] {
+                if caseSensitive { trigger["url-filter-is-case-sensitive"] = true }
+                rules.append(["trigger": trigger, "action": ["type": action]])
+            }
+        }
+        add("^file:", "block")
+        for root in Set(roots.flatMap(aliases(of:))) where root != "/" {
+            let spelled = URL(fileURLWithPath: root, isDirectory: true).absoluteString
+            guard spelled.hasPrefix("file:///") else { continue }
+            let path = escapeForContentRule(String(spelled.dropFirst("file://".count)))
+            add("^file://" + path, "ignore-previous-rules", caseSensitive: true)
+            add("^file://localhost" + path, "ignore-previous-rules", caseSensitive: true)
+        }
+        add("^file:.*%2[Ff]", "block")
+        return rules
+    }
+
+    private static let fileSubresources = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping", "fetch", "websocket", "other"]
+
+    private static func escapeForContentRule(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            if ".+?^${}()|[]\\*".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
+    /// Held by every REPL `fs.rename` around its `renameat`, and by a file
+    /// navigation from its last check until the browser took its read
+    /// access (``withPinnedFileAccess(_:roots:_:)``): no REPL session (this
+    /// one included, from its own thread) moves an entry in between.
+    /// `rename` is the only `fs` operation that can put a link, or a
+    /// directory that holds one, at a path; the others make regular files
+    /// and directories or remove entries.
+    static let pathChangeLock = NSLock()
+
+    /// Runs `load`, which must start the browser's load of the file `url`
+    /// before it returns, with the directory to grant the page read access
+    /// to: the session root that holds the file.
+    ///
+    /// The browser loads a file by path and resolves the read-access
+    /// directory's links when it grants it, so a check that runs before
+    /// the load can be raced: another REPL session sharing the directory
+    /// could rename a link in for a checked directory. Here, while no REPL
+    /// `fs.rename` can run (``pathChangeLock``), the file's path is checked
+    /// again (``navigationRefusal(_:roots:)``), the root must still be the
+    /// directory the session named (same identity, no link on its path),
+    /// and the browser is given that root. A link swapped in below it later
+    /// leads nowhere outside it: WebKit refuses a file outside the directory
+    /// it granted, as it resolved it then.
+    /// - Throws: `blocked` when the file is outside the roots or a root was
+    ///   moved or replaced.
+    public static func withPinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (URL) throws -> T) throws -> T {
+        try pathChangeLock.withLock {
+            if let reason = navigationRefusal(url, roots: roots.map(\.path)) {
+                throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)")
+            }
+            guard let file = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw BrowserReplDriverError(code: "invalid", message: "Invalid URL")
+            }
+            let path = lexicallyNormalized(file.path(percentEncoded: false))
+            guard let root = roots.first(where: { root in aliases(of: root.path).contains { path.hasPrefix($0 + "/") } }) else {
+                throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: it is not inside the session's directories")
+            }
+            guard root.isStillInPlace else {
+                throw BrowserReplDriverError(
+                    code: "blocked",
+                    message: "\(url) is blocked: the session's directory \(root.path) was moved or replaced since the session began; start a new session there"
+                )
+            }
+            return try load(URL(fileURLWithPath: root.path, isDirectory: true))
+        }
+    }
+
     /// `root` and, for a root under `/private`, the same path through the
     /// system's `/var`, `/tmp` and `/etc` links, as a file URL may name it.
     private static func aliases(of root: String) -> [String] {
@@ -224,5 +341,37 @@ public struct BrowserReplFileSandbox: Sendable {
         guard let resolved = Darwin.realpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
+    }
+}
+
+/// A directory a REPL session's tabs may show local files from: its
+/// canonical path and the identity of the directory there when the session
+/// named it.
+public struct BrowserReplFileRoot: Sendable, Equatable {
+    public let path: String
+    let device: Int64?
+    let inode: UInt64?
+
+    /// Whether `path` still names, with no link on the way, the directory
+    /// that was there when this was made.
+    var isStillInPlace: Bool {
+        guard let device, let inode,
+              BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(path)) == path else { return false }
+        var info = stat()
+        return lstat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
+            && Int64(info.st_dev) == device && UInt64(info.st_ino) == inode
+    }
+
+    /// Reads the identity of the directory at `path` now.
+    public init(path: String) {
+        self.path = path
+        var info = stat()
+        if lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR {
+            device = Int64(info.st_dev)
+            inode = UInt64(info.st_ino)
+        } else {
+            device = nil
+            inode = nil
+        }
     }
 }

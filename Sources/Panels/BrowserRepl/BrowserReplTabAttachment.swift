@@ -1107,6 +1107,10 @@ final class BrowserReplTabAttachment {
               let pane = workspace.paneId(forPanelId: panel.id) else {
             return false
         }
+        // The page controls the URL, and `navigate` loads a local file with
+        // read access to its directory: a window a page opens from a tab a
+        // session drives never loads one (handled: nothing opens).
+        if url.scheme?.lowercased() == "file" { return true }
         // The new tab stays in the opener's profile and data store, as a
         // user's Cmd-click does (`BrowserPanel` new-tab requests): a session
         // tab on a private `session.configure({ proxy })` store keeps it.

@@ -227,8 +227,13 @@ public struct BrowserReplFileSystem: Sendable {
                 throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to move or replace the REPL working directory")
             }
             try writeBudget.takeEntryChange(syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
-            guard renameat(from.directory.fd, fromName, to.directory.fd, toName) == 0 else {
-                throw Self.posixError(errno, syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
+            // A browser file navigation checks paths and takes its read
+            // access under this lock (BrowserReplFileSandbox.withPinnedFileAccess).
+            let renamed = BrowserReplFileSandbox.pathChangeLock.withLock {
+                renameat(from.directory.fd, fromName, to.directory.fd, toName) == 0 ? 0 : errno
+            }
+            guard renamed == 0 else {
+                throw Self.posixError(renamed, syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
             }
             return NSNull()
         case "copyFile":

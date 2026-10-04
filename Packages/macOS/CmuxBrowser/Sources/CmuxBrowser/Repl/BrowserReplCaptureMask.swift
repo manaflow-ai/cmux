@@ -255,6 +255,7 @@ public struct BrowserReplCaptureMask {
         return MarkedDocument(
             origin: origin,
             policyDocument: BrowserReplFrameDocument(origin: document["locationOrigin"] as? String, place: place)
+                .withMakers(frame: frame, in: webView)
         )
     }
 

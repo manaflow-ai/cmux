@@ -36,6 +36,9 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
     /// Navigations waiting for a session's rules, run on the main actor.
     private var waiters: [String: [@MainActor (RuleState) -> Void]] = [:]
     private var nextGeneration = 0
+    /// Each session's working and temporary directories, the only ones its
+    /// tabs load local files from.
+    private var fileRoots: [String: [String]] = [:]
 
     public init() {}
 
@@ -56,6 +59,17 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
             guard let policy = entries[sessionID]?.policy, policy.isActive else { return nil }
             return policy
         }
+    }
+
+    /// Sets the directories the session's tabs may load local files from;
+    /// the navigation checks read them at once.
+    public func setFileRoots(_ roots: [String], sessionID: String) {
+        lock.withLock { fileRoots[sessionID] = roots }
+    }
+
+    /// The session's directories, or nil when it set none.
+    public func fileRoots(for sessionID: String) -> [String]? {
+        lock.withLock { fileRoots[sessionID] }
     }
 
     public func ruleState(for sessionID: String) -> RuleState {
@@ -94,6 +108,7 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
     public func removeSession(_ sessionID: String) {
         let released = lock.withLock {
             entries.removeValue(forKey: sessionID)
+            fileRoots.removeValue(forKey: sessionID)
             return waiters.removeValue(forKey: sessionID) ?? []
         }
         for body in released { body(.installed) }

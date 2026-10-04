@@ -45,6 +45,24 @@ final class BrowserReplNavigationGuard {
         return true
     }
 
+    /// Whether a navigation of any frame of `panelID`, a tab a session
+    /// created (or a popup of one), to the local file `url` must be
+    /// cancelled: only files inside the creating session's working and
+    /// temporary directories load there, by the rule its own navigations
+    /// follow (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``),
+    /// whoever started it (a page, a redirect, history). Reported to the
+    /// sessions as `navigation.blocked`.
+    func cancelsLocalFile(panelID: UUID, url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "file",
+              let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID),
+              let creator = attachment.creatorSessionID,
+              let reason = BrowserReplFileSandbox.navigationRefusal(url.absoluteString, roots: board.fileRoots(for: creator) ?? []) else {
+            return false
+        }
+        attachment.emit("navigation.blocked", ["url": url.absoluteString, "reason": reason])
+        return true
+    }
+
     /// What a navigation of `panelID` waits for before it is judged.
     enum Hold {
         /// Judge it now.
