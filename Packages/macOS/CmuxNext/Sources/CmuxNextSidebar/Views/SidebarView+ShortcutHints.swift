@@ -1,4 +1,5 @@
-import AppKit
+public import AppKit
+import CmuxNextDesign
 
 extension SidebarView {
     /// Visible workspace rows in sidebar coordinates, keyed by the selection target.

@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension TabStripView {
     /// Visible tab rectangles in strip coordinates, for the window's shortcut hint overlay.
