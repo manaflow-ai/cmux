@@ -6,17 +6,43 @@
   "description": "Gmail as a cmux app: a sidebar item that opens Gmail as an app screen or a tab.",
   "repository": "https://github.com/example/gmail",
   "icon": "icon.png",
-  "categories": ["communication"],
-  "engines": { "cmux": "^2.0" },
+  "categories": [
+    "communication"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
   "presentation": {
-    "sidebarItem": { "section": "top", "title": "Gmail", "icon": "icon.png", "order": 130 },
+    "sidebarItem": {
+      "section": "top",
+      "title": "Gmail",
+      "icon": "icon.png",
+      "order": 130
+    },
     "screen": "app",
     "tab": true,
     "primaryInput": "div[role=search] input",
     "web": {
       "url": "https://mail.google.com/mail/u/0/",
       "profile": "app",
-      "origins": ["https://accounts.google.com", "https://*.googleusercontent.com"]
+      "origins": [
+        "https://accounts.google.com",
+        "https://*.googleusercontent.com"
+      ]
     }
+  },
+  "contributes": {
+    "toolbarItems": [
+      {
+        "id": "compose",
+        "kind": "button",
+        "title": "Compose",
+        "icon": "icon.png",
+        "action": {
+          "op": "workspace.new"
+        },
+        "order": 10
+      }
+    ]
   }
 }

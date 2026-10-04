@@ -328,3 +328,26 @@ Every app, built-in or third-party, says how it appears with one manifest v2 blo
 | `web {url, profile?, origins?}` | a web app shown in the browser engine with its own profile (`app`: cookies stay per app) and the browser's network policy; the native install confirmation lists `url` and `origins` | `https` only; a sidebar item, screen or tab needs content: `implements["cmux.pane/1"]` or `web` (`presentation.noContent`); not both (`presentation.twoContents`) |
 
 A sidebar item and a screen need no scope. Owners: the layout lead implements the screen kinds from `screen`; the sidebar lead builds the top band from `sidebarItem` of the installed, visible apps (replacing the hard-coded default items); the App Store confirmation shows the web URL list.
+
+## 17. Toolbar items: `contributes.toolbarItems` (R69, spec titlebar-area.md 3)
+
+Apps add buttons, menu buttons and small views to the top-left toolbar band, and may offer an alternative behavior for a built-in item. Built-in items (`sidebar.toggle`, `nav.back`, `nav.forward`) are ordinary catalog entries.
+
+```json
+"contributes": {"toolbarItems": [
+  {"id": "compose", "kind": "button", "title": "Compose", "icon": {"symbol": "square.and.pencil"}, "action": {"op": "mail.compose"}, "order": 10},
+  {"id": "more", "kind": "menu", "title": "More", "items": [{"title": "Refresh", "action": {"op": "mail.refresh"}}]},
+  {"id": "meter", "kind": "view", "title": "Usage", "width": 120},
+  {"id": "back", "kind": "button", "title": "Back in Mail", "action": {"op": "mail.back"}, "overrides": "nav.back"}
+]}
+```
+
+| Rule | Where |
+| --- | --- |
+| `kind` button needs `action` (one of the app's catalog ops or a catalog action id, with `args`); menu needs `items` (at most 16); view needs `width` (16-160 pt) and `runtime.web` (the slot is rendered by `cmux-page://<app>/toolbar/<id>`) | schema; `toolbar.viewNeedsWeb` |
+| At most 4 items per app; the shell shows `TOOLBAR_VISIBLE_APP_ITEMS` (3) app items and puts the rest in the overflow menu | schema `maxItems`; shell |
+| No position field: app items always follow the built-in items, so none sits left of the sidebar toggle; `order` sorts app items only | schema (unknown keys refused) |
+| `overrides` names `nav.back` or `nav.forward` and only on a button; the user picks the alternative in Settings, never applied silently; `sidebar.toggle` cannot be overridden or removed | `toolbar.toggleFixed`, `toolbar.overrideUnknown`, `toolbar.overrideKind` |
+| An action op in the app's own catalog family must exist in its fragment; ids are unique | `toolbar.unknownOp`, `toolbar.duplicate` |
+
+Swift: `AppManifest.toolbarItems` (`AppToolbarItem`: kind, title, icon, action, menu items, width, order, when, overrides), read from first-party v2 manifests. Owners: the sidebar lead renders the band, the slots and the Settings rows; the app platform lead owns the fields and the validator.
