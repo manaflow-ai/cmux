@@ -460,8 +460,6 @@ jobs:
             --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
             --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
-            --require-artifact cmux-tui-cloud-server-x86_64-unknown-linux-musl \
-            --require-artifact cmux-tui-cloud-server-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
@@ -606,8 +604,6 @@ jobs:
             --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
             --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
-            --require-artifact cmux-tui-cloud-server-x86_64-unknown-linux-musl \
-            --require-artifact cmux-tui-cloud-server-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
@@ -695,8 +691,6 @@ jobs:
             --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
             --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
-            --require-artifact cmux-tui-cloud-server-x86_64-unknown-linux-musl \
-            --require-artifact cmux-tui-cloud-server-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
@@ -730,8 +724,6 @@ jobs:
               --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
               --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
-              --require-artifact cmux-tui-cloud-server-x86_64-unknown-linux-musl \
-              --require-artifact cmux-tui-cloud-server-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"

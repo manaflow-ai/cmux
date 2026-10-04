@@ -314,8 +314,9 @@ jobs:
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
         # workspace with the same toolchain. The app supervisor runs it from
-        # beside cmux-app-host. Unix only, like the app host.
-        if: runner.os != 'Windows'
+        # beside cmux-app-host. macOS only for now (the Mac app bundles it);
+        # Linux targets are a follow-up with the CI lead.
+        if: runner.os == 'macOS'
         env:
           CLOUD_SERVER_CROSS: ${{ matrix.cross }}
           CLOUD_SERVER_TARGET: ${{ matrix.build_target }}
@@ -374,9 +375,9 @@ jobs:
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-app-host${{ matrix.ext }}" "$app_host_binary"
           # The Cloud app server rides the same way as cmux-tui-cloud-server-<target>
-          # and installs as cmux-cloud beside cmux-app-host. Unix only.
+          # and installs as cmux-cloud beside cmux-app-host. macOS only for now.
           cloud_server_binary=""
-          if [[ "${{ runner.os }}" != "Windows" ]]; then
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
             cloud_server_binary="dist/cmux-tui-cloud-server-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-cloud" "$cloud_server_binary"
           fi
