@@ -18,6 +18,8 @@ pub(crate) struct LinkShared {
     ended: bool,
     /// The handle asked for a close that the server did not apply yet.
     close: bool,
+    /// A live [`CloudHostLink`] holds the channel (one handle per channel).
+    held: bool,
 }
 
 pub(crate) type LinkHandle = Arc<Mutex<LinkShared>>;
@@ -25,6 +27,12 @@ pub(crate) type LinkHandle = Arc<Mutex<LinkShared>>;
 fn lock(handle: &LinkHandle) -> MutexGuard<'_, LinkShared> {
     // A panic while holding the lock leaves plain data; keep serving.
     handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Gives the channel to one new handle; `false` while another handle holds
+/// it. A dropped handle frees the channel and leaves the link up.
+pub(crate) fn claim(handle: &LinkHandle) -> bool {
+    !std::mem::replace(&mut lock(handle).held, true)
 }
 
 /// Takes a close the handle asked for (`true` once per ask).
@@ -43,7 +51,14 @@ pub(crate) fn end(handle: &LinkHandle, lost: Lost) {
 
 /// One link to a Cloud machine's session host. Its bytes move on the
 /// carrier socket ([`DataPlane::Socket`]): the app host has no frame stream
-/// for this server, so the daemon dials the link's local socket.
+/// for this server, so the daemon dials the link's local socket. It is the
+/// only handle of its channel while it lives.
+///
+/// [`HostLink::close`] only asks: the server applies the close at its next
+/// drain of link events (`take_events`, `take_link_events` or the serve
+/// loop), and [`HostLink::take_frames`] gives the `end` only after that
+/// drain. A caller that closes and takes frames in the same tick gets no
+/// `end` yet and must not loop waiting for it.
 pub(crate) struct CloudHostLink {
     carrier: Carrier,
     shared: LinkHandle,
@@ -97,7 +112,15 @@ impl HostLink for CloudHostLink {
         std::mem::take(&mut lock(&self.shared).frames)
     }
 
+    /// Applied at the server's next drain (see [`CloudHostLink`]).
     fn close(&mut self) -> Result<(), BackendError> {
         self.ask_close()
+    }
+}
+
+impl Drop for CloudHostLink {
+    /// Frees the channel for one new handle; the link stays up.
+    fn drop(&mut self) {
+        lock(&self.shared).held = false;
     }
 }

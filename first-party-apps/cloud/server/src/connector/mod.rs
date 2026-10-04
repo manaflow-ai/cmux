@@ -9,6 +9,11 @@
 //! `cmux.terminal.connector.close`), and the link's bytes move on its
 //! carrier socket ([`cmux_terminal_iface::DataPlane::Socket`]), which the
 //! daemon dials, because the app host has no frame stream for this server.
+//!
+//! One handle per channel: a connect while a live handle holds the target's
+//! channel is `invalid` ([`ALREADY_CONNECTED`]). A link close through the
+//! handle applies at the server's next drain, so the handle's `end` frame
+//! comes only after that drain ([`link::CloudHostLink`]).
 
 mod link;
 
@@ -24,6 +29,9 @@ use link::CloudHostLink;
 use std::collections::BTreeMap;
 
 pub(crate) use link::LinkHandle;
+
+/// The refusal of a second handle for a channel that has a live one.
+pub const ALREADY_CONNECTED: &str = "already connected; use the open link";
 
 /// The connector, borrowed from the server for one call (the server is the
 /// only writer of link state; the connector is its interface view).
@@ -70,8 +78,9 @@ impl<C: ControlPlane + Send> TerminalConnector for CloudConnector<'_, C> {
         &self.server.attach().connector_kinds
     }
 
-    /// At most one channel per target: a second call while it is up answers
-    /// the same channel. A kind not in `kinds` fails with `denied`.
+    /// At most one channel per target and one live handle per channel: a
+    /// second call while a handle holds the channel is `invalid`
+    /// ([`ALREADY_CONNECTED`]). A kind not in `kinds` fails with `denied`.
     fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
         let attach = self.server.attach();
         allow_kind(&attach.connector_kinds, &request.kind)?;
@@ -90,8 +99,11 @@ impl<C: ControlPlane + Send> TerminalConnector for CloudConnector<'_, C> {
             }
         })?;
         let handles = &mut self.server.attach_mut().link_handles;
-        let handle = handles.entry(carrier.id.clone()).or_default().clone();
-        Ok(Box::new(CloudHostLink::new(carrier, handle)))
+        let handle = handles.entry(carrier.id.clone()).or_default();
+        if !link::claim(handle) {
+            return Err(BackendError::invalid(ALREADY_CONNECTED));
+        }
+        Ok(Box::new(CloudHostLink::new(carrier, handle.clone())))
     }
 
     /// Ends a channel by id; its `end` follows. A channel that is not open
