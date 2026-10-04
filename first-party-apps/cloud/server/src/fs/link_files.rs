@@ -18,6 +18,7 @@ use crate::ops::Server;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
@@ -31,10 +32,18 @@ pub const DAEMON_OP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The largest daemon answer line (a 16 MiB read in base64, plus framing).
 const MAX_ANSWER_BYTES: u64 = 24 * 1024 * 1024;
 
-/// The link ended after the request went out and before the daemon's answer
-/// line (EOF): the op may have acted. Retryable for a read; an `fs.write`
-/// reconciles with `fs.stat` instead ([`write_reconciled`]).
+/// The link ended after the request went out and before the daemon's whole
+/// answer line (EOF, a read error or the deadline): the op may have acted.
+/// Retryable only for a read; an `fs.write` reconciles with `fs.stat`
+/// instead ([`write_reconciled`]); another changing op is not retryable.
 pub const ANSWER_LOST: &str = "cmux.cloud.link_answer_lost";
+
+/// The ops that change nothing: a lost answer may run again.
+const READ_OPS: &[&str] = &["fs.stat", "fs.list", "fs.read"];
+
+fn answer_lost(op: &str, why: impl Into<String>) -> CloudError {
+    CloudError { retryable: READ_OPS.contains(&op), ..CloudError::new(ANSWER_LOST, why) }
+}
 
 /// Where one daemon op goes: the `cmux` binary that dials, the machine's
 /// overlay host id, and the dial child's whole environment. No credential.
@@ -89,14 +98,18 @@ impl DaemonFiles for LinkDaemonFiles {
         // the dial child (ours, by its handle) is ended, which ends the
         // worker's read or write.
         let children: Children = Arc::default();
+        // Set once the whole request line went out: from then on a missing
+        // answer may hide an op that acted.
+        let sent = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::channel();
         let worker = {
-            let target = target.clone();
+            let (target, op) = (target.clone(), op.to_owned());
             let children = Arc::clone(&children);
+            let sent = Arc::clone(&sent);
             std::thread::Builder::new()
                 .name("cmux-cloud-fs".into())
                 .spawn(move || {
-                    let _ = sender.send(exchange(&target, &line, &children));
+                    let _ = sender.send(exchange(&target, &op, &line, &children, &sent));
                 })
                 .map_err(|e| unavailable(format!("no worker for the daemon op: {e}")))?
         };
@@ -105,10 +118,17 @@ impl DaemonFiles for LinkDaemonFiles {
         cancel.on_cancel(move || end_all(&on_cancel));
         let answer = match receiver.recv_timeout(DAEMON_OP_TIMEOUT) {
             Ok(answer) => answer,
-            Err(_) => Err(unavailable(format!(
-                "the machine's daemon did not answer {op} within {} s",
-                DAEMON_OP_TIMEOUT.as_secs()
-            ))),
+            Err(_) => {
+                let why = format!(
+                    "the machine's daemon did not answer {op} within {} s",
+                    DAEMON_OP_TIMEOUT.as_secs()
+                );
+                Err(if sent.load(Ordering::Acquire) {
+                    answer_lost(op, why)
+                } else {
+                    unavailable(why)
+                })
+            }
         };
         end_all(&children);
         drop(worker);
@@ -117,25 +137,29 @@ impl DaemonFiles for LinkDaemonFiles {
 }
 
 /// One dial, one request line, one answer line (on the worker).
-fn exchange(target: &DialTarget, line: &str, children: &Children) -> Result<Vec<u8>, CloudError> {
+fn exchange(
+    target: &DialTarget,
+    op: &str,
+    line: &str,
+    children: &Children,
+    sent: &AtomicBool,
+) -> Result<Vec<u8>, CloudError> {
     let Dialed { child, mut stdin, stdout } =
         open_dial(&target.binary, &dial_args(&target.host, &target.socket), &target.env, children)
             .map_err(|code| unavailable(format!("cmux link refused: {}", code.as_str())))?;
-    let sent = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
+    let written = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
     drop(stdin);
-    sent.map_err(|e| unavailable(format!("the daemon link closed: {e}")))?;
+    written.map_err(|e| unavailable(format!("the daemon link closed: {e}")))?;
+    sent.store(true, Ordering::Release);
     let mut answer = Vec::new();
     BufReader::new(stdout)
         .take(MAX_ANSWER_BYTES)
         .read_until(b'\n', &mut answer)
-        .map_err(|e| unavailable(format!("the daemon link closed: {e}")))?;
+        .map_err(|e| answer_lost(op, format!("the daemon link closed before the answer: {e}")))?;
     end_child(&child, children);
     // EOF before the whole line (a line at the size bound is a bad answer).
     if answer.last() != Some(&b'\n') && (answer.len() as u64) < MAX_ANSWER_BYTES {
-        return Err(CloudError {
-            retryable: true,
-            ..CloudError::new(ANSWER_LOST, "the daemon link closed before the answer")
-        });
+        return Err(answer_lost(op, "the daemon link closed before the answer"));
     }
     Ok(answer)
 }
@@ -143,11 +167,10 @@ fn exchange(target: &DialTarget, line: &str, children: &Children) -> Result<Vec<
 /// `fs.write` with the fs-v1 EOF rule: the daemon renames the new file into
 /// place before it writes its answer line, so a kick or shutdown in between
 /// gives [`ANSWER_LOST`] although the file changed. Then one `fs.stat` of the
-/// path decides: the expected revision still there (or no file) means the
-/// write did not land (retryable `link_down`); a file of the written size
-/// means it landed (the answer is `{entry}` from the stat); another file is
-/// a `conflict` with `{current}`; no stat answer is `indeterminate`. `len` is
-/// the raw byte count of the write. A cancelled op is not reconciled.
+/// path decides (table in `reconcile`). `len` is the raw byte count of the
+/// write. A cancel before the call sends nothing; a cancel that ended the
+/// dial after the line went out still reconciles (the stat runs on its own
+/// cancel, under the op deadline), because the file may be on the machine.
 pub fn write_reconciled(
     files: &dyn DaemonFiles,
     target: &DialTarget,
@@ -155,27 +178,40 @@ pub fn write_reconciled(
     len: u64,
     cancel: &Cancel,
 ) -> Result<Value, CloudError> {
+    if cancel.is_cancelled() {
+        return Err(cancelled());
+    }
     match files.call(target, "fs.write", params.clone(), cancel) {
-        Err(e) if e.code == ANSWER_LOST && !cancel.is_cancelled() => {
-            let stat = files.call(target, "fs.stat", json!({ "path": params["path"] }), cancel);
+        Err(e) if e.code == ANSWER_LOST => {
+            let path = json!({ "path": params["path"] });
+            let stat = files.call(target, "fs.stat", path, &Cancel::default());
             reconcile(&params, len, stat)
         }
         other => other,
     }
 }
 
+/// The fs.stat after a lost write answer:
+/// - no file, or the `expected` revision still there: not landed (retryable
+///   `link_down`);
+/// - overwrite (no precondition): never "landed" (the same-size file may be
+///   the old one); retryable `link_down` that says it may have landed;
+/// - replace, another revision of the written size: landed (`{entry}`); the
+///   narrow race with another writer of the same size is accepted;
+/// - create, a file of the written size: `indeterminate` with `{current}`
+///   (the file may have been there before, refused as fs.exists);
+/// - another file: `conflict` with `{current}`; no stat answer: `indeterminate`.
 fn reconcile(
     params: &Value,
     len: u64,
     stat: Result<Value, CloudError>,
 ) -> Result<Value, CloudError> {
-    let not_landed = || CloudError {
+    let link_down = |why: &str| CloudError {
         retryable: true,
-        ..CloudError::new(
-            crate::link::ops::LINK_DOWN,
-            "The link closed before the daemon answered; the write did not land",
-        )
+        ..CloudError::new(crate::link::ops::LINK_DOWN, why.to_owned())
     };
+    let not_landed =
+        || link_down("The link closed before the daemon answered; the write did not land");
     let entry = match stat {
         Ok(entry) => entry,
         Err(e) if e.upstream_code.as_deref() == Some("fs.not_found") => return Err(not_landed()),
@@ -194,17 +230,30 @@ fn reconcile(
     if params["expected"].as_str().is_some_and(|expected| revision == Some(expected)) {
         return Err(not_landed());
     }
+    let mode = params["mode"].as_str();
+    if mode == Some("overwrite") {
+        return Err(link_down(
+            "The link closed before the daemon answered; the write may have landed, \
+             and writing again is safe",
+        ));
+    }
     // A size match is the only proof fs-v1 gives (its revision is size and
     // mtime, with no content hash).
-    if entry["kind"] == "file" && entry["size"].as_u64() == Some(len) {
+    let same_size = entry["kind"] == "file" && entry["size"].as_u64() == Some(len);
+    if same_size && mode == Some("create") {
+        return Err(CloudError {
+            details: Some(json!({ "current": revision })),
+            ..CloudError::new(
+                codes::INDETERMINATE,
+                "The link closed before the daemon answered; a file of this size is at the \
+                 path, but it may have been there before. Check the file",
+            )
+        });
+    }
+    if same_size {
         return Ok(json!({ "entry": entry }));
     }
-    let daemon_code = match params["mode"].as_str() {
-        // No precondition: another writer's file does not stop the same write.
-        Some("overwrite") => return Err(not_landed()),
-        Some("create") => "fs.exists",
-        _ => "fs.revision_mismatch",
-    };
+    let daemon_code = if mode == Some("create") { "fs.exists" } else { "fs.revision_mismatch" };
     Err(CloudError {
         details: Some(json!({ "current": revision })),
         ..fs_error(daemon_code, "The file changed on the machine while the link was down")

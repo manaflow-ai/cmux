@@ -66,19 +66,6 @@ fn an_answer_lost_on_any_op_is_typed_and_retryable() {
 
 #[cfg(unix)]
 #[test]
-fn a_create_that_landed_answers_its_entry_from_stat() {
-    let target = eof_on_write("create-landed", &stat_answer("s2-m1", 2));
-    let data = write(
-        &target,
-        json!({ "path": "/home/cmux/a.txt", "bytes_base64": "aGk=", "mode": "create" }),
-        2,
-    )
-    .expect("the write landed");
-    assert_eq!(data["entry"]["revision"], "s2-m1");
-}
-
-#[cfg(unix)]
-#[test]
 fn a_create_with_no_file_did_not_land_and_is_retryable() {
     let missing = json!({ "id": 1, "ok": false, "error": "no such file or folder",
         "error_code": "fs.not_found" })
