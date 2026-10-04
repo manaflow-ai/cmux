@@ -127,7 +127,8 @@ Send in a group (N humans, K chiefs):
 3. The outbox holds: one `inbox.bump` per human participant (coalesced: one per user per drain,
    latest `rev` wins), one `mux.wake` per chief that should wake (wake rules in home.md section 5),
    one `search.upsert` row, and nothing else. Push is decided by each UserDO from the bump (not
-   muted, not the author, an install with a push token, no foreground socket).
+   muted, not the author, an install with a push token, no foreground socket, Mac not active;
+   limits and follow-ups in section 9).
 4. Drains: DO-to-DO items go by RPC with the item key (at-least-once, idempotent at the target);
    Postgres items go through the existing `drainOutbox` (upserts guarded by `source_seq`).
 
@@ -308,6 +309,15 @@ new body. No raw address, token or token hash is ever projected.
 - Every email has a one-click unsubscribe (List-Unsubscribe and List-Unsubscribe-Post headers)
   and a "report spam" link (routes `/u/<token>` and `/r/<token>` on the accept origin); the first
   SMS to a number carries "Reply STOP to opt out." before the link (D-H5); inbound STOP suppresses.
+- Home push (UserDO, decided from each `inbox.bump`, section 5 step 3). Accepted in review: a
+  plain push is also held while the user's Mac is active (FeedDO presence), in addition to "no
+  foreground socket"; this is the same rule as the feed's `feed.prefs.push_skip_when_mac_active`
+  (`user-do.ts` `homePushQuiet`). A held push is dropped after 30 minutes
+  (`FOREGROUND_MAX_WAIT_MS`), so a stale message never notifies later. Approvals bypass the hold
+  and the cap. Per-user cap: 60 plain pushes per hour (B10); an over-cap push waits for the
+  window. Known follow-ups: the cap counts a send before the APNs call, so an APNs
+  `retry_later` that is sent again counts twice (`recordSend` in `drainHomePush`); collapsed or
+  capped pushes do not update the app badge (B10).
 
 ## 10. Retention
 
