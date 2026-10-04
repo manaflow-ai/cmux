@@ -125,6 +125,7 @@ mod remote_relay;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
 mod responses;
+mod new_screen;
 mod rows;
 mod screen_json;
 mod session_stream;
@@ -326,6 +327,9 @@ pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
 /// adds no integration of its own.
 pub const TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY: &str =
     "terminal-frontend-shell-integration-v1";
+/// `env`, `terminal_id` and `shell_args` on `new-screen`, and `terminal_id`
+/// in its result.
+pub const SCREEN_TERMINAL_ENV_CAPABILITY: &str = "screen-terminal-env-v1";
 /// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`, `daemon`) on
 /// `notify`, the `notification` event, the tab marker and `list-notifications`; the daemon
 /// posts OSC 9, OSC 777 and OSC 99 from every terminal's output as `terminal`.
@@ -507,6 +511,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         NOTIFICATION_SOURCE_CAPABILITY,
         TERMINAL_SHELL_ARGS_CAPABILITY,
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
+        SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
@@ -1664,29 +1669,7 @@ enum Command {
         mutation: MutationRequest,
     },
     /// New screen in a workspace (default: the active one).
-    NewScreen {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// The new screen's name (`name` would name its terminal).
-        #[serde(default)]
-        screen_name: Option<String>,
-        #[serde(default)]
-        color: Option<String>,
-        #[serde(default)]
-        icon: Option<String>,
-        #[serde(default)]
-        pinned: Option<bool>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        group: Option<String>,
-    },
+    NewScreen(new_screen::NewScreenParams),
     /// Set or clear a screen's color and icon (JSON null clears).
     SetScreenMetadata {
         screen: ScreenId,
@@ -13976,23 +13959,7 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen {
-            workspace,
-            cols,
-            rows,
-            cwd,
-            screen_name,
-            color,
-            icon,
-            pinned,
-            index,
-            group,
-        } => {
-            let spec = crate::ScreenSpec { name: screen_name, color, icon, pinned, index, group };
-            let (surface, screen) =
-                mux.new_screen_with_spec(workspace, cwd, optional_surface_size(cols, rows), spec)?;
-            Ok(json!({ "surface": surface.id, "screen": screen }))
-        }
+        Command::NewScreen(params) => new_screen::new_screen(mux, client, params),
         Command::SetScreenMetadata { screen, color, icon } => {
             let changed = mux.set_screen_metadata(screen, color, icon)?;
             let presentation = mux.presentation_snapshot();
