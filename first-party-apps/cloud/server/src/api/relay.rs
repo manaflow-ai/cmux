@@ -28,13 +28,16 @@
 //! direction carries a credential. The host answers every relay request,
 //! with `relay.error` when its own HTTP deadline passes; the server has no
 //! timer of its own. Op lines that arrive while a relay call
-//! waits are queued and served in order after it.
+//! waits are queued and served in order after it, at most
+//! [`RELAY_QUEUE_LINES`]; one more gets `cmux.cloud.relay_busy` (retryable)
+//! at once. A `host.event` replaces a waiting one of the same op.
 //!
 //! In the serve loop ([`super::serve`]) a reader thread reads the host
 //! lines into one inbox that link processes also wake, so the loop blocks
 //! on one channel and sends a link change at once, with no op after it.
 
 use super::control_plane::{ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus};
+use super::error::{CloudError, codes};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::{BufRead, Write};
@@ -195,7 +198,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 .ok_or_else(|| RelayError::Unavailable("the host closed the channel".into()))?;
             let is_answer = message["type"].as_str().is_some_and(|t| t.starts_with("relay."));
             if !is_answer {
-                self.queued.push_back(message);
+                self.hold(message).map_err(|e| RelayError::Unavailable(e.to_string()))?;
                 continue;
             }
             if message["id"] != json!(id) {
@@ -216,6 +219,40 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             }
             return Ok(message);
         }
+    }
+}
+
+impl<R: BufRead, W: Write> HostRelay<R, W> {
+    /// Keeps a line that came during a relay call for after it. Host frames
+    /// are answers and events, never op lines: a `host.event` replaces the
+    /// waiting one of the same op (only the newest counts), and host answers
+    /// are bounded by the requests this server sent (one per op). Every
+    /// other line gets a result line from the loop, so at most
+    /// [`RELAY_QUEUE_LINES`] of them wait; one more is answered now with the
+    /// retryable `cmux.cloud.relay_busy`.
+    fn hold(&mut self, message: Value) -> std::io::Result<()> {
+        if super::host::is_host_frame(&message) {
+            if message["t"] == "host.event" {
+                let op = message["op"].clone();
+                self.queued.retain(|m| !(m["t"] == "host.event" && m["op"] == op));
+            }
+            self.queued.push_back(message);
+            return Ok(());
+        }
+        let waiting = self.queued.iter().filter(|m| !super::host::is_host_frame(m)).count();
+        if waiting < RELAY_QUEUE_LINES {
+            self.queued.push_back(message);
+            return Ok(());
+        }
+        let error = CloudError {
+            retryable: true,
+            ..CloudError::new(
+                codes::RELAY_BUSY,
+                "cmux Cloud is busy with other requests: try again",
+            )
+        };
+        let id = message.get("id").cloned().unwrap_or(Value::Null);
+        self.send(&json!({ "type": "result", "id": id, "ok": false, "error": error }))
     }
 }
 
