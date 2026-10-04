@@ -41,10 +41,17 @@ final class AppBrowserHost {
                 (controller.parked + [controller.content].compactMap { $0 }).compactMap { $0.agentCursor?.model }
             }
         })
-        inputBridge = AgentCursorInputBridge { [weak services, weak tabs] targetID in
-            guard let services, let workspaceID = tabs?.workspaceID(ofTab: targetID) else { return nil }
-            return Self.owner(ofWorkspace: workspaceID, in: services)?.agentCursor?.publisher
-        }
+        inputBridge = AgentCursorInputBridge(
+            publisher: { [weak services, weak tabs] targetID in
+                guard let services, let workspaceID = tabs?.workspaceID(ofTab: targetID) else { return nil }
+                return Self.owner(ofWorkspace: workspaceID, in: services)?.agentCursor?.publisher
+            },
+            publishers: { [weak services] in
+                guard let services else { return [] }
+                return services.windows.controllers.flatMap { controller in
+                    (controller.parked + [controller.content].compactMap { $0 }).compactMap { $0.agentCursor?.publisher }
+                }
+            })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
             credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs)
