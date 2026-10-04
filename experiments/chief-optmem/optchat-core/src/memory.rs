@@ -10,6 +10,14 @@ pub trait Store {
     fn message(&self, i: u64) -> (Kind, String);
     /// Text of a built node.
     fn node(&self, id: NodeId) -> Option<String>;
+    /// Whether a read since the host last cleared it failed (a host whose
+    /// reads can fail, such as the hosted store over DO SQLite, answers a
+    /// failed read with a stand-in and sets this). `pump` stops before it
+    /// builds or starts anything from such a read, so a failed read never
+    /// becomes a permanent node.
+    fn failed(&self) -> bool {
+        false
+    }
 }
 
 /// A node the compactor should build now (section 4.1).
@@ -157,7 +165,11 @@ impl Memory {
                         break;
                     }
                     if !self.is_built(id) && !self.busy.contains(&id) && self.ready(id) {
-                        if let Some(text) = free_text(id, store, &fresh) {
+                        let free = free_text(id, store, &fresh);
+                        if store.failed() {
+                            return out;
+                        }
+                        if let Some(text) = free {
                             self.build(id, &text);
                             fresh.insert(id, text.clone());
                             out.push(Work::Free { node: id, text });

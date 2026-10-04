@@ -415,3 +415,74 @@ fn zoom_refuses_addresses_whose_end_overflows() {
         );
     }
 }
+
+#[test]
+fn cache_pieces_cut_any_text_at_the_marks_and_join_back() {
+    let line = format!("{}\n", "y".repeat(99));
+    let text: String = std::iter::repeat_n(line.as_str(), 1_200).collect();
+    let pieces = cache_pieces(&text);
+    assert_eq!(pieces.len(), 4);
+    assert_eq!(pieces.concat(), text);
+    assert_eq!(pieces[0].chars().count(), 50_000);
+    assert_eq!(cache_marks(&text), vec![50_000, 80_000, 100_000]);
+    assert_eq!(cache_pieces("short\n"), vec!["short\n"]);
+}
+
+/// A store whose message reads fail from `from` on.
+struct Failing {
+    inner: Mem,
+    from: u64,
+    failed: std::cell::Cell<bool>,
+}
+
+impl Store for Failing {
+    fn message(&self, i: u64) -> (Kind, String) {
+        if i >= self.from {
+            self.failed.set(true);
+            return (Kind::Note, String::new());
+        }
+        self.inner.message(i)
+    }
+    fn node(&self, id: NodeId) -> Option<String> {
+        self.inner.node(id)
+    }
+    fn failed(&self) -> bool {
+        self.failed.get()
+    }
+}
+
+#[test]
+fn a_failed_read_builds_and_starts_nothing() {
+    let store = Failing {
+        inner: Mem::default(),
+        from: 1,
+        failed: std::cell::Cell::new(false),
+    };
+    let mut memory = Memory::new(VIEW);
+    for text in ["first", "second"] {
+        store.inner.push(Kind::User, text);
+        memory.append();
+    }
+    let work = memory.pump(&store);
+    assert_eq!(
+        work,
+        vec![Work::Free {
+            node: NodeId::new(0, 0),
+            text: "user: first".into()
+        }],
+        "message 1 failed to read: no stand-in node, nothing busy"
+    );
+    assert!(!memory.is_built(NodeId::new(0, 1)));
+    assert_eq!(memory.busy().count(), 0);
+    // The read works again: the next pump builds it from the real message.
+    store.failed.set(false);
+    let store = Failing {
+        from: u64::MAX,
+        ..store
+    };
+    let work = memory.pump(&store);
+    assert!(work.contains(&Work::Free {
+        node: NodeId::new(0, 1),
+        text: "user: second".into()
+    }));
+}

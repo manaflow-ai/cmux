@@ -59,9 +59,16 @@ impl NodeId {
         self.i << self.l
     }
 
-    /// One past its last message.
+    /// One past its last message. Only for nodes inside a log (the core's
+    /// own); an address from outside goes through `checked_end`.
     pub const fn end(self) -> u64 {
         (self.i + 1) << self.l
+    }
+
+    /// One past its last message, or None when that is past `u64::MAX`
+    /// (an address a model or a tool caller made up).
+    pub fn checked_end(self) -> Option<u64> {
+        self.i.checked_add(1)?.checked_mul(self.n())
     }
 
     pub const fn children(self) -> Option<(NodeId, NodeId)> {
