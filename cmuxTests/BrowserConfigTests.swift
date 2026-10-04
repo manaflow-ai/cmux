@@ -5614,6 +5614,58 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
     }
 
+    // MARK: - Sidebar links
+
+    /// A pull-request or port link chosen in the sidebar follows the "open in the
+    /// cmux browser" preference when no rule names its site.
+    func testSidebarLinkWithNoMatchingRuleFollowsThePreference() throws {
+        defaults.set("billing.example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/1"))
+        XCTAssertEqual(handler.sidebarLinkDestination(for: url, prefersEmbeddedBrowser: true), .embeddedBrowser)
+        XCTAssertEqual(handler.sidebarLinkDestination(for: url, prefersEmbeddedBrowser: false), .systemBrowser)
+    }
+
+    /// A site listed in the external-open rules cannot work in the embedded web
+    /// view, so the rule outranks the preference for sidebar links too.
+    func testSidebarLinkMatchingAnExternalRuleGoesToTheSystemBrowser() throws {
+        defaults.set("github.example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let pullRequest = try XCTUnwrap(URL(string: "https://github.example.com/org/repo/pull/42"))
+        XCTAssertEqual(
+            handler.sidebarLinkDestination(for: pullRequest, prefersEmbeddedBrowser: true),
+            .systemBrowser
+        )
+        XCTAssertEqual(
+            handler.sidebarLinkDestination(for: pullRequest, prefersEmbeddedBrowser: false),
+            .systemBrowser
+        )
+    }
+
+    /// The same holds for a port link, which is a plain http URL on a host.
+    func testSidebarPortLinkMatchingAnExternalRuleGoesToTheSystemBrowser() throws {
+        defaults.set(
+            "re:^https?://dashboard\\.example\\.com:[0-9]+/",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let port = try XCTUnwrap(URL(string: "http://dashboard.example.com:8080/"))
+        let other = try XCTUnwrap(URL(string: "http://localhost:8080/"))
+        XCTAssertEqual(handler.sidebarLinkDestination(for: port, prefersEmbeddedBrowser: true), .systemBrowser)
+        XCTAssertEqual(handler.sidebarLinkDestination(for: other, prefersEmbeddedBrowser: true), .embeddedBrowser)
+    }
+
+    /// The rules are about web pages. A link with another scheme keeps following
+    /// the preference even when a rule's text happens to match it.
+    func testSidebarLinkRuleAppliesOnlyToWebSchemes() throws {
+        defaults.set("example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let web = try XCTUnwrap(URL(string: "https://example.com/pull/7"))
+        let notWeb = try XCTUnwrap(URL(string: "ssh://example.com/repo"))
+        XCTAssertEqual(handler.sidebarLinkDestination(for: web, prefersEmbeddedBrowser: true), .systemBrowser)
+        XCTAssertEqual(handler.sidebarLinkDestination(for: notWeb, prefersEmbeddedBrowser: true), .embeddedBrowser)
+    }
+
     func testExternalOpenPatternsDefaultToEmpty() {
         XCTAssertTrue(BrowserExternalURLPolicy(defaults: defaults).patterns.isEmpty)
     }
