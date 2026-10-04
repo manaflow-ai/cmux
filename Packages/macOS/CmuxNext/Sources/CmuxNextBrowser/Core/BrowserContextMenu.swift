@@ -1,4 +1,4 @@
-public import Foundation
+public import AppKit
 
 /// One item of an engine's page context menu (Chromium's model, including
 /// `chrome.contextMenus` items that extensions add).
@@ -65,30 +65,43 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
     }
 }
 
-/// What was right-clicked.
+/// What was right-clicked: a link (its address and text), an image, the
+/// selection. Both engines fill it (Chromium from its menu params, WebKit
+/// from the `contextmenu` event, `WebKitContextHit`), and the host builds
+/// the same link, image and selection rows from it.
 public nonisolated struct BrowserContextMenuTarget: Hashable, Sendable {
     public var linkURL: URL?
+    /// The link's visible text; empty when unknown.
+    public var linkText: String
+    /// The media element's address (an image's source, a video's).
     public var sourceURL: URL?
+    /// The right-clicked image's address; nil for other media.
+    public var imageURL: URL?
     public var pageURL: URL?
     public var selection: String
     public var isEditable: Bool
 
-    public init(linkURL: URL? = nil, sourceURL: URL? = nil, pageURL: URL? = nil, selection: String = "",
-                isEditable: Bool = false) {
+    public init(linkURL: URL? = nil, linkText: String = "", sourceURL: URL? = nil, imageURL: URL? = nil, pageURL: URL? = nil,
+                selection: String = "", isEditable: Bool = false) {
         self.linkURL = linkURL
+        self.linkText = linkText
         self.sourceURL = sourceURL
+        self.imageURL = imageURL
         self.pageURL = pageURL
         self.selection = selection
         self.isEditable = isEditable
     }
 
-    static func decode(_ json: String) -> BrowserContextMenuTarget {
+    /// Chromium's context menu params (`CMUX_SHIM_CONTEXT_MENU`). Chromium
+    /// does not report the link's text (`CEFTab.linkText(for:)` reads it).
+    public static func chromium(_ json: String) -> BrowserContextMenuTarget {
         guard let data = json.data(using: .utf8),
               let wire = try? JSONDecoder().decode(Wire.self, from: data) else { return BrowserContextMenuTarget() }
         func url(_ text: String?) -> URL? { text.flatMap { $0.isEmpty ? nil : URL(string: $0) } }
-        return BrowserContextMenuTarget(linkURL: url(wire.link_url), sourceURL: url(wire.source_url),
-                                        pageURL: url(wire.page_url), selection: wire.selection ?? "",
-                                        isEditable: wire.editable ?? false)
+        let source = url(wire.source_url)
+        // CEF's CM_MEDIATYPE_IMAGE.
+        return BrowserContextMenuTarget(linkURL: url(wire.link_url), sourceURL: source, imageURL: wire.media_type == 1 ? source : nil,
+                                        pageURL: url(wire.page_url), selection: wire.selection ?? "", isEditable: wire.editable ?? false)
     }
 
     private struct Wire: Decodable {
@@ -97,6 +110,7 @@ public nonisolated struct BrowserContextMenuTarget: Hashable, Sendable {
         var page_url: String?
         var selection: String?
         var editable: Bool?
+        var media_type: Int?
     }
 }
 
@@ -109,14 +123,32 @@ public final class BrowserContextMenuRequest {
     public let target: BrowserContextMenuTarget
     /// In the tab's `contentView` coordinates.
     public let location: CGPoint
+    /// Commands of the engine's full model that `items` leaves out and a
+    /// cmux row may hand back to (``runEngineCommand(_:)``).
+    public let engineCommands: [BrowserEngineMenuCommand: Int]
+    /// Set when the engine shows its own menu (WebKit): the host passes its
+    /// leading rows here at once instead of presenting a menu.
+    public let insertLeading: (([NSMenuItem]) -> Void)?
     private var completion: ((Int?) -> Void)?
 
     public init(items: [BrowserContextMenuItem], target: BrowserContextMenuTarget, location: CGPoint,
+                engineCommands: [BrowserEngineMenuCommand: Int] = [:], insertLeading: (([NSMenuItem]) -> Void)? = nil,
                 completion: @escaping (Int?) -> Void) {
         self.items = items
         self.target = target
         self.location = location
+        self.engineCommands = engineCommands
+        self.insertLeading = insertLeading
         self.completion = completion
+    }
+
+    /// Completes the open menu with the engine's own `command` (Chromium's
+    /// Save Link As until the shim has a download API). False when the
+    /// engine has no such command or the menu already completed.
+    public func runEngineCommand(_ command: BrowserEngineMenuCommand) -> Bool {
+        guard let id = engineCommands[command], completion != nil else { return false }
+        complete(id)
+        return true
     }
 
     public func complete(_ id: Int?) {
