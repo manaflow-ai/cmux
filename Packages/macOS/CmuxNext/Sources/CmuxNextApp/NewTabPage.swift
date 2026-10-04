@@ -220,6 +220,9 @@ extension PaneController {
     }
 }
 
+/// Runs a new tab page's close on the frame after its replacement shows.
+@MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
+
 extension NewTabPage {
     /// The page chose a terminal or browser: open it, then close the page,
     /// which held nothing yet (the open-beside rule's one replace case). The
@@ -229,7 +232,11 @@ extension NewTabPage {
     /// responsibility (the godfile limit counts its extensions).
     static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController) {
         let services = pane.services
-        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+        // The page closes one frame after the new tab shows, so the frame that builds the
+        // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
+        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+            closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+        }
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the
