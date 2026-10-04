@@ -63,9 +63,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
             field.insertText(params["text"]?.stringValue ?? "", replacementRange: field.selectedRange())
             ok = true
-        case "send": view.transcript.sendDraft(); ok = true
-        case "tapback": ok = view.transcript.debugTapbackNewestIncoming()
-        case "scroll": view.transcript.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
+        case "send": view.sendDraft(); ok = true
+        case "tapback": ok = view.debugTapbackNewestIncoming()
+        case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
         default: return .object(["error": .string("action must be focus, type, send, tapback or scroll")])
         }
         return .object(["ok": .bool(ok)])
