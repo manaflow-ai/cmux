@@ -121,16 +121,15 @@ view state:
 | command, agent | daemon journal (exists); the folds move into `cmux-history` | |
 | hidden | daemon module (owns `history.hidden`) | one writer |
 
-Decision needed (Q1): this moves page visits from the app into the daemon, which reverses
-history.md section 2 ("page visits stay app-local"). Reason: R62 asks for a Rust backend, and the
-CLI already reads history through the app only. The 1 MiB projection limit does not apply (the
-module keeps its own SQLite file, not a projection).
+Decided (Q1, 2026-10-04): page visits move from the app into the daemon module; history.md
+section 2 is updated. The CLI then reads history with no app running. The 1 MiB projection limit
+does not apply (the module keeps its own SQLite file, not a projection).
 
 ### 2.3 Ops (`cmux.history/1`, declared with the `cmux-pane-protocol` schemars macro once the crate lands)
 
 | Op | Kind | Params -> result | Status |
 | --- | --- | --- | --- |
-| `cmux.history.entries.list` | read | `{kinds?, text?, range?, group?, limit? (default 200, max 5000), cursor?}` -> `{entries[HistoryEntry], next_cursor?, revision}` | new (replaces app `history.list`) |
+| `cmux.history.entries.list` | read | `{kinds?, text?, range?, limit? (default 200, max 5000), cursor?}` -> `{entries[HistoryEntry], next_cursor?, revision}` | new (replaces app `history.list`) |
 | `cmux.history.entries.remove` | mutation | `{ids[], idempotency_key}` -> `{removed}` | new |
 | `cmux.history.site.remove` | mutation | `{host, profile?, idempotency_key}` | new |
 | `cmux.history.clear` | mutation | `{kinds?, range, profile?, idempotency_key}` | new |
@@ -140,9 +139,9 @@ module keeps its own SQLite file, not a projection).
 | `closed.list`, `closed.reopen`, `session.journal.subscribe` | existing v2 | used by the module, not by the page | exist |
 
 `HistoryEntry`: `{id: "<session>:<kind>:<id>", kind, title, detail?, machine?, workspace?, at_ms,
-badges[], payload: {url? | location? | command?, cwd?, exit_code? | session_id?, provider? |
-closed_kind?}, actions[]}`. `actions` lists the restore actions the row offers, so the page needs no
-per-kind rules.
+available, current?, running?, url?, profile?, closed_kind?, cwd?, command?, exit_code?,
+session_id?, provider?}`. The provider filters (kinds, tokens, range, displayable); the page groups
+and derives the row menu from the kind and fields (presentation, pure, tested in `model.ts`).
 
 Restore actions stay Swift catalog actions (native UI ops, section 1.3): new `history.open {id,
 new_tab?}` (one entry point for row activation: page open, location go to, closed reopen, agent
@@ -166,16 +165,16 @@ pages read the same op. Every op declares its surfaces in the catalog (check-act
 
 ### 2.5 Slices
 
+Decided (Q2, 2026-10-04): no temporary Swift provider. H1 develops against a mock provider in the
+browser dev loop; H2 and H3 run in parallel; the page becomes the default when H3 lands.
+
 | # | Slice | Window | Gate |
 | --- | --- | --- | --- |
-| H1 | React page + adapter + strings generator; Swift `PageWebView` host in `HistoryPageTab` behind Debug Settings `history.surface = web` (default native); the Swift bridge serves `cmux.history.entries.list/remove/clear` from the existing `HistoryService` as a temporary provider | none (webviews + Swift) | bun tests, tsc, webviews bundle `--check`, Swift tests on cmux-mini-6, tagged fleet build + `debug.window_snapshot` |
-| H2 | `cmux-history` crate: entry model, folds (agent, command, ported from Swift with shared fixtures), query (tokens, diacritics), grouping, hidden ranges, visit SQLite store; property tests | crate-only slot | cargo on a Testbox |
-| H3 | daemon module + ops + events + CLI/MCP; Swift: bridge forwards to the daemon, the browser records visits by op, omnibox seeds from `visit.summaries`, palette pages read the op; delete `HistoryService` merge, `BrowserVisitLog`, `HistorySQLite`, folds, `HiddenHistoryStore`, `HistoryControl`, fallback closed trackers | cmux-tui landing window | cargo tests, Swift tests, CLI round trip on a tagged build |
-| H4 | parity test (every feature of 2.1 has a page test); default `history.surface = web`; delete the Swift page files of 2.1 after one dogfood round | none | dogfood |
-
-H1 shortcut, flagged: for one slice the page's backend is Swift, not Rust. It lets the page and host
-land and be dogfooded with no window; H3 replaces the provider without page changes. Alternative:
-wait for H3 and land the page with the daemon module. Q2.
+| H1 | React page, `pageClient` adapter, strings generator, mock `cmux.history` provider and a browser dev entry (dev-slot pattern) | none (webviews) | bun tests, tsc, webviews bundle `--check` |
+| H1b | Swift `PageWebView` + `cmux-page://<id>/` scheme handler + `cmuxPage` bridge that relays namespaced ops to the daemon; `HistoryPageTab` hosts it when the daemon serves `cmux.history/1` | none (Swift) | Swift tests on cmux-mini-6, tagged fleet build + `debug.window_snapshot` |
+| H2 | `cmux-history` crate: entry model, folds (agent, command, ported from Swift with shared fixtures), query (tokens, diacritics, displayable), hidden ranges, visit SQLite store; property tests | crate-only slot | cargo on a Testbox |
+| H3 | daemon module + ops + events + CLI/MCP; Swift: the browser records visits by op, omnibox seeds from `visit.summaries`, palette pages read the op; delete `HistoryService` merge, `BrowserVisitLog`, `HistorySQLite`, folds, `HiddenHistoryStore`, `HistoryControl`, fallback closed trackers | cmux-tui landing window | cargo tests, Swift tests, CLI round trip on a tagged build |
+| H4 | parity test (every feature of 2.1 has a page test); delete the Swift page files of 2.1 after one dogfood round | none | dogfood |
 
 ## 3. App Store
 
@@ -220,8 +219,12 @@ and `cmux.apps.open` replaces `app.open`. Install, uninstall, grant, update, loc
 - Views: Discover (grid, list, split as DEV variants, grid default), listing detail, Installed
   (rows, enable switch, actions), Permissions panel (scope switches, sandbox), Logs panel (stream).
 - Icons and screenshots through `cmux.apps.asset.get` (HTTP from the provider later, pane-protocol
-  "Bulk static data"). SF Symbol icons need a web equivalent: Q5.
-- Install/Uninstall buttons send the op from the click handler; the gesture proof is Q4.
+  "Bulk static data"). A manifest SF Symbol icon: the Mac host renders it to PNG for `asset.get`;
+  other clients show a generic glyph; the manifest validator warns on symbol icons (Q5). No SF
+  Symbols as web SVGs (Apple license).
+- Install, uninstall, update and grant changes: the page sends the op; the Mac host shows a native
+  Swift confirmation (app name, scopes with risk class) and that sheet stamps origin user (Q4). Page
+  JS never proves a gesture.
 
 ### 3.4 Slices
 
@@ -229,7 +232,7 @@ and `cmux.apps.open` replaces `app.open`. Install, uninstall, grant, update, loc
 | --- | --- | --- | --- |
 | A1 | React page against a mock `cmux.apps` provider (fixtures from the bundled apps) behind Debug Settings `apps.store.surface = web`; Swift host reuses `PageWebView` in the `app-store` internal page | none | bun tests, tagged build snapshot |
 | A2 | wire to the supervisor's `cmux.apps.*` when it lands (the app platform lead's window); install gesture path | theirs | tagged build: install, grant revoke, logs |
-| A3 | live preview (Q6), parity test, default web, delete the Swift store files of 3.1 after one dogfood round | none | dogfood |
+| A3 | parity with screenshots in place of the live preview (Q6; web scene renderer later), parity test, default web, delete the Swift store files of 3.1 after one dogfood round | none | dogfood |
 
 ## 4. Parity checklists
 
@@ -245,18 +248,15 @@ Both: strings in English and Japanese; one background (computed html/body backgr
 `appearance.borders = none`; Reduce Motion; no blue; works in WebKit and a plain browser with the
 mock provider (CEF when the CEF host lands).
 
-## 5. Open questions
+## 5. Decisions (coordinator, 2026-10-04)
 
-- Q1: move page visits from the app into the daemon module (section 2.2)? Recommended yes.
-- Q2: accept the H1 temporary Swift provider, or wait for the H3 window?
-- Q3: keybindings lead: is Up/Down/Return/Space inside a focused page list content input (allowed in
-  the page), with Cmd chords only through the dispatcher?
-- Q4: app platform lead: how does the page prove a user gesture for `install`/`uninstall`? Proposal:
-  the bridge stamps origin `user` for calls from the trusted page main frame that arrive within a
-  WebKit user activation; later the page token's `origin` claim.
-- Q5: icons: ship an SVG icon set in webviews for SF Symbol names used by manifests, or require
-  apps to ship image icons?
-- Q6: live preview in the web store needs a web scene renderer fed by supervisor scene streams. Ship
-  A3 with screenshots only first, or block parity on a web renderer?
-- Q7: settings lead: one shared `cmux-page://<id>/` scheme handler and `PageWebView` for all pages
-  instead of `cmux-settings://page`?
+- Q1 yes: page visits move into the daemon module.
+- Q2 no temporary Swift provider: H1 on a mock provider; H2 and H3 in parallel.
+- Q3 yes: the page handles plain Up/Down/Return/Space/Escape/typing that the dispatcher delivers to
+  a focused list or field; never Cmd or Ctrl chords.
+- Q4: page JS cannot prove a gesture; install, uninstall, update and grant.set always show a native
+  Swift confirmation that stamps origin user.
+- Q5: no SF Symbols as web SVGs; the Mac host renders symbol names to PNG through `asset.get`;
+  generic glyph elsewhere; validator warning for symbol icons.
+- Q6 yes: screenshots-only parity first.
+- Q7 yes: one `cmux-page://<id>/` scheme and one `PageWebView` for every page.
