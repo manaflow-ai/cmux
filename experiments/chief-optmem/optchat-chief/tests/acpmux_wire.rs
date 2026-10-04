@@ -211,6 +211,7 @@ fn a_turn_over_the_acpmux_wire() {
             model: None,
             effort: None,
             preset: None,
+            tags: Default::default(),
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
@@ -297,6 +298,7 @@ fn compactor_session(dir: &std::path::Path) -> SessionSpec {
         model: Some("claude-sonnet-5-5".into()),
         effort: None,
         preset: Some("optchat-compact-1a2b3c4d".into()),
+        tags: Default::default(),
     }
 }
 
@@ -459,4 +461,36 @@ fn a_preset_system_prompt_is_installed_replaced_and_feature_detected() {
             "the preset is installed either way"
         );
     }
+}
+
+// The durable-sessions lead excludes the Chief's own sessions by tag: a
+// session with tags gets them right after session/new (`_acpmux/tag`); a
+// session without (a child) sends none.
+#[test]
+fn session_tags_are_set_right_after_session_new() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    serve(UnixListener::bind(&socket).unwrap(), requests.clone(), false);
+    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    connect(&acpmux);
+    let tags = optchat_chief::acpmux::chief_tags("1a2b3c4d", "compactor");
+    let spec = SessionSpec {
+        tags: tags.clone(),
+        ..compactor_session(dir.path())
+    };
+    assert_eq!(acpmux.new_session(&spec), Ok("s-1".into()));
+    assert_eq!(acpmux.new_session(&compactor_session(dir.path())), Ok("s-1".into()));
+    let requests = requests.lock().unwrap();
+    let methods: Vec<&str> = requests
+        .iter()
+        .map(|r| r["method"].as_str().unwrap())
+        .filter(|m| *m == "session/new" || *m == "_acpmux/tag")
+        .collect();
+    assert_eq!(methods, vec!["session/new", "_acpmux/tag", "session/new"]);
+    let tag = requests.iter().find(|r| r["method"] == "_acpmux/tag").unwrap();
+    assert_eq!(
+        tag["params"],
+        json!({"sessionId": "s-1", "set": {"cmux.chief": "1a2b3c4d", "cmux.chief.role": "compactor"}})
+    );
 }

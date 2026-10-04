@@ -391,6 +391,7 @@ fn start(
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         engine,
         turn_preset: claude.then_some(turn_preset),
+        chief_id: crate::paths::home_id(home),
         system_text,
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));

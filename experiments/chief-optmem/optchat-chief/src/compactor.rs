@@ -137,6 +137,8 @@ pub struct CompactorSpec {
     pub effort: Option<String>,
     /// Longest one prompt may take.
     pub timeout: Duration,
+    /// This Chief's home id: the `cmux.chief` tag on every compactor session.
+    pub chief: String,
 }
 
 /// The session slots of the compactor (the core's JOBS), shared by the main
@@ -314,6 +316,7 @@ impl AcpmuxCompactor {
             model: self.spec.model.clone(),
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
+            tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
         };
         match self.port.new_session(&spec) {
             Ok(id) => {
@@ -815,6 +818,7 @@ pub fn compactor_spec(
         model: model.map(str::to_owned),
         effort: None,
         timeout: CALL_TIMEOUT,
+        chief: home_id(home),
     }
 }
 

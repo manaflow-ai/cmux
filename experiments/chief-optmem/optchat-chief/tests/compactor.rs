@@ -53,6 +53,7 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
         model: Some("claude-sonnet-5-5".into()),
         effort: None,
         timeout: Duration::from_secs(30),
+        chief: "h0me".into(),
     }
 }
 

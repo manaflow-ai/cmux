@@ -129,6 +129,9 @@ pub struct Settings {
     /// The turn sessions' acpmux preset on a Claude harness, whose system
     /// prompt each turn sets (the cached layout); None on another harness.
     pub turn_preset: Option<String>,
+    /// This Chief's home id: the `cmux.chief` tag on its turn and
+    /// compactor sessions.
+    pub chief_id: String,
     /// The turn's system text (`prompt::system_text`): the head of the
     /// cached layout's system prompt, and the session directory's CLAUDE.md
     /// in the old layout.

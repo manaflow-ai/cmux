@@ -232,6 +232,7 @@ impl Brain {
                 model: self.settings.model.clone(),
                 effort: None,
                 preset,
+                tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
             },
             blocks,
             system_prompt,

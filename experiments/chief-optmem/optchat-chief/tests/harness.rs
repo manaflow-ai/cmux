@@ -381,3 +381,66 @@ fn chief_zoom_and_date_answer_from_the_live_memory() {
     let (ok, _) = run(&["zoom", "x", "1"]);
     assert!(!ok, "a bad id fails");
 }
+
+/// The durable-sessions lead excludes the Chief's own sessions from quit
+/// counts and endAgents by tag: every turn session and every compactor
+/// session carries `cmux.chief=<home id>` and `cmux.chief.role`; a child
+/// keeps `mux.parent` only.
+#[test]
+fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not() {
+    use optchat_chief::acpmux::{CHIEF_ROLE_TAG, CHIEF_TAG};
+    let mut h = harness_with(settings);
+    h.connect();
+    h.say("user_local", "hello");
+    h.settle();
+    {
+        let inner = h.agents.inner.lock().unwrap();
+        let tags = &inner.specs[0].tags;
+        assert_eq!(tags.get(CHIEF_TAG).map(String::as_str), Some("h0me"));
+        assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("turn"));
+        assert_eq!(tags.len(), 2);
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "user: hi"}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ]
+    }));
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    let spec = optchat_chief::compactor::CompactorSpec {
+        work: dir.path().join("work"),
+        ..optchat_chief::compactor::compactor_spec(
+            &paths,
+            &dir.path().join("mux"),
+            "claude-sr",
+            Some("claude-sonnet-5-5"),
+        )
+    };
+    let home_id = spec.chief.clone();
+    assert_eq!(home_id, optchat_chief::paths::home_id(&dir.path().join("mux")));
+    let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
+        agents.clone(),
+        spec,
+        optchat_chief::compactor::Slots::new(optchat_core::JOBS),
+    );
+    let request = optchat_host::CompactRequest {
+        node: optchat_host::NodeId::new(0, 0),
+        system: "SYS".into(),
+        context: "<chat>\n</chat>".into(),
+        step: "STEP".into(),
+        cut: None,
+    };
+    optchat_host::run_node(&compactor, &request).unwrap();
+    let tags = agents.inner.lock().unwrap().specs[0].tags.clone();
+    assert_eq!(tags.get(CHIEF_TAG), Some(&home_id));
+    assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("compactor"));
+    // A child: no tags at creation; `agents spawn` then sets mux.parent.
+    let flags = optchat_chief::cli::Flags::default();
+    let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
+    assert!(child.tags.is_empty(), "{:?}", child.tags);
+}

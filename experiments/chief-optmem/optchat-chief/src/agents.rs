@@ -3,6 +3,7 @@
 //! acpmux connection; the host, watching acpmux, turns a child's turn end into
 //! a `[name] report` message (section 9), so nothing here waits for a child.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::Duration;
@@ -135,6 +136,30 @@ fn prompt_accepted(
     }
 }
 
+/// A child's acpmux session: its tags are set after creation (`mux.parent`
+/// only), so it never carries `cmux.chief`, which marks the Chief's own
+/// turn and compactor sessions.
+pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
+    SessionSpec {
+        name: name.to_owned(),
+        cwd: cwd.into(),
+        harness: flags
+            .value("harness")
+            .map(str::to_owned)
+            .or_else(|| env("MUX_HARNESS"))
+            .unwrap_or_else(|| "claude-sr".into()),
+        policy: flags
+            .value("policy")
+            .map(str::to_owned)
+            .or_else(|| env("MUX_POLICY"))
+            .unwrap_or_else(|| "approve-all".into()),
+        model: flags.value("model").map(str::to_owned),
+        effort: None,
+        preset: None,
+        tags: BTreeMap::new(),
+    }
+}
+
 /// Runs one `agents` verb; Ok carries what to print.
 pub fn run(flags: &Flags) -> Result<String, String> {
     let words = &flags.words[1..];
@@ -153,27 +178,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             let existing = spawn_target(&sessions(&client)?, name, &parent)?;
             let id = match existing {
                 Some(id) => id,
-                None => new_session(
-                    &client,
-                    &SessionSpec {
-                        name: name.to_owned(),
-                        cwd: cwd.into(),
-                        harness: flags
-                            .value("harness")
-                            .map(str::to_owned)
-                            .or_else(|| env("MUX_HARNESS"))
-                            .unwrap_or_else(|| "claude-sr".into()),
-                        policy: flags
-                            .value("policy")
-                            .map(str::to_owned)
-                            .or_else(|| env("MUX_POLICY"))
-                            .unwrap_or_else(|| "approve-all".into()),
-                        model: flags.value("model").map(str::to_owned),
-                        effort: None,
-                        preset: None,
-                    },
-                    None,
-                )?,
+                None => new_session(&client, &child_spec(flags, name, cwd), None)?,
             };
             client
                 .request(

@@ -503,6 +503,7 @@ pub fn settings(dir: &Path) -> Settings {
         turn_limit: None,
         engine: Engine::Acpmux,
         turn_preset: Some(TURN_PRESET.into()),
+        chief_id: "h0me".into(),
         system_text: optchat_chief::prompt::claude_md(None),
     }
 }

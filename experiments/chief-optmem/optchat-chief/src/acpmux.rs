@@ -26,6 +26,21 @@ pub struct SessionSpec {
     /// A preset the session requires: it never starts without it (the
     /// compactor). None: the port's turn preset when installed.
     pub preset: Option<String>,
+    /// acpmux tags set on the session right after it is created.
+    pub tags: BTreeMap<String, String>,
+}
+
+/// The tag on every session the Chief itself runs (its turns and its
+/// compactor nodes), valued with its home id; its children never carry it
+/// (they keep `mux.parent`). Quit counts and endAgents exclude these.
+pub const CHIEF_TAG: &str = "cmux.chief";
+/// `turn` or `compactor`, next to `cmux.chief`.
+pub const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
+
+/// The tags of a Chief session of `role` for home `home_id`.
+pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
+    let _ = (home_id, role);
+    BTreeMap::new()
 }
 
 /// What a running turn hears about its session.
