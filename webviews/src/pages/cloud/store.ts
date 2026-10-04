@@ -22,6 +22,7 @@ import {
 import {
   ACTION_RUN,
   AccountOps,
+  CloudErrors,
   CloudOps,
   isGone,
   isUnsupported,
@@ -57,6 +58,8 @@ export interface CreateDraft {
   error?: string;
   /** The backend refused the create for the plan (contract 1.5): a sentence and "See plans". */
   refusal?: PlanRefusal;
+  /** The backend cannot create machines yet (no machine image configured): its own sentence. */
+  blocked?: "no_snapshot_configured";
 }
 
 export interface CloudState {
@@ -294,7 +297,8 @@ export class CloudStore {
 
   updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "from_snapshot">>): void {
     const draft = this.state.create;
-    if (draft && !draft.submitting) this.set({ create: { ...draft, ...patch, error: undefined, refusal: undefined } });
+    if (draft && !draft.submitting)
+      this.set({ create: { ...draft, ...patch, error: undefined, refusal: undefined, blocked: undefined } });
   }
 
   /**
@@ -304,7 +308,7 @@ export class CloudStore {
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
     if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
-    this.set({ create: { ...draft, submitting: true, error: undefined, refusal: undefined } });
+    this.set({ create: { ...draft, submitting: true, error: undefined, refusal: undefined, blocked: undefined } });
     const snapshot = draft.from_snapshot ? draft.snapshots?.find((s) => s.id === draft.from_snapshot) : undefined;
     const name = draft.name.trim() || (snapshot?.name ?? "");
     this.pushIntent({ key: draft.key, kind: "create", name });
@@ -332,12 +336,15 @@ export class CloudStore {
       if (session === this.session) void this.account.readPlan(session);
     } catch (error) {
       this.dropIntent(draft.key);
-      const refusal = planRefusal(error);
-      if (this.state.create?.key === draft.key)
-        this.set({
-          create: { ...draft, submitting: false, ...(refusal ? { refusal } : { error: message(error) }) },
-        });
-      if (session === this.session && !refusal) this.set(failure(error, false));
+      const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
+      const blocked = isPageError(error) && error.code === CloudErrors.noSnapshotConfigured;
+      const outcome = refusal
+        ? { refusal }
+        : blocked
+          ? { blocked: "no_snapshot_configured" as const }
+          : { error: message(error) };
+      if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false, ...outcome } });
+      if (session === this.session && !refusal && !blocked) this.set(failure(error, false));
     }
   }
 
@@ -592,7 +599,7 @@ export class CloudStore {
 
   /** Shows a plan refusal; false when `error` is none. */
   private refused(error: unknown): boolean {
-    const refusal = planRefusal(error);
+    const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
     if (refusal) this.set({ refusal });
     return !!refusal;
   }

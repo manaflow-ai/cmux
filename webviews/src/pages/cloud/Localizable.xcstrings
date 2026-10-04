@@ -3565,6 +3565,138 @@
         }
       }
     },
+    "error.noSnapshotConfigured": {
+      "comment": "Message in the create sheet when the Cloud backend has no machine image configured yet, so no machine can be created",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إنشاء أجهزة جديدة بعد: لم يتم إعداد صورة جهاز لهذه السحابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nove mašine još nisu dostupne: za ovaj Cloud nije podešena slika mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye maskiner er ikke tilgængelige endnu: der er ikke konfigureret et maskinimage til denne Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Maschinen sind noch nicht verfügbar: Für diese Cloud ist kein Maschinen-Image konfiguriert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New machines are not available yet: no machine image is configured for this Cloud."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las máquinas nuevas aún no están disponibles: no hay ninguna imagen de máquina configurada para esta nube."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les nouvelles machines ne sont pas encore disponibles : aucune image de machine n’est configurée pour ce Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le nuove macchine non sono ancora disponibili: nessuna immagine macchina è configurata per questo Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいマシンはまだ作成できません。この Cloud にはマシンイメージが設定されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនថ្មីមិនទាន់អាចប្រើបាននៅឡើយទេ៖ មិនមានរូបភាពម៉ាស៊ីនត្រូវបានកំណត់សម្រាប់ Cloud នេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 새 머신을 만들 수 없습니다. 이 Cloud에 머신 이미지가 구성되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye maskiner er ikke tilgjengelige ennå: ingen maskinavbildning er konfigurert for denne Cloud."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe maszyny nie są jeszcze dostępne: dla tej chmury nie skonfigurowano obrazu maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novas máquinas ainda não estão disponíveis: nenhuma imagem de máquina está configurada para este Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новые машины пока недоступны: для этого Cloud не настроен образ машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังสร้างเครื่องใหม่ไม่ได้: ยังไม่ได้กำหนดอิมเมจเครื่องสำหรับ Cloud นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni makineler henüz kullanılamıyor: bu Cloud için yapılandırılmış bir makine görüntüsü yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нові машини поки недоступні: для цього Cloud не налаштовано образ машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa thể tạo máy mới: chưa có ảnh máy nào được cấu hình cho Cloud này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂时无法创建新机器：此 Cloud 尚未配置机器镜像。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫時無法建立新機器：此 Cloud 尚未設定機器映像。"
+          }
+        }
+      }
+    },
     "error.planRequired": {
       "comment": "Message when the Cloud service refuses a change that needs a paid plan",
       "extractionState": "manual",
