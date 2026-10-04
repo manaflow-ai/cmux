@@ -62,7 +62,7 @@ import Testing
     @Test func everySharedVectorResolves() throws {
         let vectors = try Self.vectors()
         #expect(vectors.v == 1)
-        #expect(vectors.cases.count >= 20)
+        #expect(vectors.cases.count >= 26)
         for item in vectors.cases {
             let result = AgentCursorVisibilityResolver.resolve(target: item.target, in: item.snapshot)
             #expect(Self.describe(result) == item.expect, "\(item.name)")
@@ -80,10 +80,15 @@ import Testing
         #expect(result.placement(forWindow: "w2", overlay: overlay) == .elsewhere)
     }
 
-    @Test func aSidebarRowAnchorMovesOntoTheLeadingEdgeOfThePlane() {
-        let row = CGRect(x: -240, y: 80, width: 220, height: 28)
+    /// Window content-view space: the sidebar row anchor stays where the row
+    /// is (the window-level host draws over the sidebar too).
+    @Test func aSidebarRowAnchorStaysAtTheRow() {
+        let row = CGRect(x: 8, y: 80, width: 224, height: 28)
         let result = AgentCursorVisibility.hidden(window: "w1", anchor: .workspaceRow, rect: row)
-        #expect(result.placement(forWindow: "w1", overlay: overlay) == .hidden(anchor: CGRect(x: 0, y: 80, width: 0, height: 28)))
+        #expect(result.placement(forWindow: "w1", overlay: overlay) == .hidden(anchor: row))
+        let left = CGRect(x: -240, y: 80, width: 220, height: 28)
+        #expect(AgentCursorVisibility.hidden(window: "w1", anchor: .workspaceRow, rect: left)
+            .placement(forWindow: "w1", overlay: overlay) == .hidden(anchor: left))
     }
 
     @Test func anAnchorInsideThePlaneIsKept() {
