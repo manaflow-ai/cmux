@@ -66,7 +66,7 @@ public struct TerminalInputRouter: Sendable {
         } else {
             characters
         }
-        return TerminalKeyEvent(keyCode: TerminalHIDUsage.macKeyCode(usage), mods: mods, text: text,
+        return TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods, text: text,
                                 unshiftedCodepoint: special ? 0 : unshifted)
     }
 
@@ -81,7 +81,7 @@ public struct TerminalInputRouter: Sendable {
         let mods = stickyMods()
         if !mods.isEmpty, text.count == 1, let character = text.first {
             let usage = TerminalHIDUsage.usage(forASCII: character) ?? 0
-            let event = TerminalKeyEvent(keyCode: usage == 0 ? 0xFFFF : TerminalHIDUsage.macKeyCode(usage), mods: mods,
+            let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods,
                                          text: text, unshiftedCodepoint: text.lowercased().unicodeScalars.first?.value ?? 0)
             return [.key(event), .key(event.released)]
         }
@@ -130,7 +130,7 @@ public struct TerminalInputRouter: Sendable {
 
     /// Press and release of one key with the sticky modifiers.
     private mutating func press(usage: UInt16, text: String?) -> [TerminalInputAction] {
-        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.macKeyCode(usage), mods: stickyMods(), text: text)
+        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: stickyMods(), text: text)
         return [.key(event), .key(event.released)]
     }
 

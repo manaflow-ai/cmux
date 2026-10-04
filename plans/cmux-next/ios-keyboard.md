@@ -123,7 +123,7 @@ Terminal (ghostty-next section 5, decisions D5, D6, D8):
 | K4 | One compose field (New Message uses `HomeFieldView`'s rules) | UI: hardware Return in New Message | `Compose/ComposerView.swift`, `HomeFieldView.swift` |
 | K5 | Hardware commands for Home and conversation | UI: `testHardwareShortcuts`, `testEscapeLeavesConversation` (after the harness control passes) | `HomeViewController.swift`, `ConversationViewController.swift`, `HomeText` (en, ja) |
 | T1 | Terminal focus + `UITextInput` traits + text path | unit (view, no window server): traits, `'` stays `'`, Return sends CR | `CmuxiOSTerminal/Ghostty/GhosttyTerminalView*.swift` |
-| T2 | Hardware keys through `ghostty_surface_key` | unit: Ctrl-C, arrows, F-keys, Option-as-Meta bytes from the mirror surface | `GhosttyTerminalView+Keys.swift`, HID -> native key code map |
+| T2 | Hardware keys through `ghostty_surface_key` | unit: Ctrl-C, arrows, F-keys, Option-as-Meta bytes from the mirror surface | `GhosttyTerminalView+Keys.swift`, `TerminalInputRouter.swift` |
 | T3 | Accessory bar with sticky modifiers | UI: `testTerminalTapShowsKeyboardAndKeyBar`; unit: sticky Ctrl + `c` = 0x03 | `CmuxiOSTerminal/Input/TerminalKeyBar*.swift`, settings keys |
 | T4 | Marked text / preedit and caret rect | unit: `setMarkedText` sends nothing, `unmarkText` sends once | `GhosttyTerminalView+TextInput.swift` |
 | T5 | Cursor pan above the keyboard | UI: cursor row rect above keyboard top after focus | `TerminalViewController.swift` |
@@ -140,7 +140,7 @@ Device proof on "Lawrence's iPhone" (E4058DA9-...) for K1, K2, T1-T3 once its Ta
 | `ios/cmuxUITests`, `ios/scripts/keyboard-uitests.sh` | iOS keyboard lead |
 | `Packages/Shared/CmuxHomeRender` host API (field move without spring) | lane 16 (Mac Home rendering); additive change proposed through the coordinator |
 | `ios/CmuxiOS/Sources/CmuxiOSTerminal/Ghostty` input side | iOS keyboard lead; C API questions to lane 13 (ghostty-next) |
-| GhosttyNextKit (iOS native key code = mac virtual key code today; preedit and ime_point) | lane 13 |
+| GhosttyNextKit (iOS native key code = HID usage; preedit and ime_point) | lane 13 |
 | `TerminalSessionSource.send` ordering and attribution | lane 12 (transport) |
 
 ## 6. Decided (coordinator, 2026-10-04)
@@ -153,9 +153,8 @@ Device proof on "Lawrence's iPhone" (E4058DA9-...) for K1, K2, T1-T3 once its Ta
   events for plain printable keys.
 - KB3: the keyboard lead adds `setHostedField(_:send:animated:)` to `CmuxHomeRender`
   (additive, red test first); lane 16 is told to expect it.
-- KB4: lane 13 is asked to make the iOS native key code the USB HID usage; until then the app
-  maps HID usage to the mac virtual key code with a physical-key table generated from
-  `keycodes.zig` (not an encoding table; D5 holds).
+- KB4: the iOS native key code is the USB HID usage (ghostty-next PR 19, pin 59a70ffc6); the
+  app passes `UIKey.keyCode` straight through. The interim HID-to-mac table is deleted.
 - The terminal uses the shared CmuxGhosttyKit pin from the ghostty-next lead's S2
   (apple-v6), never the a7c40619a or 3e9dfca98 releases.
 - Hardware-key UI results count as product bugs only after the harness control test

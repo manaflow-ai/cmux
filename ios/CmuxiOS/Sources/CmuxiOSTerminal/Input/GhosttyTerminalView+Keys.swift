@@ -47,7 +47,7 @@ extension GhosttyTerminalView {
         let sticky = input.sticky.consume()
         if sticky.control { mods.insert(.control) }
         if sticky.alternate { mods.insert(.alternate) }
-        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.macKeyCode(usage), mods: mods)
+        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods)
         perform([.key(event), .key(event.released)])
     }
 

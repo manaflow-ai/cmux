@@ -12,7 +12,8 @@ public struct TerminalKeyMods: OptionSet, Hashable, Sendable {
 }
 
 /// One key event for Ghostty's encoder (`ghostty_surface_key`): the physical
-/// key as a mac virtual key code (the iOS native code, KB4), the modifiers,
+/// key as its USB HID usage (the iOS native code since ghostty-next
+/// 59a70ffc6, KB4), the modifiers,
 /// the text the key produces (nil lets the encoder derive it) and the key's
 /// unshifted codepoint. The app never turns a key into bytes itself (D5).
 public struct TerminalKeyEvent: Hashable, Sendable {
@@ -100,8 +101,8 @@ public enum TerminalHIDUsage {
         0x60: 0x35, 0x2C: 0x36, 0x2E: 0x37, 0x2F: 0x38,
     ]
 
-    /// The mac virtual key code of a HID usage (0xFFFF when Ghostty has none).
-    public static func macKeyCode(_ usage: UInt16) -> UInt32 {
-        TerminalPhysicalKeys.macKeyCode[usage] ?? 0xFFFF
+    /// Ghostty's native key code on iOS: the HID usage itself (UIKey.keyCode).
+    public static func ghosttyKeyCode(_ usage: UInt16) -> UInt32 {
+        UInt32(usage)
     }
 }
