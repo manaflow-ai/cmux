@@ -171,9 +171,14 @@ fn wait_dead(pid: u32) {
 #[test]
 fn stop_kills_at_the_callers_deadline() {
     let fx = Fixture::new();
-    fx.script("stubborn", "trap '' TERM\nsleep 600 &\necho $! > \"$CMUX_ROLE_STATE_DIR/child\"\nwait");
+    fx.script(
+        "stubborn",
+        "trap '' TERM\nsleep 600 &\necho $! > \"$CMUX_ROLE_STATE_DIR/child\"\nwait",
+    );
     let sup = Supervisor::start(fx.paths.clone()).unwrap();
-    sup.apply(set(serde_json::json!({"stubborn": {"program": "stubborn", "stopGraceSeconds": 60}})));
+    sup.apply(set(
+        serde_json::json!({"stubborn": {"program": "stubborn", "stopGraceSeconds": 60}}),
+    ));
     let child = child_pid(&fx, "stubborn");
     let started = Instant::now();
     let left = sup.stop_all(Instant::now() + Duration::from_secs(1));

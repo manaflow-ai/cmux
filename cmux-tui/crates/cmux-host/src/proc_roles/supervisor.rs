@@ -75,7 +75,8 @@ impl Supervisor {
         let loop_tx = tx.clone();
         let thread =
             std::thread::Builder::new().name("cmux-host-roles".to_owned()).spawn(move || {
-                Loop { paths, entries: BTreeMap::new(), invalid: Vec::new(), published: None }.run(&rx, &loop_tx);
+                Loop { paths, entries: BTreeMap::new(), invalid: Vec::new(), published: None }
+                    .run(&rx, &loop_tx);
             })?;
         Ok(Supervisor { tx, thread: Some(thread) })
     }
