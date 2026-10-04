@@ -23,7 +23,7 @@ extension CmuxTuiSurfaceProvider {
     /// Only a user-requested refresh/expansion performs guest discovery. Results
     /// may publish only through the same still-authorized provider instance.
     func refreshDisplays() async {
-        guard isAwake, info.hasDesktop, isRegisteredInCatalog() else { return }
+        guard isAwake, info.hasDesktop else { return }
         let generation = currentLifecycleGeneration
         let refresh = refreshGeneration
         await displayCoordinator.refresh()
@@ -33,15 +33,15 @@ extension CmuxTuiSurfaceProvider {
 
     func createDisplay() async throws -> SurfaceResource {
         guard supportsDisplayCreation else { throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage) }
-        // The Displays group is expanded by default, so its first render can
-        // happen before the demand-driven guest discovery callback. Make the
-        // button self-starting instead of requiring a collapse/expand cycle.
-        if !displayCoordinator.canCreate {
-            await refreshDisplays()
-        }
-        guard displayCoordinator.canCreate else {
-            throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
-        }
+        // No discovery round trip first: the create command installs the guest
+        // helper itself and its reply is the full catalog, so a prior `list`
+        // only added a second VM exec (about two seconds) to the first click.
+        // The new display's pane needs this machine's browser carrier. Its first
+        // start costs seconds (trusted-listener preparation, process launch),
+        // so begin it alongside the guest exec instead of after it. The link
+        // manager shares one start per machine; the pane awaits the same one.
+        let links = self.links, machineID = self.machineID
+        Task { _ = try? await links.browserProxy(machineID: machineID) }
         let generation = currentLifecycleGeneration
         defer {
             if isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() { publishDisplays() }
