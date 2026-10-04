@@ -362,7 +362,11 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
       await o.alarm()
       alarm = await state.storage.getAlarm()
     })
-    expect(ran).toEqual(["flushCloses", "drainHomePush", "deliverKrlNotices"])
+    // The runtime may also fire the alarm on its own, so passes can repeat or interleave: every pass runs all three steps.
+    const count = (step: string) => ran.filter((s) => s === step).length
+    expect(count("drainHomePush")).toBeGreaterThan(0)
+    expect([count("flushCloses"), count("deliverKrlNotices")]).toEqual([count("drainHomePush"), count("drainHomePush")])
+    expect(ran.indexOf("deliverKrlNotices")).toBeGreaterThan(ran.indexOf("drainHomePush"))
     expect(alarm).not.toBeNull()
   })
 })
