@@ -151,7 +151,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
     // (default 300; 0 keeps every harness running).
-    if let Some(secs) = std::env::var("ACPMUX_IDLE_CHILD_SECS").ok().and_then(|v| v.parse::<u64>().ok()) {
+    if let Some(secs) =
+        std::env::var("ACPMUX_IDLE_CHILD_SECS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
         hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
     }
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
