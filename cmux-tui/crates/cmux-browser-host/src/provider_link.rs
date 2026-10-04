@@ -465,6 +465,74 @@ mod tests {
         assert_refused(driver.call("tab.info", &json!({"targetId": "C2"})));
     }
 
+    fn assert_browser_page(result: Result<Value, DriverError>) {
+        let error = result.expect_err("the call must be refused");
+        assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
+        assert_eq!(error.error_name.as_deref(), Some(BROWSER_PAGE), "{error}");
+    }
+
+    /// D1 (coordinator, 2026-10-04): an agent never drives a tab that already
+    /// shows a browser page (chrome://, a reserved cmux-page host), on any
+    /// engine, whatever its extension report says.
+    #[test]
+    fn open_browser_page_tabs_are_refused() {
+        let mut settings = tab("S", "webkit");
+        settings.url = "chrome://settings/".into();
+        let (app, driver) = FakeApp::start(vec![tab("W", "webkit"), settings, tab("C", "cef")]);
+        assert_browser_page(driver.call("tab.info", &json!({"targetId": "S"})));
+        assert!(!app.saw("tab.info", "S"));
+        // A clean CEF tab navigates to a browser page: refused from then on.
+        app.access(&driver, "C", false, false);
+        assert_eq!(
+            driver.call("tab.info", &json!({"targetId": "C"})).unwrap()["method"],
+            "tab.info"
+        );
+        app.send(
+            &driver,
+            Frame::Event {
+                name: "tab.navigated".into(),
+                payload: json!({"targetId": "C", "url": "chrome://extensions/", "sameDocument": false}),
+            },
+        );
+        assert_browser_page(driver.call("cdp", &json!({"targetId": "C"})));
+        // A sub-frame navigation does not change the tab's page.
+        app.send(
+            &driver,
+            Frame::Event {
+                name: "tab.navigated".into(),
+                payload: json!({"targetId": "C", "frameId": "F2", "url": "https://a.test/"}),
+            },
+        );
+        assert_browser_page(driver.call("tab.info", &json!({"targetId": "C"})));
+        // Back on a web page: allowed again.
+        app.send(
+            &driver,
+            Frame::Event {
+                name: "tab.navigated".into(),
+                payload: json!({"targetId": "C", "url": "https://a.test/", "sameDocument": false}),
+            },
+        );
+        assert_eq!(
+            driver.call("tab.info", &json!({"targetId": "C"})).unwrap()["method"],
+            "tab.info"
+        );
+    }
+
+    /// D1: first-party cmux-page tabs (reserved hosts: cmux and cmux.*) are
+    /// browser pages too. Red until policy::is_browser_page refuses them (the
+    /// password lead's change to the shared rule and vectors).
+    #[test]
+    fn open_first_party_cmux_page_tabs_are_refused() {
+        let mut page = tab("P", "cef");
+        page.url = "cmux-page://cmux.settings/".into();
+        let mut agent = tab("A", "webkit");
+        agent.url = "cmux-page://cmux.agent/index.html".into();
+        let (app, driver) = FakeApp::start(vec![tab("W", "webkit"), page, agent]);
+        app.access(&driver, "P", false, false);
+        assert_browser_page(driver.call("frame.evaluate", &json!({"targetId": "P"})));
+        assert_browser_page(driver.call("cdp", &json!({"targetId": "A"})));
+    }
+
     #[test]
     fn hello_needs_the_secret_and_gets_the_bundle() {
         let (mut app, host) = UnixStream::pair().unwrap();
