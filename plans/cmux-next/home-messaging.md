@@ -315,7 +315,8 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
 - Messages: kept until the team policy `home.retention_days` (minimum 30) or user deletion;
   default keep. The ConversationDO alarm runs the system op `conversation.sweep`: it deletes
   expired message rows oldest first, 500 per commit, and emits one `home.message.delete_through`
-  projection row per batch; when the newest message expires, inbox previews are cleared. The same
+  projection row per batch; when the newest message expires, inbox previews are cleared, and expired
+  messages a human had not read leave that human's unread and mention counts. The same
   op expires pending invites past `expires_at`. Retraction removes the body at once (DO and search).
 - Ledger: 7 days (engine default). Events (`own_events`): keep the last 30 days or 10,000 events,
   whichever is more; older resumes take a snapshot (engine need E3).

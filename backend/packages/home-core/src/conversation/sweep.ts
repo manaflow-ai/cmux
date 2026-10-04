@@ -1,13 +1,13 @@
 import { isOpen } from "./cloud.ts"
 import { summary } from "./create.ts"
-import type { OutboxItem, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
+import type { OutboxItem, ReduceContext, ReduceResult, RowReader, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
-import { previewOf, type FanOut } from "./fanout.ts"
+import { mentionsOf, previewOf, type FanOut, type UnreadCounts } from "./fanout.ts"
 import { formatRfc3339Millis, parseRfc3339Millis } from "./ids.ts"
 import { closeExpired } from "./invite-ops.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
 import type { Draft } from "./request.ts"
-import { inviteWrites, msgKey, TABLE_MSG, TABLE_MSGKEY } from "./tables.ts"
+import { inviteWrites, msgKey, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD } from "./tables.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type Message } from "./types.ts"
 
 /**
@@ -20,6 +20,8 @@ import { SYSTEM_ACTOR, type ConversationHead, type Message } from "./types.ts"
  *   projection gets one `home.message.delete_through {conversation_id, seq}` row per commit
  *   (home-scale.md B7), not one delete per message. When the newest message goes, every current
  *   human gets an inbox bump with an empty preview, so no expired text stays in an inbox.
+ *   Deleted messages a human had not read leave that human's stored counts (TABLE_UNREAD), the
+ *   same as a retract, and that human gets a bump carrying the lower counts.
  * - Invites: open invites past `expires_at` become `expired` and their addresses are released,
  *   the same rule every invite op applies lazily (invite-ops.ts closeExpired).
  *
@@ -76,7 +78,9 @@ export const reduceSweep = (head: ConversationHead, ctx: ReduceContext, actor: s
   const through = deleted.at(-1)?.seq ?? 0
   const remaining = newest && newest.seq > through ? newest : null
   const lastAt = newest?.created_at ?? head.created_at
-  const fan: FanOut = { bumps: newest && !remaining ? previewBumps(next, lastAt) : [], wakes: [], search: [], deliveries: [] }
+  const counts = countsAfter(next, rows, deleted)
+  for (const [user, row] of counts) writes.push({ table: TABLE_UNREAD, op: "upsert", key: user, n: null, row })
+  const fan: FanOut = { bumps: sweepBumps(next, remaining, lastAt, newest !== null && !remaining, counts), wakes: [], search: [], deliveries: [] }
   const commit = { head: next as ConversationHead, change: { kind: "conversation" as const, conversation: summary(next, remaining) } }
   const outbox: Array<OutboxItem> = [...fanOutItems(fan, undefined, next.kind), ...projectionItems(head, commit, fan, now, lastAt)]
   if (deleted.length > 0) outbox.push({ kind: "home.message.delete_through", entity: `${head.id}:through`, payload: { conversation_id: head.id, seq: through } })
@@ -96,12 +100,36 @@ export const reduceSweep = (head: ConversationHead, ctx: ReduceContext, actor: s
   }
 }
 
-/** The newest message expired: every current human's inbox row loses its preview (counts unchanged). */
-const previewBumps = (head: ConversationHead, lastAt: string): FanOut["bumps"] =>
+/**
+ * Stored counts of each current human after `deleted` go, for the humans whose counts drop (a
+ * deleted unseen message counts down like a retract). A human with no stored row is skipped: the
+ * next commit recounts from the message rows, which no longer hold the deleted messages.
+ */
+const countsAfter = (head: ConversationHead, rows: RowReader, deleted: ReadonlyArray<Message>): Map<string, UnreadCounts> => {
+  const counts = new Map<string, UnreadCounts>()
+  for (const participant of head.participants) {
+    if (participant.kind !== "human" || participant.left_at !== undefined) continue
+    const prior = rows.get<UnreadCounts>(TABLE_UNREAD, participant.id)?.row
+    if (!prior) continue
+    const cursor = head.read_cursors[participant.id] ?? 0
+    const unseen = deleted.filter((m) => m.author !== participant.id && m.seq > cursor && m.retracted_at === undefined)
+    if (unseen.length === 0) continue
+    const mentioned = unseen.filter((m) => mentionsOf(m).has(participant.id)).length
+    counts.set(participant.id, { unread: Math.max(0, prior.unread - unseen.length), mentions: Math.max(0, prior.mentions - mentioned) })
+  }
+  return counts
+}
+
+/**
+ * Inbox bumps for a sweep: every current human when the newest message expired (the preview
+ * empties), otherwise only the humans whose counts dropped (the preview stays the newest message).
+ */
+const sweepBumps = (head: ConversationHead, newest: Message | null, lastAt: string, newestGone: boolean, counts: ReadonlyMap<string, UnreadCounts>): FanOut["bumps"] =>
   head.participants
-    .filter((participant) => participant.kind === "human" && participant.left_at === undefined)
+    .filter((participant) => participant.kind === "human" && participant.left_at === undefined && (newestGone || counts.has(participant.id)))
     .map((participant) => {
       const peer = head.kind === "dm" ? head.participants.find((other) => other.id !== participant.id)?.id : undefined
+      const count = counts.get(participant.id)
       return {
         user: participant.id,
         conversation: head.id,
@@ -110,7 +138,8 @@ const previewBumps = (head: ConversationHead, lastAt: string): FanOut["bumps"] =
         title: head.title,
         last_seq: head.last_seq,
         last_at: lastAt,
-        preview: previewOf(head, null),
+        preview: previewOf(head, newest),
+        ...(count ? { unread: count.unread, mentions: count.mentions } : {}),
         ...(peer ? { dm_peer: peer } : {})
       }
     })

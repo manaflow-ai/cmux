@@ -15,6 +15,8 @@ import {
   type ParticipantPolicy,
   type Principal
 } from "../src/conversation/index.ts"
+import { TABLE_UNREAD } from "../src/conversation/domain.ts"
+import type { UnreadCounts } from "../src/conversation/fanout.ts"
 import { DomainHost, human, text } from "./support/harness.ts"
 import { ADDRESS, ALICE, BOB, INV, inviteOp } from "./support/cloud.ts"
 
@@ -70,8 +72,9 @@ describe("conversation.sweep: retention", () => {
       { kind: "home.message.delete_through", entity: "conv_GROUP:through", payload: { conversation_id: "conv_GROUP", seq: 3 } }
     ])
     expect(projections.some((item) => item.kind === "home.message.delete")).toBe(false)
-    // The newest message survived, so no inbox row changes.
-    expect(host.outbox.some((item) => item.kind === "inbox.bump")).toBe(false)
+    // The newest message survived, so the preview stays; only Bob, who had not read m1..m3, gets lower counts.
+    const bumps = host.outbox.filter((item) => item.kind === "inbox.bump").map((item) => item.payload as InboxBump)
+    expect(bumps.map((b) => [b.user, b.unread, b.preview])).toEqual([[BOB, 1, "Alice: m4"]])
   })
 
   it("a sweep with nothing due commits nothing", () => {
@@ -121,6 +124,21 @@ describe("conversation.sweep: retention", () => {
       expect(bump.last_seq).toBe(1)
     }
     expect(JSON.stringify(host.outbox)).not.toContain("secret plan")
+  })
+
+  it("expired messages a human had not read leave that human's stored counts and inbox", () => {
+    const host = group(30)
+    send(host, "m1", ALICE, "old")
+    host.now += 31 * DAY
+    send(host, "m2", ALICE, "new")
+    expect(host.rows.get<UnreadCounts>(TABLE_UNREAD, BOB)?.row).toEqual({ unread: 2, mentions: 0 })
+    host.outbox.length = 0
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { through_seq: 1, deleted: 1 } } })
+    expect(host.rows.get<UnreadCounts>(TABLE_UNREAD, BOB)?.row).toEqual({ unread: 1, mentions: 0 })
+    const bumps = host.outbox.filter((item) => item.kind === "inbox.bump").map((item) => item.payload as InboxBump)
+    // Alice wrote both messages, so only Bob's counts drop; the newest message stays the preview.
+    expect(bumps).toHaveLength(1)
+    expect(bumps[0]).toMatchObject({ user: BOB, unread: 1, mentions: 0, rev: host.state!.rev, preview: "Alice: new" })
   })
 
   it("only the owner itself runs it: a participant is refused", () => {
