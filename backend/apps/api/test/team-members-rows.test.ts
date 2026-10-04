@@ -62,3 +62,29 @@ describe("TeamDO members in rows", { timeout: 120_000 }, () => {
     expect(n).toBe(12_001)
   })
 })
+
+describe("team member and host paging", { timeout: 120_000 }, () => {
+  it("pages members by user id with a stable cursor, filters by role, and counts", async () => {
+    const t = await token("team-rows-3")
+    const team = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value.personal_team as string
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    await runInDurableObject(stub, async (_i, state) => {
+      for (let i = 0; i < 450; i++) state.storage.sql.exec("INSERT INTO own_rows (tbl, k, n, json) VALUES ('member', ?, NULL, ?)", `user_${String(i).padStart(20, "0")}`, JSON.stringify({ user: `user_${String(i).padStart(20, "0")}`, role: i % 100 === 0 ? "admin" : "member", display_name: `M${i}` }))
+    })
+    const seen: Array<string> = []
+    let cursor: string | undefined
+    for (let page = 0; page < 10; page++) {
+      const r = (await post("/v1/read", t, { op: "team.members.list", params: { limit: 200, ...(cursor ? { cursor } : {}) } })).value
+      seen.push(...r.members.map((m: { user: string }) => m.user))
+      cursor = r.next_cursor ?? undefined
+      if (!cursor) break
+    }
+    expect(seen).toHaveLength(451)
+    expect(new Set(seen).size).toBe(451)
+    expect([...seen].sort()).toEqual(seen)
+    const admins = (await post("/v1/read", t, { op: "team.members.list", params: { role: "admin" } })).value.members
+    expect(admins.map((m: { role: string }) => m.role)).toEqual(["admin", "admin", "admin", "admin", "admin"])
+    const hosts = (await post("/v1/read", t, { op: "team.hosts.list", params: {} })).value
+    expect(hosts).toMatchObject({ hosts: [], next_cursor: null })
+  })
+})
