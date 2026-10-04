@@ -9,30 +9,32 @@
     "googleDrive",
     (t) => {
       const g = S.shared.google;
+      const ed = S.shared.editors.create(t);
       const created = new Set();
-      async function trashNow(ref) {
-        return t.withTab(`https://docs.google.com/${ref.kind}/d/${ref.id}/edit`, async (page) => {
-          await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
+      // Moves the file open in `page` (its editor) to the trash. gate()
+      // runs right before the first input: it reloads the editor and fails
+      // unless the Share button still says what the decision was made on.
+      async function trashIn(page, ref, gate) {
+        await gate();
+        await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
+        await t.sleep(1500);
+        // File > Move to trash (matched by the item's text; retried once if the menu did not open).
+        const item = page.locator('[role="menuitem"]').filter({ hasText: /^(Move to trash|Move to bin)/ }).first();
+        for (let attempt = 0; ; attempt++) {
+          await page.locator("#docs-file-menu").click();
+          if (await item.waitFor({ timeout: 5000 }).then(() => true, () => false)) break;
+          if (attempt) throw new S.SiteError("timeout", "googleDrive.trash: the File menu has no Move to trash item");
+          await page.keyboard.press("Escape").catch(() => {});
           await t.sleep(1500);
-          // File > Move to trash (matched by the item's text; retried once if the menu did not open).
-          const item = page.locator('[role="menuitem"]').filter({ hasText: /^(Move to trash|Move to bin)/ }).first();
-          for (let attempt = 0; ; attempt++) {
-            await page.locator("#docs-file-menu").click();
-            if (await item.waitFor({ timeout: 5000 }).then(() => true, () => false)) break;
-            if (attempt) throw new S.SiteError("timeout", "googleDrive.trash: the File menu has no Move to trash item");
-            await page.keyboard.press("Escape").catch(() => {});
-            await t.sleep(1500);
-          }
-          await item.click();
-          await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
-          created.delete(ref.id);
-        }).then(() =>
-          // A trashed file still opens for its owner, with "File is in trash".
-          t.withTab(`https://docs.google.com/${ref.kind}/d/${ref.id}/edit`, async (page) => {
-            const verified = await t.waitIn(page, () => /\b(is|moved to) (in )?(the )?(trash|bin)\b/i.test(document.body.innerText), undefined, { timeout: 20000, what: "the trash notice" }).then(() => true, () => false);
-            return { status: "trashed", verified };
-          }),
-        );
+        }
+        await item.click();
+        await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
+        created.delete(ref.id);
+        // A trashed file still opens for its owner, with "File is in trash".
+        return t.withTab(ed.editURL(ref), async (check) => {
+          const verified = await t.waitIn(check, () => /\b(is|moved to) (in )?(the )?(trash|bin)\b/i.test(document.body.innerText), undefined, { timeout: 20000, what: "the trash notice" }).then(() => true, () => false);
+          return { status: "trashed", verified };
+        });
       }
       // Rows of a Drive list view (Recent, search) in a background tab.
       async function driveRows(name, view, options) {
@@ -133,16 +135,27 @@
         },
         // Moves a Google file to the trash through its editor's File menu.
         // A file made by googleDrive.create in this session is trashed at
-        // once; any other file needs a draft (deleting data, [1]).
+        // once while its Share button says it is private; any other file,
+        // or one shared since, needs a draft (deleting data, [1]) that
+        // shows its sharing. Either way the editor is reloaded right before
+        // the File menu, and the trash fails (sharing_changed) unless the
+        // sharing is still what the decision or the preview was made on.
         trash(file, options) {
-          if (typeof file === "string" && !/^draft-/.test(file)) {
-            const ref = g.parse(file, "googleDrive.trash");
-            if (created.has(ref.id)) return trashNow(ref);
-          }
-          return t.write("googleDrive", "trash", file, options, (f) => {
-            const ref = g.parse(f, "googleDrive.trash");
-            if (!g.FORMATS[ref.kind]) throw new S.SiteError("invalid", "googleDrive.trash: expected a Google Docs, Sheets or Slides URL");
-            return { category: "[1] delete data", summary: `Move Google file ${ref.id} to the trash`, preview: { file: f }, run: () => trashNow(ref) };
+          const name = "googleDrive.trash";
+          if ((typeof file === "string" && /^draft-\d+-[0-9a-f]+$/.test(file)) || (options && options.confirm)) return t.write("googleDrive", "trash", file, options);
+          const input = S.copyInput(file, `sites.${name}`);
+          const ref = g.parse(input, name);
+          if (!g.FORMATS[ref.kind]) throw new S.SiteError("invalid", `${name}: expected a Google Docs, Sheets or Slides URL`);
+          return ed.inEditor(name, ref, async (page) => {
+            const label = await ed.sharing(page);
+            if (created.has(ref.id) && ed.isPrivate(label)) return trashIn(page, ref, () => ed.recheckSharing(name, page, label, "when the trash started"));
+            const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
+            return t.write("googleDrive", "trash", { draft: true }, undefined, () => ({
+              category: "[1] delete data",
+              summary: `Move Google file ${ref.id}${title ? ` ("${title}")` : ""} to the trash`,
+              preview: { file: input, title, sharing: label || "unknown" },
+              run: () => ed.inEditor(name, ref, (p) => trashIn(p, ref, () => ed.recheckSharing(name, p, label, "previewed"))),
+            }));
           });
         },
         // Exports a Docs/Sheets/Slides file given by any Drive or Docs URL; { path, title, format }.

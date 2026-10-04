@@ -201,7 +201,7 @@ the file back to verify.
 | `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`); the draft names the slide by its object id (`<page>`) and title, and the write clicks the thumbnail with that object id wherever the slide moved (a deleted slide fails with `slide_changed`); the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
 | `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export. The draft states the match count per slide (slide text and notes, case ignored); right before Replace all the pptx export is read again and the write fails (`document_changed`) unless the deck is unchanged | write |
 | `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
-| `googleDrive.trash(url)` | the editor's File > Move to trash | delete |
+| `googleDrive.trash(url)` | the editor's File > Move to trash, after the sharing check below | delete |
 
 Rule for writes (reference B's confirmation taxonomy, [9] edits others can see):
 a write first opens the file's editor and reads its Share button. If it
@@ -215,8 +215,12 @@ decision was made on (the private label, or the previewed one): a file
 shared after that read is not edited without a draft, and a draft whose
 file's sharing changed since the preview does not run. A sharing change
 during the input itself is the remaining window. `googleDrive.trash` deletes
-data ([1]): it is a draft, except for a file `googleDrive.create` made in
-the same REPL session.
+data ([1]): it is a draft (with the file's title and sharing), except for a
+file `googleDrive.create` made in the same REPL session while its Share
+button still says "Private to only me"; a created file another session
+shared since gets a draft too. The editor is reloaded right before File >
+Move to trash, and the trash fails with `sharing_changed` unless the
+sharing is still the one the decision or the preview was made on.
 
 ## Confirmation taxonomy
 
