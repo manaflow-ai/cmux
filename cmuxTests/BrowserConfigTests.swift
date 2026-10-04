@@ -5645,7 +5645,7 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     /// The same holds for a port link, which is a plain http URL on a host.
     func testSidebarPortLinkMatchingAnExternalRuleGoesToTheSystemBrowser() throws {
         defaults.set(
-            "re:^https?://dashboard\\.example\\.com(:[0-9]+)?/",
+            "re:^https?://dashboard\\.example\\.com:[0-9]+/",
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
         let handler = BrowserExternalNavigationHandler(defaults: defaults)
