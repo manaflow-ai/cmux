@@ -1,5 +1,5 @@
 import Foundation
-import GhosttyKit
+import GhosttyNextKit
 
 /// cmux-next's default terminal theme, which differs from Ghostty's: Ghostty's
 /// bundled "Apple System Colors" in dark mode and "Apple System Colors Light"

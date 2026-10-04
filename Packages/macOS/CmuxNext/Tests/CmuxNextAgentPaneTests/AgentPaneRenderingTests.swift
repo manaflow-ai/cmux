@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Testing
 import WebKit
+import CmuxNextPages
 @testable import CmuxNextAgentPane
 
 @MainActor

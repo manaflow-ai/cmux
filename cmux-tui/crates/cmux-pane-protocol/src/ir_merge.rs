@@ -260,6 +260,17 @@ fn check_mcp_and_cli(op: &Map<String, Value>, at: &str) -> Vec<String> {
             problems.push(format!("{at}.cli has unknown key {key:?}"));
         }
     }
+    if !text(op, "risk").is_some_and(|risk| crate::op::RISKS.contains(&risk)) {
+        problems.push(format!("{at}.risk must be one of {}", crate::op::RISKS.join(", ")));
+    }
+    if !op.get("gesture").is_some_and(Value::is_boolean) {
+        problems.push(format!("{at}.gesture must be a boolean"));
+    }
+    for derived in ["scope_class", "server_only"] {
+        if op.contains_key(derived) {
+            problems.push(format!("{at}.{derived} is derived by emit-ir and may not be declared"));
+        }
+    }
     if op.contains_key("paths") && strings(op.get("paths")).is_none() {
         problems.push(format!("{at}.paths must be an array of strings"));
     }
@@ -267,6 +278,19 @@ fn check_mcp_and_cli(op: &Map<String, Value>, at: &str) -> Vec<String> {
         problems.push(format!("{at}.secret_output must be a boolean"));
     }
     problems
+}
+
+/// The IR without the fields emit-ir derives, as a fragment the merge can
+/// check (emit-ir runs this over its own output).
+pub fn strip_derived(ir: &Value) -> Value {
+    let mut fragment = ir.clone();
+    if let Some(ops) = fragment.get_mut("ops").and_then(Value::as_array_mut) {
+        for op in ops.iter_mut().filter_map(Value::as_object_mut) {
+            op.remove("scope_class");
+            op.remove("server_only");
+        }
+    }
+    fragment
 }
 
 /// Decision 26: an op name is `<namespace>.<family>.<verb>`, at least two
@@ -311,6 +335,22 @@ fn normalize_ops(ops: &mut [Value], types: &Map<String, Value>, problems: &mut V
             op["mcp"] = serde_json::json!({ "expose": "never" });
         }
         op["secret_output"] = Value::Bool(secret_output(&op["result"], types));
+        // Decision 27: the scope class comes from scope-classes.json.
+        match crate::scope_class::classify(op["scope"].as_str().unwrap_or_default()) {
+            Ok((class, server_only)) => {
+                op["scope_class"] = Value::String(class);
+                match op.as_object_mut() {
+                    Some(object) if server_only => {
+                        object.insert("server_only".into(), Value::Bool(true));
+                    }
+                    Some(object) => {
+                        object.remove("server_only");
+                    }
+                    None => {}
+                }
+            }
+            Err(reason) => problems.push(format!("op {name}: {reason}")),
+        }
         // Every op, exposed or not, reserves its tool name (decision 23).
         let tool = mcp_tool_name(&name);
         if tool.len() > MAX_MCP_TOOL_NAME {
@@ -625,7 +665,7 @@ mod tests {
         json!({
             "namespaces": [{ "name": "octo.diff_tools", "owner": "app:octo.diff_tools" }],
             "ops": [{
-                "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "octo.diff_tools:use",
+                "name": "octo.diff_tools.diff.list", "kind": "read", "scope": "diff:read", "risk": "read", "gesture": false,
                 "owner": "app:octo.diff_tools",
                 "params": { "$ref": "#/types/OctoListParams" }, "result": { "type": "array", "items": { "type": "string" } },
                 "errors": []
@@ -637,7 +677,7 @@ mod tests {
     fn first_party_alias(alias: &str) -> Value {
         json!({
             "ops": [{
-                "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read",
+                "name": "cmux.workspace.list", "kind": "read", "scope": "workspace:read", "risk": "read", "gesture": false,
                 "owner": "first-party", "aliases": [alias],
                 "params": { "type": "object" }, "result": { "type": "object" }, "errors": []
             }]

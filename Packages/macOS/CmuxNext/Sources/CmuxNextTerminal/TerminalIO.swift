@@ -56,14 +56,15 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     /// session to swap in a new surface, because Ghostty has no reset API
     /// (cmux-tui-contract.md 3.2).
     case replay(Data)
-    /// Replay that also carries Kitty graphics state. Applied with
-    /// `ghostty_surface_restore_kitty_replay` on a fresh surface.
+    /// Replay that also carries Kitty graphics state. GhosttyNextKit has no
+    /// kitty-replay restore; the session replays the VT part on a fresh
+    /// surface until snapshot attach (terminal-snapshot-v1) restores images.
     case kittyReplay(TerminalKittyReplay)
     /// Live PTY output, fed to `ghostty_surface_process_output`.
     case output(Data)
     /// The PTY's grid from this point in the stream (the daemon applied a
-    /// size). Always applied with `ghostty_surface_set_grid_size`; after the
-    /// first one the surface renders only these grids. Send one for every
+    /// size). Always applied with `ghostty_surface_set_grid` on the output
+    /// lane; after the first one the surface renders only these grids. Send one for every
     /// size the PTY takes, including the initial one.
     case resize(cols: Int, rows: Int)
     /// The terminal's process exited. The surface stays readable.
@@ -115,7 +116,7 @@ public nonisolated struct TerminalKittyReplay: Sendable, Equatable {
     /// Image-id cursors. Every value must be nonzero or the restore fails.
     public var replayCursors: Cursors
     public var nextCursors: Cursors
-    /// At most 65,536 entries (ghostty.h `ghostty_surface_restore_kitty_replay`).
+    /// At most 65,536 entries (the daemon's limit).
     public var aliases: [Alias]
 
     public init(

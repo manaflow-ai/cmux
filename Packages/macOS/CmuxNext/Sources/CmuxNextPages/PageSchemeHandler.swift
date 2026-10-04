@@ -10,8 +10,8 @@ import WebKit
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
 final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let contentSecurityPolicy =
-        "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
+    /// The strict policy every page starts with (``PageCSP/strict``).
+    static var contentSecurityPolicy: String { PageCSP.strict.header }
 
     private let page: PageDescriptor
     private let root: URL
@@ -49,7 +49,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             let type = Self.mimeType(forExtension: file.pathExtension)
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
                 "Content-Type": type, "Content-Length": String(data.count), "Cache-Control": "no-store",
-                "Content-Security-Policy": Self.contentSecurityPolicy,
+                "Content-Security-Policy": self.page.csp.header,
             ])
             task.didReceive(response ?? URLResponse(url: url, mimeType: type, expectedContentLength: data.count, textEncodingName: nil))
             task.didReceive(data)
@@ -71,7 +71,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     nonisolated static func fileURL(for url: URL, page: PageDescriptor, root: URL) -> URL? {
         guard page.owns(url) else { return nil }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        if components.isEmpty { components = ["index.html"] }
+        if components.isEmpty { components = [page.entry] }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
@@ -80,6 +80,15 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     nonisolated static func mimeType(forExtension pathExtension: String) -> String {
-        UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        // Module scripts need a JavaScript type, and UTType does not know every extension (.mjs).
+        switch pathExtension.lowercased() {
+        case "js", "mjs": return "text/javascript"
+        case "css": return "text/css"
+        case "html": return "text/html"
+        case "json": return "application/json"
+        case "wasm": return "application/wasm"
+        default: break
+        }
+        return UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? "application/octet-stream"
     }
 }

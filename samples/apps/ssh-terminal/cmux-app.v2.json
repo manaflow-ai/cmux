@@ -17,13 +17,8 @@
   "engines": { "cmux": "^2.0" },
   "handles": {
     "connection": {
-      "reason": "Open a shell on the SSH hosts you pick. You accept each host key.",
+      "reason": "Open a shell on the SSH hosts you pick. cmux connects, checks the host key you accepted and signs in with your key; the app never sees the key.",
       "kinds": ["ssh"],
-      "max": 16
-    },
-    "credential": {
-      "reason": "Sign in to those hosts with your SSH key. The app never sees the key.",
-      "kinds": ["ssh-key"],
       "max": 16
     }
   },

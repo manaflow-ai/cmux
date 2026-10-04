@@ -139,7 +139,7 @@ public final class PageRouter {
     /// not a page command or no subscriber listens.
     @discardableResult
     public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:]) -> Bool {
-        guard PageNativeOp.commands.contains(command) else { return false }
+        guard descriptor.commands.contains(command) else { return false }
         var data = arguments
         data["command"] = .string(command)
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()

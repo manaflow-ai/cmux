@@ -84,3 +84,28 @@ after the change.
 ## Worker Loader binding (automations lead, 2026-10-03)
 
 `worker_loaders: [{ binding: "LOADER" }]` is in every env block of backend/apps/api/wrangler.jsonc. Only Tier 1 code automations use it (backend/apps/api/src/code-run.ts, plans/cmux-next/automations-plan.md slice 3). The coordinator assigned this line to the automations lead while the backend lead is parked. Tenant Dynamic Workers get no bindings and no network (`globalOutbound: null`) until the egress gateway and env.cmux land (slice 4). `AutomationTail` (a WorkerEntrypoint export of the API Worker) is attached as their tail.
+
+## Follow-ups from (e) instant revocation (P3, 2026-10-04)
+
+- In-flight window: a request that joins an in-flight UserDO check after a revoke committed gets the old answer (one RPC). Accepted; a revoke epoch in the answer would close it if needed.
+- Restored chief: a chief restored within its token life (10 min) makes the old token valid again. Fix: a chief generation number in ChiefRecord, carried as a token claim (`agg`), bumped on archive and restore; installGrant refuses a token whose generation differs.
+- Rate budgets (reach): one total cap per owner across chiefs; a replay of a decided key after the limit returns the stored result; homeRateTake must not create storage in an unbound UserDO; dm.open with a user peer counts against the conversation.create budget.
+
+## (f) TeamDO members out of the head, paging, membership index (design, 2026-10-04)
+
+Today TeamDO is JSON mode: `members` and `hosts` are maps in the one state row (2 MB), and only personal teams exist (one member, written by team.ensure_personal). Q5 needs 10k+ member teams at launch.
+
+1. Engine: `Domain.authorize` gets a read-only row reader as a fifth argument (row-mode owners only; JSON owners get EMPTY_ROWS), so authorization can read member rows without the head.
+2. TeamDO moves to row mode (snapshotTable `member`, snapshotTail 0): members are rows `member/<user>` {user, role, display_name}, hosts rows `host/<id>`. The head keeps team, policy (current version only; history stays in audit_events), counts (`member_count`, `host_count`) and the small maps. Row-mode effects carry writes, so subscribers mirror effects and never replay the reducer.
+3. Every `state.members[...]` reader (team.ts, team-reads.ts, team-do.ts, team-ssh-ca.ts, team-sso-external.ts, team-domain-external.ts, team-servers.ts, team-visibility.ts, team-ssh.ts) takes a `memberOf(user)` lookup bound to the rows. One-time migration on wake: if the head still has `members`/`hosts`, write them as rows and drop the maps in one commit (system op `team.rows_migrate`).
+4. Paging: `team.directory` becomes `team.members.list {cursor?, limit<=200, role?}` and `team.hosts.list {cursor?, limit}` (keyset on user id / host id), plus `team.directory` kept as the first page for old clients. Members are also projected to PlanetScale (`membership.upsert` already exists) for filtered admin listing.
+5. UserDO membership index (DM reach, spec 16.7): every membership write emits an E4 outbox item `user.team_index {team, role|null}` to the member's UserDO, which keeps a private table `team_index(team, role)`; read `user.teams` (internal RPC `homeTeamsOf(user)`) returns all teams the user belongs to, multi-member Stack teams included. The reach rule calls it for both users and intersects.
+6. Tests first: a 12k-member team commits with a head under 100 KB; authorize reads rows; paging is stable under inserts; the index follows add, role change and removal; the migration is idempotent on a live DO.
+
+Rollback note for (f) steps 2-3 (security review P2): code before 3e "TeamDO members and hosts in rows" reads `state.members[x]` and `Object.values(state.hosts)` and throws on a migrated head (no maps), so every TeamDO op fails closed. TeamDO is forward-fix only after this lands; a rollback deploy needs a build that keeps the row lookups. The migration key carries the head seq, so a head that a rollback refilled with maps migrates again.
+
+Rollback-safe build recipe for TeamDO (after (f) steps 2-3). A rollback must never deploy a TeamDO that reads only the maps.
+1. Start from the commit you want to roll back to: `git checkout -b rollback-<date> <target>`.
+2. Cherry-pick the row lookups, in order: the ownership commit "authorize gets a read-only row reader in row mode", then "TeamDO members and hosts in rows, one member lookup, live migration", "team events carry only the member view", and "SSH CA issuance reads host rows". Resolve conflicts in favor of `memberOf`/`roleOf`/`hostOf`/`hostByInstall` from `domains/team-members.ts`; keep `rowMode` and `redact` in the TeamDO constructor.
+3. Gates: `bun run typecheck`, `bun run lint:size`, `bun run catalog:check`, and the full backend suite on mini-6 (`nx-remote --ref <sha> -- 'cd backend && bun install --frozen-lockfile && bun run test'`), plus `test/team-members-rows.test.ts` on its own.
+4. Deploy that build. Migrated heads keep working (rows first); a head that the old build refilled with maps migrates again on the next bind (the key carries the head seq).

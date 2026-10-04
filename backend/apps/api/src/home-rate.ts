@@ -1,4 +1,4 @@
-import type { Principal } from "@cmux/ownership"
+import type { Principal, SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 
 /**
@@ -25,6 +25,22 @@ export const homeRateDecision = (times: ReadonlyArray<number>, now: number, limi
   const live = times.filter((t) => t > now - windowMs)
   if (live.length < limit) return { ok: true }
   return { ok: false, retry_after_ms: Math.max(1, Math.min(...live) + windowMs - now) }
+}
+
+/**
+ * The UserDO side of takeHomeRate: takes one attempt from `actor`'s hourly budget for `op`, or
+ * answers how long to wait. Attempts live in a private table, never in events; rows older than
+ * the window are pruned on every call.
+ */
+export const homeRateTakeSql = (sql: SqlStore, actor: string, op: HomeRateOp, now: number): HomeRateGate => {
+  if (!isHomeRateOp(op) || typeof actor !== "string" || actor.length === 0 || actor.length > 128) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+  sql.exec(`CREATE TABLE IF NOT EXISTS home_rate (actor TEXT NOT NULL, op TEXT NOT NULL, at INTEGER NOT NULL)`)
+  sql.exec(`CREATE INDEX IF NOT EXISTS home_rate_by_actor ON home_rate (actor, op, at)`)
+  sql.exec(`DELETE FROM home_rate WHERE at <= ?`, now - HOME_RATE_WINDOW_MS)
+  const times = sql.exec<{ at: number }>(`SELECT at FROM home_rate WHERE actor = ? AND op = ?`, actor, op).map((r) => Number(r.at))
+  const gate = homeRateDecision(times, now, HOME_RATE_LIMITS[op])
+  if (gate.ok) sql.exec(`INSERT INTO home_rate (actor, op, at) VALUES (?, ?, ?)`, actor, op, now)
+  return gate
 }
 
 interface RateStub {

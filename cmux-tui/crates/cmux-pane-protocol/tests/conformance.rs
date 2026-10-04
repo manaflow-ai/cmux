@@ -237,9 +237,12 @@ fn ir_uses_only_supported_keywords() {
     for (at, schema) in schemas {
         ir::schema_keywords_supported(schema, &at).unwrap();
     }
-    assert!(ShapeValidator.validate(&ir_value).is_ok());
-    // The whole IR passes the merge rules on its own (as emit-ir checks).
-    ir::merge(&serde_json::json!({}), &ir_value, &ShapeValidator).unwrap();
+    let fragment = ir::strip_derived(&ir_value);
+    assert!(ShapeValidator.validate(&fragment).is_ok());
+    // The whole IR passes the merge rules on its own (as emit-ir checks),
+    // and the merge derives the same scope classes emit-ir wrote.
+    let merged = ir::merge(&serde_json::json!({}), &fragment, &ShapeValidator).unwrap();
+    assert_eq!(merged["ops"], ir_value["ops"]);
 }
 
 /// The emitted IR keeps the seed's top-level shape and the merge fields.
@@ -266,6 +269,8 @@ fn ir_has_the_seed_shape() {
     assert_eq!(status["cli"], serde_json::json!({ "path": "git status", "visible": true }));
     assert_eq!(status["secret_output"], false);
     assert_eq!(status["paths"], serde_json::json!(["cwd"]));
+    assert_eq!((status["risk"].as_str(), status["gesture"].as_bool()), (Some("read"), Some(false)));
+    assert_eq!(status["scope_class"], "standard");
     for op in ir_value["ops"].as_array().unwrap() {
         if op["name"].as_str().unwrap().starts_with("cmux.router.") {
             assert_eq!(op["mcp"], serde_json::json!({ "expose": "never" }), "{}", op["name"]);

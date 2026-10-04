@@ -13,7 +13,8 @@ export {
   TABLE_MSGKEY,
   type ConversationDomainOptions,
   type ConversationParams,
-  type ConversationState
+  type ConversationState,
+  unreadFloor
 } from "./domain.ts"
 export type { Domain, OutboxItem, Principal, ReduceContext, ReduceResult, RowRange, RowReader, RowWrite, StoredRow } from "./engine-types.ts"
 export {

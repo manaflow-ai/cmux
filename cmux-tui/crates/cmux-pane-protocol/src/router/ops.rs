@@ -238,9 +238,10 @@ pub struct PagesListResult {
 crate::pane_op! {
     /// Admit the calling connection as a provider.
     pub HelloOp {
-        name: "cmux.router.hello", kind: Mutation, scope: "router:provide",
+        name: "cmux.router.hello", kind: Mutation, scope: "router:control",
         params: ProviderHello, result: ProviderWelcome,
         errors: ["cmux.router.refused"],
+        risk: MutateShared,
         mcp: Never,
     }
 }
@@ -248,7 +249,7 @@ crate::pane_op! {
 crate::pane_op! {
     /// The live provider of a namespace, and a data-plane token for it.
     pub ResolveOp {
-        name: "cmux.router.resolve", kind: Read, scope: "router:use",
+        name: "cmux.router.resolve", kind: Read, scope: "router:read",
         params: ResolveParams, result: ResolveResult,
         errors: ["cmux.router.no_provider"],
         mcp: Never,
@@ -258,9 +259,10 @@ crate::pane_op! {
 crate::pane_op! {
     /// Renew a page token or a data-plane token before it expires.
     pub TokenRefreshOp {
-        name: "cmux.router.token.refresh", kind: Mutation, scope: "router:use",
+        name: "cmux.router.token.refresh", kind: Mutation, scope: "router:write",
         params: TokenRefreshParams, result: TokenRefreshResult,
         errors: [],
+        risk: MutateOwn,
         mcp: Never,
     }
 }
@@ -268,7 +270,7 @@ crate::pane_op! {
 crate::pane_op! {
     /// Known interfaces and the live providers implementing each.
     pub InterfacesListOp {
-        name: "cmux.router.interfaces.list", kind: Read, scope: "router:use",
+        name: "cmux.router.interfaces.list", kind: Read, scope: "router:read",
         params: InterfacesListParams, result: InterfacesListResult,
         errors: [],
         mcp: Never,
@@ -278,7 +280,7 @@ crate::pane_op! {
 crate::pane_op! {
     /// Registered pages.
     pub PagesListOp {
-        name: "cmux.router.pages.list", kind: Read, scope: "router:use",
+        name: "cmux.router.pages.list", kind: Read, scope: "router:read",
         params: PagesListParams, result: PagesListResult,
         errors: [],
         mcp: Never,

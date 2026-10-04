@@ -29,7 +29,9 @@ fn main() -> ExitCode {
     // The emitted IR must pass the same rules as any fragment (names,
     // keywords, paths, tool names).
     let ir = catalog().ir();
-    if let Err(error) = cmux_pane_protocol::ir::merge(&serde_json::json!({}), &ir, &ShapeValidator)
+    let fragment = cmux_pane_protocol::ir::strip_derived(&ir);
+    if let Err(error) =
+        cmux_pane_protocol::ir::merge(&serde_json::json!({}), &fragment, &ShapeValidator)
     {
         eprintln!("error: the catalog breaks the IR rules: {error}");
         return ExitCode::FAILURE;
