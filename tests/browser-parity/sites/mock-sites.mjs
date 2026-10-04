@@ -679,6 +679,8 @@ function assets(req, url) {
     };
   // A page that embeds an image from another site that holds a session cookie (github.com).
   if (url.pathname === "/xpage") return { html: html(`<img src="/img/logo.png" alt="own"><img src="https://github.com/acme/avatar.png" alt="other">`, "Cross-origin assets") };
+  // An asset on the page's origin that redirects to another site.
+  if (url.pathname === "/img/redirect-out.png") return { redirect: "https://github.com/acme/avatar.png" };
   if (url.pathname.endsWith(".png") || url.pathname.endsWith(".ico")) return { status: url.pathname.includes("@2x") ? 404 : 200, headers: { "content-type": "image/png" }, body: PNG };
   if (url.pathname.endsWith(".css")) return { status: 200, headers: { "content-type": "text/css" }, body: "body{margin:0}" };
   if (url.pathname.endsWith(".woff2")) return { status: 200, headers: { "content-type": "font/woff2" }, body: "wOF2mock" };
