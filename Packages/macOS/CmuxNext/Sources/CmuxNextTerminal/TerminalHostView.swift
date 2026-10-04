@@ -109,8 +109,15 @@ public final class TerminalHostView: NSView {
     }
 
     /// Opaque windows only, like `GhosttyRuntime.backgroundColor`: in a
-    /// translucent window the window root paints the one sheet.
+    /// translucent window the window root paints the one sheet. The user's
+    /// terminal background (`appearance.surfaces.terminal`) replaces both;
+    /// the surfaces then draw a transparent default background.
     private func paintBackground() {
+        let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
+        if let fill {
+            layer?.backgroundColor = fill.cgColor
+            return
+        }
         let runtime = GhosttyRuntime.shared
         guard let rgb = theme?.colors?.background, runtime.backgroundOpacity >= 1 else {
             layer?.backgroundColor = runtime.backgroundColor.cgColor

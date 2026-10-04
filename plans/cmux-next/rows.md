@@ -213,8 +213,10 @@ Daemon (cmux-tui) under capability `rows-v1`:
 
 ## Geometry
 
-- G1. A row's height is a share of the column's viewport height, gaps included as for column widths:
-  `(view - gap) * p - gap`.
+- G1. A row's height is a share of the column's viewport height, with gaps only between rows:
+  `(height + gap) * p - gap`, so a row of 1000 is exactly today's column and two rows of 500 plus
+  their gap fill it (decision, coordinator, 2026-10-04; it replaces `(view - gap) * p - gap`, which
+  counted gaps above and below the column).
 - G2. Fill under, scroll over: when a column's heights sum to at most 1000, its rows fill the
   column in proportion (as stacked panes fill a column today); above 1000 the rows keep their
   heights and the column scrolls vertically. One full-height row is today's column.
@@ -380,6 +382,24 @@ to 1000), `FlattenRows`; invariant `Violation::RowLayout`. 23 crate tests includ
 test (5000 cases on nx-remote) pass, fmt and clippy are clean. Not landed: the hosted cmux-tui
 verification could not be dispatched (GitHub API 403 on 2026-10-02 22:41 UTC); it lands when
 that run is green. `Destination::Row` is `MoveTabToRow` (no Destination enum exists yet).
+
+## Step 4 status (2026-10-04)
+
+App half on branch `feat-cmux-next-rows-app`. Done: decode of `columns[].rows` and `rows-v1` in
+`DaemonCapabilities.optional`; `LayoutColumn.rows` (the column's `root` stays the compat chain for
+pane queries; split queries use the row trees); geometry G1 with gaps only between rows
+(`(height + gap) * p - gap`, so a row of 1000 is today's column) and G2; rendering; a vertical
+offset per overflowing column through the column scroll reducer behind the `RowScroll` adapter
+(opaque strip slots, no row id in a column id); V5 input (gaps between rows, or Command); row
+divider resize as one `set-row-heights` with a transaction through the store's intent log, settled
+on the `screen-changed` echo; `layout.rows` in cmux.json, the Settings window, the settings schema
+and the MDM export; New Row (Cmd-Ctrl-Shift-D, palette, View menu, `pane new-row`, MCP, pane
+context menu New folder); no row op without `rows-v1`.
+
+Left for a later step: Toggle Rows (palette), the row scrollbar and `layout.rowScrollbar`, Equalize
+Rows (Z3) and Resize Pane Up/Down at a row edge (Z2), `layout.centerFocusedRow` (the reducer runs
+with `never`), focus N1 to N3, `debug.rows`, `--height` and `--cwd` on `pane new-row` and its
+`rows-disabled` code, row drop targets (D1 to D5), and a live tagged-build check.
 
 ## Steps (each lands alone; feat-cmux-next stays shippable)
 

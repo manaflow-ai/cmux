@@ -19,7 +19,7 @@ extension LayoutModel {
         guard splitSizing == .even, let layout = screen(containing: pane)?.layout else { return [] }
         let tree: SplitNode? = switch layout {
         case let .splits(root): root
-        case .columns: layout.column(containing: pane)?.root
+        case .columns: layout.column(containing: pane)?.tree(containing: pane)
         }
         return tree.map { EvenSplitRatios.changes(splitting: pane, axis: axis, in: $0) } ?? []
     }

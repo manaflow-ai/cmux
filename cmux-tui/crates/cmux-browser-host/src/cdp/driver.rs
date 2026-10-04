@@ -102,6 +102,10 @@ impl CdpDriver {
                 continue;
             };
             if info.get("attached").and_then(Value::as_bool) == Some(true)
+                || info
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .is_some_and(crate::policy::is_browser_page)
                 || inner.lock().tabs.contains_key(target_id)
             {
                 continue;
@@ -120,6 +124,7 @@ impl CdpDriver {
 impl Driver for CdpDriver {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
         let inner = &self.inner;
+        inner.browser_page_refusal(method, params)?;
         match method {
             "tabs.list" => Ok(inner.tabs_list()),
             "tabs.open" => inner.tabs_open(params),
@@ -204,6 +209,22 @@ impl Inner {
                     .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
                     .collect();
                 let _ = self.conn.call_batch(Some(&session_id), steps, INTERNAL_TIMEOUT);
+            }
+            FollowUp::Release { session_id, waiting, parent } => {
+                if waiting {
+                    let _ = self.conn.call(
+                        Some(&session_id),
+                        "Runtime.runIfWaitingForDebugger",
+                        json!({}),
+                        INTERNAL_TIMEOUT,
+                    );
+                }
+                let _ = self.conn.call(
+                    parent.as_deref(),
+                    "Target.detachFromTarget",
+                    json!({"sessionId": session_id}),
+                    INTERNAL_TIMEOUT,
+                );
             }
             FollowUp::SetUpFrame { target_id: _, session_id } => {
                 // Failures leave the frame unreachable; it must still run.

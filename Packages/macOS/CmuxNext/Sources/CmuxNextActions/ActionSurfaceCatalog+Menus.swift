@@ -134,6 +134,7 @@ nonisolated extension ActionSurfaceCatalog {
         "terminal.clearTheme": [p(.tab, .identity, 206, folder: .options)],
         "splitRight": [p(.pane, .create, 0), p(.terminalSelection, .create, 100, folder: .split)],
         "newColumn": [p(.pane, .create, 4)],
+        "newRow": [p(.pane, .create, 1, folder: .new)],
         "splitDown": [p(.pane, .create, 1), p(.terminalSelection, .create, 101, folder: .split)],
         "newPaneAutoLayout": [p(.pane, .create, 8, folder: .new)],
         "toggleSplitZoom": [p(.pane, .layout, 100), p(.terminalSelection, .layout, 104, folder: .layout)],

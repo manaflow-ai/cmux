@@ -1,0 +1,13 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/route.ts PATCH (no customer data).",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/vm/vm-alpha01"
+  },
+  "status": 200,
+  "body": {
+    "id": "vm-alpha01",
+    "displayName": "renamed",
+    "slug": "build-box"
+  }
+}

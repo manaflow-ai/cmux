@@ -1,3 +1,5 @@
+// `branch`, `chevronRight`, `file`, `fileSearch`, `image`, `package` and `plusMinus` are
+// custom stroke icons drawn for the diff toolbar and its menus (20px grid).
 // Filled icons use Primer Octicons 19.38.0 path data (MIT, 16px grid), the
 // icon set of GitHub's own diff view. `bars`, `split`, and `unified` stay
 // custom stroke icons because they preview the indicator style and layout.
@@ -5,8 +7,10 @@ export type IconName =
   | "arrow"
   | "background"
   | "bars"
+  | "branch"
   | "check"
   | "chevronDown"
+  | "chevronRight"
   | "chevronUp"
   | "classic"
   | "clipboard"
@@ -22,9 +26,14 @@ export type IconName =
   | "external"
   | "eye"
   | "eyeClosed"
+  | "file"
+  | "fileSearch"
   | "files"
+  | "image"
   | "none"
   | "numbers"
+  | "package"
+  | "plusMinus"
   | "refresh"
   | "search"
   | "sidebarCollapse"
@@ -162,6 +171,59 @@ function StrokeIconPaths({ name }: { name: IconName }) {
           <rect x="4" y="4" width="12" height="12" rx="2" />
           <rect x="6" y="6" width="8" height="3.5" rx="1" data-diff-deletion="true" />
           <rect x="6" y="10.5" width="8" height="3.5" rx="1" data-diff-addition="true" />
+        </>
+      );
+    case "branch":
+      return (
+        <>
+          <circle cx="6" cy="5" r="1.8" />
+          <circle cx="6" cy="15" r="1.8" />
+          <circle cx="14" cy="6.5" r="1.8" />
+          <path d="M6 6.8v6.4" />
+          <path d="M14 8.3c0 3.2-8 2.4-8 4.9" />
+        </>
+      );
+    case "chevronRight":
+      return <path d="M8 5l5 5-5 5" />;
+    case "file":
+      return (
+        <>
+          <path d="M5.5 3.5h6l3 3v9.5a.5.5 0 0 1-.5.5h-8.5a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5Z" />
+          <path d="M11.5 3.5V6.5h3" />
+        </>
+      );
+    case "fileSearch":
+      return (
+        <>
+          <path d="M9 16.5H5.5a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5h6l3 3V9" />
+          <path d="M11.5 3.5V6.5h3" />
+          <circle cx="12.5" cy="13" r="2.2" />
+          <path d="M14.1 14.6l1.9 1.9" />
+        </>
+      );
+    case "image":
+      return (
+        <>
+          <rect x="3.5" y="4.5" width="13" height="11" rx="1.5" />
+          <circle cx="12.5" cy="8.5" r="1.3" />
+          <path d="M3.5 13.5l3.8-3.6 3.2 3 1.8-1.6 4.2 3.7" />
+        </>
+      );
+    case "package":
+      return (
+        <>
+          <path d="M10 3l6.5 3.5v7L10 17l-6.5-3.5v-7Z" />
+          <path d="M3.5 6.5L10 10l6.5-3.5" />
+          <path d="M10 10v7" />
+        </>
+      );
+    case "plusMinus":
+      return (
+        <>
+          <rect x="4" y="3.5" width="12" height="13" rx="2" />
+          <path d="M10 6.5v4" />
+          <path d="M8 8.5h4" />
+          <path d="M8 13h4" />
         </>
       );
     default:

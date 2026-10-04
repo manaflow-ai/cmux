@@ -60,7 +60,7 @@ import Testing
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["newTab"] == nil)
         var opened = 0
-        model.onOpenTab = { _, _, _ in opened += 1 }
+        model.onOpenTab = { _ in opened += 1 }
         #expect(await model.respond(to: .openTab(.terminal, text: "ls"))["ok"] as? Bool == false)
         #expect(opened == 0)
     }
@@ -70,7 +70,7 @@ import Testing
         var opened: [String] = []
         var edited: [AgentPaneTabKind] = []
         var jumped: [String] = []
-        model.onOpenTab = { opened.append("\($0.rawValue):\($1)\($2.map { "@" + $0 } ?? "")") }
+        model.onOpenTab = { opened.append("\($0.kind.rawValue):\($0.text)\($0.cwd.map { "@" + $0 } ?? "")") }
         model.onJump = { jumped.append("\($0.rawValue):\($1)") }
         model.onEditShortcut = { edited.append($0) }
         #expect(await model.respond(to: .openTab(.terminal, text: "bun dev"))["ok"] as? Bool == true)
@@ -81,6 +81,59 @@ import Testing
         #expect(opened == ["terminal:bun dev", "browser:localhost:5173", "terminal:@/src/api"])
         #expect(jumped == ["tab:tab-7"])
         #expect(edited == [.agent])
+    }
+
+    /// Variant B (plans/cmux-next/new-tab.md): a search row searches even an
+    /// address-like text, and `!` only types its command; what is typed
+    /// after `!` follows as type-ahead; Tab and an agent pick are remembered.
+    @Test func theScreenRequestsParseSearchTypeOnlyTypeAheadAndMemory() {
+        func request(_ method: String, _ params: [String: Any]) -> AgentPaneRequest {
+            AgentPaneRequest(body: ["method": method, "params": params] as [String: Any])
+        }
+        #expect(request("tab.open", ["kind": "browser", "text": "node.js", "search": true])
+            == .openTab(.browser, text: "node.js", search: true))
+        #expect(request("tab.open", ["kind": "terminal", "text": "ls", "run": false, "cwd": "/src"])
+            == .openTab(.terminal, text: "ls", cwd: "/src", run: false))
+        // Search is a browser choice and type-only a terminal one.
+        #expect(request("tab.open", ["kind": "terminal", "text": "ls", "search": true]) == .openTab(.terminal, text: "ls"))
+        #expect(request("tab.open", ["kind": "browser", "text": "x", "run": false]) == .openTab(.browser, text: "x"))
+        #expect(request("tab.typeAhead", ["text": "git st"]) == .typeAhead("git st"))
+        #expect(request("tab.typeAhead", [:]) == .unsupported("tab.typeAhead"))
+        let long = String(repeating: "a", count: AgentPaneRequest.maximumOpenTabText + 1)
+        #expect(request("tab.typeAhead", ["text": long]) == .typeAhead(String(long.prefix(AgentPaneRequest.maximumOpenTabText))))
+        #expect(request("newTab.remember", ["mode": "search"]) == .rememberNewTab(mode: "search", agent: nil))
+        #expect(request("newTab.remember", ["agent": "codex"]) == .rememberNewTab(mode: nil, agent: "codex"))
+        #expect(request("newTab.remember", ["mode": "loud"]) == .unsupported("newTab.remember"))
+        #expect(request("newTab.remember", ["agent": String(repeating: "a", count: 200)]) == .unsupported("newTab.remember"))
+    }
+
+    @Test func typeAheadAndMemoryReachTheAppOnlyFromTheNewTabPage() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        var typed: [String] = []
+        var remembered: [String] = []
+        var opened: [AgentPaneOpenTab] = []
+        model.onOpenTab = { opened.append($0) }
+        model.onTypeAhead = { typed.append($0) }
+        model.onRememberNewTab = { remembered.append("\($0 ?? "-"):\($1 ?? "-")") }
+        #expect(await model.respond(to: .openTab(.terminal, text: "", run: false))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .typeAhead("ls"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .rememberNewTab(mode: "search", agent: nil))["ok"] as? Bool == true)
+        #expect(opened == [AgentPaneOpenTab(kind: .terminal, text: "", run: false)])
+        #expect(typed == ["ls"])
+        #expect(remembered == ["search:-"])
+        // The type-ahead outlives the page's switch to a chat only until a session exists.
+        _ = await model.respond(to: .persistSession("s-1"))
+        #expect(await model.respond(to: .typeAhead("x"))["ok"] as? Bool == false)
+        #expect(typed == ["ls"])
+    }
+
+    @Test func theHandshakeCarriesLayoutModeAgentAndHome() throws {
+        let page = AgentPaneNewTab(kind: .agent, layout: .a, mode: .search, lastAgent: "codex", home: "/Users/me")
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any]
+        #expect(json?["layout"] as? String == "a")
+        #expect(json?["mode"] as? String == "search")
+        #expect(json?["lastAgent"] as? String == "codex")
+        #expect(json?["home"] as? String == "/Users/me")
     }
 
     @Test func requestsParseOnlyKnownKinds() {

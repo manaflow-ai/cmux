@@ -316,11 +316,11 @@ pub struct WebSocketConfig {
     pub token: Option<String>,
     /// Browser origins allowed besides the listener's own and the agent
     /// pane's (for example a page dev server). `null` is never allowed.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "allowed_origins", skip_serializing_if = "Vec::is_empty")]
     pub allowed_origins: Vec<String>,
     /// `Host` names allowed besides loopback (a proxy that keeps a public
     /// name). Both lists are read when the listener starts.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
 }
 

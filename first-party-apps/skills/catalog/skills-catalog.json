@@ -4,7 +4,7 @@
     {
       "class": "mutation",
       "cli": {
-        "path": "apps run cmux/skills open",
+        "path": "open",
         "visible": true
       },
       "docs": "Open the Skills and MCP pane.",

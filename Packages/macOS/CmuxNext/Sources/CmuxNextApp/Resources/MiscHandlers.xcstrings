@@ -5371,6 +5371,137 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.agentChromiumPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automation cannot open Chromium's own pages (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動操作では Chromium 自身のページ (chrome://、chrome-extension://、devtools://) を開けません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن للأتمتة فتح صفحات Chromium الخاصة (chrome://، chrome-extension://، devtools://)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatizacija ne može otvoriti Chromiumove vlastite stranice (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisering kan ikke åbne Chromiums egne sider (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisierung kann Chromiums eigene Seiten nicht öffnen (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La automatización no puede abrir las páginas propias de Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’automatisation ne peut pas ouvrir les pages propres à Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’automazione non può aprire le pagine proprie di Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិកម្មមិនអាចបើកទំព័រផ្ទាល់របស់ Chromium បានទេ (chrome://, chrome-extension://, devtools://)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동화는 Chromium 자체 페이지(chrome://, chrome-extension://, devtools://)를 열 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisering kan ikke åpne Chromiums egne sider (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatyzacja nie może otwierać własnych stron Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A automação não pode abrir as páginas próprias do Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизация не может открывать собственные страницы Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบอัตโนมัติเปิดหน้าของ Chromium เองไม่ได้ (chrome://, chrome-extension://, devtools://)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomasyon Chromium’un kendi sayfalarını açamaz (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизація не може відкривати власні сторінки Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động hóa không thể mở các trang riêng của Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动化无法打开 Chromium 自身的页面（chrome://、chrome-extension://、devtools://）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動化無法開啟 Chromium 自身的頁面（chrome://、chrome-extension://、devtools://）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

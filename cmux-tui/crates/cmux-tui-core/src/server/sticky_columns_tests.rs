@@ -510,6 +510,66 @@ fn sticky_column_flags_clear_when_a_layout_apply_leaves_only_sticky_columns() {
     assert_eq!(wire.sticky(), vec![None, None], "one column must keep scrolling");
 }
 
+/// The sticky member of each viewport column in the v2 layout document,
+/// `None` where it is omitted.
+fn exported_sticky(layout: &Value) -> Vec<Option<Value>> {
+    layout["root"]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|column| column.as_object().unwrap().get("sticky").cloned())
+        .collect()
+}
+
+#[test]
+fn sticky_column_flag_is_in_the_v2_layout_document() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    wire.set_sticky(panes[2], "right", "docked");
+    wire.set_sticky(panes[0], "left", "overlay");
+    let layout = export_layout(&wire.mux);
+    assert_eq!(
+        exported_sticky(&layout),
+        vec![sticky("left", "overlay"), None, sticky("right", "docked")],
+        "{layout}"
+    );
+    let screen = resource(
+        &wire.mux,
+        "screen.get",
+        json!({"machine": "current", "session": "current", "screen": public_ids(&wire.mux).1}),
+        None,
+    );
+    assert_eq!(
+        exported_sticky(&screen["result"]["layout"]),
+        vec![sticky("left", "overlay"), None, sticky("right", "docked")],
+        "{screen}"
+    );
+}
+
+#[test]
+fn sticky_column_flag_in_a_layout_apply_sets_and_clears_the_flag() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    wire.set_sticky(panes[2], "right", "docked");
+    let mut layout = export_layout(&wire.mux);
+    layout["root"]["columns"][0]["sticky"] = json!({"edge": "left", "mode": "overlay"});
+    layout["root"]["columns"][2]["sticky"] = Value::Null;
+
+    let applied = apply_layout(&wire.mux, layout, "sticky-apply-set-clear");
+    assert!(applied.get("error").is_none(), "{applied}");
+    assert_eq!(wire.sticky(), vec![sticky("left", "overlay"), None, None]);
+}
+
+#[test]
+fn sticky_column_flags_in_a_layout_apply_must_keep_one_scrolling_column() {
+    let (wire, _) = Wire::with_columns(2);
+    let mut layout = export_layout(&wire.mux);
+    layout["root"]["columns"][0]["sticky"] = json!({"edge": "left", "mode": "docked"});
+    layout["root"]["columns"][1]["sticky"] = json!({"edge": "right", "mode": "docked"});
+
+    let applied = apply_layout(&wire.mux, layout, "sticky-apply-all-sticky");
+    assert!(applied.get("error").is_some(), "{applied}");
+    assert_eq!(wire.sticky(), vec![None, None]);
+}
+
 /// A screen without stored columns is one implicit column (every screen is a
 /// column strip): column ops answer with the column rules, never with
 /// "no viewport column", and the layout does not change.

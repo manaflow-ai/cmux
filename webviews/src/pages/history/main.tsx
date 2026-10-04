@@ -3,11 +3,12 @@
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
+import { subscribePageStreams } from "../shared/pageStreams";
 import table from "./generated/strings.json";
 import { HistoryPage } from "./HistoryPage";
 import { MockHistoryProvider } from "./mockProvider";
 import { HistoryStore } from "./store";
-import { PAGE_COMMAND } from "./types";
+import "../shared/pageBase.css";
 import "./styles.css";
 
 export function mountHistoryPage(root: HTMLElement, client: PageClient | null = defaultClient()): HistoryStore {
@@ -15,12 +16,19 @@ export function mountHistoryPage(root: HTMLElement, client: PageClient | null = 
     writeClipboard: (text) => navigator.clipboard.writeText(text),
   });
   // The app's key dispatcher sends page commands (Cmd-F is `find`); the page never reads chords.
-  client?.handle(PAGE_COMMAND, (params) => {
-    const command = (params as { command?: string } | null)?.command;
-    if (command !== "find" && command !== "focusSearch") return { handled: false };
-    document.querySelector<HTMLInputElement>(".history-search")?.focus();
-    return { handled: true };
-  });
+  if (client) {
+    void subscribePageStreams(client, {
+      onCommand: ({ command, text }) => {
+        if (command === "reset") {
+          store.setText("");
+          store.setFilter("all");
+        }
+        if (command !== "find" && command !== "focusSearch") return;
+        if (typeof text === "string") store.setText(text);
+        document.querySelector<HTMLInputElement>(".history-search")?.focus();
+      },
+    });
+  }
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("page.title");

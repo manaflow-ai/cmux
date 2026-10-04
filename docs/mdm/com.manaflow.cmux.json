@@ -181,6 +181,114 @@
       "title" : "Line Width",
       "type" : "number"
     },
+    "appearance.surfaces.agentPane.color" : {
+      "description" : "appearance.surfaces.agentPane.color",
+      "title" : "Agent Chat Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.agentPane.opacity" : {
+      "description" : "appearance.surfaces.agentPane.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Agent Chat Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.browserChrome.color" : {
+      "description" : "appearance.surfaces.browserChrome.color",
+      "title" : "Browser Toolbar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.browserChrome.opacity" : {
+      "description" : "appearance.surfaces.browserChrome.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Browser Toolbar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.docks.color" : {
+      "description" : "appearance.surfaces.docks.color",
+      "title" : "Docked Columns Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.docks.opacity" : {
+      "description" : "appearance.surfaces.docks.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Docked Columns Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.home.color" : {
+      "description" : "appearance.surfaces.home.color",
+      "title" : "Home Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.home.opacity" : {
+      "description" : "appearance.surfaces.home.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Home Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.newTabPage.color" : {
+      "description" : "appearance.surfaces.newTabPage.color",
+      "title" : "New Tab Page Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.newTabPage.opacity" : {
+      "description" : "appearance.surfaces.newTabPage.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "New Tab Page Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.settings.color" : {
+      "description" : "appearance.surfaces.settings.color",
+      "title" : "Settings Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.settings.opacity" : {
+      "description" : "appearance.surfaces.settings.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Settings Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.sidebar.color" : {
+      "description" : "appearance.surfaces.sidebar.color",
+      "title" : "Sidebar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.sidebar.opacity" : {
+      "description" : "appearance.surfaces.sidebar.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Sidebar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.tabBar.color" : {
+      "description" : "appearance.surfaces.tabBar.color",
+      "title" : "Tab Bar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.tabBar.opacity" : {
+      "description" : "appearance.surfaces.tabBar.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Tab Bar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.terminal.color" : {
+      "description" : "appearance.surfaces.terminal.color",
+      "title" : "Terminal Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.terminal.opacity" : {
+      "description" : "appearance.surfaces.terminal.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Terminal Opacity",
+      "type" : "number"
+    },
     "appearance.theme" : {
       "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
@@ -470,6 +578,12 @@
       "minimum" : 0,
       "title" : "Padding",
       "type" : "number"
+    },
+    "layout.rows" : {
+      "default" : true,
+      "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
+      "title" : "Rows",
+      "type" : "boolean"
     },
     "layout.splitSizing" : {
       "default" : "even",

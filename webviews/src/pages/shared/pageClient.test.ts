@@ -45,7 +45,7 @@ describe("BridgePageClient", () => {
   test("a failed post is a retryable transport error; a malformed reply is invalid_result", async () => {
     const lost: ReplyHandler = { postMessage: () => Promise.reject(new Error("closed")) };
     const error = await new BridgePageClient(lost, {}).call("x", {}).catch((e) => e);
-    expect(error).toMatchObject({ code: "cmux.protocol.transport", retryable: true });
+    expect(error).toMatchObject({ code: "cmux.protocol.closed", retryable: true });
     const { client } = host(() => ({ t: "ok", id: 999 }));
     expect(await client.call("x", {}).catch((e) => e.code)).toBe("cmux.protocol.invalid_result");
   });
@@ -68,6 +68,12 @@ describe("BridgePageClient", () => {
     receive({ t: "ev", sub: 7, seq: 3, data: { revision: 4 } });
     expect(seen).toEqual([102, 203]);
     expect(posted.at(-1)).toEqual({ t: "unsub", sub: 7 });
+  });
+
+  test("a subscription filter travels in the sub envelope", async () => {
+    const { client, posted } = host((m) => ({ t: "ok", id: m.id, value: { sub: 3 } }));
+    await client.subscribe("cmux.apps.logs", () => undefined, { app: "cmux.git", follow: true });
+    expect(posted[0]).toEqual({ t: "sub", id: 1, stream: "cmux.apps.logs", filter: { app: "cmux.git", follow: true } });
   });
 
   test("host calls run the page handler and post the reply envelope", async () => {

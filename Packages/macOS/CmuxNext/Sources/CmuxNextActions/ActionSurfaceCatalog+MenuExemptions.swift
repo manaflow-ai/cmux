@@ -52,7 +52,7 @@ nonisolated extension ActionSurfaceCatalog {
             "appearance.paneBorderColor.reset", "appearance.titlebar.minimal", "appearance.titlebar.standard",
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
-            "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.clear",
+            "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
             "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export", "agentActivity.open",
         ],
         .noTargetSurface: [

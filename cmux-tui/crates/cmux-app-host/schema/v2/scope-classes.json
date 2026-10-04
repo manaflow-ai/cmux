@@ -8,7 +8,7 @@
   "rules": [
     { "pattern": "^process:spawn:[a-z0-9][a-z0-9-]{0,63}$", "class": "restricted", "serverOnly": true },
     { "pattern": "^op:[a-z][a-zA-Z0-9_.-]{0,95}$", "class": "sensitive", "serverOnly": true },
-    { "pattern": "^(feed:answer|terminal:input|fs:write|clipboard:write|mcp:expose|usage:read)$", "class": "restricted" },
+    { "pattern": "^(feed:answer|terminal:input|terminal:backend|fs:write|clipboard:write|mcp:expose|usage:read)$", "class": "restricted" },
     { "pattern": "^[a-z][a-z0-9_-]{0,31}:answer$", "class": "restricted" },
     { "pattern": "^[a-z][a-z0-9_-]{0,31}:input$", "class": "restricted" },
     { "pattern": "^[a-z][a-z0-9_-]{0,31}:keys$", "class": "restricted", "$comment": "create and revoke credentials of the family, for example coderouter:keys" },

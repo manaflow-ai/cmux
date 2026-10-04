@@ -1,0 +1,11 @@
+{
+  "$comment": "Shape recorded from web/services/vms/auth.ts unauthorized().",
+  "request": {
+    "method": "GET",
+    "path": "/api/vm"
+  },
+  "status": 401,
+  "body": {
+    "error": "unauthorized"
+  }
+}

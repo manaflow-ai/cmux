@@ -74,5 +74,6 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 cmux-pty.workspace = true
+cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"
 rusqlite.workspace = true

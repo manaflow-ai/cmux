@@ -1,0 +1,32 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "manaflow-ai/ssh-terminal",
+  "name": { "en": "SSH Terminal (sample)", "ja": "SSH ターミナル (サンプル)" },
+  "version": "0.1.0",
+  "description": {
+    "en": "Sample third-party terminal backend: plain SSH to hosts you connect, with no cmux on the host.",
+    "ja": "サードパーティのターミナルバックエンドのサンプル: 接続したホストへの通常の SSH。ホスト側に cmux は不要です。"
+  },
+  "publisher": { "name": "manaflow-ai (sample, not first-party)", "url": "https://github.com/manaflow-ai" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": ["samples", "developer-tools"],
+  "keywords": ["ssh", "terminal", "backend"],
+  "engines": { "cmux": "^2.0" },
+  "handles": {
+    "connection": {
+      "reason": "Open a shell on the SSH hosts you pick. You accept each host key.",
+      "kinds": ["ssh"],
+      "max": 16
+    },
+    "credential": {
+      "reason": "Sign in to those hosts with your SSH key. The app never sees the key.",
+      "kinds": ["ssh-key"],
+      "max": 16
+    }
+  },
+  "requires": { "platforms": ["macos", "linux"] },
+  "files": ["assets/"]
+}

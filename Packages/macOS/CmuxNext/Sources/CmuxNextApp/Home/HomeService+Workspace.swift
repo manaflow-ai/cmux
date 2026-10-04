@@ -47,9 +47,7 @@ extension HomeService {
     /// else one created under a fixed key.
     private func chiefConversation(_ connection: DaemonConnection) async throws -> String {
         let client = ConversationClient(connection)
-        if let existing = try await client.list().first(where: { summary in
-            summary.participants.contains { $0.id == Self.mux.id }
-        }) {
+        if let existing = HomeChiefName.select(from: try await client.list()) {
             // One-time rename to the chief's name (N1); a failure keeps the old title.
             if let rename = HomeChiefName.migration(for: existing) {
                 do { _ = try await client.op(rename) } catch {

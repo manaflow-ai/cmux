@@ -9,7 +9,7 @@ use serde_json::Value;
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
 pub(crate) fn check(m: &Value) -> Vec<Issue> {
-    let mut out = Vec::new();
+    let mut out = crate::cli::check_manifest(m);
     let id = m["id"].as_str().unwrap_or_default();
     let publisher = id.split('/').next().unwrap_or_default();
     let first_party = FIRST_PARTY.contains(&publisher);
@@ -76,6 +76,13 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                     ));
                 }
             }
+            if imp.get("server").is_some() && m.get("server").is_none() {
+                out.push(Issue::error(
+                    format!("{at}/server"),
+                    "implements.serverMissing",
+                    "a server implementation needs the top-level server block",
+                ));
+            }
             if imp.get("web").is_some() && m.pointer("/runtime/web").is_none() {
                 out.push(Issue::error(
                     format!("{at}/web"),
@@ -129,6 +136,7 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     }
     check_scopes(m, first_party, &mut out);
     crate::presentation::check(m, first_party, &mut out);
+    crate::toolbar::check(m, &mut out);
     if !m["icon"].is_string() {
         out.push(Issue::warning(
             "/icon",

@@ -4,7 +4,7 @@ import type { Principal, SettledFrame } from "./types.ts"
 
 /** Largest committed head (one SQLite row; Durable Object rows are at most 2 MB). */
 export const STATE_MAX_BYTES = 1_500_000
-const utf8Length = (text: string): number => {
+export const utf8Length = (text: string): number => {
   let n = 0
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i)
