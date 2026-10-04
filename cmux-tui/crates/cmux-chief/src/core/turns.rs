@@ -116,6 +116,7 @@ impl Core {
             .collect();
         for prompt_id in stale {
             self.state.prompts.remove(&prompt_id);
+            self.prompt_rejections.remove(&prompt_id);
             self.dirty = true;
             self.log(format!("dropping permission prompt {prompt_id}: its session is not waiting"));
         }
