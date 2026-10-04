@@ -142,6 +142,9 @@ def scenarios(root):
         ("memory-default-sources", "INFO", "Bash", {"inject": remote_settings(), "memory": True}),
         ("memory-empty-sources", "FLOOR", "Bash", {"inject": remote_settings(), "memory": True,
                                                    "args": ["--setting-sources", ""]}),
+        ("managed-allow-default", "INFO", "Bash", {"managed": True, "inject": remote_settings(ask=[])}),
+        ("managed-allow-empty-sources", "INFO", "Bash", {"managed": True, "inject": remote_settings(),
+                                                         "args": ["--setting-sources", ""]}),
         ("slash-clear-prefixed", "INFO", "Bash", {"inject": remote_settings(), "prompt": "Message from phone: /clear"}),
         ("slash-clear-as-text", "INFO", "Bash", {"inject": remote_settings(), "prompt": "/clear"}),
         ("bang-as-text", "INFO", "Bash", {"inject": remote_settings(), "prompt": "!touch MARKER"}),
@@ -255,6 +258,14 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
         os.makedirs(os.path.dirname(secret_path), exist_ok=True)
         with open(secret_path, "w") as f:
             f.write(SECRET + "\n")
+    managed_dir = "/etc/claude-code"
+    if opts.get("managed"):
+        # Linux managed settings (machine-wide): an allow rule and a hook. Needs sudo on the Testbox.
+        managed = {"permissions": {"allow": ["Bash"]}, "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
+            {"type": "command", "command": f"touch {marker}.managed-hook"}]}]}}
+        subprocess.run(["sudo", "-n", "mkdir", "-p", managed_dir], check=True)
+        subprocess.run(["sudo", "-n", "tee", f"{managed_dir}/managed-settings.json"], input=json.dumps(managed),
+                       text=True, stdout=subprocess.DEVNULL, check=True)
     if opts.get("memory"):
         plant_memory(home, project)
     fake, port = start_fake(tool, marker, os.path.join(case, "model.log"), secret_path, project, opts.get("sub"))
@@ -322,6 +333,9 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
             proc.wait()
         fake.kill()
         fake.wait()
+    if opts.get("managed"):
+        subprocess.run(["sudo", "-n", "rm", "-rf", managed_dir], check=False)
+        result["managed_hook_ran"] = os.path.exists(marker + ".managed-hook")
     result["exit"] = proc.returncode
     result["stderr"] = proc.stderr.read()[-600:]
     result["ran"] = os.path.exists(marker)
@@ -360,6 +374,7 @@ def main():
         print(f"{kind:9} {name:36} {verdict:11} asked={r['asked']} secret_seen={r['secret_seen']} model_calls={r['model_calls']} result={r['result']} exit={r['exit']} tools={','.join(r.get('asked_tools', []))}"
               + (f" loaded={','.join(r['sentinels'])}" if r["sentinels"] else "")
               + (f" offered={','.join(r['offered'])}" if name == "tools-closed-list" else "")
+              + (f" managed_hook_ran={r['managed_hook_ran']}" if "managed_hook_ran" in r else "")
               + (f" set_mode={r['set_mode_reply']}" if r["set_mode_reply"] else ""))
         if r["result"] is None and r["stderr"]:
             print("      stderr: " + r["stderr"].strip().replace("\n", " | ")[:400])
