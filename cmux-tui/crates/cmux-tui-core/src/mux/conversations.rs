@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::conversation_store::ConversationStore;
+use crate::remote_relay_state::{RelayLock, RelayStateError, lock_checked};
 
 impl Mux {
     /// Run `operation` on the conversation store, opening
@@ -59,23 +60,40 @@ impl Mux {
     /// principal itself (`conversation_principal`) lives with the relay
     /// policy (server/remote_relay), which fails closed for remote
     /// connections.
-    pub(crate) fn bound_conversation_participant(&self, client: u64) -> Option<String> {
-        self.conversations
-            .bindings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&client)
-            .cloned()
+    /// A poisoned bindings lock is an error: the caller cannot tell an
+    /// agent connection from the local user, so it gives no principal.
+    pub(crate) fn bound_conversation_participant(
+        &self,
+        client: u64,
+    ) -> Result<Option<String>, RelayStateError> {
+        let _ = (lock_checked::<()>, RelayLock::Bindings);
+        Ok(self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner).get(&client).cloned())
     }
 
-    /// Binds `client` to agent `participant` for the rest of the connection.
-    pub(crate) fn bind_conversation_principal(&self, client: u64, participant: String) {
+    /// Binds `client` to `participant` for the rest of the connection. A
+    /// poisoned bindings lock binds nothing.
+    pub(crate) fn bind_conversation_principal(
+        &self,
+        client: u64,
+        participant: String,
+    ) -> Result<(), RelayStateError> {
         self.conversations.bindings.lock().unwrap().insert(client, participant);
+        Ok(())
+    }
+
+    /// The bindings lock (tests poison it).
+    #[cfg(test)]
+    pub(crate) fn conversation_bindings(
+        &self,
+    ) -> &Mutex<std::collections::BTreeMap<u64, String>> {
+        &self.conversations.bindings
     }
 
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
-        self.conversations.bindings.lock().unwrap().remove(&client);
+        // Safety: a removal never grants access, so a poisoned bindings lock
+        // still drops the binding.
+        self.conversations.bindings.lock().unwrap_or_else(PoisonError::into_inner).remove(&client);
         // Safety: a removal never grants access, so a poisoned peers lock
         // still drops the record.
         self.conversations
@@ -88,6 +106,11 @@ impl Mux {
 
     /// Ends every binding of `participant` (its token was replaced).
     pub(crate) fn unbind_conversation_participant(&self, participant: &str) {
-        self.conversations.bindings.lock().unwrap().retain(|_, bound| bound != participant);
+        // Safety: a removal never grants access.
+        self.conversations
+            .bindings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|_, bound| bound != participant);
     }
 }

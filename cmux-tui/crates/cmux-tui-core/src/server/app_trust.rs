@@ -167,6 +167,8 @@ impl AppTrust {
 impl super::ClientRegistry {
     /// Whether `client` is a local (Unix socket) connection: the transport
     /// fact the apps gate and `verified_app` start from.
+    /// True for a registered trusted-local connection. A poisoned registry
+    /// lock trusts no connection as local (fail closed).
     pub(super) fn is_unix(&self, client: u64) -> bool {
         self.state
             .lock()

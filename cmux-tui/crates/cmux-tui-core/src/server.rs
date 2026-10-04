@@ -6354,6 +6354,8 @@ impl ClientRegistry {
         self.url_opens.disconnect(client);
         self.loopback.disconnect(client);
         self.apps.disconnect(client);
+        // Safety: a removal never grants access; on a poisoned registry the
+        // record still goes, so a fail-closed close never panics here.
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
