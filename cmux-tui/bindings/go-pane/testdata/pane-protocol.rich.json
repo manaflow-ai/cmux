@@ -1,0 +1,57 @@
+{
+  "version": "0.0.0-test",
+  "namespaces": [
+    { "name": "cmux", "owner": "first-party" },
+    { "name": "com.example.rich", "owner": "app:com.example.rich" }
+  ],
+  "ops": [
+    {
+      "name": "com.example.rich.doc.open",
+      "kind": "mutation",
+      "scope": "com.example.rich:edit",
+      "params": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "mode": { "$ref": "#/$defs/Mode" },
+          "cursor": { "anyOf": [{ "$ref": "#/types/Cursor" }, { "type": "null" }] },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "limits": { "type": "object", "properties": { "lines": { "type": "integer", "format": "uint32", "maximum": 100000 } }, "required": ["lines"], "additionalProperties": false }
+        },
+        "required": ["path", "mode"],
+        "additionalProperties": false
+      },
+      "result": { "$ref": "#/types/Doc" },
+      "errors": ["com.example.rich.not_found", "com.example.rich.locked"]
+    },
+    {
+      "name": "com.example.rich.doc.close",
+      "kind": "mutation",
+      "scope": "com.example.rich:edit",
+      "params": { "type": "object", "properties": { "id": { "type": "integer", "format": "uint64", "minimum": 0 } }, "required": ["id"], "additionalProperties": false },
+      "result": { "type": "null" },
+      "errors": []
+    }
+  ],
+  "events": [
+    { "name": "com.example.rich.doc.changed", "scope": "com.example.rich:read", "data": { "$ref": "#/types/Doc" } }
+  ],
+  "interfaces": [],
+  "types": {
+    "Mode": { "type": "string", "enum": ["read", "write"], "description": "Open mode." },
+    "Cursor": { "type": "object", "properties": { "line": { "type": "integer", "minimum": 1 }, "col": { "type": "integer", "format": "int32" } }, "required": ["line", "col"], "additionalProperties": false },
+    "Doc": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer", "format": "uint64", "minimum": 0 },
+        "kind": { "const": "doc" },
+        "score": { "type": "number" },
+        "meta": { "type": "object", "additionalProperties": { "type": "string" } },
+        "lines": { "type": "array", "items": { "type": "string" } },
+        "extra": {}
+      },
+      "required": ["id", "kind", "meta", "lines"],
+      "additionalProperties": false
+    }
+  }
+}
