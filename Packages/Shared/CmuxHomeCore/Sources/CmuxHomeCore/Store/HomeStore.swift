@@ -35,7 +35,8 @@ public final class HomeStore {
     @ObservationIgnored public let blobCacheDirectory: URL
     /// Every attachment this client prepared, by hash (stays after the echo).
     @ObservationIgnored private var localFiles: [String: LocalAttachmentFiles] = [:]
-    /// Sends with attachments that have not reached the owner yet.
+    /// Sends with attachments, from the first upload until the owner
+    /// commits them (kept after a refusal, so a retry can upload again).
     @ObservationIgnored private var uploads: [IdempotencyKey: UploadJob] = [:]
 
     /// Attachment uploads in flight at once, per send.
@@ -159,14 +160,24 @@ public final class HomeStore {
     /// Retries a "Not Delivered" send as a new intent and drops the failed one.
     /// A send whose attachment upload failed never reached the owner: it
     /// keeps its key (and its row) and uploads only the missing attachments.
+    /// A send with attachments that the owner refused keeps its row
+    /// position under a new key (the owner's ledger keeps the refused one)
+    /// and uploads every attachment again first: an upload the owner still
+    /// holds answers `exists` without sending the bytes.
     public func retry(_ key: IdempotencyKey) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
         guard let entry = log.entries.first(where: { $0.intent.key == key }),
               case .failed = entry.state else { return }
-        if uploads[key] != nil {
-            log.setUploading(key, true)
+        if let job = uploads[key] {
+            var target = key
+            if job.reachedOwner {
+                target = .make()
+                restartUploads(from: key, as: target)
+            } else {
+                log.setUploading(key, true)
+            }
             afterLogChange(entry.intent.op)
-            try await uploadAndSubmit(entry.intent)
+            try await uploadAndSubmit(target)
             return
         }
         log.discard(key)
@@ -256,7 +267,7 @@ public final class HomeStore {
         }
         uploads[key] = UploadJob(conversation: conversation, attachments: unique)
         afterLogChange(op)
-        try await uploadAndSubmit(intent)
+        try await uploadAndSubmit(key)
     }
 
     /// A local file holding the variant's bytes: this client's own copy when
@@ -312,44 +323,67 @@ public final class HomeStore {
     }
 
     /// Uploads the missing attachments of a logged send, then submits it.
-    private func uploadAndSubmit(_ intent: HomeIntent) async throws {
-        let key = intent.key
-        guard var job = uploads[key] else { return }
-        job.active = true
-        let uploaded = job.uploaded
-        job.progress = Dictionary(uniqueKeysWithValues: job.attachments.map { ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0) })
-        uploads[key] = job
-        afterLogChange(intent.op)
+    /// An `unknown_attachment` refusal (the owner swept the upload before
+    /// the send arrived) uploads everything again and resends once under a
+    /// new key; a second one leaves the row "Not Delivered".
+    private func uploadAndSubmit(_ first: IdempotencyKey) async throws {
+        var key = first
+        var uploadedAgain = false
+        while true {
+            guard var job = uploads[key] else { return }
+            job.active = true
+            let uploaded = job.uploaded
+            job.progress = Dictionary(uniqueKeysWithValues: job.attachments.map {
+                ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0)
+            })
+            uploads[key] = job
+            bumpTranscript(job.conversation)
 
-        let failure = await uploadMissing(of: key)
-        // The send may have left the log meanwhile (its conversation left the inbox).
-        guard log.entries.contains(where: { $0.intent.key == key }) else {
-            uploads[key] = nil
-            return
-        }
-        uploads[key]?.active = false
-        uploads[key]?.progress = [:]
-        if let failure {
+            let failure = await uploadMissing(of: key)
+            // The send may have left the log meanwhile (its conversation left the inbox).
+            guard let entry = log.entries.first(where: { $0.intent.key == key }) else {
+                uploads[key] = nil
+                return
+            }
+            uploads[key]?.active = false
+            uploads[key]?.progress = [:]
+            if let failure {
+                log.setUploading(key, false)
+                log.fail(key, failure)
+                afterLogChange(entry.intent.op)
+                throw failure
+            }
+            // The owner keeps the first record of a hash: send its mime type,
+            // byte count and poster (or none), or it refuses attachment_mismatch.
+            // The logged intent changes first, so the pending row shows the
+            // parts that are sent.
+            let op = Self.adopting(uploads[key]?.stored ?? [:], in: entry.intent.op)
+            if op != entry.intent.op { log.replaceOp(key, with: op) }
             log.setUploading(key, false)
-            log.fail(key, failure)
-            afterLogChange(intent.op)
-            throw failure
+            uploads[key]?.reachedOwner = true
+            afterLogChange(op)
+            do {
+                _ = try await submit(HomeIntent(key: key, op: op, issuedAt: entry.intent.issuedAt))
+                return
+            } catch let rejection as HomeRejection where rejection == .invalid("unknown_attachment") && !uploadedAgain {
+                uploadedAgain = true
+                let next = IdempotencyKey.make()
+                restartUploads(from: key, as: next)
+                afterLogChange(op)
+                key = next
+            }
         }
-        // The owner keeps the first record of a hash: send its mime type,
-        // byte count and poster (or none), or it refuses attachment_mismatch.
-        // The logged intent changes first, so the pending row shows the
-        // parts that are sent.
-        let stored = uploads[key]?.stored ?? [:]
-        uploads[key] = nil
-        var final = intent
-        if let current = log.entries.first(where: { $0.intent.key == key })?.intent {
-            let adopted = Self.adopting(stored, in: current.op)
-            if adopted != current.op { log.replaceOp(key, with: adopted) }
-            final = HomeIntent(key: key, op: adopted, issuedAt: current.issuedAt)
-        }
-        log.setUploading(key, false)
-        afterLogChange(final.op)
-        _ = try await submit(final)
+    }
+
+    /// Moves a refused send's upload job to `newKey` with nothing uploaded,
+    /// and rekeys its log entry in place.
+    private func restartUploads(from key: IdempotencyKey, as newKey: IdempotencyKey) {
+        guard var job = uploads.removeValue(forKey: key) else { return }
+        job.uploaded = []
+        job.stored = [:]
+        job.reachedOwner = false
+        uploads[newKey] = job
+        log.rekey(key, to: newKey)
     }
 
     /// The op with each attachment part's mime type, byte count and poster
@@ -432,6 +466,7 @@ public final class HomeStore {
         do {
             let result = try await source.submit(intent)
             log.acknowledge(intent.key, rev: result.rev)
+            uploads[intent.key] = nil
             settle()
             afterLogChange(intent.op)
             return result
@@ -545,10 +580,19 @@ public final class HomeStore {
     private func settle() {
         let settled = log.settle(against: mirror)
         guard !settled.isEmpty else { return }
+        dropOrphanUploadJobs()
         for id in Array(transcriptVersion.keys) { bumpTranscript(id) }
     }
 
+    /// Upload jobs live only as long as their log entry.
+    private func dropOrphanUploadJobs() {
+        guard !uploads.isEmpty else { return }
+        let keys = Set(log.entries.map(\.intent.key))
+        for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }
+    }
+
     private func afterLogChange(_ op: HomeOp) {
+        dropOrphanUploadJobs()
         rebuildRows()
         if let id = op.conversation { bumpTranscript(id) }
     }
@@ -567,6 +611,8 @@ public final class HomeStore {
         var progress: [String: Double] = [:]
         /// True while an upload pass runs.
         var active = false
+        /// True once `message.send` went to the owner: a retry then needs a new key.
+        var reachedOwner = false
     }
 
     private func rebuildRows() {

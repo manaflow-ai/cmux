@@ -77,6 +77,18 @@ public struct IntentLog: Hashable, Sendable {
         return true
     }
 
+    /// Gives a refused send a new key in the same position, uploading again
+    /// (the owner's ledger keeps the refused key, so the same key would get
+    /// the same refusal). The row's id changes with the key.
+    public mutating func rekey(_ key: IdempotencyKey, to newKey: IdempotencyKey) {
+        guard let index = entries.firstIndex(where: { $0.intent.key == key }),
+              !entries.contains(where: { $0.intent.key == newKey }) else { return }
+        let old = entries[index].intent
+        var entry = PendingIntent(intent: HomeIntent(key: newKey, op: old.op, issuedAt: old.issuedAt))
+        entry.isUploading = true
+        entries[index] = entry
+    }
+
     public mutating func discard(_ key: IdempotencyKey) {
         entries.removeAll { $0.intent.key == key }
     }
