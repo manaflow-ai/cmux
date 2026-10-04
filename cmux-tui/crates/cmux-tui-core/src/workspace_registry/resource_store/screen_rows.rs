@@ -22,6 +22,8 @@
 use super::*;
 use crate::model::{ColumnSticky, StickyEdge, StickyMode};
 
+mod identities;
+
 pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_column_docks (

@@ -134,6 +134,23 @@ fn set_row_heights_replaces_every_height_of_a_column() {
     assert_eq!(wire.rows(0)[0]["height"], 600);
 }
 
+/// One column with rows keeps its id and its width: a width set on it stays,
+/// and a second column joining it changes neither.
+#[test]
+fn a_lone_column_of_rows_keeps_its_id_and_width() {
+    let (mut wire, pane) = Wire::lone();
+    wire.ok(json!({"cmd": "new-row", "pane": pane, "height_permille": 500}));
+    let id = wire.columns()[0]["id"].clone();
+    wire.ok(json!({"cmd": "set-viewport-pane-width", "pane": pane, "width": 0.6}));
+    let width = |wire: &Wire| wire.columns()[0]["width"].as_f64().unwrap();
+    assert!((width(&wire) - 0.6).abs() < 1e-6, "{}", wire.screen());
+    wire.ok(json!({"cmd": "new-pane-right", "pane": pane, "cols": 38, "rows": 22}));
+    assert_eq!(wire.columns().len(), 2);
+    assert_eq!(wire.columns()[0]["id"], id, "a second column keeps the first column's id");
+    assert!((width(&wire) - 0.6).abs() < 1e-6, "{}", wire.screen());
+    assert_eq!(wire.rows(0).len(), 2);
+}
+
 /// A client without `rows-v1` cannot resize a row through its synthetic split.
 #[test]
 fn the_synthetic_row_split_is_read_only() {
