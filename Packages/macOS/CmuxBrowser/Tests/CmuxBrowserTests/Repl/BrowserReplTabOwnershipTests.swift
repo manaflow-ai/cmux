@@ -181,20 +181,22 @@ import Testing
         ownership.setHandledEvents([.download], for: "listener")
 
         // The user clicks a download link: no session's input is in flight.
-        ownership.noteNavigationAction(url: "https://site.example/user.pdf", at: start)
-        let userStarter = ownership.takeDownloadStarter(urls: ["https://site.example/user.pdf"], at: start)
+        ownership.noteNavigationAction(1, frame: "main", at: start)
+        let userStarter = ownership.takeDownloadStarter(navigation: 1, at: start)
         #expect(userStarter == nil)
         #expect(ownership.downloadRecipient(startedBy: userStarter) == nil, "the user's download stays the user's")
 
         // The agent clicks one.
         ownership.beginInput(sessionID: "agent")
-        ownership.noteNavigationAction(url: "https://site.example/agent.pdf", at: start)
+        ownership.noteNavigationAction(2, frame: "main", at: start)
         ownership.endInput(sessionID: "agent")
+        // A server redirect of that navigation, after the click returned.
+        ownership.noteNavigationAction(3, frame: "main", continuing: true, at: start + .seconds(1))
         // The response arrives after the click returned.
-        let agentStarter = ownership.takeDownloadStarter(urls: ["https://site.example/agent.pdf"], at: start + .seconds(2))
+        let agentStarter = ownership.takeDownloadStarter(responseInFrame: "main", at: start + .seconds(2))
         #expect(agentStarter == "agent")
         #expect(ownership.downloadRecipient(startedBy: agentStarter) == "agent", "not the other listener")
-        #expect(ownership.takeDownloadStarter(urls: ["https://site.example/agent.pdf"], at: start + .seconds(2)) == nil, "used once")
+        #expect(ownership.takeDownloadStarter(responseInFrame: "main", at: start + .seconds(2)) == nil, "used once")
 
         // Without a listener the agent's download keeps the user's location.
         ownership.setHandledEvents([], for: "agent")
@@ -203,9 +205,9 @@ import Testing
         // A navigation the agent started long ago does not claim a later
         // download of the same URL the user starts.
         ownership.beginInput(sessionID: "listener")
-        ownership.noteNavigationAction(url: "https://site.example/again.pdf", at: start)
+        ownership.noteNavigationAction(4, frame: "main", at: start)
         ownership.endInput(sessionID: "listener")
-        #expect(ownership.takeDownloadStarter(urls: ["https://site.example/again.pdf"], at: start + .seconds(120)) == nil)
+        #expect(ownership.takeDownloadStarter(navigation: 4, at: start + .seconds(120)) == nil)
     }
 
     // The claim belongs to the navigation the session's input started, not
@@ -219,14 +221,24 @@ import Testing
         ownership.setHandledEvents([.download], for: "agent")
         // The agent clicks a link to report.pdf (it may never become a download).
         ownership.beginInput(sessionID: "agent")
-        ownership.noteNavigationAction(url: "https://site.example/report.pdf", at: start)
+        ownership.noteNavigationAction(1, frame: "main", at: start)
         ownership.endInput(sessionID: "agent")
         // Seconds later the user clicks a link to the same URL, which
-        // becomes a download.
-        ownership.noteNavigationAction(url: "https://site.example/report.pdf", at: start + .seconds(5))
-        let starter = ownership.takeDownloadStarter(urls: ["https://site.example/report.pdf"], at: start + .seconds(6))
-        #expect(starter == nil, "the user's same-URL download was attributed to the session")
+        // becomes a download, as a navigation action or as its response.
+        ownership.noteNavigationAction(2, frame: "main", at: start + .seconds(5))
+        var probe = ownership
+        let fromAction = probe.takeDownloadStarter(navigation: 2, at: start + .seconds(6))
+        let starter = ownership.takeDownloadStarter(responseInFrame: "main", at: start + .seconds(6))
+        #expect(fromAction == nil && starter == nil, "the user's same-URL download was attributed to the session")
         #expect(ownership.downloadRecipient(startedBy: starter) == nil)
+        // The session's own navigation, replaced by the user's, claims nothing either.
+        #expect(ownership.takeDownloadStarter(navigation: 1, at: start + .seconds(6)) == nil)
+        // In another frame the session's navigation still holds.
+        ownership.beginInput(sessionID: "agent")
+        ownership.noteNavigationAction(5, frame: "17", at: start + .seconds(7))
+        ownership.endInput(sessionID: "agent")
+        ownership.noteNavigationAction(6, frame: "main", at: start + .seconds(8))
+        #expect(ownership.takeDownloadStarter(navigation: 5, at: start + .seconds(9)) == "agent")
     }
 
     @Test func aSessionTabsDownloadsStillGoToItsCreator() {

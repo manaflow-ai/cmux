@@ -1133,10 +1133,63 @@ final class BrowserReplTabAttachment {
         sessionDownloads[id] != nil
     }
 
-    /// Records a navigation the page starts, for the download it may become
-    /// (``BrowserReplTabOwnership/noteNavigationAction(url:at:)``).
-    func noteNavigationAction(_ url: URL) {
-        ownership.noteNavigationAction(url: url.absoluteString)
+    private static var navigationTokenKey: UInt8 = 0
+    /// Read from WebKit's download delegate, which is not main-actor bound;
+    /// only its address is used.
+    nonisolated(unsafe) private static var downloadStarterKey: UInt8 = 0
+    private var lastNavigationToken = 0
+
+    /// Records a navigation WebKit asks about (its navigation action) as its
+    /// frame's latest, with the session whose input started it, for the
+    /// download it may become
+    /// (``BrowserReplTabOwnership/noteNavigationAction(_:frame:continuing:at:)``).
+    /// The claim is bound to this navigation, never to its URL: a later
+    /// navigation in the frame, also to the same URL, replaces it. A
+    /// navigation decided again (after a hold) keeps its first record.
+    func noteNavigationAction(_ action: WKNavigationAction) {
+        guard let frame = Self.frameKey(action.targetFrame),
+              objc_getAssociatedObject(action, &Self.navigationTokenKey) == nil else { return }
+        lastNavigationToken += 1
+        let token = lastNavigationToken
+        objc_setAssociatedObject(action, &Self.navigationTokenKey, NSNumber(value: token), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        let redirectSelector = NSSelectorFromString("_isRedirect")
+        let continuing = action.responds(to: redirectSelector) && (action.value(forKey: "_isRedirect") as? Bool) == true
+        ownership.noteNavigationAction(token, frame: frame, continuing: continuing)
+    }
+
+    /// Binds `download`, which WebKit made of navigation action `action`, to
+    /// the session whose input started that navigation, if any.
+    func claimDownload(_ download: WKDownload, fromNavigationAction action: WKNavigationAction) {
+        guard let token = (objc_getAssociatedObject(action, &Self.navigationTokenKey) as? NSNumber)?.intValue else { return }
+        bind(download, to: ownership.takeDownloadStarter(navigation: token))
+    }
+
+    /// Binds `download`, which WebKit made of a navigation response in
+    /// `frame`, to the session whose input started that frame's latest
+    /// navigation, if any.
+    func claimDownload(_ download: WKDownload, fromResponse response: WKNavigationResponse) {
+        let frameSelector = NSSelectorFromString("_frame")
+        let info = response.responds(to: frameSelector) ? response.value(forKey: "_frame") as? WKFrameInfo : nil
+        let frame = response.isForMainFrame ? "main" : Self.frameKey(info)
+        guard let frame else { return }
+        bind(download, to: ownership.takeDownloadStarter(responseInFrame: frame))
+    }
+
+    private func bind(_ download: WKDownload, to starter: String?) {
+        guard let starter else { return }
+        objc_setAssociatedObject(download, &Self.downloadStarterKey, starter as NSString, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    /// The session whose input started the navigation `download` came from
+    /// (``claimDownload(_:fromNavigationAction:)``), or `nil`.
+    nonisolated static func downloadStarter(of download: WKDownload) -> String? {
+        objc_getAssociatedObject(download, &downloadStarterKey) as? String
+    }
+
+    /// A frame's key for its latest navigation: `main`, or WebKit's frame id.
+    private static func frameKey(_ info: WKFrameInfo?) -> String? {
+        guard let info else { return nil }
+        return info.isMainFrame ? "main" : BrowserReplFrame.frameID(of: info)
     }
 
     /// Reports a download to the one session it goes to
@@ -1145,10 +1198,10 @@ final class BrowserReplTabAttachment {
     /// the user downloads. The decision, and that session, hold for the
     /// download's life; any other download takes the user's normal path.
     /// - Parameters:
+    ///   - startedBy: The session whose input started the navigation the
+    ///     download came from (``downloadStarter(of:)``).
     ///   - url: The response's URL.
-    ///   - requestURL: The URL of the request that started the download.
-    func downloadDidStart(id: String, url: URL?, requestURL: URL?, suggestedFilename: String) {
-        let starter = ownership.takeDownloadStarter(urls: [requestURL, url].compactMap { $0?.absoluteString })
+    func downloadDidStart(id: String, startedBy starter: String?, url: URL?, suggestedFilename: String) {
         guard isAttached, let owner = ownership.downloadRecipient(startedBy: starter), sinks[owner] != nil else { return }
         sessionDownloads[id] = owner
         emit("download.started", [

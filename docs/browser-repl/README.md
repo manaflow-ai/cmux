@@ -428,7 +428,8 @@ rest. Measurements: [performance.md](performance.md).
   `page.waitForEvent("download")` and the like) goes to the session instead,
   only while the handler is registered; a download, though, only when the
   navigation it came from started while the page handled that session's
-  own call (a click, key or navigation; its response may come later). A
+  own call (a click, key or navigation; its response may come later) and
+  no later navigation in that frame (also one to the same URL) replaced it. A
   file the user downloads in their tab, or one the page starts by itself,
   keeps the user's download location and never reaches a session, and
   neither does one another session's call started. When several sessions drive one tab,
