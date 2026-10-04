@@ -248,13 +248,13 @@ impl<T> Pool<T> {
             return Take::Miss;
         }
         if let Some(e) = self.entries.iter_mut().find(|e| &e.key == key) {
-            return match &e.slot {
+            return match std::mem::replace(&mut e.slot, Slot::Empty) {
                 Slot::Empty => Take::Miss,
-                Slot::Warming(_) => Take::Warming(e.settled.subscribe()),
-                Slot::Ready(_) => match std::mem::replace(&mut e.slot, Slot::Empty) {
-                    Slot::Ready(t) => Take::Ready(t),
-                    _ => unreachable!(),
-                },
+                Slot::Warming(generation) => {
+                    e.slot = Slot::Warming(generation);
+                    Take::Warming(e.settled.subscribe())
+                }
+                Slot::Ready(t) => Take::Ready(t),
             };
         }
         if let Some(i) = self.entries.iter().position(|e| e.key.same_slot(key)) {

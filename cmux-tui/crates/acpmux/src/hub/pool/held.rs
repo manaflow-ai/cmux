@@ -25,7 +25,7 @@ pub(super) fn holding_tap() -> (Tap, Arc<StdMutex<TapSlot>>) {
     let slot = Arc::new(StdMutex::new(TapSlot::Held(Vec::new())));
     let s = slot.clone();
     let tap: Tap = Arc::new(move |dir, msg, host_seq| {
-        let mut guard = s.lock().unwrap();
+        let mut guard = s.lock().unwrap_or_else(|e| e.into_inner());
         match &mut *guard {
             TapSlot::Held(held) => {
                 if held.len() < HELD_CAP || !is_stderr_note(msg) {

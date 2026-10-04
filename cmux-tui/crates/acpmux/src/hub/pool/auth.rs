@@ -134,11 +134,12 @@ impl AuthCache {
             // lives in a file the reader names.
             return 1;
         }
-        if let Some((l, m, part)) = self.parsed.lock().unwrap().get(path)
-            && *l == len
-            && *m == mtime
+        let cached = self.parsed.lock().unwrap_or_else(|e| e.into_inner()).get(path).copied();
+        if let Some((l, m, part)) = cached
+            && l == len
+            && m == mtime
         {
-            return *part;
+            return part;
         }
         let part = std::fs::read(path).map(|bytes| account_part(reader, &bytes)).unwrap_or(0);
         // A file written within the timestamp's resolution of this read may
@@ -148,7 +149,8 @@ impl AuthCache {
             .and_then(|m| SystemTime::now().duration_since(m).ok())
             .is_some_and(|age| age >= RACY_WINDOW);
         if settled {
-            self.parsed.lock().unwrap().insert(path.to_owned(), (len, mtime, part));
+            let mut parsed = self.parsed.lock().unwrap_or_else(|e| e.into_inner());
+            parsed.insert(path.to_owned(), (len, mtime, part));
         }
         part
     }
@@ -179,7 +181,8 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
                 }
             }
         }
-        Reader::Stat => unreachable!(),
+        // Never parsed (`file_part` counts presence only).
+        Reader::Stat => {}
     }
     h.finish() | 1
 }

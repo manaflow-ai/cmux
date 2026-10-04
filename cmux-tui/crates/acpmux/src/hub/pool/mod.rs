@@ -141,6 +141,12 @@ pub struct PrewarmRequest {
     pub remote: bool,
 }
 
+/// A pool lock. A panic while one was held leaves plain data behind, so a
+/// poisoned lock is used as it is rather than taking the daemon down.
+pub(super) fn lock<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn pool_dir() -> PathBuf {
     agent_host::pool_dir(&agent_host::hosts_dir())
 }
@@ -171,12 +177,12 @@ impl Hub {
 
     /// Measure pooled hosts with `probe` instead of `ps` (tests).
     pub fn set_pool_rss_probe(&self, probe: RssProbe) {
-        *self.pool.rss.lock().unwrap() = probe;
+        *lock(&self.pool.rss) = probe;
     }
 
     /// The pool as it is now (`_acpmux/status` `pool`). Never lists ids.
     pub fn pool_view_json(&self) -> Value {
-        let pool = self.pool.pool.lock().unwrap();
+        let pool = lock(&self.pool.pool);
         let entries: Vec<Value> = pool
             .view()
             .into_iter()
@@ -193,7 +199,7 @@ impl Hub {
             })
             .collect();
         drop(pool);
-        let rss: u64 = self.pool.pool.lock().unwrap().ready_mut().map(|p| p.rss).sum();
+        let rss: u64 = lock(&self.pool.pool).ready_mut().map(|p| p.rss).sum();
         json!({"entries": entries, "rssBytes": rss})
     }
 
@@ -290,7 +296,7 @@ impl Hub {
         let PrewarmRequest { harness, preset, wait, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
-                let clock = hub.clock.lock().unwrap().clone();
+                let clock = lock(&hub.clock).clone();
                 let at = clock.now() + debounce;
                 clock.sleep_until(at).await;
             }
@@ -316,7 +322,7 @@ impl Hub {
     /// Wait until `key` is not warming.
     async fn pool_settled(&self, key: &PoolKey) {
         loop {
-            let rx = self.pool.pool.lock().unwrap().watch_warming(key);
+            let rx = lock(&self.pool.pool).watch_warming(key);
             let Some(mut rx) = rx else { return };
             if rx.changed().await.is_err() {
                 return;
@@ -329,13 +335,13 @@ impl Hub {
         if !self.pool_enabled().await {
             return;
         }
-        if self.pool.oversize.lock().unwrap().contains(&spec.key) {
+        if lock(&self.pool.oversize).contains(&spec.key) {
             return;
         }
         let idle = self.config.read().await.pool.idle();
-        let now = self.clock.lock().unwrap().now();
+        let now = lock(&self.clock).now();
         let wanted = {
-            let mut pool = self.pool.pool.lock().unwrap();
+            let mut pool = lock(&self.pool.pool);
             pool.set_idle(idle);
             pool.want(role, spec.key.clone(), now)
         };
@@ -350,11 +356,11 @@ impl Hub {
                     let back = if hub.pool.stopping.load(Ordering::SeqCst) {
                         Some(p)
                     } else {
-                        let now = hub.clock.lock().unwrap().now();
-                        hub.pool.pool.lock().unwrap().complete(&spec.key, generation, p, now)
+                        let now = lock(&hub.clock).now();
+                        lock(&hub.pool.pool).complete(&spec.key, generation, p, now)
                     };
                     // In the pool now (or ended below): `stop_pool` finds it there.
-                    hub.pool.starting.lock().unwrap().remove(&id);
+                    lock(&hub.pool.starting).remove(&id);
                     match back {
                         Some(p) => end_pooled(p).await,
                         None => hub.pool_after_ready().await,
@@ -362,7 +368,7 @@ impl Hub {
                 }
                 Err(e) => {
                     tracing::warn!(harness = %spec.key.harness, "pooled session failed to start: {e:#}");
-                    hub.pool.pool.lock().unwrap().failed(&spec.key, generation);
+                    lock(&hub.pool.pool).failed(&spec.key, generation);
                 }
             }
         });
@@ -375,15 +381,14 @@ impl Hub {
             let cfg = self.config.read().await;
             (cfg.pool.max_rss_mb.saturating_mul(1024 * 1024), cfg.pool.park)
         };
-        let pids: Vec<u32> =
-            self.pool.pool.lock().unwrap().ready_mut().map(|p| p.record.host_pid).collect();
-        let probe = self.pool.rss.lock().unwrap().clone();
+        let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
+        let probe = lock(&self.pool.rss).clone();
         let measured: HashMap<u32, u64> =
             tokio::task::spawn_blocking(move || pids.into_iter().map(|p| (p, probe(p))).collect())
                 .await
                 .unwrap_or_default();
         let evicted = {
-            let mut pool = self.pool.pool.lock().unwrap();
+            let mut pool = lock(&self.pool.pool);
             for p in pool.ready_mut() {
                 if let Some(rss) = measured.get(&p.record.host_pid) {
                     p.rss = *rss;
@@ -395,7 +400,7 @@ impl Hub {
             }
             let evicted = pool.enforce_cap(cap, |p| p.rss);
             // A session over the cap on its own would only start again.
-            let mut oversize = self.pool.oversize.lock().unwrap();
+            let mut oversize = lock(&self.pool.oversize);
             for v in &evicted {
                 if v.rss > cap {
                     oversize.insert(v.key.clone());
@@ -474,11 +479,11 @@ impl Hub {
         }
         let launcher = agent_host::link::HostLauncher::current()?;
         let record = agent_host::link::spawn(&launcher, &host_spec).await?;
-        self.pool.starting.lock().unwrap().insert(session_id.clone(), record.clone());
+        lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude).await;
         if started.is_err() {
-            self.pool.starting.lock().unwrap().remove(&session_id);
+            lock(&self.pool.starting).remove(&session_id);
         }
         started
     }
@@ -579,7 +584,7 @@ impl Hub {
         }
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
         loop {
-            let took = self.pool.pool.lock().unwrap().take(&spec.key);
+            let took = lock(&self.pool.pool).take(&spec.key);
             match took {
                 Take::Ready(p) => {
                     if !p.child.is_alive().await {
@@ -590,7 +595,7 @@ impl Hub {
                         signal_harness(&p.record, libc::SIGCONT);
                     }
                     let id = p.session_id.clone();
-                    self.pool.claimed.lock().unwrap().insert(id.clone(), p);
+                    lock(&self.pool.claimed).insert(id.clone(), p);
                     return Some(id);
                 }
                 Take::Discard(old) => {
@@ -613,12 +618,12 @@ impl Hub {
 
     /// The name the claimed pooled session for `id` was started with.
     pub(super) fn pool_claimed_name(&self, id: &str) -> Option<String> {
-        self.pool.claimed.lock().unwrap().get(id).map(|p| p.name.clone())
+        lock(&self.pool.claimed).get(id).map(|p| p.name.clone())
     }
 
     /// The claimed pooled session for `id`, if `session/new` claimed one.
     pub(super) fn pool_take_claimed(&self, id: &str) -> Option<Pooled> {
-        self.pool.claimed.lock().unwrap().remove(id)
+        lock(&self.pool.claimed).remove(id)
     }
 
     /// End a claimed pooled session that was not taken.
@@ -649,7 +654,7 @@ impl Hub {
             json!({"incarnation": p.record.incarnation, "hostPid": p.record.host_pid, "hostBuild": p.record.host_build}),
         );
         {
-            let mut slot = p.tap.lock().unwrap();
+            let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
             if let TapSlot::Held(held) = &mut *slot {
                 for (dir, msg, host_seq) in held.drain(..) {
                     tap(dir, &msg, host_seq);
@@ -673,19 +678,19 @@ impl Hub {
             init.pointer("/_meta/steering/supported").and_then(Value::as_bool).unwrap_or(false);
         session.steering.store(steering, Ordering::SeqCst);
         {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
         }
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_session_id = state.session_id;
             m.modes = Some(state.modes);
             m.config_options = Some(state.config_options);
         } else if let Some(res) = &p.new_result {
             let sid = res.get("sessionId").and_then(Value::as_str).map(str::to_owned);
-            session.meta.lock().unwrap().agent_session_id = sid;
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id = sid;
             self.absorb_session_response(session, res);
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
@@ -705,7 +710,7 @@ impl Hub {
         }
         let spec: Spec = (m.harness.clone(), m.preset.clone());
         let previous = {
-            let mut recent = self.pool.recent.lock().unwrap();
+            let mut recent = lock(&self.pool.recent);
             let e = recent.entry(m.cwd.clone()).or_insert_with(|| (spec.clone(), None));
             if e.0 != spec {
                 e.1 = Some(std::mem::replace(&mut e.0, spec));
@@ -726,7 +731,7 @@ impl Hub {
     /// Config reload: every entry ends; none started under the old catalog
     /// is served.
     pub(super) fn drain_pool(&self) {
-        let all = self.pool.pool.lock().unwrap().clear();
+        let all = lock(&self.pool.pool).clear();
         self.pool_discard(all);
     }
 
@@ -737,12 +742,11 @@ impl Hub {
         // One reaper waits on it; a stored permit ends a reaper that is not
         // waiting yet.
         self.pool.stop.notify_one();
-        let mut all = self.pool.pool.lock().unwrap().clear();
-        all.extend(self.pool.claimed.lock().unwrap().drain().map(|(_, p)| p));
+        let mut all = lock(&self.pool.pool).clear();
+        all.extend(lock(&self.pool.claimed).drain().map(|(_, p)| p));
         // Starts still running: their hosts end by nonce proof; the start
         // itself then fails on its closed link.
-        let starting: Vec<HostRecord> =
-            self.pool.starting.lock().unwrap().drain().map(|(_, r)| r).collect();
+        let starting: Vec<HostRecord> = lock(&self.pool.starting).drain().map(|(_, r)| r).collect();
         let ends = futures::future::join(
             futures::future::join_all(all.into_iter().map(end_pooled)),
             futures::future::join_all(starting.iter().map(end_pooled_host)),
@@ -811,9 +815,9 @@ impl Hub {
                     &state.wake,
                     stopped,
                     || {
-                        let empty = state.pool.lock().unwrap().is_empty();
+                        let empty = lock(&state.pool).is_empty();
                         (!empty && !state.stopping.load(Ordering::SeqCst))
-                            .then(|| hub.clock.lock().unwrap().clone())
+                            .then(|| lock(&hub.clock).clone())
                     },
                     |expired| {
                         tracing::info!(count = expired.len(), "idle pooled sessions exit");
@@ -826,7 +830,7 @@ impl Hub {
                 hub.pool.reaper.store(false, Ordering::SeqCst);
                 // An entry added while the reaper was leaving restarts it.
                 let again = !shut.load(Ordering::SeqCst)
-                    && !hub.pool.pool.lock().unwrap().is_empty()
+                    && !lock(&hub.pool.pool).is_empty()
                     && !hub.pool.stopping.load(Ordering::SeqCst)
                     && !hub.stopping.load(Ordering::SeqCst)
                     && !hub.pool.reaper.swap(true, Ordering::SeqCst);
@@ -897,7 +901,7 @@ mod tests {
             })
             .await;
         assert!(refused.is_err(), "a remote-origin hint is refused");
-        assert!(hub.pool.pool.lock().unwrap().is_empty());
+        assert!(lock(&hub.pool.pool).is_empty());
         let profile = test_profile();
         let mut meta = super::super::resolve::draft_meta(super::super::resolve::Draft {
             id: String::new(),

@@ -52,7 +52,7 @@ pub(crate) async fn run_reaper<T>(
     tokio::pin!(stopped);
     loop {
         let Some(clock) = clock() else { return };
-        let next = pool.lock().unwrap().next_deadline();
+        let next = super::lock(pool).next_deadline();
         let woke = async {
             match next {
                 Some(at) => {
@@ -68,7 +68,7 @@ pub(crate) async fn run_reaper<T>(
             _ = &mut stopped => return,
             _ = woke => {}
         }
-        let out = pool.lock().unwrap().expire(clock.now());
+        let out = super::lock(pool).expire(clock.now());
         if !out.is_empty() {
             expired(out);
         }
