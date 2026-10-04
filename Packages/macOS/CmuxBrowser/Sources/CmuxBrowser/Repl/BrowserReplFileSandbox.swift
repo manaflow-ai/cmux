@@ -172,6 +172,11 @@ public struct BrowserReplFileSandbox: Sendable {
         }
     }
 
+    /// Why a session may not read or act on a tab that shows `url`, or nil.
+    public static func localPageRefusal(url: String, documentOrigin: String?, roots: [String]) -> String? {
+        nil
+    }
+
     /// `root` and, for a root under `/private`, the same path through the
     /// system's `/var`, `/tmp` and `/etc` links, as a file URL may name it.
     private static func aliases(of root: String) -> [String] {
