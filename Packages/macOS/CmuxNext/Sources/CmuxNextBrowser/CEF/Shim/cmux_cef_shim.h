@@ -456,6 +456,21 @@ CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
 // after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
 // Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
 CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
+// Profile (Touch ID) passkeys of profile_cache_path (fork API 18,
+// cmux_profile_passkeys_list / cmux_profile_passkey_delete; the Passwords
+// page, plans/cmux-next/passwords.md 1.4). Metadata only, never key
+// material. 1 when this fork has both calls.
+CMUX_SHIM_EXPORT int cmux_shim_passkeys_available(void);
+// REPLY with `reply` and browser 0 follows once the profile is initialized:
+// a = 1 and s1 = the fork's JSON array [{"rp_id","credential_id" (base64url),
+// "user_name","user_display_name"}], or a = 0 and s1 empty when the keychain
+// could not be read. Returns 0 when nothing was started (bad path, an
+// off-the-record key, or the fork lacks the call).
+CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* profile_cache_path, int reply);
+// Deletes one profile passkey by its credential id (base64url, as listed).
+// REPLY with `reply` and browser 0 follows: a = 1 deleted, 0 not. Returns 0
+// when nothing was started (as above, or an empty id).
+CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* profile_cache_path, const char* credential_id, int reply);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.
