@@ -30,8 +30,39 @@ public struct AgentCursorLeaseRouter: Sendable {
     }
 
     /// Applies one lease frame; returns the sessions whose cursor state changed.
+    /// A frame with no session is a clear (release, session end, stop, tab
+    /// gone); a new session on a held target is a takeover, so the target
+    /// leaves its old session first.
     public mutating func leaseChanged(target: String, session: String?, wireState: String?) -> [Update] {
-        _ = (target, session, wireState)
-        return []
+        let previous = byTarget[target]
+        let affected = [previous?.session, session].compactMap { $0 }
+        var before: [String: AgentCursorLeaseState?] = [:]
+        for name in affected where before[name] == nil {
+            before[name] = .some(effectiveState(of: name))
+        }
+        if let session {
+            byTarget[target] = Held(session: session, state: Self.state(wire: wireState))
+        } else {
+            byTarget[target] = nil
+        }
+        var updates: [Update] = []
+        var seen = Set<String>()
+        for name in affected where seen.insert(name).inserted {
+            let after = effectiveState(of: name)
+            if before[name] ?? nil != after {
+                updates.append(Update(session: name, state: after))
+            }
+        }
+        return updates
+    }
+
+    /// Driving while any target drives; else paused or taken over; nil when
+    /// the session holds nothing.
+    private func effectiveState(of session: String) -> AgentCursorLeaseState? {
+        let states = byTarget.values.filter { $0.session == session }.map(\.state)
+        if states.isEmpty { return nil }
+        if states.contains(.driving) { return .driving }
+        if states.contains(.userDriving) { return .userDriving }
+        return .paused
     }
 }
