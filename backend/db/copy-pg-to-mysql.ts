@@ -19,27 +19,9 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import mysql from "mysql2/promise"
 import pg from "pg"
-import { PROJECTION_TABLES, rowHash, shapeRow, toMysqlValue } from "./projection-compare.ts"
+import { PROJECTION_TABLES, sharedColumns, toMysqlValue, verifyTables, type MyLike, type PgLike } from "./projection-compare.ts"
 
-interface PgLike {
-  query(sql: string, values?: Array<unknown>): Promise<{ rows: Array<Record<string, unknown>> }>
-}
-interface MyLike {
-  query(sql: string, values?: Array<unknown>): Promise<unknown>
-}
-
-const mysqlColumns = async (my: MyLike, table: string): Promise<Array<string>> => {
-  const [rows] = (await my.query("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position", [table])) as [Array<{ c: string }>]
-  return rows.map((r) => r.c)
-}
-const pgColumns = async (pgc: PgLike, table: string): Promise<Set<string>> =>
-  new Set((await pgc.query("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND is_generated = 'NEVER'", [table])).rows.map((r) => String(r.c)))
-
-/** The columns both databases have (Postgres-only columns such as the tsvector are left out). */
-const sharedColumns = async (pgc: PgLike, my: MyLike, table: string) => {
-  const inPg = await pgColumns(pgc, table)
-  return (await mysqlColumns(my, table)).filter((c) => inPg.has(c))
-}
+export { verifyTables }
 
 export const copyTables = async (pgc: PgLike, my: MyLike, batch = 500): Promise<{ rows: number; perTable: Record<string, number> }> => {
   const perTable: Record<string, number> = {}
@@ -68,33 +50,6 @@ export const copyTables = async (pgc: PgLike, my: MyLike, batch = 500): Promise<
     }
   }
   return { rows: total, perTable }
-}
-
-export interface TableReport {
-  readonly table: string
-  readonly equal: boolean
-  readonly pgCount: number
-  readonly mysqlCount: number
-  readonly missingInMysql: Array<string>
-  readonly missingInPostgres: Array<string>
-  readonly changed: Array<string>
-}
-
-export const verifyTables = async (pgc: PgLike, my: MyLike): Promise<Array<TableReport>> => {
-  const out: Array<TableReport> = []
-  for (const [table, spec] of Object.entries(PROJECTION_TABLES)) {
-    const columns = (await sharedColumns(pgc, my, table)).filter((c) => !spec.skip.includes(c))
-    const keyOf = (r: Record<string, unknown>) => spec.key.map((k) => String(r[k])).join("/")
-    const pgRows = (await pgc.query(`SELECT ${columns.map((c) => `"${c}"`).join(", ")} FROM ${table}`)).rows
-    const [myRows] = (await my.query(`SELECT ${columns.map((c) => `\`${c}\``).join(", ")} FROM \`${table}\``)) as [Array<Record<string, unknown>>]
-    const pgHash = new Map(pgRows.map((r) => [keyOf(r), rowHash(shapeRow(r, columns))]))
-    const myHash = new Map(myRows.map((r) => [keyOf(r), rowHash(shapeRow(r, columns))]))
-    const missingInMysql = [...pgHash.keys()].filter((k) => !myHash.has(k)).sort()
-    const missingInPostgres = [...myHash.keys()].filter((k) => !pgHash.has(k)).sort()
-    const changed = [...pgHash.keys()].filter((k) => myHash.has(k) && myHash.get(k) !== pgHash.get(k)).sort()
-    out.push({ table, equal: missingInMysql.length + missingInPostgres.length + changed.length === 0, pgCount: pgRows.length, mysqlCount: myRows.length, missingInMysql, missingInPostgres, changed })
-  }
-  return out
 }
 
 /** KEY=value lines of a ~/.secrets env file (values never printed). */

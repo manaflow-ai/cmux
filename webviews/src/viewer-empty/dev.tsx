@@ -11,6 +11,7 @@ import {
   DIFF_CHOOSE_FOLDER_OP,
   DIFF_OPEN_OP,
   DIFF_RECENTS_OP,
+  EDITOR_RECENTS_OP,
   MARKDOWN_RECENTS_OP,
   PICKER_LIST_OP,
   parseRecents,
@@ -35,9 +36,9 @@ export async function devOp(url: string, op: string, params: unknown): Promise<u
 /** The dev answer to `chooseFolder` / `chooseFile`: the fallback picker over the page. */
 export async function showDevPicker(
   mode: PickerMode,
-  options: { start?: string | null; strings?: Strings } = {},
+  options: { start?: string | null; strings?: Strings; labels?: { title?: string; empty?: string } } = {},
 ): Promise<{ path: string } | null> {
-  const recentsOp = mode === "folder" ? DIFF_RECENTS_OP : MARKDOWN_RECENTS_OP;
+  const recentsOp = mode === "folder" ? DIFF_RECENTS_OP : mode === "anyFile" ? EDITOR_RECENTS_OP : MARKDOWN_RECENTS_OP;
   const recents = parseRecents(await devOp("/__cmux-viewer/op", recentsOp, {}).catch(() => null)).map(
     (item) => item.path,
   );
@@ -61,6 +62,7 @@ export async function showDevPicker(
         strings={options.strings ?? viewerEmptyStrings()}
         recents={recents}
         start={options.start ?? null}
+        labels={options.labels}
         list={(path, list) => devOp("/__cmux-viewer/op", PICKER_LIST_OP, { path, ...list })}
         onChoose={(path) => done(path)}
         onCancel={() => done(null)}

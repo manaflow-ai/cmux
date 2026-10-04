@@ -894,9 +894,31 @@ pub(super) async fn handle_request(
             Ok(hub.session_summary(&s))
         }
         method::MUX_SHUTDOWN => {
+            // `endAgents: true` (the app's Quit Everything) ends agents that
+            // run under agent hosts; otherwise they keep running for the next
+            // daemon.
+            // `keepSessions` (session ids) keeps those sessions' hosted agents
+            // running even then (the app's Home Chief).
+            let end_agents = params.get("endAgents").and_then(Value::as_bool) == Some(true);
+            let keep: std::collections::HashSet<String> = params
+                .get("keepSessions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            if end_agents {
+                hub.end_agents_at_shutdown(keep.clone());
+            }
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
-            Ok(json!({}))
+            let kept = if end_agents {
+                keep.iter().filter(|id| hub.resolve(id).is_ok()).count()
+            } else {
+                0
+            };
+            Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
         }
         method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),

@@ -214,6 +214,22 @@ Threat that sets the secret path: a same-uid process (an agent in a terminal) mu
 
 Order: c1 and c3 in parallel (c3 against a fake host), then c2, then the live check. relay-ext (the `tab.access` rule) lands before c1.
 
+### 6d. Release artifact contract (Linux, for the cmux-next VM image)
+
+The CI lead owns the workflow, signing and the manifest entry; this is the binary contract.
+
+- Targets: `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc; the VM image's glibc is the floor). One binary per target: `cmux-browser-host`.
+- Build (from `cmux-tui/`, the pinned toolchain in `rust-toolchain.toml`): `CMUX_BUILD_SHA=<40-char commit> cargo build --release --locked -p cmux-browser-host --bin cmux-browser-host --target <triple>`. It needs a C compiler for the target (QuickJS-ng through `rquickjs`); `build.rs` embeds `js/` (no files beside the binary). No runtime dependency other than glibc and libm; Chromium is found at run time (`CMUX_BROWSER_HOST_CHROMIUM`, then `~/.cache/cmux/chromium`, then system paths).
+- Version: `cmux-browser-host version` prints one line `cmux-browser-host <crate version> (<CMUX_BUILD_SHA>)`, exit 0.
+- Smoke (no Chromium needed): `cmux-browser-host version` exits 0 and names the commit; `cmux-browser-host guide` exits 0 with non-empty output; `cmux-browser-host serve --socket "$T/h.sock" &` then `cmux-browser-host list --socket "$T/h.sock"` exits 0 with `{"sessions":[]}`-shaped JSON; then stop the server PID.
+- Run-time switches for Cloud: `CMUX_BROWSER_HOST_HEADLESS=0` (headful Chromium), `CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0` (let Chromium throttle background tabs). `--no-sandbox` and `--disable-setuid-sandbox` are always refused.
+
+### 6e. Step c known follow-ups (after c1, 44ce50ad735)
+
+- Provider events go to every session of the provider; filter them per session engine (and per refusal state).
+- Sessions stay bound to the provider connection they opened on; after the app reconnects they must attach to the new one (with c2's lifecycle).
+- No `cdp.detach` when no session uses a CEF tab any more; tie it to the lease (release, session end).
+
 ## 7. Prototype switches (DEV and NIGHTLY)
 
 - `CMUX_BROWSER_SNAPSHOT_CORE=js|rust`: snapshot.js in the VM versus the Rust port; both must print byte-identical goldens.

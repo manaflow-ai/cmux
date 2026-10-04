@@ -4,6 +4,7 @@
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
   "slow"       -> streams three chunks with delays, honours session/cancel
+  "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 """
 import json
@@ -74,6 +75,15 @@ def handle_prompt(rid, params):
                 choices.append(reply.get("outcome", {}))
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
+        return
+    # "gate: PATH" streams "before-gate", blocks until the test writes to
+    # the FIFO at PATH (no timers), then streams "after-gate" and ends.
+    if text.startswith("gate:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[5:].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("ask:"):
         res = request(

@@ -5,6 +5,7 @@ import ServiceManagement
 /// a launchd agent registered with `SMAppService.agent` from the plist the app
 /// bundle carries in `Contents/Library/LaunchAgents`. The agent runs the bundled
 /// `cmux host run`. Builds without the server software do not carry the plist.
+/// `ServerStopServing` unregisters it.
 enum ServerLaunchAgent {
     static let plistName = "com.cmux.server.plist"
 
@@ -44,16 +45,6 @@ enum ServerLaunchAgent {
                 SMAppService.openSystemSettingsLoginItems()
                 throw .requiresApproval
             }
-        }
-    }
-
-    /// Unregisters the agent; the running server stops (launchd ends it).
-    static func unregister() async throws(Failure) {
-        guard isBundled, SMAppService.agent(plistName: plistName).status != .notRegistered else { return }
-        do {
-            try await SMAppService.agent(plistName: plistName).unregister()
-        } catch {
-            throw .failed(String(describing: error))
         }
     }
 }

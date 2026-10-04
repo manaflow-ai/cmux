@@ -16,6 +16,14 @@ ships. Nothing here is built yet.
 | 4 | Debug symbols (`symbol_level=1`, dsymutil in packaging) | Symbolicated CEF frames in crash reports (cmux.17 still builds with `symbol_level=0`). | Symbol names from exports only. |
 | 5 | Linux and Windows builds without DCHECKs | The same abort risk as macOS cmux.16 if those builds ship. | Not shipped yet. |
 
+| 6 | Remote tab patches RP1-RP9 (owner: the remote tab lead, a9; design plans/cmux-next/remote-tab-r1.md): RP1 `--cmux-remote-presentation` + `cmux_rp_create_browser`/`set_screen`/`set_size`, RP2 frame capture, RP3 begin frames (r1); RP4 keys, RP5 IME (r3); RP6 select, RP7 popup surfaces, RP8 unhandled UI fallback, RP9 drag and drop (r4) | Remote presentation of tabs (Cloud). | Not shipped yet. |
+
+Coordination between the entries:
+
+- Fork API numbers: every new export bumps `cef_cmux.h`'s API version. Numbers are given at landing (max + 1), not reserved here.
+- RP8 and the app's CEF dialog, download and permission handlers (CmuxDialog, R96) handle the same CEF client callbacks in the shim. One shim handler set serves both: local tabs route to CmuxDialog, remote-presentation tabs to `rb.*`. The browser lead and the remote tab lead agree the shim interface before either lands.
+- #1 (overlay anchor, `chrome_child_window_mac.mm`) and RP1 (screen and widget creation) touch different fork files; RP1's headless widgets have no parent tracker, so the anchor does not apply to them.
+
 Not needed in the fork:
 
 - Hard reload (reload ignoring the cache): the shim calls `CefBrowser::ReloadIgnoreCache()` directly, the same way `cmux_shim_reload` calls `Reload()`.

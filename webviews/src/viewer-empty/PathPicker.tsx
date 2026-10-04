@@ -34,11 +34,22 @@ export interface PathPickerProps {
   start?: string | null;
   onChoose(path: string): void;
   onCancel(): void;
+  /** The title and empty-folder text, when the page has its own (the code editor's any-file mode). */
+  labels?: { title?: string; empty?: string };
 }
 
 type Load = { phase: "loading" } | { phase: "failed" } | { phase: "ready" };
 
-export function PathPicker({ mode, list, strings, recents = [], start = null, onChoose, onCancel }: PathPickerProps) {
+export function PathPicker({
+  mode,
+  list,
+  strings,
+  recents = [],
+  start = null,
+  onChoose,
+  onCancel,
+  labels,
+}: PathPickerProps) {
   const { t } = strings;
   const [listing, setListing] = useState<PickerListing | null>(null);
   const [load, setLoad] = useState<Load>({ phase: "loading" });
@@ -97,7 +108,7 @@ export function PathPicker({ mode, list, strings, recents = [], start = null, on
       if (mode === "folder" && query === "" && listing && load.phase === "ready") onChoose(listing.path);
       return;
     }
-    if (mode === "file" && row.kind === "dir") return enter(row);
+    if (mode !== "folder" && row.kind === "dir") return enter(row);
     onChoose(row.path);
   };
 
@@ -150,7 +161,7 @@ export function PathPicker({ mode, list, strings, recents = [], start = null, on
         ? t(E.pickerLoading)
         : query !== ""
           ? t(E.pickerNoMatches)
-          : t(mode === "folder" ? E.pickerEmptyFolder : E.pickerEmptyFile);
+          : (labels?.empty ?? t(mode === "folder" ? E.pickerEmptyFolder : E.pickerEmptyFile));
 
   return (
     <div
@@ -160,10 +171,12 @@ export function PathPicker({ mode, list, strings, recents = [], start = null, on
       data-phase={load.phase}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="dialog"
-      aria-label={t(mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle)}
+      aria-label={labels?.title ?? t(mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle)}
     >
       <div className="ve-picker-head">
-        <span className="ve-picker-title">{t(mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle)}</span>
+        <span className="ve-picker-title">
+          {labels?.title ?? t(mode === "folder" ? E.pickerFolderTitle : E.pickerFileTitle)}
+        </span>
         <nav className="ve-crumbs" aria-label={t(E.pickerLocation)}>
           {crumbs.map((crumb, index) => (
             <span key={crumb.path} className="ve-crumb-wrap">

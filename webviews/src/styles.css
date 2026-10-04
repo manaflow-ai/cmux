@@ -1949,11 +1949,6 @@ svg[data-icon-fill] {
   white-space: nowrap;
   cursor: pointer;
 }
-.file-header :where(.file-header-path) {
-  /* The path stays selectable; a drag-select never toggles the file. */
-  user-select: text;
-  -webkit-user-select: text;
-}
 .cmux-file-icon {
   flex: 0 0 auto;
   width: 15px;
@@ -2106,8 +2101,8 @@ svg[data-icon-fill] {
 /* R139 desktop feel for the chrome this file restyles (the toolbar and its
    pill, the files sidebar, the file bars, the file menu): not selectable, an
    arrow cursor, no image or link drag. The file bar's path and anything
-   marked `.selectable` opt back into selection; diff lines are Pierre's and
-   stay selectable. Focus rings come from :focus-visible rules only. */
+   marked `.selectable` opt back into selection; diff lines opt in inside
+   Pierre's shadow root (codeViewUnsafeCSS). Focus rings come from :focus-visible rules only. */
 #toolbar,
 #files-sidebar,
 .file-header,
@@ -2135,7 +2130,7 @@ svg[data-icon-fill] {
   user-select: text;
   cursor: text;
 }
-.file-header :where(.file-header-path),
+/* The file bar's path is `.selectable` (a drag-select never toggles the file). */
 .selectable {
   -webkit-user-select: text;
   user-select: text;

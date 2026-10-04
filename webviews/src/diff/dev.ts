@@ -6,6 +6,8 @@
 // (default), `?source=unstaged`, `?source=staged`; `&layout=unified` switches the layout; `?repo=`
 // another repository in the home folder. `?pick` starts in the empty state (src/viewer-empty): the
 // repository and source it opens come from the dev server's /__cmux-diff/open.
+// DESKTOP-FEEL (R139): the shared desktop layer loads first, as on the shipped diff page.
+import "../pages/shared/desktop";
 import "../styles.css";
 import { diffViewerLabelsFor, diffViewerLanguage } from "../labels";
 import type { DiffViewerConfig } from "../types";
