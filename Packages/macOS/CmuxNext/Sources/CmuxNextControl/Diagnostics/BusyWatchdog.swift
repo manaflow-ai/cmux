@@ -51,7 +51,7 @@ public final class BusyWatchdog: Sendable {
     private let log: HangLog
     private let ledger: WakeupLedger
     private let activity: ExpectedActivity
-    private let helpers: Mutex<@Sendable () -> [Helper]>
+    private let helpers: Mutex<HelperSource>
     private let mainThread: Mutex<thread_act_t?> = Mutex(nil)
     private let sampler: Mutex<ThreadStackSampler?> = Mutex(nil)
     private let measuring = Atomic<Bool>(false)
@@ -59,6 +59,12 @@ public final class BusyWatchdog: Sendable {
     private let window: Mutex<Window?> = Mutex(nil)
     private let timer: DemandTimer
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
+
+    /// A value wrapper prevents inout Mutex reads from reabstracting and
+    /// writing back the function, accumulating a thunk on every read.
+    private struct HelperSource: Sendable {
+        let list: @Sendable () -> [Helper]
+    }
 
     struct Window {
         var process: ProcessUsage?
@@ -74,7 +80,7 @@ public final class BusyWatchdog: Sendable {
         self.log = log
         self.ledger = ledger
         self.activity = activity
-        self.helpers = Mutex({ [] })
+        self.helpers = Mutex(HelperSource(list: { [] }))
         self.timer = DemandTimer(owner: "BusyWatchdog.window", clock: clock, ledger: ledger)
     }
 
@@ -87,12 +93,12 @@ public final class BusyWatchdog: Sendable {
 
     /// Supplies the helper processes to watch (the App lists Chromium helpers).
     public func setHelperSource(_ source: @escaping @Sendable () -> [Helper]) {
-        helpers.withLock { $0 = source }
+        helpers.withLock { $0 = HelperSource(list: source) }
     }
 
     /// Snapshots the callback under the lock, for invocation after releasing it.
     func helperSource() -> @Sendable () -> [Helper] {
-        helpers.withLock { $0 }
+        helpers.withLock { $0.list }
     }
 
     /// The main run loop woke. Cheap: one atomic store, plus opening a
