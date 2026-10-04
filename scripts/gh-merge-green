@@ -131,13 +131,31 @@ if [ -z "$sha" ] || [ -z "$base" ]; then
     'refresh the pull request metadata and retry'
 fi
 
-# Require the aggregate CI result on the exact head. A written override can
-# waive a completed red result, but never a missing or still-running check.
-must=("ci-status")
+# Require aggregate checks only when their workflow exists on the base. Otherwise
+# every reported exact-head check and status context must be completed successfully.
+workflow_on_base() {
+  local file="$1" response
+  if response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null); then
+    return 0
+  fi
+  if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
+    return 1
+  fi
+  refuse \
+    "not green: cannot probe $file on $repo base $base" \
+    'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
+}
+
+has_ci=0
+has_app_compile=0
+if workflow_on_base ci.yml; then has_ci=1; fi
+if workflow_on_base ci-macos.yml; then has_app_compile=1; fi
+must=()
+if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
 # Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
 # Require it only if it was scheduled or the diff touches app code.
-if [ "$base" = main ]; then
+if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
     refuse \
@@ -165,13 +183,41 @@ if ! runs=$(jq -r '
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
 fi
-if [ "$base" = main ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
+if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
   for required in "${must[@]}"; do
     [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
+if [ "$has_ci" -eq 0 ]; then
+  # Include legacy commit status contexts (for example review services), not
+  # only Actions check runs. Both endpoints are pinned to the evaluated head.
+  if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
+    refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
+  fi
+  if ! statuses=$(jq -r '
+    (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
+    | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
+  ' <<<"$statuses_json" 2>/dev/null); then
+    refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
+  fi
+  all_verdicts="$runs"$'\n'"$statuses"
+  reported=0
+  while IFS=$'\t' read -r name st co; do
+    [ -n "$name" ] || continue
+    reported=$((reported + 1))
+    if [ "$st" != completed ] || [ "$co" != success ]; then
+      refuse \
+        "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+        "wait for or repair '$name'; every reported exact-head check must succeed without the aggregate workflow"
+    fi
+  done <<<"$all_verdicts"
+  [ "$reported" -gt 0 ] || refuse \
+    "not green: no checks have reported on $sha" \
+    'run the repository pull request checks before merging'
+fi
+
 bad_required=()
 for name in "${must[@]+"${must[@]}"}"; do
   line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n')
