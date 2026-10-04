@@ -68,12 +68,18 @@ pub struct ClaudeState {
 /// The answer to one request, as `ChildAgent::request` returns it.
 pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 
+/// How long the reader waits for the Exit entry's ack to be written.
+const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The agent runs under an `__agent-host` process (durable sessions).
 struct Hosted {
     /// The current owner connection; replaced by `reattach`.
     link: std::sync::RwLock<Arc<crate::agent_host::link::Link>>,
     inbound: mpsc::Sender<Inbound>,
     exited: std::sync::atomic::AtomicBool,
+    /// Set as soon as the Exit entry is logged (before its ack is written):
+    /// the agent is no longer alive, though `exited` waits for the ack.
+    exit_seen: std::sync::atomic::AtomicBool,
     /// Set before a detach: the connection's end is a hand-off, not the
     /// agent's death, so pending requests stay open for the next daemon.
     detached: Arc<std::sync::atomic::AtomicBool>,
@@ -514,7 +520,7 @@ impl ChildAgent {
 
     pub async fn is_alive(&self) -> bool {
         if let Some(h) = &self.hosted {
-            return !h.exited.load(Ordering::SeqCst)
+            return !h.exit_seen.load(Ordering::SeqCst)
                 && !h.broken.load(Ordering::SeqCst)
                 && !h.link().is_closed();
         }
@@ -702,6 +708,22 @@ impl ChildAgent {
                     return Ok(Attached::Incompatible { min, max, host_build });
                 }
             };
+        let (agent, responses) =
+            Self::from_link(name, link, &adopted, resume_after, awaiting, inbound, tap);
+        Ok(Attached::Ready(agent, adopted, responses))
+    }
+
+    /// The agent over an owner connection that is already open; starts its
+    /// reader.
+    pub(crate) fn from_link(
+        name: &str,
+        link: Arc<crate::agent_host::link::Link>,
+        adopted: &crate::agent_host::link::Adopted,
+        resume_after: u64,
+        awaiting: Vec<Id>,
+        inbound: mpsc::Sender<Inbound>,
+        tap: Tap,
+    ) -> (Arc<Self>, Vec<Response>) {
         // Never reuse an id the harness may still answer.
         let (stdin_tx, _unused) = mpsc::channel::<String>(1);
         // Answers to requests a previous controller sent may be among the
@@ -730,11 +752,12 @@ impl ChildAgent {
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
+                exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
         });
         agent.start_reader(link);
-        Ok(Attached::Ready(agent, adopted, responses))
+        (agent, responses)
     }
 
     /// Read `link`'s entries: log each, act on it, then acknowledge it.
@@ -744,6 +767,7 @@ impl ChildAgent {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
+                let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
                 if !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
@@ -752,6 +776,17 @@ impl ChildAgent {
                     return;
                 }
                 hosted.logged.send_replace(h);
+                if is_exit {
+                    // Written before anyone hears of the exit: a daemon that
+                    // ends the agent and exits at once still acks the Exit.
+                    let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
+                    hosted.exited.store(true, Ordering::SeqCst);
+                    hosted.exit.notify_waiters();
+                    if acked.is_err() {
+                        break;
+                    }
+                    continue;
+                }
                 if link.ack(h).await.is_err() {
                     break;
                 }
@@ -829,15 +864,19 @@ impl ChildAgent {
                 if !(self.tap)(Direction::In, &note, Some(h)) {
                     return false;
                 }
+                // Not alive from here: no turn may set the session ready on
+                // a harness that is gone while the ack is still being written.
+                if let Some(hosted) = &self.hosted {
+                    hosted.exit_seen.store(true, Ordering::SeqCst);
+                }
                 let mut p = self.pending.lock().await;
                 for (_, tx) in p.map.drain() {
                     let _ = tx.send(Err(RpcError::internal("agent process closed")));
                 }
                 drop(p);
-                if let Some(hosted) = &self.hosted {
-                    hosted.exited.store(true, Ordering::SeqCst);
-                    hosted.exit.notify_waiters();
-                }
+                // `exited` and the exit notify follow the Exit entry's ack
+                // (`start_reader`), so a terminate that waits on them never
+                // returns before the host knows its Exit is logged.
                 let _ =
                     inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
                 true
