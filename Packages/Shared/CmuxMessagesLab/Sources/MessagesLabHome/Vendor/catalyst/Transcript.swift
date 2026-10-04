@@ -257,7 +257,7 @@ final class ChatLayout: UICollectionViewLayout {
 /// a row by adding that row's live components with their original begin
 /// times, so recycled and newly visible cells join the motion in progress.
 final class MotionLedger {
-    enum Target: Hashable { case cell, content, typing, receiptOld, receiptNew, connector, connectorLine }
+    enum Target: Hashable { case cell, content, typing, receiptOld, receiptNew, connector, connectorLine, fillGradient }
     struct Entry {
         var id: Int
         var target: Target

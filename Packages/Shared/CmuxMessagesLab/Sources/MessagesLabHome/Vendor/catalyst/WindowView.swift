@@ -627,7 +627,22 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         for j in pendingNew { deltas[model.rows[j].spec.key] = 0 }
         for (key, d) in deltas where abs(d) > 0.01 {
             ledger.add(key, .cell, "position.y", from: Double(d), to: 0, el, begin: begin)
+            // The outgoing fill is a window-space gradient: while the row
+            // moves by d, the gradient moves by -d inside it (it was placed at
+            // the row's final window y, so a long slide left the bubble
+            // outside its fill).
+            ledger.add(key, .fillGradient, "position.y", from: Double(-d), to: 0, el, begin: begin)
             morphs[key]?.shift(by: Double(d), el, begin: begin)
+        }
+        // Rows start at their old place (final + d): keep cells for rows whose
+        // final place is outside the visible rect but whose motion starts in
+        // it (a send while scrolled up jumps the offset to the pin: the rows
+        // that were on screen slide up from where they were).
+        if let r = collection as? RowRecycler {
+            let down = deltas.values.filter { $0 > 0 }.max() ?? 0, up = -(deltas.values.filter { $0 < 0 }.min() ?? 0)
+            r.overscanTop = max(r.overscanTop, down)
+            r.overscanBottom = max(r.overscanBottom, up)
+            overscanUntil = max(overscanUntil, begin + el.settleTime)
         }
         // Connectors: the arc hangs from the root, the stroke's bottom from the reply.
         let topDelta = band.first.flatMap { deltas[model.rows[$0].spec.key] } ?? 0
@@ -685,6 +700,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
     }
     private var receiptChanges: [String: (String, String)] = [:]
+    /// Layer time until which the recycler keeps its overscan.
+    private var overscanUntil: CFTimeInterval = 0
     private var typingBegin: CFTimeInterval = 0
 
     // MARK: Send morph
@@ -719,6 +736,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     func settle(at t: Double) {
         let now = beginTime(t)
         ledger.prune(before: now)
+        if now >= overscanUntil, let r = collection as? RowRecycler, r.overscanTop != 0 || r.overscanBottom != 0 {
+            r.overscanTop = 0
+            r.overscanBottom = 0
+        }
         receiptChanges = receiptChanges.filter { k, _ in ledger.live(k).contains { $0.target == .receiptOld } }
         for (k, m) in morphs where m.landTime <= now { m.remove(); morphs[k] = nil }
         if model.dropGhosts(before: t - 1.0) {
@@ -799,6 +820,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             case .receiptNew: target = cell.bitmap
             case .connector: target = cell.connector
             case .connectorLine: target = cell.connectorLine
+            case .fillGradient: target = cell.fillGradient
             }
             if e.target == .connectorLine, e.keyPath == "bounds.size.height" {
                 // Relative to the stroke's current model height.

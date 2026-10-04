@@ -36,6 +36,11 @@ final class RowRecycler: UIScrollView, TranscriptList {
     var key: (Int) -> String = { _ in "" }
     var count: () -> Int = { 0 }
 
+    /// Extra layout extent above and below the visible bounds while a
+    /// transaction moves rows (window view: `animateRows`, `settle`).
+    var overscanTop: CGFloat = 0 { didSet { if overscanTop != oldValue { setNeedsLayout() } } }
+    var overscanBottom: CGFloat = 0 { didSet { if overscanBottom != oldValue { setNeedsLayout() } } }
+
     private var visible: [String: RowCell] = [:]
     private var index: [ObjectIdentifier: Int] = [:]
     private var pool: [RowCell] = []
@@ -76,7 +81,12 @@ final class RowRecycler: UIScrollView, TranscriptList {
         let size = layout.collectionViewContentSize
         if contentSize != size { contentSize = size }
         let n = count()
-        let attrs = (layout.layoutAttributesForElements(in: bounds) ?? []).filter { $0.indexPath.item < n }
+        // The visible rect plus where rows are still animating in from
+        // (`overscan`): a row on screen during a transaction's motion keeps
+        // its cell even when its final place is outside the visible rect.
+        let rect = CGRect(x: bounds.minX, y: bounds.minY - overscanTop, width: bounds.width,
+                          height: bounds.height + overscanTop + overscanBottom)
+        let attrs = (layout.layoutAttributesForElements(in: rect) ?? []).filter { $0.indexPath.item < n }
         var next: [String: RowCell] = [:]
         next.reserveCapacity(attrs.count)
         var newIndex: [ObjectIdentifier: Int] = [:]
