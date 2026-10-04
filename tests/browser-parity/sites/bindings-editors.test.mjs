@@ -158,3 +158,49 @@ test("googleSlides.replace: the draft states the match count per slide; a new ma
     deck.shared = false;
   }
 });
+
+test("googleDrive.trash: a file this session created is trashed at once only while it is still private; shared meanwhile, it needs a draft", async () => {
+  const f = await s.value('sites.googleDrive.create("document", "cmux REPL trash binding")');
+  const file = files.get(f.id);
+  // Another session shares the file before this one trashes it.
+  file.shared = true;
+  try {
+    const d = await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+    assert.equal(file.trashed, false, "the now-shared file was trashed without a draft");
+    assert.equal(d.status, "draft");
+    assert.match(d.category, /\[1\]/);
+    assert.equal(d.preview.sharing, "Share. Anyone with the link can view.");
+  } finally {
+    file.shared = false;
+  }
+  // Still private: at once.
+  assert.deepEqual(await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed", verified: true });
+  assert.equal(file.trashed, true);
+});
+
+test("googleDrive.trash: a created file shared while its editor loads for the trash is not trashed", async () => {
+  const f = await s.value('sites.googleDrive.create("document", "cmux REPL trash race")');
+  const file = files.get(f.id);
+  file.shareAfterEditorLoad = true;
+  try {
+    assert.match(await s.error(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), /sharing_changed|sharing is now/);
+    assert.equal(file.trashed, false);
+  } finally {
+    file.shared = false;
+    file.shareAfterEditorLoad = false;
+  }
+});
+
+test("googleDrive.trash: a confirmed draft re-checks sharing right before the trash; sharing changed since the preview trashes nothing", async () => {
+  const doc = files.get(DOC_ID);
+  try {
+    await s.run(`var trD = await sites.googleDrive.trash(${JSON.stringify(DOC)})`);
+    assert.equal((await s.value("trD.preview")).sharing, "Share. Private to only me.");
+    doc.shared = true;
+    assert.match(await s.error("sites.googleDrive.trash(trD.id, { confirm: true })"), /sharing_changed|sharing is now/);
+    assert.equal(doc.trashed, false, "a file shared since the preview was trashed");
+  } finally {
+    doc.shared = false;
+    doc.trashed = false;
+  }
+});
