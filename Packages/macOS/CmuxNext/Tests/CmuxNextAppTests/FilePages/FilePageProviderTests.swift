@@ -255,12 +255,13 @@ struct FilePageProviderTests {
     }
 
     @Test func theRemoteImagePolicyRefusesLocalHostsAndNonImages() throws {
-        for allowed in ["https://example.com/a.png", "http://cdn.example.org/x"] {
+        for allowed in ["https://example.com/a.png", "https://cdn.example.org/x"] {
             #expect(RemoteImagePolicy.allows(try #require(URL(string: allowed))), "\(allowed)")
         }
         for refused in ["http://localhost/a.png", "http://127.0.0.1/a", "http://10.0.0.2/a", "http://192.168.1.4/a",
                         "http://172.16.0.1/a", "http://169.254.169.254/latest", "http://[::1]/a", "http://0.0.0.0/a",
-                        "file:///etc/passwd", "data:image/png;base64,AA", "ftp://example.com/a", "http://foo.local/a"] {
+                        "file:///etc/passwd", "data:image/png;base64,AA", "ftp://example.com/a", "http://foo.local/a",
+                        "http://example.com/a.png", "https://user:pass@example.com/a.png"] {
             #expect(!RemoteImagePolicy.allows(try #require(URL(string: refused))), "\(refused)")
         }
         #expect(RemoteImagePolicy.imageType("image/png; charset=binary") == "image/png")

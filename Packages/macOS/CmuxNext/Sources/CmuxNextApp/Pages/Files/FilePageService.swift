@@ -36,7 +36,7 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = URLSessionRemoteImages()) {
+         images: any RemoteImageFetching = GuardedRemoteImages()) {
         self.services = services
         self.kind = kind
         self.clock = clock

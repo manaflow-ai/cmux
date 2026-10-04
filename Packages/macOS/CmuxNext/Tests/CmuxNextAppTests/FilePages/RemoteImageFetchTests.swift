@@ -149,16 +149,17 @@ import Testing
         #expect(wire.hasSuffix("\r\n\r\n"))
         #expect(!wire.lowercased().contains("cookie") && !wire.lowercased().contains("authorization"))
         let plain = Data("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 4\r\n\r\n".utf8) + Self.png
-        #expect(try PinnedTLSTransport.parse(plain, maximumBytes: 10) == Self.image())
+        let parsed = try PinnedTLSTransport.parse(plain, maximumBytes: 10)
+        #expect(parsed.status == 200 && parsed.headers["content-type"] == "image/png" && parsed.body == Self.png)
         let chunked = Data("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n".utf8)
             + Self.png.prefix(2) + Data("\r\n2\r\n".utf8) + Self.png.suffix(2) + Data("\r\n0\r\n\r\n".utf8)
-        #expect(try PinnedTLSTransport.parse(chunked, maximumBytes: 10) == Self.image())
+        let dechunked = try PinnedTLSTransport.parse(chunked, maximumBytes: 10)
+        #expect(dechunked.status == 200 && dechunked.body == Self.png)
+        #expect(PinnedTLSTransport.isComplete(plain) && PinnedTLSTransport.isComplete(chunked))
+        #expect(!PinnedTLSTransport.isComplete(plain.dropLast()))
         #expect(throws: (any Error).self) { try PinnedTLSTransport.parse(plain, maximumBytes: 3) }
         let moved = Data("HTTP/1.1 301 Moved\r\nLocation: /b.png\r\nContent-Length: 0\r\n\r\n".utf8)
-        #expect(try PinnedTLSTransport.parse(moved, maximumBytes: 10) == Self.redirect("/b.png").withStatus(301))
+        let redirect = try PinnedTLSTransport.parse(moved, maximumBytes: 10)
+        #expect(redirect.status == 301 && redirect.headers["location"] == "/b.png")
     }
-}
-
-extension RemoteImageResponse {
-    func withStatus(_ status: Int) -> RemoteImageResponse { RemoteImageResponse(status: status, headers: headers, body: body) }
 }
