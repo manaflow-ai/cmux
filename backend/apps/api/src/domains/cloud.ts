@@ -24,6 +24,12 @@ export const LEDGER_KEEP_MS = 7 * 24 * 3600_000
 export const PENDING_SAFETY_MS = 30_000
 export const MAX_ATTEMPTS = 5
 export const retryDelayMs = (attempts: number) => Math.min(5 * 60_000, 1000 * 2 ** attempts)
+/**
+ * Finds for a create a delete cancelled (P1-2): 30 s, 60 s, 2 min, 4 min between them, then give up
+ * (about 7.5 minutes, past the create call's own 2-minute timeout). The hourly orphan report covers
+ * a VM that lands later still.
+ */
+export const cancelFindDelayMs = (attempts: number) => Math.min(5 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1))
 
 export interface CloudState {
   readonly team: string | null
@@ -47,6 +53,12 @@ export interface LedgerRow {
   readonly machine: string
   readonly provider_name: string
   readonly state: "pending" | "done" | "failed" | "cancelled"
+  /**
+   * create only: a delete cancelled it while its outcome was uncertain (P1-2). It stays pending and
+   * only finds by name (never creates): found = done (the delete then removes it by this recorded
+   * name), not found after MAX_ATTEMPTS backed-off finds = cancelled.
+   */
+  readonly cancel?: boolean
   readonly provider_id: string | null
   readonly attempts: number
   readonly error: { readonly code: string; readonly message: string } | null
@@ -208,13 +220,14 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   const rev = state.rev + 1
   const writes: Array<RowWrite> = []
   let pending = { ...state.pending }
-  // A create still waiting for its call must never run after the delete: cancel it. The delete
-  // removes by name, so a VM a lost create answer made is deleted too.
+  // P1-2: a create still waiting for its call may already have made the VM (a timeout, a lost
+  // answer). It never creates again, but stays pending as finds by name until a definite answer;
+  // the delete (ordered after it) waits, so it never finishes as deleted while a VM could appear.
   for (const [key, entry] of Object.entries(state.pending)) {
     const l = entry.machine === stored.row.id ? ledgerRow(ctx.rows, key) : undefined
-    if (l?.row.op !== "create") continue
-    writes.push(upsertLedger({ ...l.row, state: "cancelled", updated_at: ctx.now }, l.n))
-    pending = Object.fromEntries(Object.entries(pending).filter(([k]) => k !== key))
+    if (l?.row.op !== "create" || l.row.cancel) continue
+    writes.push(upsertLedger({ ...l.row, cancel: true, attempts: 0, updated_at: ctx.now }, l.n))
+    pending = { ...pending, [key]: { machine: entry.machine, due_at: ctx.now } }
   }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   writes.push(upsertLedger({ key, op: "delete", machine: stored.row.id, provider_name: stored.row.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }, rev))
@@ -239,9 +252,12 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
     const attempts = l.attempts + 1
     const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider call failed" }
     if (r.final !== true && attempts < MAX_ATTEMPTS) {
-      const s = next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } })
+      const delay = l.cancel ? cancelFindDelayMs(attempts) : retryDelayMs(attempts)
+      const s = next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + delay } } })
       return { ok: true, state: s, value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
     }
+    // A cancelled create that never appeared: settled; the machine stays deleting for its delete.
+    if (l.cancel) return { ok: true, state: next(state, { pending }), value: { applied: true, final: true }, writes: [upsertLedger({ ...l, state: "cancelled", attempts, error, updated_at: ctx.now }, stored.n)] }
     const writes: Array<RowWrite> = [upsertLedger({ ...l, state: "failed", attempts, error, updated_at: ctx.now }, stored.n)]
     if (!machine) return { ok: true, state: next(state, { pending }), value: { applied: true, final: true }, writes }
     const row: MachineRow = { ...machine.row, status: "failed", error: { ...error, at: ctx.now }, revision: String(rev) }
