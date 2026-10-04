@@ -35,32 +35,45 @@ import Testing
         Data(#"{"v":1,"session_id":"\#(session)","target_id":"\#(target)","seq":\#(seq),"kind":"click","space":"viewport","point":{"x":1,"y":2},"t_ms":\#(seq)}"#.utf8)
     }
 
-    /// One recorder per target: the publisher of the content that owns it.
-    private func bridge(owning targets: Set<String> = ["tab_7", "tab_9", "cua:24954:25760"]) -> (AgentCursorInputBridge, Recorder) {
-        let recorder = Recorder()
-        let publisher = AgentCursorPublisher(renderer: recorder)
-        return (AgentCursorInputBridge { targets.contains($0) ? publisher : nil }, recorder)
+    /// Two contents: A owns tab_7 and the desktop window, B owns tab_9.
+    /// Every target named in `leased` is leased to its session first.
+    private func bridge(owning targets: Set<String> = ["tab_7", "tab_9", "cua:24954:25760"],
+                        leased: [String: String] = ["tab_7": "s1", "tab_9": "s3", "cua:24954:25760": "s2"])
+        -> (AgentCursorInputBridge, Recorder, Recorder) {
+        let a = Recorder()
+        let b = Recorder()
+        let publisherA = AgentCursorPublisher(renderer: a)
+        let publisherB = AgentCursorPublisher(renderer: b)
+        let bridge = AgentCursorInputBridge(
+            publisher: { target in
+                guard targets.contains(target) else { return nil }
+                return target == "tab_9" ? publisherB : publisherA
+            },
+            publishers: { [publisherA, publisherB] })
+        for (target, session) in leased { bridge.leaseChanged(target: target, session: session, wireState: "driving") }
+        return (bridge, a, b)
     }
 
     @Test func everyValidVectorReachesTheOwningPublisherInOrder() throws {
         let vectors = try Self.vectors()
-        let (bridge, recorder) = bridge()
+        let (bridge, a, b) = bridge()
         for data in vectors.valid { bridge.receive(data) }
         let expected = try vectors.valid.map { try AutomationInputEvent.decode($0) }
-        #expect(recorder.events == expected)
+        #expect(a.events == expected.filter { $0.targetID != "tab_9" })
+        #expect(b.events == expected.filter { $0.targetID == "tab_9" })
         #expect(bridge.counts == .init(published: expected.count))
     }
 
     @Test func everyInvalidVectorIsRejectedAndCounted() throws {
         let vectors = try Self.vectors()
-        let (bridge, recorder) = bridge()
+        let (bridge, a, b) = bridge()
         for data in vectors.invalid { bridge.receive(data) }
-        #expect(recorder.events.isEmpty)
+        #expect(a.events.isEmpty && b.events.isEmpty)
         #expect(bridge.counts.rejected == vectors.invalid.count)
     }
 
     @Test func aMissingEventIsDetectedCountedAndTheNewestStillDrawn() {
-        let (bridge, recorder) = bridge()
+        let (bridge, recorder, _) = bridge()
         bridge.receive(Self.event(seq: 0))
         bridge.receive(Self.event(seq: 1))
         bridge.receive(Self.event(seq: 4))
@@ -71,7 +84,7 @@ import Testing
     }
 
     @Test func aReplayedEventIsNotDrawnTwice() {
-        let (bridge, recorder) = bridge()
+        let (bridge, recorder, _) = bridge()
         bridge.receive(Self.event(seq: 0))
         bridge.receive(Self.event(seq: 1))
         bridge.receive(Self.event(seq: 1))
@@ -81,7 +94,7 @@ import Testing
     }
 
     @Test func seqZeroStartsTheSessionAgain() {
-        let (bridge, recorder) = bridge()
+        let (bridge, recorder, _) = bridge()
         for seq in 0...3 { bridge.receive(Self.event(seq: seq)) }
         bridge.receive(Self.event(seq: 0))
         bridge.receive(Self.event(seq: 1))
@@ -90,30 +103,67 @@ import Testing
     }
 
     @Test func gapsArePerSession() {
-        let (bridge, recorder) = bridge()
-        bridge.receive(Self.event(session: "a", seq: 0))
-        bridge.receive(Self.event(session: "b", seq: 0))
-        bridge.receive(Self.event(session: "a", seq: 1))
-        bridge.receive(Self.event(session: "b", seq: 1))
+        let (bridge, a, b) = bridge(leased: ["tab_7": "a", "tab_9": "b"])
+        bridge.receive(Self.event(session: "a", target: "tab_7", seq: 0))
+        bridge.receive(Self.event(session: "b", target: "tab_9", seq: 0))
+        bridge.receive(Self.event(session: "a", target: "tab_7", seq: 1))
+        bridge.receive(Self.event(session: "b", target: "tab_9", seq: 1))
         #expect(bridge.counts.gaps == 0)
-        #expect(recorder.events.count == 4)
+        #expect(a.events.count == 2 && b.events.count == 2)
+    }
+
+    /// Only the session that holds the target's lease draws there.
+    @Test func anEventOfASessionWithoutTheLeaseIsNotDrawn() {
+        let (bridge, recorder, _) = bridge(leased: ["tab_7": "s1"])
+        bridge.receive(Self.event(session: "s2", target: "tab_7", seq: 0))
+        bridge.receive(Self.event(session: "s1", target: "tab_9", seq: 0))
+        #expect(recorder.events.isEmpty)
+        #expect(bridge.counts.unleased == 2)
+        bridge.receive(Self.event(session: "s1", target: "tab_7", seq: 0))
+        #expect(recorder.events.map(\.seq) == [0])
+    }
+
+    /// A session name used again after its lease ended draws in every
+    /// content, also one where the old session reached a higher seq.
+    @Test func anEndedSessionIsForgottenByEveryPublisher() {
+        let (bridge, a, b) = bridge(leased: ["tab_7": "s"])
+        for seq in 0...50 { bridge.receive(Self.event(session: "s", target: "tab_7", seq: seq)) }
+        bridge.leaseChanged(target: "tab_7", session: nil, wireState: nil)
+        bridge.leaseChanged(target: "tab_9", session: "s", wireState: "driving")
+        bridge.leaseChanged(target: "tab_7", session: "s", wireState: "driving")
+        bridge.receive(Self.event(session: "s", target: "tab_9", seq: 0))
+        bridge.receive(Self.event(session: "s", target: "tab_7", seq: 1))
+        #expect(b.events.map(\.seq) == [0])
+        #expect(a.events.last?.seq == 1, "content A draws the new session although the old one reached seq 50")
+        #expect(a.events.count == 52)
+    }
+
+    @Test func hugeGapsDoNotOverflow() {
+        let (bridge, recorder, _) = bridge()
+        bridge.receive(Self.event(seq: 0))
+        bridge.receive(Data(#"{"v":1,"session_id":"s1","target_id":"tab_7","seq":9000000000000000000,"kind":"key","space":"viewport","t_ms":1}"#.utf8))
+        bridge.receive(Data(#"{"v":1,"session_id":"s1","target_id":"tab_7","seq":18000000000000000000,"kind":"key","space":"viewport","t_ms":2}"#.utf8))
+        #expect(bridge.counts.gaps == 2)
+        #expect(bridge.counts.missing == .max, "saturates")
+        #expect(recorder.events.count == 3)
     }
 
     @Test func aTargetNoContentOwnsIsCountedNotDrawn() {
-        let (bridge, recorder) = bridge(owning: [])
+        let (bridge, recorder, _) = bridge(owning: [])
         bridge.receive(Self.event(seq: 0))
         #expect(recorder.events.isEmpty)
         #expect(bridge.counts.unrouted == 1)
     }
 
     @Test func aSessionWithNoLeaseLeftIsForgotten() {
-        let (bridge, recorder) = bridge()
+        let (bridge, recorder, _) = bridge(leased: ["tab_7": "s1"])
         bridge.receive(Self.event(seq: 0))
         bridge.receive(Self.event(seq: 1))
-        bridge.leaseChanged(target: "tab_7", session: "s1", wireState: "driving")
         bridge.leaseChanged(target: "tab_7", session: nil, wireState: nil)
         #expect(bridge.trackedSessions == 0, "no per-session state outlives its leases")
-        bridge.receive(Self.event(seq: 0))
-        #expect(recorder.events.map(\.seq) == [0, 1, 0])
+        bridge.leaseChanged(target: "tab_7", session: "s1", wireState: "driving")
+        bridge.receive(Self.event(seq: 3))
+        #expect(recorder.events.map(\.seq) == [0, 1, 3], "a new lease of that name draws from its first event seen")
+        #expect(bridge.counts.gaps == 0)
     }
 }
