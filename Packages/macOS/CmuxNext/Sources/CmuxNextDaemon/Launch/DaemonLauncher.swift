@@ -38,10 +38,14 @@ public struct DaemonLauncher: Sendable {
         /// skipping the `server status` spawn; later ones (reconnects) run
         /// `ensure`, which restarts a crashed daemon.
         public var rememberedSocket: String?
+        /// The app's install key (P8 3b-2): handed on stdin to an owner that
+        /// `ensure` spawns, and proved by `client-hello` on each connection.
+        public var installKey: FrontendInstallKey?
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
-                    terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil) {
+                    terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
+                    installKey: FrontendInstallKey? = nil) {
             self.binary = binary
             self.session = session
             self.stateDirectory = stateDirectory
@@ -49,6 +53,7 @@ public struct DaemonLauncher: Sendable {
             self.runtimeBase = runtimeBase
             self.terminalReapGraceSeconds = terminalReapGraceSeconds
             self.rememberedSocket = rememberedSocket
+            self.installKey = installKey
         }
     }
 
@@ -111,8 +116,11 @@ public struct DaemonLauncher: Sendable {
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let session = try sessionName(tag: tag)
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
+        let keyStore = FrontendInstallKeyStores.forApp(session: session, stateDirectory: stateDirectory,
+                                                       bundleID: bundle.bundleIdentifier)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
-                                          rememberedSocket: socketMemory.socket(session: session))
+                                          rememberedSocket: socketMemory.socket(session: session),
+                                          installKey: keyStore?.loadOrCreate())
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         return DaemonLauncher(configuration: configuration, environment: appEnvironment(
@@ -221,6 +229,7 @@ public struct DaemonLauncher: Sendable {
             executable: configuration.binary,
             arguments: Self.ensureArguments(configuration),
             environment: environment,
+            stdin: configuration.installKey?.payload,
             timeout: ensureTimeout,
             clock: clock
         )
@@ -231,6 +240,7 @@ public struct DaemonLauncher: Sendable {
     static func ensureArguments(_ configuration: Configuration) -> [String] {
         ["--session", configuration.session, "--json", "server", "ensure",
          "--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)]
+            + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
     }
 
     /// `server status`: the running owner, or nil when none runs (or the

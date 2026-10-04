@@ -112,7 +112,8 @@ final class DaemonService {
             retryWake: retryWake,
             terminalEnvironment: terminalEnvironmentProvider,
             resolvesShellIntegration: resolvesShellIntegration,
-            sessionEvents: true)
+            sessionEvents: true,
+            clientHello: ClientHelloIdentity(installKey: launcher.configuration.installKey))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.

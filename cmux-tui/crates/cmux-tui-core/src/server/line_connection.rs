@@ -97,9 +97,17 @@ pub(super) fn serve_line_connection(
             continue;
         }
         let keep_open = match admission.refusal(&line) {
-            Some(refusal) => writer.send_control(&refusal).is_ok(),
+            Some(refusal) => {
+                // A refused line still counts as a line: the window closes.
+                hello.close();
+                writer.send_control(&refusal).is_ok()
+            }
             None => {
-                match hello.observe(&mux, client, &line, || reader.get_ref().peer_process_key()) {
+                let peer = || {
+                    let stream = reader.get_ref();
+                    client_hello::Peer { key: stream.peer_process_key(), token: stream.peer_token() }
+                };
+                match hello.observe(&mux, client, &line, peer) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
                     None => handle_connection_frame(
                         &mux,

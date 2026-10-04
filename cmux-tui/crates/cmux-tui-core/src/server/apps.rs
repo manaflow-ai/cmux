@@ -6,11 +6,11 @@
 //! Only local (Unix socket) connections may use apps commands. `apps-set`
 //! changes apps, so it needs a verified cmux app connection whatever origin
 //! it claims, and so does every request with origin `user` (Gate A2,
-//! plans/cmux-next/request-origin.md; `origin.forbidden` otherwise). A
-//! connection that only declares kind `app` is not the verified app; it
-//! still counts for `apps-provider-register` until P8. Origin `user` from a
-//! verified connection that is bound to an agent is `apps.origin_forbidden`
-//! (see `apps::provider::hosting_app_connection`). A connection
+//! plans/cmux-next/request-origin.md; `origin.forbidden` otherwise), and so
+//! does `apps-provider-register`. The verified app is proved (P8,
+//! server/app_trust.rs); a connection that only declares kind `app` is not
+//! it. Origin `user` from a verified connection that is bound to an agent
+//! is `apps.origin_forbidden` (see `apps::provider::hosting_app_connection`). A connection
 //! receives `apps-changed` and `apps-host` events after its first apps
 //! command; mount events go to the mounting connection only.
 
@@ -165,34 +165,23 @@ fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<Joi
     std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
 }
 
-/// Which hosting-app evidence a check accepts.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum HostingEvidence {
-    /// User authority (origin `user`): only a verified cmux app connection.
-    Verified,
-    /// Provider registration: a declared kind `app` still counts until P8
-    /// (residual risk in plans/cmux-next/app-op-routing.md), or the verified
-    /// app. A page relay never counts.
-    DeclaredOrVerified,
-}
-
 /// What the daemon knows about `client` for the hosting-app check.
-fn claim_for(mux: &Mux, client: u64, evidence: HostingEvidence) -> crate::apps::ProviderClaim {
-    let app_kind = {
+fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
+    // Proved, never declared: the install-key hello or the app's code
+    // signature (P8, server/app_trust.rs). `set-client-info kind` and a
+    // page relay never count.
+    let verified_app = {
         let state =
             mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.clients.get(&client).is_some_and(|record| {
-            let verified = record.origin.derive() == crate::request_origin::RequestOrigin::User;
-            let declared = record.kind.as_deref() == Some("app")
-                && record.origin.role != crate::request_origin::HelloRole::PageRelay;
-            verified || (evidence == HostingEvidence::DeclaredOrVerified && declared)
+            record.origin.derive() == crate::request_origin::RequestOrigin::User
         })
     };
     crate::apps::ProviderClaim {
         // An agent's conversation binding; switches to the identity lane's
         // terminal/acp_session actor with `agent` once it lands.
         agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
-        app_kind,
+        verified_app,
     }
 }
 
@@ -239,7 +228,7 @@ pub(super) fn try_handle(
     }
     // Origin `user` also needs a connection that is not bound to an agent
     // (the verified app check above does not see the agent binding).
-    let origin_claim = claim_for(mux, client, HostingEvidence::Verified);
+    let origin_claim = claim_for(mux, client);
     if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
     }
@@ -315,7 +304,7 @@ pub(super) fn try_handle(
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
         Command::ProviderRegister { families } => supervisor.register_provider(
             client,
-            claim_for(mux, client, HostingEvidence::DeclaredOrVerified),
+            claim_for(mux, client),
             families,
         ),
         Command::ProviderResult { request_id, ok, body } => {
@@ -379,7 +368,7 @@ mod tests {
     #[test]
     fn apps_set_needs_the_verified_app_and_origin_user_needs_no_agent() {
         let mux = Mux::new_for_test("apps-origin-gate", SurfaceOptions::default());
-        // An agent connection is refused even when it declared kind app.
+        // An agent connection is refused even when it is a verified app.
         let (agent, agent_out) = connection(&mux, Some("app"), true);
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, agent, &agent_out, request).as_deref(), NOT_VERIFIED);
@@ -409,6 +398,22 @@ mod tests {
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, agent_app, &agent_app_out, request).as_deref(), FORBIDDEN);
         }
+    }
+
+    /// P8 3b-2: kind `app` is a self-declared label. Provider registration
+    /// counts only the verified app, never a declared kind or a page relay.
+    #[test]
+    fn only_the_verified_app_is_the_hosting_app_for_providers() {
+        let mux = Mux::new_for_test("apps-provider-claim", SurfaceOptions::default());
+        let (declared, _declared_out) = connection(&mux, Some("app"), false);
+        assert!(!claim_for(&mux, declared).verified_app);
+        let (relay, _relay_out) = connection(&mux, Some("app"), false);
+        crate::server::origin_gate::set_role_for_test(&mux, relay, "page_relay");
+        crate::server::origin_gate::set_verified_app_for_test(&mux, relay, true);
+        assert!(!claim_for(&mux, relay).verified_app);
+        let (app, _app_out) = connection(&mux, None, false);
+        verify(&mux, app);
+        assert!(claim_for(&mux, app).verified_app);
     }
 
     #[test]
