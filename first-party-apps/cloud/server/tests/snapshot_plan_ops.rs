@@ -43,7 +43,9 @@ fn restore_and_fork_add_a_machine_once_per_key() {
     assert_eq!(s.control_plane().calls[0].body, Some(json!({ "snapshotId": "snap-two" })));
     assert!(s.projection().get("vm-restored05").is_some());
     let fork = Request::new("cloud.snapshot.fork", json!({ "machine": "vm-alpha01" })).key("f-1");
-    assert_eq!(s.handle(&fork).expect("fork")["id"], "vm-fork06");
+    let forked = s.handle(&fork).expect("fork");
+    assert_eq!(forked["id"], "vm-fork06");
+    assert_eq!(forked["snapshotId"], "snap-fork");
     assert!(s.projection().get("vm-fork06").is_some());
 }
 

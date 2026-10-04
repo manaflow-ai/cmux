@@ -61,3 +61,20 @@ fn session_status_comes_from_the_host() {
     assert!(status.signed_in);
     assert_eq!(status.team.as_deref(), Some("t-1"));
 }
+
+#[test]
+fn an_op_then_eof_during_a_call_is_unavailable_and_the_op_stays_queued() {
+    let input = "{\"type\":\"op\",\"id\":\"1\",\"op\":\"cloud.machine.list\"}\n";
+    let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
+    assert!(matches!(relay.call(&call()), Err(RelayError::Unavailable(_))));
+    assert_eq!(relay.next_message().expect("io").expect("queued")["id"], "1");
+}
+
+#[test]
+fn a_line_that_is_not_utf8_is_invalid_not_fatal() {
+    let mut input = b"\xff\xfe not json\n".to_vec();
+    input.extend_from_slice(b"{\"type\":\"op\",\"id\":\"2\"}\n");
+    let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
+    assert_eq!(relay.next_message().expect("io").expect("line")["type"], "invalid");
+    assert_eq!(relay.next_message().expect("io").expect("line")["id"], "2");
+}

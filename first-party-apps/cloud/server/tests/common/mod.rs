@@ -12,12 +12,26 @@ pub struct FakeControlPlane {
     routes: HashMap<(String, String), (u16, Value)>,
     pub calls: Vec<HttpCall>,
     pub signed_in: bool,
+    /// The next N calls fail as if the host or network did not answer.
+    pub fail_next: usize,
+    /// Like the Cloud API (`beginCreate`): a POST with a known key replays
+    /// the first answer and creates nothing.
+    by_key: HashMap<String, (u16, Value)>,
+    /// POSTs that reached the provider (not replayed by key).
+    pub provider_posts: usize,
 }
 
 impl FakeControlPlane {
     /// Loads the named fixtures (`tests/fixtures/<name>.json`).
     pub fn with(names: &[&str]) -> Self {
-        let mut fake = Self { routes: HashMap::new(), calls: Vec::new(), signed_in: true };
+        let mut fake = Self {
+            routes: HashMap::new(),
+            calls: Vec::new(),
+            signed_in: true,
+            fail_next: 0,
+            by_key: HashMap::new(),
+            provider_posts: 0,
+        };
         for name in names {
             fake.serve(name);
         }
@@ -47,11 +61,26 @@ impl ControlPlane for FakeControlPlane {
         if !self.signed_in {
             return Err(RelayError::NotSignedIn);
         }
+        if self.fail_next > 0 {
+            self.fail_next -= 1;
+            return Err(RelayError::Unavailable("the host did not answer".into()));
+        }
+        if let (Some(key), "POST") = (&call.idempotency_key, call.method)
+            && let Some((status, body)) = self.by_key.get(key).cloned()
+        {
+            return Ok(HttpReply { status, body, error_code: None });
+        }
         let (status, body) = self
             .routes
             .get(&(call.method.to_owned(), call.path.clone()))
             .cloned()
             .unwrap_or((404, serde_json::json!({ "error": "vm_not_found" })));
+        if call.method == "POST" {
+            self.provider_posts += 1;
+            if let Some(key) = &call.idempotency_key {
+                self.by_key.insert(key.clone(), (status, body.clone()));
+            }
+        }
         Ok(HttpReply { status, body, error_code: None })
     }
 

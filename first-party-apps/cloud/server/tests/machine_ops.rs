@@ -3,6 +3,7 @@
 mod common;
 
 use cmux_cloud::api::models::{Machine, MachineStatus};
+use cmux_cloud::api::upstream_key;
 use cmux_cloud::ops::Change;
 use cmux_cloud::{Origin, Request, Server};
 use common::FakeControlPlane;
@@ -32,8 +33,48 @@ fn a_retry_with_the_same_key_returns_the_same_machine() {
     assert_eq!(first["status"], "provisioning");
     assert_eq!(s.control_plane().count("POST", "/api/vm"), 1, "one provider create");
     let call = &s.control_plane().calls[0];
-    assert_eq!(call.idempotency_key.as_deref(), Some("k-1"), "the key reaches the Cloud API");
+    let derived = upstream_key("cloud.machine.create", &json!({ "displayName": "scratch" }), "k-1");
+    assert_eq!(derived.len(), 64);
+    assert_eq!(
+        call.idempotency_key.as_deref(),
+        Some(derived.as_str()),
+        "a derived key reaches the Cloud API"
+    );
     assert_eq!(call.body, Some(json!({ "displayName": "scratch" })));
+}
+
+#[test]
+fn a_retry_after_a_lost_answer_resends_the_same_key() {
+    let mut s = server(&["vm-create"]);
+    let create =
+        Request::new("cloud.machine.create", json!({ "displayName": "scratch" })).key("k-2");
+    s.control_plane_mut().fail_next = 1;
+    assert_eq!(s.handle(&create).unwrap_err().code, "cmux.cloud.relay_unavailable");
+    // The Cloud API created the machine but the answer was lost: simulate it.
+    s.control_plane_mut().fail_next = 0;
+    let first = s.handle(&create).expect("retry");
+    let again = s.handle(&create).expect("replay");
+    assert_eq!(first, again);
+    let keys: Vec<_> = s.control_plane().calls.iter().map(|c| c.idempotency_key.clone()).collect();
+    assert_eq!(keys.len(), 2, "the replay made no call");
+    assert_eq!(keys[0], keys[1], "the retry sent the same key");
+    assert_eq!(s.control_plane().provider_posts, 1);
+    let other = Request::new("cloud.machine.create", json!({})).key("k-2");
+    assert_eq!(s.handle(&other).unwrap_err().code, "cmux.cloud.idempotency_conflict");
+}
+
+#[test]
+fn a_failed_attempt_still_holds_its_key() {
+    let mut s = server(&["vm-create"]);
+    s.control_plane_mut().fail_next = 1;
+    let create = Request::new("cloud.machine.create", json!({})).key("k-3");
+    assert!(s.handle(&create).is_err());
+    let fork = Request::new("cloud.snapshot.fork", json!({ "machine": "vm-alpha01" })).key("k-3");
+    assert_eq!(s.handle(&fork).unwrap_err().code, "cmux.cloud.idempotency_conflict");
+    let bad = Request::new("cloud.machine.create", json!({ "displayName": "" })).key("k-4");
+    assert_eq!(s.handle(&bad).unwrap_err().code, "cmux.cloud.invalid_args");
+    let fixed = Request::new("cloud.machine.create", json!({ "displayName": "ok" })).key("k-4");
+    assert!(s.handle(&fixed).is_ok(), "refused args leave the key free");
 }
 
 #[test]
@@ -98,7 +139,7 @@ fn the_list_fixture_maps_to_typed_records() {
     assert_eq!(alpha.id, "vm-alpha01");
     assert_eq!(alpha.status, MachineStatus::Running);
     assert_eq!(alpha.display_name.as_deref(), Some("build box"));
-    assert_eq!(alpha.created_at, Some(1_790_000_000_000.0));
+    assert_eq!(alpha.created_at, Some(1_790_000_000_000.0), "the ISO string becomes epoch ms");
     assert_eq!(alpha.address.as_ref().and_then(|a| a.ipv4.as_deref()), Some("10.200.0.2"));
     assert_eq!(alpha.created_by.as_ref().map(|c| c.user_id.as_str()), Some("user-test-1"));
     assert_eq!(machines[1].status, MachineStatus::Paused);
@@ -147,7 +188,8 @@ fn start_answers_to_resume_and_the_relay_names() {
         "vm.resume",
         "vm.start",
     ] {
-        let mut s = server(&["vm-resume"]);
+        let mut s = server(&["vm-list", "vm-resume"]);
+        s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
         let out = s
             .handle(&Request::new(name, json!({ "machine": "vm-beta02" })).key("s-1"))
             .unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -207,4 +249,66 @@ fn a_plan_limit_is_typed() {
     assert_eq!(err.code, "cmux.cloud.plan_limit");
     assert_eq!(err.upstream_code.as_deref(), Some("vm_requires_pro"));
     assert_eq!(err.message, "Cloud machines need a paid plan.");
+}
+
+#[test]
+fn a_partial_answer_for_an_unknown_machine_reads_the_full_record() {
+    let mut s = server(&["vm-get", "vm-pause"]);
+    let out = s
+        .handle(&Request::new("cloud.machine.pause", json!({ "machine": "vm-alpha01" })).key("p-9"))
+        .expect("pause");
+    assert_eq!(out["status"], "paused");
+    assert_eq!(out["provider"], "freestyle");
+    assert_eq!(out["displayName"], "build box");
+    assert_eq!(s.control_plane().count("GET", "/api/vm/vm-alpha01"), 1);
+    assert_eq!(
+        s.control_plane()
+            .calls
+            .iter()
+            .find(|c| c.method == "GET")
+            .and_then(|c| c.idempotency_key.clone()),
+        None
+    );
+}
+
+#[test]
+fn relay_names_take_their_own_args() {
+    let mut s = server(&["vm-list", "vm-pause", "vm-restore"]);
+    s.handle(&Request::new("vm.list", json!({}))).expect("list");
+    let out = s
+        .handle(&Request::new("vm.pause", json!({ "vm_id": "vm-alpha01" })).key("v-1"))
+        .expect("pause");
+    assert_eq!(out["status"], "paused");
+    let restore = Request::new(
+        "vm.snapshot.restore",
+        json!({ "vm_id": "vm-alpha01", "snapshot_id": "snap-two" }),
+    )
+    .key("v-2");
+    assert_eq!(s.handle(&restore).expect("restore")["id"], "vm-restored05");
+}
+
+#[test]
+fn a_delete_of_a_gone_machine_drops_it_here_too() {
+    let mut s = server(&["vm-list"]);
+    s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
+    let req = Request::new("cloud.machine.delete", json!({ "machine": "vm-beta02" }))
+        .origin(Origin::User)
+        .key("g-1");
+    assert_eq!(s.handle(&req).unwrap_err().code, "cmux.cloud.not_found");
+    assert!(s.projection().get("vm-beta02").is_none());
+}
+
+#[test]
+fn display_names_follow_the_cloud_api_rules() {
+    let mut s = server(&["vm-list", "vm-rename"]);
+    for bad in [json!("x".repeat(65)), json!("a\u{7}b"), json!("   "), json!(3)] {
+        let req = Request::new(
+            "cloud.machine.rename",
+            json!({ "machine": "vm-alpha01", "displayName": bad }),
+        );
+        assert_eq!(s.handle(&req.key("n-1")).unwrap_err().code, "cmux.cloud.invalid_args", "{bad}");
+    }
+    let kind = Request::new("cloud.machine.create", json!({ "kind": "Bad Kind" })).key("n-2");
+    assert_eq!(s.handle(&kind).unwrap_err().code, "cmux.cloud.invalid_args");
+    assert!(s.control_plane().calls.is_empty());
 }
