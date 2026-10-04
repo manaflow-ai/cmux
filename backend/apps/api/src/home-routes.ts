@@ -125,8 +125,9 @@ const participantIds = (list: unknown): Array<unknown> => (Array.isArray(list) ?
 const dmCreateFrame = (principal: Principal, frame: OpFrame, peer: string): { id: string; frame: OpFrame } => {
   const me = actorOf(principal)
   const id = homeConversation.dmConversationId(me, peer)
-  const self = { id: me, kind: principal.agent ? "agent" : "human", display_name: principal.display_name ?? "Someone" }
-  return { id, frame: { ...frame, params: { id, participants: [self, { id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", display_name: peer }] } } }
+  // No display names in the hashed params: the owner's policy takes the caller's name from the principal
+  // and the peer's from its records, so a renamed caller's same-key retry still replays.
+  return { id, frame: { ...frame, params: { id, participants: [{ id: me, kind: principal.agent ? "agent" : "human" }, { id: peer, kind: peer.startsWith("agent_") ? "agent" : "human" }] } } }
 }
 /** The owner frame of a dm.open that reopens an existing DM (no participants: it never creates one). */
 const dmReopenFrame = (frame: OpFrame, id: string): OpFrame => ({ ...frame, params: { id, participants: [] } })
