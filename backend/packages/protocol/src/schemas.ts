@@ -29,7 +29,11 @@ export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "we
  * grant class that no op declares as its risk: it covers only cloud.machine.link_token, so the
  * iPhone app can dial its machines without general execute.
  */
-export const OpClass = Schema.Literals(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive", "cloud-link"]).annotate({
+/** The risk classes an op declares (what OpDef.risk and a feed approve item carry). */
+export const OP_RISKS = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
+export const OpRisk = Schema.Literals(OP_RISKS).annotate({ identifier: "OpRisk" })
+
+export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link"]).annotate({
   identifier: "OpClass"
 })
 
