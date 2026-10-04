@@ -4,11 +4,13 @@ import { conversation, invites } from "@cmux/home-core"
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
 const isOpen = (i: conversation.Invite) => i.status === "pending" || i.status === "pending_approval"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
 
 type Head = conversation.ConversationState
+/** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
+type ConvAttachment = Attachment & { typing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
 const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "conversation.import", "conversation.import.commit", "participants.add"])
@@ -66,6 +68,9 @@ export class ConversationDO extends OwnerDO<Head> {
     })
   }
 
+  /** Typing memos per participant, in memory only (home-core typingGate); lost on eviction, which is fine. */
+  private readonly typing = new Map<string, conversation.TypingMemo>()
+
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
     return state && actor ? state.participants.find((p) => p.id === actor && p.left_at === undefined) : undefined
@@ -121,6 +126,88 @@ export class ConversationDO extends OwnerDO<Head> {
   protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>): void {
     const state = this.boundEngine?.currentState
     if (state) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
+  }
+
+  /**
+   * Hygiene wake (home-messaging.md section 10): the oldest message's retention expiry or the
+   * earliest open invite's expiry. The base alarm takes the earlier of this, the outbox drain and
+   * the engine prunes, so other alarm work keeps its schedule.
+   */
+  protected nextWakeAt(state: Head, _now: number): number | null {
+    const engine = this.boundEngine
+    if (!state || !engine) return null
+    const oldest = state.retention_days === undefined ? null : (engine.rows.range<conversation.Message>(conversation.TABLE_MSG, { limit: 1 })[0]?.row ?? null)
+    return conversation.nextSweepAt(state, oldest)
+  }
+
+  /**
+   * Runs `conversation.sweep` when hygiene work is due. The key names the head revision and the
+   * due time, so a repeated alarm replays instead of applying twice, and each batch gets a new
+   * key. Work still due after a sweep that changed nothing (refused, replayed or a no-op) throws,
+   * so the base alarm backs off instead of firing again at once.
+   */
+  protected async onWake(now: number): Promise<void> {
+    const state = this.boundEngine?.currentState
+    const due = state ? this.nextWakeAt(state, now) : null
+    if (!state || due === null || due > now) return
+    const res = this.submitSystem(conversation.SWEEP_OP, {}, `sweep:${state.rev}:${due}`)
+    const after = this.boundEngine?.currentState
+    const still = after ? this.nextWakeAt(after, Date.now()) : null
+    if (after?.rev === state.rev && still !== null && still <= Date.now()) {
+      const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+      throw new Error(`conversation.sweep made no progress (${reply?.t === "reject" ? reply.code : "no change"})`)
+    }
+  }
+
+  /**
+   * `typing {on, conversation?}`: an ephemeral broadcast to the other subscribed members as
+   * `conversation-typing {conversation, participant, on}` (home-messaging.md section 20 row 7).
+   * Never committed, never in the ledger or the outbox; limited per participant by typingGate.
+   */
+  protected onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    if (frame.t !== "typing") return false
+    const a = ws.deserializeAttachment() as ConvAttachment | null
+    const state = this.boundEngine?.currentState
+    const fail = (code: string, message: string) => {
+      try {
+        ws.send(JSON.stringify({ t: "error", code, message }))
+      } catch {}
+      return true
+    }
+    if (typeof frame.on !== "boolean" || (frame.conversation !== undefined && frame.conversation !== state?.id)) return fail("validation.invalid", "typing needs a boolean `on` (and this conversation, when named)")
+    const actor = a ? conversation.actorOf(a.principal) : null
+    if (!a || !state || !actor || conversation.checkTyping(state, actor)) return fail("auth.forbidden", "not a participant")
+    this.sendTyping(state, actor, frame.on, ws)
+    if ((a.typing ?? false) !== frame.on) ws.serializeAttachment({ ...a, typing: frame.on } satisfies ConvAttachment)
+    return true
+  }
+
+  /**
+   * A sender whose socket closes while typing is turned off for the others. The `off` skips the
+   * gate: the memo may be gone after an eviction, and one `off` per socket is bounded anyway.
+   */
+  override async webSocketClose(ws: WebSocket, code: number) {
+    const a = ws.deserializeAttachment() as ConvAttachment | null
+    const state = this.boundEngine?.currentState
+    const actor = a ? conversation.actorOf(a.principal) : null
+    if (a?.typing && state && actor) this.sendTyping(state, actor, false, ws, true)
+    await super.webSocketClose(ws, code)
+  }
+
+  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket, force = false) {
+    const memo = this.typing.get(actor)
+    const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
+    if (decision.memo) this.typing.set(actor, decision.memo)
+    if (!decision.send) return
+    const text = JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on })
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === from) continue
+      const other = ws.deserializeAttachment() as ConvAttachment | null
+      if (!other?.subscribed || !this.member(state, other.principal)) continue
+      try {
+        ws.send(text)
+      } catch {}
+    }
   }
 
   /** conversation.history {before_seq?, limit?}: older messages, honoring history_visible. */

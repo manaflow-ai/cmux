@@ -27305,6 +27305,14 @@
               "kind": "primitive",
               "name": "boolean"
             }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            }
           }
         },
         "extra": false
@@ -27319,6 +27327,16 @@
               "items": {
                 "kind": "ref",
                 "name": "HomeInboxEntry"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
               }
             }
           },
@@ -27370,6 +27388,10 @@
           },
           "include_archived": {
             "type": "boolean"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 256
           }
         },
         "additionalProperties": true,
@@ -27384,12 +27406,23 @@
               "$ref": "#/$defs/HomeInboxEntry"
             }
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "string"
           }
         },
         "required": [
           "entries",
+          "next_cursor",
           "revision"
         ],
         "additionalProperties": true,

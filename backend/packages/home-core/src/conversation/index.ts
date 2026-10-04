@@ -19,6 +19,7 @@ export {
 export type { Domain, OutboxItem, Principal, ReduceContext, ReduceResult, RowRange, RowReader, RowWrite, StoredRow } from "./engine-types.ts"
 export {
   fanOut,
+  hasApprovalPart,
   mentionsOf,
   PREVIEW_CHARS,
   previewOf,
@@ -63,3 +64,5 @@ export * from "./types.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
 export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
 export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"
+export { nextSweepAt, RETENTION_BATCH, SWEEP_OP } from "./sweep.ts"
+export { TYPING_MAX_ON, TYPING_REFRESH_MS, TYPING_WINDOW_MS, typingGate, type TypingDecision, type TypingMemo } from "./typing.ts"

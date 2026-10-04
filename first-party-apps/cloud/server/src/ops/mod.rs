@@ -234,10 +234,16 @@ impl<C: ControlPlane> Server<C> {
         (&mut self.edge, &self.attach.supervisor)
     }
 
-    /// Closes forwards and routes whose link went down or was replaced.
+    /// Closes forwards and routes whose link went down or was replaced, by
+    /// the link state as last pumped: the serve loop pumps and sends the
+    /// link events first, so each close follows the change that caused it.
     pub fn reconcile_edge(&mut self) {
-        let (edge, links) = self.edge_parts();
-        edge.reconcile(links);
+        self.edge.reconcile(&self.attach.supervisor);
+    }
+
+    /// Forwards and routes closed by link state since the last call.
+    pub fn take_edge_events(&mut self) -> Vec<crate::ports::EdgeDown> {
+        self.edge.take_events()
     }
 
     /// One Cloud API call context for an attach op.
@@ -317,15 +323,14 @@ impl<C: ControlPlane> Server<C> {
             return Ok(done);
         }
         // A delete retried after an attempt whose outcome is unknown: a 404
-        // now means that attempt (or another) deleted it (delete_retry.rs).
+        // with the kind's own not-found code now means that attempt (or
+        // another) deleted it (delete_retry.rs).
         let gone_is_done =
             delete_retry::is_delete(name) && self.ledger.outcome_unknown(key, name, &args);
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
         let outcome = match self.run(name, &args, request.origin, Some(&upstream)) {
-            Err(error)
-                if gone_is_done && error.code == codes::NOT_FOUND && error.status == Some(404) =>
-            {
+            Err(error) if gone_is_done && delete_retry::is_gone(name, &error) => {
                 delete_retry::gone_answer(name, &args).ok_or(error)
             }
             other => other,

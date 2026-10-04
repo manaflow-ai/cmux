@@ -21,9 +21,8 @@ pub(crate) const DISCONNECT: &str = "cloud.machine.disconnect";
 pub(crate) const RESCUE_OPEN: &str = "cloud.rescue.open";
 
 /// `cloud.link.changed` lines for the host: carrier events since the last
-/// call. TODO(lead): the serve loop drains them only after an op; a link
-/// that dies between ops is reported with the next op until the loop also
-/// wakes on link events.
+/// call, in order. The serve loop takes them after each op and whenever a
+/// link process event wakes it (`LinkSupervisor::set_wake`).
 pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<Value> {
     let supervisor = server.attach_mut().supervisor_mut();
     supervisor.pump();
@@ -34,11 +33,11 @@ pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<V
             CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
                 "machine": carrier.target, "state": "up", "carrier": carrier.id,
                 "generation": carrier.generation }),
-            CarrierEvent::Down { target, generation, retryable, reason } => json!({
+            CarrierEvent::Down { target, generation, retryable, reason, .. } => json!({
                 "type": "event", "event": "cloud.link.changed", "machine": target,
                 "state": "down", "generation": generation, "retryable": retryable,
                 "reason": reason }),
-            CarrierEvent::Revoked { target, reason } => json!({ "type": "event",
+            CarrierEvent::Revoked { target, reason, .. } => json!({ "type": "event",
                 "event": "cloud.link.changed", "machine": target, "state": "revoked",
                 "reason": reason }),
         })

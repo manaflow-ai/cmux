@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
-// Internal drag reorder: lift, live gap, drop, cancel, auto-scroll.
+// Internal drag reorder: lift, in-place slot (R77), drop, cancel, auto-scroll.
 extension SidebarListView {
     // MARK: - Drag
     final class Drag {
@@ -57,6 +57,7 @@ extension SidebarListView {
         case .tab, .section, .emptySection:
             return
         }
+        hidden.formUnion(Self.tabKeys(of: hidden, in: model))
         let rowFrame = frame(for: row)
         let count: Int
         if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
