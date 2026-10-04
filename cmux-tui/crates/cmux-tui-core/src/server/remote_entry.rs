@@ -44,7 +44,7 @@ pub struct DenyAllGate;
 
 impl RemoteGate for DenyAllGate {
     fn admit(&self, _peer: &RemotePeer, _frame: &str) -> bool {
-        true // RED stub: no gate yet.
+        false
     }
 }
 
@@ -157,7 +157,10 @@ fn serve_remote_connection(
     render_service: Arc<RenderService>,
     permit: ConnectionPermit,
 ) {
-    let _ = verifier; // RED stub: the link is not verified yet.
+    if verifier(&stream).is_err() {
+        let _ = stream.shutdown(Shutdown::Both);
+        return;
+    }
     let Some(peer) = read_stamp(&stream) else {
         let _ = stream.shutdown(Shutdown::Both);
         return;
@@ -196,7 +199,9 @@ struct RemoteAdmission {
 }
 
 impl LineAdmission for RemoteAdmission {
-    // RED stub: the peer is not bound as the principal yet.
+    fn registered(&self, mux: &Arc<Mux>, client: u64) {
+        mux.bind_conversation_principal(client, remote_principal(&self.peer));
+    }
 
     fn refusal(&self, line: &str) -> Option<Value> {
         if self.gate.admit(&self.peer, line) {
