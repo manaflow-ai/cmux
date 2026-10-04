@@ -31,6 +31,7 @@ fn push(local: &Path, key: &str) -> Request {
         json!({"machine": "vm-alpha01", "localPath": local, "path": "/home/cmux/upload.txt"}),
     )
     .key(key)
+    .origin(Origin::User)
 }
 
 /// Every form of the private key that could leak.
@@ -103,11 +104,20 @@ fn the_key_is_never_in_argv_debug_or_errors() {
         endpoint,
         route: "127.0.0.1:40022".parse().unwrap(),
     };
-    let argv =
-        scp_args(&job, Path::new("/tmp/x/agent.sock"), Path::new("/tmp/x/known_hosts")).join(" ");
+    let argv = scp_args(
+        &job,
+        Path::new("/tmp/x/agent.sock"),
+        Path::new("/tmp/x/known_hosts"),
+        Path::new("/tmp/x/transfer.pub"),
+    )
+    .join(" ");
     assert!(argv.contains("StrictHostKeyChecking=yes") && argv.contains("HostKeyAlias=cmux-scp"));
     assert!(argv.contains("cmux@127.0.0.1:/home/cmux/notes.txt") && argv.contains(" -- "));
     assert!(!argv.contains(" -i "), "no identity file");
+    assert!(argv.starts_with("-s "), "SFTP protocol: no remote shell reads the path");
+    assert!(argv.contains("IdentitiesOnly=yes"));
+    assert!(argv.contains("IdentityFile=\"/tmp/x/transfer.pub\""));
+    assert!(argv.starts_with("-s "), "SFTP protocol: no remote shell reads the path");
     // The real transfer with missing binaries fails on its real error path.
     let mut real = OpenSshTransfer {
         ssh_agent: "/nonexistent/ssh-agent".into(),
@@ -166,7 +176,7 @@ fn local_paths_are_checked_and_pull_never_overwrites() {
             json!({"machine": "vm-alpha01", "localPath": path, "path": "/home/cmux/notes.txt"}),
         )
         .key(&format!("l-{path:?}"))
-        .origin(Origin::Cli)
+        .origin(Origin::User)
     };
     let err = rig.server.handle(&pull(local.to_str().unwrap())).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.local_exists");
@@ -181,8 +191,60 @@ fn local_paths_are_checked_and_pull_never_overwrites() {
         "cloud.file.push",
         json!({"machine": "vm-alpha01", "localPath": local, "path": "/home/cmux/*.txt"}),
     )
-    .key("g-1");
+    .key("g-1")
+    .origin(Origin::User);
     assert_eq!(rig.server.handle(&glob).unwrap_err().code, "cmux.cloud.invalid_args");
     assert!(rig.transfer.log().jobs.is_empty());
     assert!(rig.server.control_plane().calls.is_empty(), "refused before any Cloud API call");
+}
+
+#[test]
+fn only_a_person_may_transfer_because_the_local_path_reaches_any_file() {
+    let local = scratch_file("origin");
+    let mut rig = rig(FIXTURES);
+    for origin in [Origin::Cli, Origin::Mcp, Origin::Agent, Origin::Script, Origin::Remote] {
+        let err = rig.server.handle(&push(&local, "o-1").origin(origin)).unwrap_err();
+        assert_eq!(err.code, "cmux.cloud.origin_refused", "{origin:?}");
+        let pull = Request::new(
+            "cloud.file.pull",
+            json!({"machine": "vm-alpha01", "localPath": "/tmp/new.txt", "path": "/home/cmux/a"}),
+        )
+        .key("o-2")
+        .origin(origin);
+        assert_eq!(rig.server.handle(&pull).unwrap_err().code, "cmux.cloud.origin_refused");
+    }
+    assert!(rig.server.control_plane().calls.is_empty());
+}
+
+#[test]
+fn a_pull_lands_in_a_hidden_name_and_is_published_without_overwrite() {
+    let dir = scratch_file("pull").parent().unwrap().to_path_buf();
+    let target = dir.join("pulled.txt");
+    let _ = std::fs::remove_file(&target);
+    let mut rig = rig(FIXTURES);
+    let pull = |key: &str| {
+        Request::new(
+            "cloud.file.pull",
+            json!({"machine": "vm-alpha01", "localPath": target, "path": "/home/cmux/notes.txt"}),
+        )
+        .key(key)
+        .origin(Origin::User)
+    };
+    let leftovers = |dir: &Path| {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains("cmux-pull"))
+            .count()
+    };
+    rig.transfer.log().fail_with = Some("scp failed".into());
+    assert_eq!(rig.server.handle(&pull("u-1")).unwrap_err().code, "cmux.cloud.transfer_failed");
+    assert!(!target.exists() && leftovers(&dir) == 0, "a failed pull leaves nothing");
+    rig.server.handle(&pull("u-2")).expect("the retry runs");
+    assert_eq!(std::fs::read(&target).unwrap(), b"pulled");
+    assert_eq!(leftovers(&dir), 0);
+    let landed = rig.transfer.log().jobs.last().unwrap().local.clone();
+    assert_ne!(landed, target, "scp never writes the target name itself");
+    assert_eq!(landed.parent(), target.parent());
+    let _ = std::fs::remove_file(&target);
 }

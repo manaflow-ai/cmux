@@ -10,7 +10,7 @@
 use super::tunnel::{TunnelAbort, TunnelConn};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -31,6 +31,8 @@ pub struct Session {
     closed: Arc<AtomicBool>,
     open: Arc<Mutex<Vec<(u64, Open)>>>,
     next: Arc<AtomicU64>,
+    /// Connection threads alive (bounded by [`MAX_CONNECTIONS`]).
+    active: Arc<AtomicUsize>,
 }
 
 impl Session {
@@ -39,6 +41,7 @@ impl Session {
             closed: Arc::new(AtomicBool::new(false)),
             open: Arc::new(Mutex::new(Vec::new())),
             next: Arc::new(AtomicU64::new(0)),
+            active: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -166,13 +169,23 @@ impl Listener {
                     break;
                 }
                 let Ok(tcp) = incoming else { continue };
+                // Bound threads before any work: a connection over the cap
+                // is closed at once.
+                if shared.active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+                    shared.active.fetch_sub(1, Ordering::SeqCst);
+                    continue;
+                }
                 let handler = Arc::clone(&handler);
                 let session = shared.clone();
-                let spawned = std::thread::Builder::new()
-                    .name("cmux-cloud-conn".into())
-                    .spawn(move || handler(tcp, &session));
-                // No thread: the connection is dropped (closed).
-                drop(spawned);
+                let spawned =
+                    std::thread::Builder::new().name("cmux-cloud-conn".into()).spawn(move || {
+                        handler(tcp, &session);
+                        session.active.fetch_sub(1, Ordering::SeqCst);
+                    });
+                if spawned.is_err() {
+                    // No thread: the connection was dropped (closed).
+                    shared.active.fetch_sub(1, Ordering::SeqCst);
+                }
             }
         })?;
         Ok(Self { addr, session, thread: Some(thread) })

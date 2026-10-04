@@ -137,10 +137,18 @@ pub(crate) fn run<C: ControlPlane>(
     let mut route = Listener::bind(handler).map_err(|e| {
         CloudError::new(TRANSFER_FAILED, format!("could not listen on 127.0.0.1: {e}"))
     })?;
+    // A pull lands in a fresh hidden name next to the target and is
+    // published with a hard link, which never overwrites and never follows
+    // a symlink put at the target meanwhile. A failed pull leaves nothing,
+    // so the retry the error allows can run.
+    let landing = match direction {
+        Direction::Push => local.clone(),
+        Direction::Pull => pull_landing(&local)?,
+    };
     let job = TransferJob {
         machine: machine.clone(),
         direction,
-        local: local.clone(),
+        local: landing.clone(),
         guest: guest.clone(),
         endpoint,
         route: route.local_addr(),
@@ -148,7 +156,16 @@ pub(crate) fn run<C: ControlPlane>(
     let result = edge.transfer.run(&job, &transfer_key);
     route.close();
     drop(transfer_key);
-    let bytes = result.map_err(|e| CloudError {
+    let published = result.and_then(|bytes| match direction {
+        Direction::Push => Ok(bytes),
+        Direction::Pull => std::fs::hard_link(&landing, &local).map(|()| bytes).map_err(|e| {
+            TransferError { message: format!("{}: {e}", local.display()), retryable: false }
+        }),
+    });
+    if direction == Direction::Pull {
+        let _ = std::fs::remove_file(&landing);
+    }
+    let bytes = published.map_err(|e| CloudError {
         retryable: e.retryable,
         ..CloudError::new(TRANSFER_FAILED, e.message)
     })?;
@@ -159,6 +176,16 @@ pub(crate) fn run<C: ControlPlane>(
         "localPath": local.to_string_lossy(),
         "bytes": bytes,
     }))
+}
+
+/// `<folder>/.<name>.cmux-pull-<random>`: the name scp writes during a pull.
+fn pull_landing(local: &std::path::Path) -> Result<PathBuf, CloudError> {
+    let mut nonce = [0u8; 8];
+    getrandom::fill(&mut nonce)
+        .map_err(|e| CloudError::new(TRANSFER_FAILED, format!("no system random source: {e}")))?;
+    let hex: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
+    let name = local.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(local.with_file_name(format!(".{name}.cmux-pull-{hex}")))
 }
 
 /// Push: the local file exists and is a regular file. Pull: nothing exists

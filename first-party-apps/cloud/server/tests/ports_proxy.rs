@@ -59,6 +59,10 @@ fn only_the_machine_itself_is_a_proxy_host() {
         assert!(is_machine_host(host), "{host}");
     }
     for host in [
+        "evil.com?.localhost",
+        "a/b.localhost",
+        "x#.localhost",
+        "a..localhost",
         "example.com",
         "10.0.0.5",
         "192.168.1.2",
@@ -92,7 +96,7 @@ fn browser_open_returns_a_route_and_refuses_other_hosts() {
         .handle(&open(json!({"machine": "vm-alpha01", "port": 80, "host": "::1"}), "b-3"))
         .unwrap();
     assert_eq!(v6["url"], "http://[::1]:80/");
-    for host in ["example.com", "10.200.0.2", "127.0.0.1.nip.io"] {
+    for host in ["example.com", "10.200.0.2", "127.0.0.1.nip.io", "evil.com?.localhost"] {
         let err = rig
             .server
             .handle(&open(

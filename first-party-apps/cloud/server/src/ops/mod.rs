@@ -81,8 +81,10 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.fs.write", Kind::Mutation),
     ("cloud.fs.mkdir", Kind::Mutation),
     ("cloud.fs.remove", Kind::UserOnly),
-    ("cloud.file.push", Kind::Mutation),
-    ("cloud.file.pull", Kind::Mutation),
+    // Transfers read or write any local file the server can: a person picks
+    // the path (native file panel), never an agent.
+    ("cloud.file.push", Kind::UserOnly),
+    ("cloud.file.pull", Kind::UserOnly),
     // Ports and browser routes (crate::ports).
     ("cloud.port.list", Kind::Read),
     ("cloud.port.forward", Kind::Mutation),

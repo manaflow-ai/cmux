@@ -110,12 +110,46 @@ impl Edge {
         let tunnel = Arc::clone(&self.tunnel);
         let carrier = carrier.clone();
         let host = host.to_owned();
+        let identity = LinkIdentity::of(&carrier);
         Arc::new(move |tcp: TcpStream, session: &Session| {
-            // A dead link fails the open: the connection closes, nothing waits.
+            // A dead or replaced link fails the open: the connection closes,
+            // nothing waits.
+            if !identity.still(&carrier) {
+                return;
+            }
             if let Ok(conn) = tunnel.open(&carrier, &host, port) {
                 session.splice(tcp, conn, Vec::new());
             }
         })
+    }
+}
+
+/// The link socket file as it was when a forward or route opened. A new link
+/// generation for the same machine binds a new socket file at the same path,
+/// so a listener of an old generation compares the file identity before each
+/// stream and never reaches the new link (the op loop closes it at the next
+/// op). `None` when the file did not exist (fakes): then only the tunnel's
+/// own open decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkIdentity(Option<(u64, u64)>);
+
+impl LinkIdentity {
+    pub fn of(carrier: &Carrier) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            Self(std::fs::metadata(&carrier.socket).ok().map(|m| (m.dev(), m.ino())))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = carrier;
+            Self(None)
+        }
+    }
+
+    /// True while the socket file is the one this identity saw.
+    pub fn still(&self, carrier: &Carrier) -> bool {
+        self.0.is_none() || Self::of(carrier) == *self
     }
 }
 
