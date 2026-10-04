@@ -6,10 +6,12 @@ public enum HomeSendState: Error, Hashable, Sendable {
     /// Sent, but the answer was lost; the store resends it with the same key
     /// (the owner applies it once). Do not send it again yourself.
     case pendingResend
-    /// Its resends ran out without an answer: the row is "Not Delivered".
-    /// This is not a refusal (the owner never said no), so `onRefusal`
-    /// does not hear of it. When the send reached the owner the row's
-    /// `mayHaveBeenDelivered` is true: say "may not have been delivered".
+    /// Its resends ran out without an answer. This is not a refusal (the
+    /// owner never said no), so `onRefusal` does not hear of it. A send
+    /// keeps a "Not Delivered" row (`retry` sends it again); when the send
+    /// reached the owner the row's `mayHaveBeenDelivered` is true: say "may
+    /// not have been delivered". Any other op leaves the log and reaches
+    /// the host through `HomeStore.onUnanswered`.
     case unanswered
 }
 
@@ -69,6 +71,13 @@ public final class HomeStore {
     /// Resends that run out without an answer are not refusals and do not
     /// come here (see `HomeSendState.unanswered`).
     @ObservationIgnored public var onRefusal: ((HomeIntent, HomeRejection) -> Void)?
+    /// An op other than a send (a tapback, a retraction, a read cursor)
+    /// whose resends ran out without an answer: it left the log, so the
+    /// change is gone from the transcript until an echo shows the owner
+    /// did commit it. The host says it may not have gone through. On the
+    /// main actor. A send keeps its "Not Delivered" row and does not come
+    /// here (see `HomeSendState.unanswered`).
+    @ObservationIgnored public var onUnanswered: ((HomeIntent) -> Void)?
     /// Test seam: awaited before the prune deletes each blob directory.
     @ObservationIgnored var pruneWillDelete: (@Sendable (String) async -> Void)?
 
@@ -593,7 +602,7 @@ public final class HomeStore {
                     }
                     uploads[key]?.waitingForReconnect = true
                     if isOnline, !scheduleBackoff(key, .upload) {
-                        giveUp(key, failure, reachedOwner: false)
+                        giveUp(key, failure, reachedOwner: uploads[key]?.reachedOwner ?? false)
                         throw HomeSendState.unanswered
                     }
                     afterLogChange(entry.intent.op)
@@ -719,9 +728,10 @@ public final class HomeStore {
 
     /// The resends ran out: a send fails "Not Delivered" with the last
     /// answer (`retry` sends it again under the same key) and leaves the
-    /// queue; another op is dropped. `reachedOwner`: the send itself went
-    /// to the owner (not only its uploads), so the owner may have
-    /// committed it (`TranscriptItem.mayHaveBeenDelivered`).
+    /// queue; another op is dropped and reported through `onUnanswered`.
+    /// `reachedOwner`: the send itself went to the owner (not only its
+    /// uploads), so the owner may have committed it
+    /// (`TranscriptItem.mayHaveBeenDelivered`).
     private func giveUp(_ key: IdempotencyKey, _ rejection: HomeRejection, reachedOwner: Bool) {
         cancelBackoff(key)
         guard let entry = log.entries.first(where: { $0.intent.key == key }) else { return }
@@ -734,6 +744,7 @@ public final class HomeStore {
         uploads[key]?.waitingForReconnect = false
         leaveSendQueue(key)
         afterLogChange(entry.intent.op)
+        if case .sendMessage = entry.intent.op {} else { onUnanswered?(entry.intent) }
     }
 
     private func cancelBackoff(_ key: IdempotencyKey) {

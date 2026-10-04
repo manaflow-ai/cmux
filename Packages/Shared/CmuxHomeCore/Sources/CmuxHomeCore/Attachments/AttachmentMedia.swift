@@ -446,12 +446,14 @@ enum AttachmentMedia {
     }
 
     /// The image without location metadata (EXIF GPS, IPTC place text,
-    /// XMP location tags), orientation and all other metadata kept. It is
-    /// copied without re-encoding when ImageIO can, else re-encoded in its
-    /// own type. A WebP (ImageIO cannot write it) keeps its own bytes
-    /// minus its EXIF and XMP chunks (`webPWithoutMetadataChunks`), so an
-    /// animated WebP keeps its frames and its size; that fails verification
-    /// when the EXIF held a rotation, which would be lost. Else (that WebP,
+    /// XMP location tags). A type ImageIO can write keeps its orientation
+    /// and all other metadata: it is copied without re-encoding when
+    /// ImageIO can, else re-encoded in its own type. A WebP (ImageIO cannot
+    /// write it) keeps its own bytes minus its whole EXIF and XMP chunks
+    /// (`webPWithoutMetadataChunks`), so it loses all EXIF and XMP metadata
+    /// (camera, date and the rest, not only location) but an animated WebP
+    /// keeps its frames and its size; that fails verification when the
+    /// EXIF held a rotation, which would be lost. Else (that WebP,
     /// another type ImageIO cannot write, or a HEIC encode that fails) the
     /// first frame is converted to PNG when it has alpha, else JPEG: an
     /// animation keeps only its first frame, and a PNG can be larger than
@@ -507,7 +509,10 @@ enum AttachmentMedia {
 
     /// A WebP without its `EXIF` and `XMP ` chunks, the VP8X flags for them
     /// cleared and every other chunk (frames, animation, ICC profile) kept
-    /// byte for byte. Nil when the bytes are not a well-formed WebP RIFF.
+    /// byte for byte. Only the bytes the RIFF size covers are read: bytes
+    /// after them are dropped, never sent. Nil when the bytes are not a
+    /// well-formed WebP RIFF (a RIFF size below 4, or a chunk that runs
+    /// past the RIFF data).
     static func webPWithoutMetadataChunks(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
         func le32(_ at: Int) -> Int { (0..<4).reduce(0) { $0 | Int(bytes[at + $1]) << (8 * $1) } }
@@ -515,13 +520,17 @@ enum AttachmentMedia {
         guard bytes.count >= 12, bytes[0..<4].elementsEqual("RIFF".utf8), bytes[8..<12].elementsEqual("WEBP".utf8) else {
             return nil
         }
+        let riffSize = le32(4)
+        guard riffSize >= 4 else { return nil }
+        // A truncated file ends early; a chunk that runs past it is refused below.
+        let limit = min(bytes.count, 8 + riffSize)
         var body = Array("WEBP".utf8)
         var index = 12
-        while index < bytes.count {
-            guard index + 8 <= bytes.count else { return nil }
+        while index < limit {
+            guard index + 8 <= limit else { return nil }
             let size = le32(index + 4)
-            guard size >= 0, index + 8 + size <= bytes.count else { return nil }
-            let end = min(bytes.count, index + 8 + size + (size & 1))
+            guard size >= 0, index + 8 + size <= limit else { return nil }
+            let end = min(limit, index + 8 + size + (size & 1))
             let tag = bytes[index..<(index + 4)]
             defer { index = end }
             if tag.elementsEqual("EXIF".utf8) || tag.elementsEqual("XMP ".utf8) { continue }

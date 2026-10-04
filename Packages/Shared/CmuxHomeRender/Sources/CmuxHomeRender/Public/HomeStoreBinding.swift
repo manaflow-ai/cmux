@@ -88,7 +88,11 @@ public final class HomeStoreBinding {
                     controller.restoreDraft(for: intent.key)
                 }
             } catch {
-                // HomeSendState.pendingResend: the store resends with the same key.
+                // HomeSendState.pendingResend: the store resends with the same
+                // key. HomeSendState.unanswered: a send keeps its "Not
+                // Delivered" row; any other op reaches the host through
+                // HomeStore.onUnanswered (it usually runs out on a resend
+                // nobody awaits, so this call never sees it).
             }
         }
     }

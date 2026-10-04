@@ -81,7 +81,7 @@ final class RowBuilder {
                 rows.append(RowSpec(key: "part:\(item.key.rawValue):\(pi)", kind: .part(row), gap: g, height: measured.size.height))
             }
             if failed {
-                rows.append(RowSpec(key: "failed:\(item.key.rawValue)", kind: .failedLabel(item.mayHaveBeenDelivered ? HomeStrings.mayNotBeDelivered : HomeStrings.notDelivered), gap: 1, height: 14))
+                rows.append(RowSpec(key: "failed:\(item.key.rawValue)", kind: .failedLabel(item.mayHaveBeenDelivered ? HomeStrings.mayNotHaveBeenDelivered : HomeStrings.notDelivered), gap: 1, height: 14))
             }
             if let receipt = receipts[item.key] {
                 rows.append(RowSpec(key: "receipt:\(item.key.rawValue)", kind: .receipt(receipt), gap: 0, height: 16))

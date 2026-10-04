@@ -656,13 +656,13 @@
         }
       }
     },
-    "label.mayNotBeDelivered": {
+    "label.mayNotHaveBeenDelivered": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "May Not Be Delivered"
+            "value": "May Not Have Been Delivered"
           }
         },
         "ar": {
@@ -740,7 +740,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Talvez não entregue"
+            "value": "Pode não ter sido entregue"
           }
         },
         "ru": {
