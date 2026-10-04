@@ -1532,10 +1532,9 @@
             },
             "transaction": "tx_0011",
             "idempotency_key": "",
-            "revision": "7",
             "replayed": false,
-            "stream": "cloud:team_t0000000000000000001",
-            "sequence": 111
+            "stream": "",
+            "sequence": 0
           }
         },
         {
@@ -1558,10 +1557,9 @@
             },
             "transaction": "tx_0012",
             "idempotency_key": "",
-            "revision": "7",
             "replayed": false,
-            "stream": "cloud:team_t0000000000000000001",
-            "sequence": 112
+            "stream": "",
+            "sequence": 0
           }
         }
       ],
@@ -1721,7 +1719,7 @@
             "revision": "1",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 113
+            "sequence": 111
           }
         }
       ]
@@ -1819,7 +1817,7 @@
             "revision": "44",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 114
+            "sequence": 112
           }
         },
         {
@@ -1862,7 +1860,7 @@
             "revision": "44",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 114
+            "sequence": 112
           }
         }
       ]
@@ -1931,7 +1929,7 @@
             "revision": "4",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 115
+            "sequence": 113
           }
         },
         {
@@ -1950,7 +1948,7 @@
             "revision": "4",
             "replayed": true,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 115
+            "sequence": 113
           }
         }
       ]
@@ -2029,7 +2027,7 @@
             "revision": "13",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 116
+            "sequence": 114
           }
         }
       ]
@@ -2124,7 +2122,7 @@
             "revision": "4",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 117
+            "sequence": 115
           }
         }
       ]
@@ -2246,7 +2244,7 @@
             "revision": "54",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 118
+            "sequence": 116
           }
         }
       ]
@@ -2349,7 +2347,7 @@
             "revision": "7",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 119
+            "sequence": 117
           }
         }
       ]
@@ -2396,7 +2394,7 @@
       "name": "machine.upsert.newer",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 120,
+      "seq": 118,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000001",
@@ -2429,7 +2427,7 @@
       "name": "machine.upsert.stale",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 121,
+      "seq": 119,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000001",
@@ -2463,7 +2461,7 @@
       "name": "machine.upsert.bound",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 122,
+      "seq": 120,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000004",
@@ -2497,7 +2495,7 @@
       "name": "machine.upsert.new",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 123,
+      "seq": 121,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000008",
@@ -2530,7 +2528,7 @@
       "name": "machine.removed",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 124,
+      "seq": 122,
       "data": {
         "machine": "vm_m0000000000000000003",
         "revision": "56"
@@ -2540,7 +2538,7 @@
       "name": "machine.removed.stale",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 125,
+      "seq": 123,
       "data": {
         "machine": "vm_m0000000000000000001",
         "revision": "3"
@@ -2551,7 +2549,7 @@
       "name": "snapshot.upsert",
       "event": "cloud.snapshot.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 126,
+      "seq": 124,
       "data": {
         "snapshot": {
           "id": "snap_s0000000000000000003",
@@ -2568,7 +2566,7 @@
       "name": "snapshot.removed",
       "event": "cloud.snapshot.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 127,
+      "seq": 125,
       "data": {
         "snapshot": "snap_s0000000000000000001",
         "revision": "4"
@@ -2578,7 +2576,7 @@
       "name": "plan.changed",
       "event": "cloud.plan.changed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 128,
+      "seq": 126,
       "data": {
         "plan": {
           "plan_id": "pro",

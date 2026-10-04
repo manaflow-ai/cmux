@@ -1329,7 +1329,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO; the token is never cached or logged. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
   readonly "cloud.machine.link_token": {
     readonly params: {
       readonly host: HostId

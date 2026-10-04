@@ -263,12 +263,17 @@ kase("machine.connect_info.not_bound", "cloud.machine.connect_info", { machine: 
 // ---- link_token (only `cmux link` calls it; the Cloud app never does). No idempotency key:
 // each call mints a fresh token and nothing replays (the Worker gives the ledger a fresh key, so
 // the response's idempotency_key is empty here).
+/** A mint commits no stream event: no stream, no sequence, nothing a subscriber or cache sees. */
+const mintOk = (value: Obj): Obj => ({
+  http: { path: "/v1/ops", status: 200 },
+  body: { ok: true, op: "cloud.machine.link_token", value, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
+})
 const linkToken = (n: number) => ({ token: `lt_vector_${String(n).padStart(4, "0")}`, expires_at: 1790000300000 + n * 1000, host: host(1), epoch: 1, services: ["daemon", "ssh"] })
 kase(
   "machine.link_token",
   "cloud.machine.link_token",
   { host: host(1), services: ["daemon", "ssh"] },
-  [opOk("cloud.machine.link_token", "", linkToken(1), "7"), opOk("cloud.machine.link_token", "", linkToken(2), "7")],
+  [mintOk(linkToken(1)), mintOk(linkToken(2))],
   { mutation: true, note: "Two calls, two fresh tokens: no key, no replay." }
 )
 kase(
