@@ -553,7 +553,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       }),
     [payload.labels],
   );
-  const appearance = resolveDiffViewerAppearance(payload.appearance);
+  const appearance = useMemo(() => resolveDiffViewerAppearance(payload.appearance), [payload.appearance]);
   const transport = useDiffTransport(payload.transport);
   const [activeSessionSource, setActiveSessionSource] = useState<DiffSource | null>(
     validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
@@ -608,8 +608,17 @@ export function App({ config, initialStatus }: ConfigProps) {
     latestState,
     repoRoot: commentRepoRoot,
   });
-  const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
-  renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
+  // One options object per options change: CodeView compares options by
+  // identity of their callbacks, and a new object on every render re-rendered
+  // every mounted file whenever the viewer re-rendered (a tree selection
+  // change, a Viewed toggle).
+  const gutterClick = useSyncedRef(comments.onGutterUtilityClick);
+  const renderedCodeViewOptions = useMemo(() => {
+    const options = codeViewOptions(state.options, appearance);
+    options.onGutterUtilityClick = ((range: SelectedLineRange, context: { item: DiffItem }) =>
+      gutterClick.current(range, context)) as any;
+    return options;
+  }, [appearance, gutterClick, state.options]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -895,16 +904,19 @@ export function App({ config, initialStatus }: ConfigProps) {
     },
     [latestState, visibleItemsRef],
   );
-  // The tree's selection follows the file at the top of the viewer: once per
-  // frame at most, and only when that file changes.
+  // The tree's selection follows the file at the top of the viewer. It moves
+  // only once that file has stayed on top for two frames in a row, so a fast
+  // scroll across many files does not re-render the viewer and the tree on
+  // every frame; the frame loop runs only until the selection is settled.
   const followFrame = useRef(0);
+  const followCandidate = useRef({ itemId: "", frames: 0 });
   const handleCodeViewScroll = useCallback(
     (scrollTop: number) => {
       codeViewScrollTopRef.current = scrollTop;
       if (followFrame.current !== 0) {
         return;
       }
-      followFrame.current = requestAnimationFrame(() => {
+      const step = () => {
         followFrame.current = 0;
         const instance = codeViewRef.current?.getInstance();
         if (instance == null) {
@@ -914,10 +926,21 @@ export function App({ config, initialStatus }: ConfigProps) {
           instance.getTopForItem(id),
         );
         const current = latestState.current;
-        if (itemId !== "" && itemId !== current.activeItemId) {
-          dispatch({ type: "set-active-item", itemId, treePath: current.treeSource?.treePathByItemId.get(itemId) });
+        if (itemId === "" || itemId === current.activeItemId) {
+          followCandidate.current = { itemId: "", frames: 0 };
+          return;
         }
-      });
+        const candidate = followCandidate.current;
+        candidate.frames = candidate.itemId === itemId ? candidate.frames + 1 : 1;
+        candidate.itemId = itemId;
+        if (candidate.frames >= 2) {
+          followCandidate.current = { itemId: "", frames: 0 };
+          dispatch({ type: "set-active-item", itemId, treePath: current.treeSource?.treePathByItemId.get(itemId) });
+          return;
+        }
+        followFrame.current = requestAnimationFrame(step);
+      };
+      followFrame.current = requestAnimationFrame(step);
     },
     [latestState, visibleItemsRef],
   );

@@ -18,6 +18,8 @@ extension SidebarListView {
         let lift: DragLiftView
         var target: DropTarget?
         var lastWindowPoint: NSPoint = .zero
+        /// The last pointer y in the list and the drag's vertical direction.
+        var lastY: CGFloat = 0, movingUp = false
         init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, target: DropTarget?) {
             self.payload = payload
             self.grabbedKey = grabbedKey
@@ -78,6 +80,7 @@ extension SidebarListView {
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
+        drag.lastY = press.point.y
         self.drag = drag
         suppressed.formUnion(hidden)
         setHovered(nil)
@@ -99,7 +102,14 @@ extension SidebarListView {
         drag.lift.frame = liftFrame
         CATransaction.commit()
         autoscroll.update(windowPoint: windowPoint)
-        guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
+        // The card's leading edge decides (nxdog30): a row makes way once the card covers half of it.
+        let card = drag.lift.frame
+        if point.y != drag.lastY {
+            drag.movingUp = point.y < drag.lastY
+            drag.lastY = point.y
+        }
+        let probe = drag.movingUp ? card.minY : card.maxY
+        guard let baseY = DropResolver.baseY(forDisplayY: probe, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
         let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
                                           ungroupedFirst: model.ungroupedFirst)
