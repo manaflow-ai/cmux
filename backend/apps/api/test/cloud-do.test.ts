@@ -9,6 +9,9 @@ import { GuardedCloudDriver, providerName, type RawCloudDriver } from "../src/cl
 import { STUB_PLAN } from "../src/domains/cloud-plan.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+import { ALLOWED_USERS, cloudTestUser } from "./setup/cloud-teams.ts"
+import { cloudConfig } from "../src/cloud-driver.ts"
+import { planFor } from "../src/domains/cloud-plan.ts"
 
 /**
  * CloudDO skeleton (plans/cmux-next/state-placement.md 5.2 and 5.3): the provider-call ledger,
@@ -33,11 +36,11 @@ const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD
 const stubFor = (team: string) => namespace.get(namespace.idFromName(team)) as unknown as CloudStub
 
 let seq = 0
-const uid = (tag: string) => `${tag}_${(++seq).toString(16).padStart(4, "0")}${"0".repeat(16)}`
-const people = () => {
-  const alice = uid("user")
+/** Test users 1..ALLOWED_USERS have allowlisted personal teams (CLOUD_ALLOWED_TEAMS); others do not. */
+const people = (allowed = true) => {
+  const alice = allowed ? cloudTestUser(++seq) : cloudTestUser(ALLOWED_USERS + 100 + ++seq)
   const team = personalTeamIdFor(alice)
-  const bob = uid("user")
+  const bob = cloudTestUser(ALLOWED_USERS + 1000 + ++seq)
   const a: Principal = { identity: `user:${alice}`, user: alice, team, kind: "session" }
   const b: Principal = { identity: `user:${bob}`, user: bob, team, kind: "session" }
   const agent: Principal = { identity: `install:inst_${"a".repeat(20)}`, user: alice, team, kind: "install", install: `inst_${"a".repeat(20)}`, agent: "agent_chief01", grant_classes: ["read", "mutate-own", "mutate-shared", "money", "destructive"] }
@@ -202,6 +205,27 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     expect(plan.ok).toBe(true)
     expect(decodes(CloudPlan, plan.value)).toBe(true)
     expect(plan.value).toMatchObject({ plan_id: STUB_PLAN.plan_id, limits: { max_active: STUB_PLAN.max_active }, usage: { active: 1, saved: 0 } })
+  })
+})
+
+describe("Cloud plan allowlist (P1-1)", { timeout: 60_000 }, () => {
+  it("a team not on CLOUD_ALLOWED_TEAMS gets cloud.plan.required and no provider call; plan.get shows no plan", async () => {
+    const { team, alice, stub } = people(false)
+    expect(await create(stub, team, alice)).toMatchObject({ t: "reject", code: "cloud.plan.required" })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 0 })
+    expect(await stub.readOp(team, alice, "cloud.plan.get", {})).toMatchObject({ ok: true, value: { plan_id: "none", limits: { max_active: 0 } } })
+  })
+
+  it("the stub plan exists only in development, staging and test, and only for listed teams", () => {
+    for (const e of ["development", "staging", "test"]) expect(planFor(e, "team_a", new Set(["team_a"]))).not.toBeNull()
+    for (const e of ["production", "local", "preview", ""]) expect(planFor(e, "team_a", new Set(["team_a"]))).toBeNull()
+    expect(planFor("development", "team_b", new Set(["team_a"]))).toBeNull()
+    expect(planFor("development", "team_a", new Set())).toBeNull()
+    const base = { CLOUD_NAME_PREFIX: "cmuxnp-dev-", CLOUD_FREESTYLE_API_KEY: "k", CLOUD_FREESTYLE_SNAPSHOT: "cmuxnp-dev-vmimg-1" }
+    expect([...cloudConfig({ ENVIRONMENT: "development", ...base, CLOUD_ALLOWED_TEAMS: " team_a, team_b ,," } as never).allowedTeams]).toEqual(["team_a", "team_b"])
+    expect(cloudConfig({ ENVIRONMENT: "development", ...base } as never).allowedTeams.size).toBe(0)
+    // An unknown environment gets no provider either.
+    expect(cloudConfig({ ENVIRONMENT: "preview", ...base, CLOUD_ALLOWED_TEAMS: "team_a" } as never)).toMatchObject({ prefix: null, image: null })
   })
 })
 

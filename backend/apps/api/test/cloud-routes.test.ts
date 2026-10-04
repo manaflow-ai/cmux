@@ -98,6 +98,12 @@ describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
     sameShape("machine.create.size_locked", await op(t, "cloud.machine.create", { name: "huge box", size: { cpu: 16, memory_mb: 65536, disk_mb: 262144 } }))
   })
 
+  it("refuses create with cloud.plan.required for a team not on CLOUD_ALLOWED_TEAMS (P1-1)", async () => {
+    const { t } = await signedIn("cloud-route-not-allowed")
+    sameShape("machine.create.plan_required", await op(t, "cloud.machine.create", { name: "big box", size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } }))
+    expect((await read(t, "cloud.plan.get")).body.value).toMatchObject({ plan_id: "none" })
+  })
+
   it("keeps answering owner.unreachable for the cloud ops that are not live yet", async () => {
     const { t } = await signedIn("cloud-route-2")
     for (const name of ["cloud.machine.start", "cloud.machine.pause", "cloud.snapshot.create", "cloud.billing.checkout", "cloud.machine.link_token"]) {
