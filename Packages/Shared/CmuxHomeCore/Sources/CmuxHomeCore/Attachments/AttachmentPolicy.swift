@@ -73,12 +73,22 @@ public enum HomeAttachmentPolicy {
             || scalar == "/" || scalar == "\\"
     }
 
+    /// What the owner's JS `trim()` removes: ECMAScript WhiteSpace (tab,
+    /// vertical tab, form feed, space, no-break space, U+FEFF and every
+    /// space separator) and LineTerminator (LF, CR, U+2028, U+2029).
+    /// Foundation's `.whitespacesAndNewlines` lacks U+FEFF.
+    static let jsTrimmed: CharacterSet = {
+        var set = CharacterSet(charactersIn: "\u{9}\u{A}\u{B}\u{C}\u{D}\u{20}\u{A0}\u{FEFF}\u{2028}\u{2029}")
+        set.formUnion(.whitespaces) // Zs and tab
+        return set
+    }()
+
     /// The owner's name rule: 1 to 255 characters, none forbidden, not
-    /// blank, `.` or `..`.
+    /// blank after JS `trim()`, `.` or `..`.
     public static func isValidName(_ name: String) -> Bool {
         let count = name.unicodeScalars.count
         return count > 0 && count <= maxNameCharacters && !name.unicodeScalars.contains(where: isForbidden)
-            && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name != "." && name != ".."
+            && !name.unicodeScalars.allSatisfy(jsTrimmed.contains) && name != "." && name != ".."
     }
 
     /// True when the owner refuses the name's extension.
