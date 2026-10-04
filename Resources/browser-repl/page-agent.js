@@ -423,14 +423,149 @@
   const AUTHOR_NAMED_ONLY_ROLES = new Set(["row", "cell", "gridcell", "columnheader", "rowheader", "listitem",
     "paragraph", "term", "definition", "blockquote", "status", "alert", "log", "note", "article"]);
 
-  function authorName(el) {
-    const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
-    const labelled = ids.map((id) => (el.ownerDocument.getElementById(id) || {}).textContent || "").join(" ");
-    return capName(normalize(labelled || el.getAttribute("aria-label") || ""));
+  // A name reads page text (labels, aria-labelledby targets, the
+  // element's own content) the snapshot walk may never visit, and
+  // Playwright's name computation reads it whole and recursively. So the
+  // text a name would read is counted first (nodes, characters, depth;
+  // nodes outside the element charged to the snapshot's node budget, its
+  // own content, which the walk reads anyway, to its clock): Playwright computes the
+  // name only when it is within NAME_NODES, NAME_CHARS and NAME_DEPTH;
+  // past them the name is read directly from the same sources, at most
+  // NAME_CHARS characters and charged node by node. Attributes are cut
+  // before they are normalized.
+  const NAME_NODES = 2000;
+  const NAME_CHARS = 20000;
+  const NAME_DEPTH = 100;
+  const NAME_FROM_CONTENT = new Set(["button", "cell", "checkbox", "columnheader", "gridcell", "heading", "link", "menuitem",
+    "menuitemcheckbox", "menuitemradio", "option", "radio", "row", "rowheader", "switch", "tab", "tooltip", "treeitem"]);
+  const NAME_ATTRS = ["aria-label", "title", "alt", "placeholder", "value", "aria-description"];
+  const LABELABLE_TAGS = new Set(["input", "select", "textarea", "button", "meter", "output", "progress"]);
+  const cutAttr = (v) => (v && v.length > NAME_CHARS ? v.slice(0, NAME_CHARS) : v || "");
+  function labelledTargets(el, ctx) {
+    const value = el.getAttribute("aria-labelledby");
+    if (!value) return [];
+    const out = [];
+    const ids = /\S+/g;
+    for (let m = ids.exec(value); m && out.length < 64 && spend(ctx, 1); m = ids.exec(value)) {
+      const t = el.ownerDocument.getElementById(m[0]);
+      if (t) out.push(t);
+    }
+    return out;
+  }
+  function nameRoots(el, role, tag, ctx) {
+    const roots = labelledTargets(el, ctx);
+    if (LABELABLE_TAGS.has(tag) && el.labels) for (const l of el.labels) roots.push(l);
+    if (NAME_FROM_CONTENT.has(role) || tag === "summary") roots.push(el);
+    else {
+      const child = tag === "fieldset" ? "legend" : tag === "table" ? "caption" : tag === "figure" ? "figcaption" : null;
+      if (child) for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (tagOf(c) === child) roots.push(c);
+    }
+    return roots;
+  }
+  // Whether the sources of el's name are small enough for Playwright to
+  // read whole; their nodes are charged to `ctx`.
+  function nameFits(el, roots, ctx) {
+    for (const a of NAME_ATTRS) {
+      const v = el.getAttribute(a);
+      if (v && v.length > NAME_CHARS) return false;
+    }
+    const queue = roots.slice();
+    const seen = new Set();
+    let nodes = 0;
+    let chars = 0;
+    for (let i = 0; i < queue.length; i++) {
+      const root = queue[i];
+      if (seen.has(root)) continue;
+      seen.add(root);
+      let depth = 0;
+      let over = false;
+      const own = root === el;
+      walkTree(root, (n) => {
+        if (++nodes > NAME_NODES) return (over = true), STOP;
+        if (own ? ++ctx.ticks % 256 === 0 && now() > ctx.deadline && (ctx.truncated = ctx.truncated || "time") : !spend(ctx, 1)) return (over = true), STOP;
+        if (n.nodeType === 3) chars += n.data.length;
+        else if (n.nodeType === 1) {
+          // A <select> in a label names it by its chosen options, not by
+          // all of them.
+          if (n !== root && tagOf(n) === "select") {
+            for (const o of n.selectedOptions) {
+              if (++nodes > NAME_NODES) return (over = true), STOP;
+              chars += o.text.length;
+            }
+            return false;
+          }
+          if (++depth > NAME_DEPTH) return (over = true), STOP;
+          for (const a of NAME_ATTRS) {
+            const v = n.getAttribute(a);
+            if (v) chars += v.length;
+          }
+          // Shadow content and aria-labelledby or aria-owns targets inside
+          // the content are read too.
+          if (n.shadowRoot) queue.push(n.shadowRoot);
+          if (n !== root && n.hasAttribute("aria-labelledby")) queue.push(...labelledTargets(n, ctx));
+          const owns = n.getAttribute("aria-owns");
+          if (owns) for (const id of owns.split(/\s+/).slice(0, 64)) {
+            const t = id && n.ownerDocument.getElementById(id);
+            if (t) queue.push(t);
+          }
+        }
+        if (chars > NAME_CHARS || queue.length > NAME_NODES) return (over = true), STOP;
+        return true;
+      }, (n) => {
+        if (n.nodeType === 1) depth--;
+      });
+      if (over) return false;
+    }
+    return true;
+  }
+  // Text of `root` for a name: its text nodes in order (as textContent;
+  // with `spaced`, a space at each element), at most NAME_CHARS characters
+  // from at most NAME_NODES nodes, each charged to `ctx` (to its clock
+  // only for `own` content, which the walk reads anyway).
+  function boundedNameText(root, ctx, spaced, own) {
+    let out = "";
+    let nodes = 0;
+    walkTree(root, (n) => {
+      if (out.length >= NAME_CHARS || ++nodes > NAME_NODES) return STOP;
+      if (own ? ++ctx.ticks % 256 === 0 && now() > ctx.deadline && (ctx.truncated = ctx.truncated || "time") : !spend(ctx, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) out += n.data.slice(0, NAME_CHARS - out.length);
+      else if (n.nodeType === 1 && spaced) {
+        if (SKIP_TAGS.has(tagOf(n))) return false;
+        if (out && out[out.length - 1] !== " ") out += " ";
+        if (n !== root && tagOf(n) === "select") {
+          const chosen = n.selectedOptions;
+          for (let i = 0; i < chosen.length && i < NAME_NODES && out.length < NAME_CHARS; i++) out += chosen[i].text.slice(0, NAME_CHARS - out.length) + " ";
+          return false;
+        }
+      }
+      return true;
+    });
+    return out;
+  }
+  // The name past those bounds, from the same sources in the order the
+  // name computation takes them.
+  function boundedName(el, roots, ctx) {
+    const labelled = labelledTargets(el, ctx);
+    if (labelled.length) return capName(normalize(labelled.map((t) => boundedNameText(t, ctx, true)).join(" ")));
+    const label = cutAttr(el.getAttribute("aria-label"));
+    if (normalize(label)) return capName(normalize(label));
+    const fromRoots = roots.filter((r) => !labelled.includes(r)).map((r) => boundedNameText(r, ctx, true, r === el)).join(" ");
+    if (normalize(fromRoots)) return capName(normalize(fromRoots));
+    return capName(normalize(cutAttr(el.getAttribute("title") || el.getAttribute("alt") || el.getAttribute("placeholder"))));
   }
 
-  function nodeName(el, role, includeHidden) {
-    if (AUTHOR_NAMED_ONLY_ROLES.has(role)) return authorName(el);
+  function authorName(el, ctx) {
+    const targets = ctx ? labelledTargets(el, ctx) : [];
+    const labelled = targets.map((t) => boundedNameText(t, ctx)).join(" ");
+    return capName(normalize(labelled || cutAttr(el.getAttribute("aria-label"))));
+  }
+
+  function nodeName(el, role, includeHidden, ctx) {
+    if (AUTHOR_NAMED_ONLY_ROLES.has(role)) return authorName(el, ctx);
+    if (ctx) {
+      const roots = nameRoots(el, role, tagOf(el), ctx);
+      if (!nameFits(el, roots, ctx)) return boundedName(el, roots, ctx);
+    }
     return accessibleName(el, includeHidden);
   }
 
@@ -604,7 +739,11 @@
     return url.href.length > 300 ? url.href.slice(0, 299) + "…" : url.href;
   }
 
-  function valueOf(el, role, tag) {
+  // A value is charged to the snapshot's size budget by the caller; what
+  // it reads is bounded here: an option label or ARIA value is cut before
+  // it is normalized, and an editable element's text is read within what
+  // the snapshot's budget has left (see boundedInnerText).
+  function valueOf(el, role, tag, ctx) {
     if (tag === "input") {
       const type = (el.type || "").toLowerCase();
       if (NO_VALUE_INPUTS.has(type)) return null;
@@ -616,11 +755,19 @@
     if (tag === "select") {
       if (el.multiple || el.size > 1) return null;
       const option = el.options[el.selectedIndex];
-      return option ? normalize(option.label || option.textContent) || null : null;
+      if (!option) return null;
+      const label = option.getAttribute("label");
+      return normalize(cutAttr(label) || (ctx ? boundedNameText(option, ctx) : cutAttr(option.textContent))) || null;
     }
-    if (isContentEditableHost(el)) return normalize(el.innerText) || null;
+    if (isContentEditableHost(el)) {
+      if (!ctx) return normalize(el.innerText) || null;
+      const b = readBudget({ maxNodes: Math.max(1, ctx.left), maxSize: Math.max(1, ctx.sizeLeft) });
+      const text = boundedInnerText(el, b);
+      spend(ctx, b.nodes - b.left);
+      return normalize(text) || null;
+    }
     if (tag === "progress" || tag === "meter") return el.hasAttribute("value") ? String(el.value) : null;
-    if (VALUE_ROLES.has(role)) return el.getAttribute("aria-valuetext") || el.getAttribute("aria-valuenow") || null;
+    if (VALUE_ROLES.has(role)) return cutAttr(el.getAttribute("aria-valuetext") || el.getAttribute("aria-valuenow")) || null;
     return null;
   }
 
@@ -675,6 +822,7 @@
   // it, never raise it.
   const MAX_SIZE = 2000000;
   const NODE_SIZE = 32;
+  const MAX_DEPTH = 1000;
   // The page-read budget: every read that sends page-controlled values to
   // the host (the snapshot walk and what it reads beside it, Markdown,
   // extraction, drop-down options, composer text) reads at most MAX_NODES
@@ -949,7 +1097,21 @@
       if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(fit(ctx, n.nodeValue));
       return;
     }
-    if (n.nodeType === 1) visitElement(n, out, ctx, parentAriaHidden, skipText);
+    if (n.nodeType !== 1) return;
+    // The walk recurses per element, and a page can nest elements deeper
+    // than the stack (the HTML parser stops at 512, script does not): past
+    // MAX_DEPTH the subtree is not read and a node with a ref says so.
+    if (ctx.nest >= MAX_DEPTH) {
+      out.push({ role: "generic", ref: refFor(n), unread: `nested deeper than ${MAX_DEPTH} elements; snapshot this ref to read it` });
+      ctx.nestCut = true;
+      return;
+    }
+    ctx.nest++;
+    try {
+      visitElement(n, out, ctx, parentAriaHidden, skipText);
+    } finally {
+      ctx.nest--;
+    }
   }
 
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
@@ -1087,7 +1249,7 @@
     // A hidden paragraph (showHidden) keeps its node so it can say [hidden].
     const flattens = FLATTEN_ROLES.has(role) && !(role === "paragraph" && !visible);
     const flattenable = flattens || FLATTEN_UNNAMED_ROLES.has(role);
-    const name = flattens && !interactive && !scrollable ? "" : nodeName(el, role, !visible);
+    const name = flattens && !interactive && !scrollable ? "" : nodeName(el, role, !visible, ctx);
     if (!interactive && !scrollable && (flattens || (flattenable && !name))) {
       if (role === "img" || role === "image") return;
       // Unrendered content (showHidden) has no layout; keep it apart.
@@ -1121,7 +1283,7 @@
       out.push(node);
       return;
     }
-    const value = valueOf(el, role, tag);
+    const value = valueOf(el, role, tag, ctx);
     if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
       const url = displayUrl(el);
@@ -1219,6 +1381,7 @@
       focus: deepActiveElement(document),
       visited: new Set(),
       depth: 0,
+      nest: 0,
       clips: EMPTY_CLIPS,
       positioned: -1,
       transformed: -1,
