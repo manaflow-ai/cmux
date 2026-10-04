@@ -215,7 +215,7 @@ jobs:
            needs.publish-tree.result == 'failure' ||
            needs.publish-pr-tree.result == 'failure') }}
     needs: [build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -941,7 +941,7 @@ jobs:
     name: publish pull request tree-addressed cmux-tui
     if: github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository
     needs: [build, cmux-next-daemon-tests]
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     concurrency:
       group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}
