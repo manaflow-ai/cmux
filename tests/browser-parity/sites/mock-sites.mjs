@@ -55,8 +55,10 @@ export function createState() {
   // slackChannels: the user's channels; googleAccounts: ListAccounts rows;
   // gmailThreadExtra: messages added to every thread; linkedinViewer: the
   // signed-in member's public identifier; linkedinSwitchOnCompose: the
-  // member another session signs in as when the share composer loads.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null };
+  // member another session signs in as when the share composer loads;
+  // googleSwitchOnLoad: ListAccounts rows another session's sign-in makes
+  // current when a Gmail or Calendar page loads.
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,9 +260,23 @@ function gmail(req, url, body, state) {
     return { json: { ok: true } };
   }
   if (url.searchParams.get("view") === "att") return { status: 200, headers: { "content-type": "text/csv", "content-disposition": 'attachment; filename="q3.csv"' }, body: "quarter,total\nQ3,9000\n" };
-  if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])), "Inbox - ada@example.com - Gmail") };
+  if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
+    switchGoogleOnLoad(state);
+    // As live, the title names the account the page is signed in as.
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
+  }
   return { status: 404, text: "" };
 }
+
+// The ListAccounts row at a /u/ index (the first one past the end).
+const googleAccountAt = (state, uid) => {
+  const rows = state.googleAccounts || GOOGLE_ACCOUNT_ROWS;
+  return rows[Number(uid) || 0] || rows[0];
+};
+// Another session signs an account in while a Gmail or Calendar page loads.
+const switchGoogleOnLoad = (state) => {
+  if (state.googleSwitchOnLoad) (state.googleAccounts = state.googleSwitchOnLoad), (state.googleSwitchOnLoad = null);
+};
 
 function calendar(req, url, body, state) {
   if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
@@ -274,8 +290,10 @@ function calendar(req, url, body, state) {
     return { json: { ok: true } };
   }
   if (/^\/calendar\/u\/\d+\/r\/eventedit$/.test(url.pathname)) {
+    switchGoogleOnLoad(state);
+    const account = googleAccountAt(state, url.pathname.split("/")[3]);
     return {
-      html: html(`<div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}"><button id="save" aria-label="Save">Save</button></div>
+      html: html(`<header><a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a></header><div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}"><button id="save" aria-label="Save">Save</button></div>
       <script>
         const p = Object.fromEntries(new URLSearchParams(location.search));
         const done = async () => { await fetch("__mock/event", { method: "POST", body: JSON.stringify(p) }); location.href = location.pathname.replace(/eventedit$/, "week"); };
