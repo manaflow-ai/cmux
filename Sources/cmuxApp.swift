@@ -1713,6 +1713,7 @@ private struct MainWindowBootstrapView: View {
     }
 }
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.newMachine",
     "cmux.settings",
     "cmux.about",
     "cmux.licenses",
