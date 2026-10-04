@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   aptClosureProblems,
   basePackageProblems,
+  cmuxCuaReleaseShape,
   DEFAULT_LOCK_PATH,
   diffCounts,
   diffFileManifests,
@@ -20,6 +21,7 @@ import {
   percentile,
   profileLinks,
   readInputsLock,
+  rolesManifest,
   sbomComponentCounts,
   validateInputsLock,
   withFingerprint,
@@ -181,5 +183,78 @@ describe("reproducibility diff and helpers", () => {
     expect(percentile([5, 1, 3, 2, 4], 50)).toBe(3);
     expect(percentile([5, 1, 3, 2, 4], 95)).toBe(5);
     expect(Number.isNaN(percentile([], 50))).toBe(true);
+  });
+});
+
+describe("roles: baked packages that stay off, first-use packages, optional programs (cloud-automation.md 2, CLOUD-AUTOMATION)", () => {
+  const lock = readInputsLock();
+
+  test("the display role is baked and off; ffmpeg is a first-use package, never baked", () => {
+    expect(lock.roles.display.default).toBe("off");
+    for (const name of lock.roles.display.apt) expect(lock.apt.ubuntu.packages[name]).toBeDefined();
+    expect(lock.roles.display.apt).toEqual(expect.arrayContaining(["xvfb", "xauth", "openbox", "at-spi2-core"]));
+    expect(lock.roles["cua-video"].default).toBe("off");
+    expect(lock.roles["cua-video"].firstUse).toBe(true);
+    expect(lock.apt.ubuntu.firstUse["cua-video"].ffmpeg).toBeDefined();
+    expect(lock.apt.ubuntu.packages.ffmpeg).toBeUndefined();
+  });
+
+  test("CJK fonts are baked (D-A2)", () => {
+    expect(lock.roles.fonts.default).toBe("on");
+    expect(lock.apt.ubuntu.packages["fonts-noto-cjk"]).toBeDefined();
+  });
+
+  test("a role naming a package that no closure carries is refused", () => {
+    const raw = fresh();
+    raw.roles.display.apt.push("xterm-not-locked");
+    expect(problemsOf(raw)).toContain('roles.display.apt: "xterm-not-locked" is not in apt.ubuntu.packages');
+  });
+
+  test("a first-use package that is also baked is refused, and first-use needs exact versions", () => {
+    const raw = fresh();
+    raw.apt.ubuntu.firstUse["cua-video"].ripgrep = raw.apt.ubuntu.packages.ripgrep;
+    raw.apt.ubuntu.firstUse["cua-video"].ffmpeg = "7.*";
+    const problems = problemsOf(raw);
+    expect(problems).toContain("apt.ubuntu.firstUse.cua-video: ripgrep is also baked in apt.ubuntu.packages");
+    expect(problems.some((p) => p.startsWith("apt.ubuntu.firstUse.cua-video.ffmpeg"))).toBe(true);
+  });
+
+  test("a first-use role needs a first-use closure, and a role default is on or off", () => {
+    const raw = fresh();
+    delete raw.apt.ubuntu.firstUse["cua-video"];
+    raw.roles.display.default = "maybe";
+    const problems = problemsOf(raw);
+    expect(problems).toContain("roles.cua-video: firstUse needs apt.ubuntu.firstUse.cua-video");
+    expect(problems).toContain('roles.display.default: must be "on" or "off"');
+  });
+
+  test("roles manifest written to /etc/cmux/roles.json lists defaults and first-use closures", () => {
+    const manifest = rolesManifest(lock);
+    expect(manifest.schema).toBe(1);
+    expect(manifest.roles.display).toEqual({ default: "off", firstUse: false, apt: lock.roles.display.apt });
+    expect(manifest.roles["cua-video"].firstUse).toBe(true);
+    expect(manifest.firstUse["cua-video"]).toEqual(lock.apt.ubuntu.firstUse["cua-video"]);
+    expect(manifest.aptSnapshot).toBe(lock.apt.ubuntu.uri);
+  });
+
+  test("cmux-cua is optional until its Linux release exists; once pinned it carries the LICENSE tarball and a role", () => {
+    expect(lock.programs.some((p) => p.name === "cmux-cua")).toBe(false);
+    const shape = cmuxCuaReleaseShape("0.8.0", "x86_64");
+    expect(shape).toEqual({
+      name: "cmux-cua",
+      version: "0.8.0",
+      url: "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.0/cmux-cua-0.8.0-linux-x86_64.tar.gz",
+      format: "tar.gz",
+      bin: { "cmux-cua": "cmux-cua-0.8.0-linux-x86_64/cmux-cua" },
+      versionArgs: ["--version"],
+      expect: "0.8.0",
+      roles: ["cua"],
+    });
+    expect(cmuxCuaReleaseShape("0.8.0", "arm64").url).toContain("cmux-cua-0.8.0-linux-arm64.tar.gz");
+    const raw = fresh();
+    raw.programs.push({ ...shape, sha256: "a".repeat(64), size: 1234 });
+    expect(problemsOf(raw)).toEqual([]);
+    raw.programs[raw.programs.length - 1].roles = ["cua", "nope"];
+    expect(problemsOf(raw).some((p) => p.includes('roles: unknown role "nope"'))).toBe(true);
   });
 });
