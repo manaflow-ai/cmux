@@ -39,6 +39,9 @@ export class AcpmuxError extends Error {
   }
 }
 
+/** The connection closed before the answer (not a refusal by acpmux). */
+export class AcpmuxClosedError extends AcpmuxError {}
+
 type Pending = { method: string; resolve: (value: unknown) => void; reject: (error: Error) => void };
 
 export class AcpmuxClient {
@@ -54,7 +57,7 @@ export class AcpmuxClient {
     client.socket = await LineSocket.open(path, (message) => client.dispatch(message), signal);
     client.socket.onClose(() => {
       for (const p of client.pending.values())
-        p.reject(new AcpmuxError(p.method, "acpmux connection closed"));
+        p.reject(new AcpmuxClosedError(p.method, "acpmux connection closed"));
       client.pending.clear();
     });
     const abort = () => client.close();

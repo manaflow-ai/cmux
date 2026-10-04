@@ -417,14 +417,15 @@ describe("prompt acknowledgment and rejection", () => {
     await host.ready;
     const [conv] = w.daemon.conversationIds;
     w.daemon.send(conv, USER_LOCAL, "slow");
-    await w.acpmux.until(() => w.acpmux.byName("mux")!.summary.status === "running");
+    // The host saw the turn start (typing on), so it read the acknowledgment sent before it.
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-typing" && r.on === true));
     const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
     const connects = initializes();
+    // Far past the acknowledgment deadline (the daemon may reconnect meanwhile: its typing request's timer is on this clock too).
     clock.advance(5_000);
-    await Bun.sleep(20);
-    expect(initializes()).toBe(connects);
     turn.resolve("done");
-    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+    await advanceUntil(clock, () => muxReplies(w.daemon.messages(conv)).length === 1);
+    expect(initializes()).toBe(connects);
   }, 5000);
 
   test("a rejected prompt is sent again on the injected clock, not at the next connect", async () => {

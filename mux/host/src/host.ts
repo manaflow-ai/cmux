@@ -1,7 +1,16 @@
 import { isCount } from "../../packages/brain/src/core/acp.ts";
 import { Core, type Effect, type Input } from "../../packages/brain/src/core/core.ts";
 import { DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME } from "../../packages/brain/src/core/rules.ts";
-import { type AcpmuxEvent, AcpmuxClient, type McpServer, type Notification, type SessionSummary, eventFromUpdate } from "./acpmux-client.ts";
+import {
+  type AcpmuxEvent,
+  AcpmuxClient,
+  AcpmuxClosedError,
+  AcpmuxError,
+  type McpServer,
+  type Notification,
+  type SessionSummary,
+  eventFromUpdate,
+} from "./acpmux-client.ts";
 import { AGENT_MUX, type ConversationChangedEvent, type Participant, USER_LOCAL } from "./conversation-types.ts";
 import { DaemonClient, DaemonError, MissingCapabilityError } from "./daemon-client.ts";
 import { takeLock } from "./lock.ts";
@@ -26,8 +35,8 @@ export { DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME };
 export interface Clock {
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(handle: unknown): void;
-  /** Milliseconds on this clock (only differences are used). */
-  now(): number;
+  /** Milliseconds since the epoch on this clock: the core's time and every timer use it. */
+  nowMs(): number;
 }
 
 /** Real timers. They keep the process alive (the reconnect backoff is one of them; the host is a daemon). */
@@ -38,7 +47,7 @@ const realClock: Clock = {
   clearTimeout(handle) {
     clearTimeout(handle as ReturnType<typeof setTimeout>);
   },
-  now: () => Date.now(),
+  nowMs: () => Date.now(),
 };
 
 /** A daemon or acpmux request that got no answer within the request timeout. */
@@ -89,6 +98,8 @@ export class MuxHost {
   private readonly stoppedSignal: Promise<void>;
   private signalStop!: () => void;
   private readonly timers = new Map<string, unknown>();
+  /** Prompts waiting for `_acpmux/prompt_accepted`: the deadline timer and the connection. */
+  private readonly promptAcks = new Map<string, { timer: unknown; acpmux: AcpmuxClient }>();
   /** Per connection loop: the clock time its connection came up, if it did. */
   private readonly upAt = new Map<string, number>();
   private readonly clock: Clock;
@@ -148,6 +159,8 @@ export class MuxHost {
     this.stopping.abort();
     for (const timer of this.timers.values()) this.clock.clearTimeout(timer);
     this.timers.clear();
+    for (const { timer } of this.promptAcks.values()) this.clock.clearTimeout(timer);
+    this.promptAcks.clear();
     this.daemon?.close();
     this.acpmux?.close();
     this.releaseLock?.();
@@ -175,7 +188,7 @@ export class MuxHost {
       // A connection that lived longer than maxMs starts the backoff over; one
       // that came up and closed at once keeps growing it.
       const up = this.upAt.get(name);
-      if (up !== undefined && this.clock.now() - up > maxMs) delay = initialMs;
+      if (up !== undefined && this.clock.nowMs() - up > maxMs) delay = initialMs;
       // The wait runs on the injected clock; stop() ends it at once.
       let timer: unknown;
       await Promise.race([new Promise((resolve) => (timer = this.clock.setTimeout(() => resolve(undefined), delay))), this.stoppedSignal]);
@@ -197,7 +210,7 @@ export class MuxHost {
   private feed(input: Input): void {
     if (this.stopped) return;
     const ports = { daemon: this.daemon, acpmux: this.acpmux };
-    for (const effect of this.core.step(input, Date.now())) {
+    for (const effect of this.core.step(input, this.clock.nowMs())) {
       // Diagnostics are written when the core decides, not when the queue gets there.
       if (effect.kind === "log") this.log(effect.line);
       else this.queue.push({ effect, ...ports });
@@ -239,7 +252,7 @@ export class MuxHost {
             this.timers.delete(effect.key);
             this.feed({ kind: "timer", key: effect.key });
           },
-          Math.max(0, effect.at - Date.now()),
+          Math.max(0, effect.at - this.clock.nowMs()),
         );
         this.timers.set(effect.key, timer);
         return;
@@ -247,19 +260,9 @@ export class MuxHost {
       case "reconnect":
         (effect.port === "daemon" ? daemon : acpmux)?.close();
         return;
-      case "prompt": {
-        // No request deadline: a prompt settles when its turn ends, which has no
-        // bound. A lost connection settles it (resent on the next connect).
-        const session = this.core.state.muxSessionId;
-        if (!acpmux || !session) return;
-        acpmux
-          .prompt(session, effect.text, { promptId: effect.prompt_id, delivery: "turn" })
-          .catch((error) =>
-            this.log(`prompt ${effect.prompt_id} failed: ${String(error)}; resent on the next acpmux connect`),
-          )
-          .finally(() => this.feed({ kind: "prompt_settled", prompt_id: effect.prompt_id }));
+      case "prompt":
+        this.prompt(acpmux, effect.prompt_id, effect.text);
         return;
-      }
       case "fetch_sessions":
         if (!acpmux) return;
         void this.timed(acpmux, "acpmux", "sessions", acpmux.sessions()).then(
@@ -380,7 +383,7 @@ export class MuxHost {
    * `disconnected`), the request fails, and the reconnect retries. One stuck
    * daemon request cannot block the serial effect queue; a stuck acpmux read
    * cannot leave a child finish or a permission waiting forever. Prompts have
-   * no deadline (their turn has no bound).
+   * their own deadline on the acknowledgment (`prompt`).
    */
   private timed<T>(client: { close(): void }, port: "daemon" | "acpmux", what: string, request: Promise<T>): Promise<T> {
     const ms = this.requestTimeoutMs;
@@ -422,6 +425,49 @@ export class MuxHost {
     );
   }
 
+  /**
+   * A prompt. Its request answers when the turn ends, which has no bound; the
+   * acknowledgment (`_acpmux/prompt_accepted`, sent as soon as acpmux records
+   * the prompt) has the request deadline. A missing acknowledgment closes the
+   * connection (the prompt is sent again on the next connect). A refusal by
+   * acpmux is `prompt_settled {rejected}`: the core retries it on the clock.
+   */
+  private prompt(acpmux: AcpmuxClient | undefined, promptId: string, text: string): void {
+    const session = this.core.state.muxSessionId;
+    if (!acpmux || !session) return;
+    const ms = this.requestTimeoutMs;
+    this.clock.clearTimeout(this.promptAcks.get(promptId)?.timer);
+    const timer = this.clock.setTimeout(() => {
+      this.promptAcks.delete(promptId);
+      this.log(`prompt ${promptId} got no acknowledgment in ${ms} ms; reconnecting`);
+      acpmux.close();
+    }, ms);
+    this.promptAcks.set(promptId, { timer, acpmux });
+    acpmux
+      .prompt(session, text, { promptId, delivery: "turn" })
+      .then(
+        () => ({ rejected: false }),
+        (error) => {
+          const rejected = error instanceof AcpmuxError && !(error instanceof AcpmuxClosedError);
+          const next = rejected ? "the core retries it" : "resent on the next acpmux connect";
+          this.log(`prompt ${promptId} failed: ${String(error)}; ${next}`);
+          return { rejected };
+        },
+      )
+      .then(({ rejected }) => {
+        this.acknowledged(promptId, acpmux);
+        this.feed({ kind: "prompt_settled", prompt_id: promptId, ...(rejected ? { rejected: true } : {}) });
+      });
+  }
+
+  /** The prompt's acknowledgment arrived (or its request settled) on `acpmux`: its deadline ends. */
+  private acknowledged(promptId: string, acpmux: AcpmuxClient): void {
+    const pending = this.promptAcks.get(promptId);
+    if (pending?.acpmux !== acpmux) return;
+    this.clock.clearTimeout(pending.timer);
+    this.promptAcks.delete(promptId);
+  }
+
   // MARK: daemon
 
   private async runDaemon(): Promise<void> {
@@ -455,7 +501,7 @@ export class MuxHost {
       if (token) await this.timed(daemon, "daemon", "bind", daemon.bind(AGENT_MUX, token));
       this.daemon = daemon;
       this.log(`daemon connected (${daemon.identity.app ?? "?"} ${daemon.identity.version ?? ""}); conversation ${conversation.id}`);
-      this.upAt.set("daemon", this.clock.now());
+      this.upAt.set("daemon", this.clock.nowMs());
       this.feed({ kind: "daemon_connected", conversation });
       const queued = held;
       held = undefined;
@@ -508,7 +554,7 @@ export class MuxHost {
     let held: Notification[] | undefined = [];
     acpmux.onNotification((n) => {
       if (held) held.push(n);
-      else this.onAcpmuxNotification(n);
+      else this.onAcpmuxNotification(n, acpmux);
     });
     try {
       const { sessionId, created } = await this.ensureMuxSession(acpmux);
@@ -533,7 +579,7 @@ export class MuxHost {
       this.clock.clearTimeout(deadline);
       this.acpmux = acpmux;
       this.log(`acpmux connected; mux session ${sessionId} (${events.length} events replayed)`);
-      this.upAt.set("acpmux", this.clock.now());
+      this.upAt.set("acpmux", this.clock.nowMs());
       this.feed({
         kind: "acpmux_connected",
         session_id: sessionId,
@@ -545,7 +591,7 @@ export class MuxHost {
       });
       const queued = held;
       held = undefined;
-      for (const n of queued) this.onAcpmuxNotification(n);
+      for (const n of queued) this.onAcpmuxNotification(n, acpmux);
       await Promise.race([closed, this.stoppedSignal]);
     } finally {
       this.clock.clearTimeout(deadline);
@@ -588,8 +634,11 @@ export class MuxHost {
     return { sessionId, created: true };
   }
 
-  private onAcpmuxNotification(n: Notification): void {
-    if (n.method === "_acpmux/event") {
+  private onAcpmuxNotification(n: Notification, acpmux?: AcpmuxClient): void {
+    if (n.method === "_acpmux/prompt_accepted") {
+      const promptId = n.params.promptId;
+      if (typeof promptId === "string" && acpmux) this.acknowledged(promptId, acpmux);
+    } else if (n.method === "_acpmux/event") {
       this.feed({ kind: "acpmux_event", event: n.params as unknown as AcpmuxEvent });
     } else if (n.method === "session/update") {
       this.feed({ kind: "acpmux_event", event: eventFromUpdate(n.params) });

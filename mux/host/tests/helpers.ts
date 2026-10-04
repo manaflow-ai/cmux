@@ -56,7 +56,6 @@ export const MAX_BACKOFF_MS = 200;
 export interface FakeClock {
   setTimeout(fn: () => void, ms: number): number;
   clearTimeout(handle: unknown): void;
-  now(): number;
   /** Milliseconds since the epoch on this clock (it starts at 2026-10-03T00:00:00Z). */
   nowMs(): number;
   advance(ms: number): void;
@@ -87,7 +86,6 @@ export function fakeClock(): FakeClock {
     clearTimeout(handle) {
       timers.delete(handle as number);
     },
-    now: () => now,
     nowMs: () => now,
     advance(ms) {
       now += ms;
@@ -111,12 +109,12 @@ export function fakeClock(): FakeClock {
  * never holds.
  */
 export async function advanceUntil(clock: FakeClock, done: () => boolean, limitMs = MAX_BACKOFF_MS): Promise<number> {
-  const start = clock.now();
+  const start = clock.nowMs();
   for (let i = 0; i < 300; i++) {
-    if (done()) return clock.now() - start;
+    if (done()) return clock.nowMs() - start;
     await Bun.sleep(10);
-    if (done()) return clock.now() - start;
+    if (done()) return clock.nowMs() - start;
     clock.advanceToNext(limitMs);
   }
-  throw new Error(`advanceUntil: not done after ${clock.now() - start} fake ms`);
+  throw new Error(`advanceUntil: not done after ${clock.nowMs() - start} fake ms`);
 }
