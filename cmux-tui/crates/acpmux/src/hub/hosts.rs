@@ -68,6 +68,20 @@ impl Hub {
         // still holds the open requests, prompts and turn; recovery would
         // handle them a second time.
         let current = session.child.lock().await.clone();
+        // The harness exited and its host is finishing: wait (bounded) for
+        // the host's lock to drop, then let the caller start a fresh agent.
+        if let Some(record) = current
+            .as_ref()
+            .filter(|c| c.host_record().is_some() && !c.is_broken())
+            .and_then(|c| c.host_record())
+        {
+            let dir = agent_host::hosts_dir();
+            let waited = tokio::task::spawn_blocking(move || {
+                agent_host::wait_dead(&dir, &record.session_id, &record.start_nonce)
+            });
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), waited).await;
+            return None;
+        }
         if let Some(child) = current.filter(|c| c.is_broken()) {
             if let Err(e) = child.reattach().await {
                 tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}");

@@ -418,6 +418,28 @@ pub fn terminate_unadoptable(
     Ok(done_rx.recv_timeout(TERM_GRACE).is_ok())
 }
 
+/// Block until this incarnation's host is dead (its lock drops). Returns at
+/// once when the lock file is gone. Call it off the async runtime.
+pub fn wait_dead(dir: &Path, session_id: &str, start_nonce: &str) {
+    use std::os::fd::AsRawFd;
+    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(live_path(
+        dir,
+        session_id,
+        start_nonce,
+    )) else {
+        return;
+    };
+    loop {
+        // SAFETY: a blocking lock on a descriptor this function owns; it
+        // returns when the host's descriptor closes at its death.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0
+            || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+        {
+            return;
+        }
+    }
+}
+
 /// Remove a dead host's record, lock and socket.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(record_path(dir, &record.session_id));

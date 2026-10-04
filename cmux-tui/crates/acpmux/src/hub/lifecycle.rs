@@ -441,12 +441,16 @@ impl Hub {
         // A running agent host for this session is reached again, never
         // started or initialized a second time.
         if Self::host_record_live(&session.id) {
-            return match self.readopt(session).await {
-                Some(child) if child.is_alive().await => Ok(child),
-                _ => Err(RpcError::internal(
-                    "this session's agent host is still running but cannot be reached; close the session to end it",
-                )),
-            };
+            match self.readopt(session).await {
+                Some(child) if child.is_alive().await => return Ok(child),
+                // The host ended meanwhile: start a fresh agent below.
+                _ if !Self::host_record_live(&session.id) => {}
+                _ => {
+                    return Err(RpcError::internal(
+                        "this session's agent host is still running but cannot be reached; close the session to end it",
+                    ));
+                }
+            }
         }
 
         // A stopped session reopens on demand. Only a purge is final.
