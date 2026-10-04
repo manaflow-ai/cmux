@@ -1,0 +1,33 @@
+# Updates, changelog and announcements (R114)
+
+Status: design approved by the coordinator 2026-10-04; steps 1-3 built. Owner: updates lead.
+
+Lawrence (R114): background download, the indicator only when the update is ready, one click installs at once, install on quit, great defaults with every part customizable, an amazing changelog, and a minimal Linear/Notion-style stacking announcement card above Settings that can be hidden permanently and brought back.
+
+## 1. Auto-update
+
+`UpdateFlow` (CmuxNextUpdater) is a pure gate over Sparkle's phase: hidden -> checking -> available (downloads off) -> downloading -> ready -> waiting (a click held by busy agents) -> installing. The App feeds events and performs effects (`install`, `download`, `confirmInterrupt`, `quit`).
+
+- No UI until the update is ready. Background checks, downloads and failures show nothing; a check the user asked for shows its progress and result.
+- Ready: the "Update ready" card (card stack, section 3) and the Settings badge. One click installs and relaunches. An app relaunch stops no terminal (the daemon keeps every PTY; a newer daemon adopts the hosts, `terminal_host_recovery/upgrade.rs`).
+- Busy agents (`AgentState.working` in the local daemon store, read through observation) hold the click: the card says "waits for N agents" and the install runs when they finish. Install Now asks through CmuxDialog; until the dialog host lands it keeps waiting (never interrupts agents).
+- Install on quit (default on): Sparkle installs a staged update as the app exits. Off: the quit replies Skip to Sparkle's held ready prompt, which cancels the installer without recording a skipped version, so the next check offers the update again.
+- Settings (`updates.*`, General > Updates, cmux.json, React Settings): `checkAutomatically` (true), `checkIntervalSeconds` (3600, 900...604800), `downloadAutomatically` (true; off makes a found update an available card whose click downloads and installs), `installOnQuit` (true), `notify` (`card` | `badge` | `silent`), `quietHours` (`{start, end}`, off; hides the card only). Agents may set `notify` and `quietHours` only.
+- Later steps: `updates.meteredNetwork` (defer automatic downloads on Low Data Mode), `updates.keepPreviousVersions` (1) with `cmux update rollback` (refused, with a clear message, when the daemon store schema is newer than the old build can read), channel (cmux-next: nightly now, stable later; the classic switch stays in cmux-hq), CLI `cmux update check|install|status|channel|rollback` (needs a cmux-tui window).
+
+### Shared bundle id (user rule)
+
+Classic NIGHTLY and cmux-next NIGHTLY share `com.cmuxterm.app.nightly` by decision (R78, passkeys). They share one defaults domain, one Sparkle cache (`~/Library/Caches/com.cmuxterm.app.nightly`), one Sparkle installer service name and `/tmp/cmux-nightly.sock`. So one of them installed per Mac is a real user rule, and the update path must survive a user who switches: a staged update or Sparkle defaults left by the other app must not install the wrong build. Sparkle's own guards cover the install (each feed's items carry its own key and `sparkle:channel`; cmux-next accepts only channel `cmux-next` and its own EdDSA key). Open: clear a staged update whose feed does not match this app's feed at launch.
+
+### Testing
+
+- `scripts/cmux-next/update-e2e.py` (fleet entry `scripts/measure/update-e2e.sh`, class exclusive) installs a real older nightly-next build, stages the newer one through Sparkle, proves install on quit, version, kept terminals (output, shell PID, still answers), the delta download and, with `--click`, the one-click install with Sparkle's relaunch. Host rules: Aqua session, no `com.cmuxterm.app.nightly` installed or running; it removes only what it created.
+- Planned: a DEV/NIGHTLY-only "Use Test Update Feed…" action. Signatures are always required, the active test feed is visible in the card and the status, and it resets on relaunch unless pinned.
+
+## 2. Changelog
+
+Each build publishes signed release notes next to the appcast (`notes/<version>.json`, Ed25519 content key in the `content-signing` environment; public key compiled into the app). Entries: highlights (Markdown, hash-pinned images/GIFs, a "Try it" action from an allow-list of action ids; the page never answers a confirmation) and fixes. A release that shows the what's-new card needs a human-written highlight file (`release-notes/next/<version>.md`); commit-subject notes go only to the full history. The page is React at `cmux-page://changelog`, cached offline.
+
+## 3. Announcement cards
+
+One Swift card stack in the sidebar (window-chrome exception), above the spaces dots, which sit directly above Settings (R112). Update-ready and what's-new cards always show; announcement cards show only on hover with the R100 footer. Small, one line, depth-stacked, expand on hover, x per card. Content: signed static feed `files-next.cmux.com/announcements/v1.json` (id, audience by channel and version range, start/expiry, actions), one conditional GET per update check with no identifiers. `announcements.enabled` hides them permanently; Settings and the palette "Show Announcements" bring them back; `announcements.fetch=false` stops all network use for them. Dismissals are local (daemon personal projection later).
