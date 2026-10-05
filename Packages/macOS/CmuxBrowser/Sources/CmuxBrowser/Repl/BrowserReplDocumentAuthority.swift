@@ -277,10 +277,21 @@ extension BrowserReplDocumentAuthority {
         }?.store
     }
 
-    /// The verdict on the page `tab` landed on after a navigation the
-    /// session started, by its URL.
+    /// The verdict on the page `tab` landed on after a navigation, a
+    /// history step or a reload the session started
+    /// (``BrowserReplMethodSpec/judgesLandedPage``): judged as the tab's page
+    /// (``BrowserReplDocumentSubject/tabPage(_:)``), so a local file outside
+    /// the session's directories is refused whatever the policy. A user's
+    /// tab is never navigated away for it; the call fails.
     public func landedPage(_ url: String, in tab: BrowserReplTabFacts?) -> BrowserReplVerdict {
-        verdict(BrowserReplAccess(.load(url)))
+        guard let refusal = verdict(BrowserReplAccess(.tabPage(url), in: tab)).refusal else { return .allowed }
+        let isCreator = tab?.creatorSessionID == sessionID
+        let tail = isCreator ? "" : "; the tab is the user's, so it stays there and the session cannot read it"
+        return .refused(BrowserReplRefusal(
+            code: refusal.code,
+            reason: refusal.reason,
+            message: "navigation to \(url) was blocked: \(refusal.reason)\(tail)"
+        ))
     }
 
     /// Whether `tab` is in the session's workspace (always, when the

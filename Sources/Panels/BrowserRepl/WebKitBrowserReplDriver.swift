@@ -401,6 +401,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     // reload; it waited for DOMContentLoaded, and `waitUntil`
                     // may ask for more within the call's timeout.
                     try await waitForLoadState(panel, Self.waitUntil(params), remainingMilliseconds: Self.remaining(Self.timeout(params), since: started))
+                    if spec.judgesLandedPage { try await checkLandedPage(panel) }
                     var result: [String: Any] = [:]
                     if let status = attachment.mainDocumentStatus { result["status"] = status }
                     guard let json = JSONSerialization.browserReplString(result.isEmpty ? nil : result as Any?) else {
@@ -452,6 +453,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 } else {
                     return try await handle(method: method, params: params)
                 }
+            }
+            // A method that leaves the page (navigate, history, reload)
+            // fails when the page it landed on is one the authority refuses.
+            if spec.judgesLandedPage, let panel = targetPanel(params) {
+                try await checkLandedPage(panel)
             }
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
             // Page URLs in the result (BrowserReplPageURL) become this
@@ -609,6 +615,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func checkLocalDocumentOrigin(_ spec: BrowserReplMethodSpec, params: [String: Any]) async throws {
         guard spec.page == .tabPage, let panel = targetPanel(params) else { return }
+        try await checkLocalDocumentOrigin(panel)
+    }
+
+    /// `panel`'s main-frame document, when the authority judges its local
+    /// documents and its page is neither a web page nor a file by URL.
+    @MainActor
+    private func checkLocalDocumentOrigin(_ panel: BrowserPanel) async throws {
         let tab = tabFacts(panel)
         guard authority.judgesLocalDocuments(in: tab) else { return }
         // A web page has its own origin; a file page is judged by its path.
@@ -617,13 +630,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         try authority.verdict(BrowserReplAccess(.document(BrowserReplFrameDocument(info: main)), in: tab)).check()
     }
 
-    /// After a navigation of a tab the user owns: a page the policy blocks is
-    /// left in place (the user's tab is never navigated away) and the call fails.
+    /// After a method that leaves the page (``BrowserReplMethodSpec/judgesLandedPage``):
+    /// a page the authority refuses (the domain policy blocks it, or a local
+    /// file outside the session's directories, or a document of a local
+    /// file's origin it may not read) fails the call. A user's tab is left
+    /// where it landed, never navigated away.
     @MainActor
-    private func checkLandedPage(_ panel: BrowserPanel) throws {
-        guard let url = panel.webView.url?.absoluteString,
-              let reason = authority.verdict(BrowserReplAccess(.load(url))).reason else { return }
-        throw Self.error("blocked", "navigation to \(url) was blocked: \(reason); the tab is the user's, so it stays there and the session cannot read it")
+    private func checkLandedPage(_ panel: BrowserPanel) async throws {
+        guard let url = panel.webView.url?.absoluteString else { return }
+        try authority.landedPage(url, in: tabFacts(panel)).check()
+        try await checkLocalDocumentOrigin(panel)
     }
 
     /// The method's frame check (``BrowserReplMethodSpec/frames``) on the
@@ -1131,6 +1147,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "waitUntil": "commit",
                 "timeoutMs": params["timeoutMs"] ?? 30_000,
             ])
+            try await checkLandedPage(panel)
         }
         return ["targetId": panel.id.uuidString]
     }
@@ -1293,7 +1310,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             Self.waitUntil(params),
             remainingMilliseconds: Self.remaining(timeout, since: started)
         )
-        try checkLandedPage(panel)
         var result: [String: Any] = ["url": panel.webView.url?.absoluteString ?? raw]
         if let status = attachment(panel).mainDocumentStatus { result["status"] = status }
         return result
@@ -1329,6 +1345,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if delta < 0, item.url.absoluteString == "about:blank", webView.backForwardList.backList.count == 1 {
             return nil
         }
+        // An entry the authority refuses is not gone to: the user's tab
+        // stays where it is. The page it lands on is judged again after
+        // (BrowserReplMethodSpec.judgesLandedPage): a redirect can differ.
+        try authority.landedPage(item.url.absoluteString, in: tabFacts(panel)).check()
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
         let outcome = try await attachment(panel).withInput(sessionID: sessionID) {

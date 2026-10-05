@@ -373,8 +373,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the reason) and its frame check (the frame under the pointer, along a
   drag, the focused frame, the chooser's frame, every frame for a PDF,
   during the capture for a screenshot, the dialog's document, where its
-  script runs, or none with the reason), and whether it is trusted input
-  that holds blocked frames inert. `tab.info`, `frames.list` and
+  script runs, or none with the reason), whether it is trusted input
+  that holds blocked frames inert, and whether it leaves the page:
+  `tab.navigate`, `tab.history` and `tab.reload` (and a hibernated tab's
+  reload on wake) fail with `blocked` when the page they land on is one the
+  authority refuses as the tab's page (the domain policy, a local file
+  outside the session's directories, or a main-frame document of a local
+  file's origin); a user's tab stays where it landed. `tab.history` also
+  refuses an entry the authority refuses before going to it. `tab.info`, `frames.list` and
   `frame.ownerBox` are judged where their script runs (the frame gate) and
   answer the URL and title `tabs.list` shows; `download.path` reads the
   session's own downloads, each judged when it started; `dialog.respond`

@@ -155,10 +155,11 @@ extension BrowserReplDriverMethod {
             return .init(target: .none(Self.noTabReason), page: .none(Self.noTabReason), frames: .none(Self.noTabReason))
         case .tabNavigate:
             return .init(target: .tab(.use), page: .loadURL,
-                         frames: .none("leaves the page; a user's tab that lands on a blocked page fails the call (the landed page is judged)"))
+                         frames: .none("leaves the page; a user's tab that lands on a blocked page fails the call (the landed page is judged)"),
+                         judgesLandedPage: true)
         case .tabHistory, .tabReload:
             return .init(target: .tab(.use), page: .none("leaves the page; the page it lands on is judged like a navigation's"),
-                         frames: .none("leaves the page"))
+                         frames: .none("leaves the page"), judgesLandedPage: true)
         case .tabInfo:
             return .init(target: .tab(.use), page: .none("answers the URL and title tabs.list shows from native state"),
                          frames: .inFrame("its live read of the main frame runs through the frame gate"))
