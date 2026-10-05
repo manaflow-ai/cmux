@@ -362,6 +362,14 @@ final class MachinesPanelViewModel: ObservableObject {
         // state, so a catalog read also refreshes it. Cheap: a dictionary read.
         readUnreadTerminalIDs()
     }
+
+    /// Refreshes only the local workspace projection after a window selection.
+    /// This keeps the Cloud tree highlight independent from the next catalog poll.
+    func refreshLocalWorkspaces() {
+        let updated = localWorkspacesProvider()
+        guard updated != localWorkspaces else { return }
+        localWorkspaces = updated
+    }
     private func readUnreadTerminalIDs() {
         let unread = CloudNotificationSyncHub.shared.unreadTerminalIDs
         guard unread != unreadTerminalIDs else { return }
