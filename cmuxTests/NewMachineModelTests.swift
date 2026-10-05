@@ -108,6 +108,18 @@ struct NewMachineModelTests {
         #expect(recorder.value.first?.progressLabel == "Forking…")
     }
 
+    @Test("Base picker source refreshes keep machine IDs unique")
+    func sourceRefreshDeduplicatesMachineIDs() {
+        let first = VMSummary(id: "same", provider: "freestyle", status: "running", image: "a", createdAt: 0, displayName: "first")
+        let duplicate = VMSummary(id: "same", provider: "freestyle", status: "running", image: "b", createdAt: 1, displayName: "duplicate")
+        let (model, _) = makeModel()
+
+        model.applySourceMachines([first, duplicate])
+
+        #expect(model.sourceMachines.map(\.id) == ["same"])
+        #expect(model.sourceMachines.first?.displayName == "first")
+    }
+
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
         let (model, _) = makeModel(plan: Self.maxPlan)
         #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])

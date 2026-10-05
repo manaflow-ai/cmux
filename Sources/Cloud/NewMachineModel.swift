@@ -462,7 +462,10 @@ final class NewMachineModel {
     /// A cache refresh lands while the sheet is opening; reassigning an
     /// unchanged list would rebuild the Base pop-up mid-animation.
     func applySourceMachines(_ machines: [VMSummary]) {
-        let filtered = machines.filter { !$0.id.isEmpty && $0.status != "destroyed" }
+        var seenIDs = Set<String>()
+        let filtered = machines.filter { machine in
+            !machine.id.isEmpty && machine.status != "destroyed" && seenIDs.insert(machine.id).inserted
+        }
         let pickerRows: ([VMSummary]) -> [[String]] = { list in
             list.map { [$0.id, BaseImage.machine($0).label, $0.agentUpdates?.rawValue ?? ""] }
         }
