@@ -12,13 +12,12 @@ public struct CloudMachineRenamePresentation: Sendable {
     ///   - fallbackName: Localized text used when the snapshot has no label or slug.
     /// - Returns: The label or generated slug when present, otherwise `fallbackName`.
     public func promptName(for machine: MachineSnapshot, fallbackName: String) -> String {
-        let displayName = machine.displayName
-        let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasHumanName = [machine.label, machine.slug].contains { value in
-            guard let value else { return false }
-            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if let label = machine.label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
+            return label
         }
-        guard !trimmedDisplayName.isEmpty, hasHumanName else { return fallbackName }
-        return trimmedDisplayName
+        if let slug = machine.slug?.trimmingCharacters(in: .whitespacesAndNewlines), !slug.isEmpty {
+            return slug
+        }
+        return fallbackName
     }
 }

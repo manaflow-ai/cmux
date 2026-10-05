@@ -38,6 +38,20 @@ struct CloudMachineRenamePromptTests {
         #expect(MachineRowActions.renamePromptDisplayName(for: machine) == "generated-name")
     }
 
+    @Test("uses the generated name when a label contains only whitespace")
+    func fallsBackFromBlankLabelToGeneratedName() {
+        let machine = MachineSnapshot(
+            id: "vm_123",
+            provider: "freestyle",
+            image: "cmux-devbox",
+            isDesktop: false,
+            activity: .ready,
+            label: "  \n",
+            slug: "generated-name"
+        )
+        #expect(MachineRowActions.renamePromptDisplayName(for: machine) == "generated-name")
+    }
+
     @Test("uses a localized fallback when no human name exists")
     func fallsBackToLocalizedName() {
         let machine = MachineSnapshot(
