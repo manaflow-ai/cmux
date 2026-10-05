@@ -311,7 +311,7 @@ struct CloudMachinesHeaderCountTests {
 
     private func machineActions() -> MachineRowActions {
         MachineRowActions(openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {})
+                    confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {})
     }
 
     private func nodeActions() -> CloudTreeNodeActions {
