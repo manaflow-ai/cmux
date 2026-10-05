@@ -185,8 +185,9 @@ export class CloudDO extends CloudCore {
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
     const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls FROM cloud_fake_ctl WHERE id = 1`)[0]!
-    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number }>(`SELECT name, id, idle, cpu, memory FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
+    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number; snapshot: string | null }>(`SELECT name, id, idle, cpu, memory, snapshot FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
+    const snapshots = this.sqlStore.exec<{ slug: string; source: string }>(`SELECT slug, source FROM cloud_fake_snapshot ORDER BY slug`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
   }
 }

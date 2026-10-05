@@ -1447,7 +1447,7 @@ export interface CloudOps {
       readonly stream: string
     }
   }
-  /** Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.create": {
     readonly params: {
       readonly machine: MachineId
@@ -1457,7 +1457,7 @@ export interface CloudOps {
       readonly snapshot: CloudSnapshot
     }
   }
-  /** Delete a snapshot. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.delete": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -1475,7 +1475,7 @@ export interface CloudOps {
       readonly snapshots: ReadonlyArray<CloudSnapshot>
     }
   }
-  /** Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.restore": {
     readonly params: {
       readonly snapshot: SnapshotId

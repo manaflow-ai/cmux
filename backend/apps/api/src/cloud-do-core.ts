@@ -9,14 +9,15 @@ import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
+import { publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, idleFromReport, silentSince, type ReportedActivity } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
-import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
+import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
 
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
-const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize"])
+const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore"])
 /** A cloud.machine.vm_status commit that applied the report (a held report from a replaced install is dropped). */
 export const statusApplied = (frames: ReadonlyArray<OwnerFrame>) => frames.some((f) => f.t === "result" && (f as { value?: { applied?: unknown } }).value?.applied === true)
 const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.provider_state", "cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
@@ -201,6 +202,12 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
         return { ok: true, value: publicMachine(row.row), revision: "" }
       }
+      case "cloud.snapshot.list": {
+        const machine = (params as { machine?: unknown } | null)?.machine
+        if (machine !== undefined && typeof machine !== "string") return { ok: false, code: "validation.invalid", message: "invalid machine" }
+        const all = rows?.range<SnapshotRow>(TABLE_SNAPSHOT, { limit: 1000 }).map((r) => r.row) ?? []
+        return { ok: true, value: { snapshots: all.filter((r) => machine === undefined || r.machine === machine).map(publicSnapshot) }, revision: "" }
+      }
       case "cloud.plan.get":
         return { ok: true, value: planView(teamPlan(this.config, state.team ?? principal.team), state, Date.now()), revision: "" }
       default:
@@ -213,6 +220,11 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const engine = this.boundEngine
     const changed = engine?.currentState.changed
     if (!engine || !changed) return undefined
+    if (changed.snapshot !== undefined) {
+      if (changed.removed) return { event: "cloud.snapshot.removed", data: { snapshot: changed.snapshot, revision: String(engine.currentState.rev) } }
+      const snap = engine.rows.get<SnapshotRow>(TABLE_SNAPSHOT, changed.snapshot)
+      return snap ? { event: "cloud.snapshot.upsert", data: { snapshot: publicSnapshot(snap.row) } } : undefined
+    }
     if (changed.removed) {
       const t = engine.rows.get<TombstoneRow>(TABLE_TOMBSTONE, changed.machine)
       return { event: "cloud.machine.removed", data: { machine: changed.machine, revision: t?.row.revision ?? String(engine.currentState.rev) } }
@@ -341,7 +353,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      else if ((row.op === "create" || row.op === "start" || row.op === "resize") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
+      else if ((row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
       else if (row.op === "create" && !row.cancel && !this.bindFileConfig()) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "CLOUD_API_ORIGIN (https) or the environment tag is not configured" }, final: true }
       else {
@@ -351,7 +363,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
           } else if (row.op === "create") {
             // Freestyle's own timers are off (createBody): idle belongs to our policy and backstop.
-            const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0 })).id
+            const m = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row
+            // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
+            const fromSnapshot = m && m.image.id !== this.config.image ? m.image.id : undefined
+            const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0, ...(fromSnapshot ? { snapshot: fromSnapshot } : {}) })).id
             // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
             const token = newBindToken()
             // a9's contract: one image for every environment, so the file names the https API origin and the env tag (checked above).
@@ -361,6 +376,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
           }
           else if (row.op === "pause" || row.op === "start") result = (await driver.power(row.provider_name, tag, row.op), { key: row.key, ok: true })
+          else if (row.op === "snapshot" && row.snapshot_name) result = { key: row.key, ok: true, provider_id: (await driver.snapshot(row.provider_name, tag, row.snapshot_name)).id }
+          else if (row.op === "snapshot_delete" && row.snapshot_name) result = (await driver.removeSnapshot(row.snapshot_name), { key: row.key, ok: true })
           else if (row.op === "resize" && row.size) result = (await driver.resize(row.provider_name, tag, { cpu: row.size.cpu, memory: row.size.memory_mb, storage: row.size.disk_mb }), { key: row.key, ok: true })
           else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
         } catch (e) {

@@ -7,6 +7,7 @@ import { personalTeamIdFor } from "./user.ts"
 import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { applyVmStatus } from "./cloud-vm-status.ts"
 import { powerIntent, powerResult, providerStateResult, resizeIntent } from "./cloud-power.ts"
+import { snapshotCreate, snapshotDelete, snapshotRestore, snapshotResult, type SnapshotRow } from "./cloud-snapshot.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 
 /**
@@ -21,7 +22,9 @@ export const TABLE_LEDGER = "ledger"
 export const TABLE_TOMBSTONE = "tombstone"
 /** Operator actions on this team's Cloud records (who, when, why); private, never pruned. */
 export const TABLE_AUDIT = "audit"
-export const CLOUD_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE, TABLE_AUDIT]
+/** Snapshot rows (cloud-snapshot.ts); private, the public view is CloudSnapshot. */
+export const TABLE_SNAPSHOT = "snapshot"
+export const CLOUD_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE, TABLE_AUDIT, TABLE_SNAPSHOT]
 
 export const TOMBSTONE_MS = 30 * 24 * 3600_000
 export const LEDGER_KEEP_MS = 7 * 24 * 3600_000
@@ -49,7 +52,8 @@ export interface CloudState {
   /** N1: cancelled creates whose recorded name is still looked up hourly: ledger key -> machine, next lookup, end of the window. */
   readonly watch?: Readonly<Record<string, { readonly machine: string; readonly due_at: number; readonly until: number }>>
   /** The machine the last committed op changed (for the cloud.machine.* wire event), or null. */
-  readonly changed: { readonly machine: string; readonly removed: boolean } | null
+  /** `snapshot`: the change was to that snapshot (cloud.snapshot.* event); `removed` then refers to it. */
+  readonly changed: { readonly machine: string; readonly removed: boolean; readonly snapshot?: string } | null
 }
 
 export interface MachineRow extends Omit<CloudMachineView, "revision"> {
@@ -79,7 +83,10 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
 
 export interface LedgerRow {
   readonly key: string
-  readonly op: "create" | "delete" | "pause" | "start" | "resize"
+  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete"
+  /** snapshot ops: the snapshot id and its recorded provider slug (the only slug ever deleted). */
+  readonly snapshot?: string
+  readonly snapshot_name?: string
   /** resize only: the target size, and the size to restore after a final failure. */
   readonly size?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
   readonly size_before?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
@@ -158,6 +165,7 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     if (isAgent(principal) && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "an agent cannot delete machines" }
     // CLOUDDO-MONEY-OPS: pause and start change what the team pays; a person decides (no agent, no install grant).
     if ((op === "cloud.machine.pause" || op === "cloud.machine.start" || op === "cloud.machine.resize") && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: "pausing, starting or resizing a machine needs a signed-in person" }
+    if (op.startsWith("cloud.snapshot.") && op !== "cloud.snapshot.list" && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: op === "cloud.snapshot.restore" && isAgent(principal) ? "an agent cannot create machines" : "snapshots need a signed-in person" }
     // Money and destructive ops need a signed-in person, never an install's grant (even one that lists
     // money/destructive). Later: an install with a fresh single-use origin.confirmation (decision ORIGIN).
     if (principal.kind !== "session" && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
@@ -185,6 +193,12 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return powerIntent(config, state, op, params, ctx)
       case "cloud.machine.resize":
         return resizeIntent(config, state, params, ctx)
+      case "cloud.snapshot.create":
+        return snapshotCreate(config, state, params, ctx)
+      case "cloud.snapshot.delete":
+        return snapshotDelete(config, state, params, ctx)
+      case "cloud.snapshot.restore":
+        return snapshotRestore(state, params, ctx, (p) => create(config, state, p, ctx))
       case "cloud.machine.idle_pause":
         return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true, (params as { reason?: "idle" | "no_report" } | null)?.reason ?? "idle") : reject("auth.forbidden", "internal op")
       case "cloud.machine.provider_state":
@@ -208,7 +222,9 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   // Plan checks come before anything that could reach the provider.
   const plan = teamPlan(config, state.team ?? p.team)
   if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan", planRequiredDetails())
-  if (d.value.from_snapshot !== undefined) return reject("cloud.snapshot.not_found", "no such snapshot")
+  // A restore boots the snapshot (our recorded slug); a client never names a provider snapshot.
+  const from = d.value.from_snapshot === undefined ? undefined : ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, d.value.from_snapshot)?.row
+  if (d.value.from_snapshot !== undefined && from?.status !== "ready") return reject("cloud.snapshot.not_found", "no such snapshot")
   const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? DEFAULT_MEMORY_MB
   if (sizeLocked(plan, memory)) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { memory_mb: memory }))
   const cpu = d.value.size.cpu ?? DEFAULT_SIZE.cpu
@@ -234,7 +250,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     name: d.value.name ?? null,
     size: { cpu, memory_mb: memory, disk_mb: disk },
     status: "provisioning",
-    image: { id: config.image, daemon_version: null },
+    image: { id: from ? from.provider_name : config.image, daemon_version: null },
     host: null,
     classic: false,
     created_at: ctx.now,
@@ -322,6 +338,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const rev = state.rev + 1
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
+  if ((l.op === "snapshot" || l.op === "snapshot_delete") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return snapshotResult(state, stored, r, ctx)
   if ((l.op === "pause" || l.op === "start" || l.op === "resize") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
   if (!r.ok) {
     const attempts = l.attempts + 1

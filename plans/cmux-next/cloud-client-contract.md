@@ -505,3 +505,13 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
   its idle policy (`cloud.machine.idle_policy.set` changes only this policy); a VM that stops reporting is
   unknown and never paused.
 
+### Snapshots (2026-10-05)
+
+`cloud.snapshot.create {machine, name?}` (a running or paused, bound machine; answers `creating`,
+`cloud.snapshot.upsert` brings `ready` or `failed`; counts against `max_saved`), `cloud.snapshot.list
+{machine?}`, `cloud.snapshot.delete {snapshot}` (the provider snapshot under its recorded name only;
+`cloud.snapshot.removed {snapshot, revision}`), `cloud.snapshot.restore {snapshot, name?}` (a new machine
+booted from the snapshot, every create check, a fresh bind). Create, delete and restore are money ops (a
+signed-in person, per-team limit). Snapshots stay after their machine is deleted. `size_mb` is the
+machine's disk size when it was taken (Freestyle reports no snapshot size).
+
