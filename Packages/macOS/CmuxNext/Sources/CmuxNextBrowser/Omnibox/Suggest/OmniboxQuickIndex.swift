@@ -57,6 +57,10 @@ public nonisolated struct OmniboxQuickIndex: Sendable {
         /// host has no word), every pair may carry one (`anyWordLeads`).
         let hostWord: String?
         let anyWordLeads: Bool
+        /// The first word of the display URL and the title's words: the only
+        /// words a URL-prefix (450) or title-word (300) match can start.
+        let urlWord: String?
+        let titleWords: [String]
         /// `OmniboxQuickScore.usage` and `.brevity`.
         let usage: Double
         let brevity: Double
@@ -82,7 +86,10 @@ public nonisolated struct OmniboxQuickIndex: Sendable {
             self.host = host
             titleSpaced = " " + title
             let urlWords = OmniboxText.words(bare)
-            words = (urlWords + OmniboxText.words(title)).filter { seen.insert($0).inserted }
+            let titleWords = OmniboxText.words(title)
+            words = (urlWords + titleWords).filter { seen.insert($0).inserted }
+            self.titleWords = titleWords
+            urlWord = OmniboxText.words(url).first
             let lead = OmniboxText.words(host).first
             hostWord = lead
             anyWordLeads = !host.isEmpty && !(lead.map { seen.contains($0) } ?? false)
@@ -93,6 +100,24 @@ public nonisolated struct OmniboxQuickIndex: Sendable {
 
         /// Whether a host-prefix match may reach this row through `word`.
         func leads(_ word: String) -> Bool { anyWordLeads || word == hostWord }
+
+        /// Whether a host-prefix match may reach this row through a word starting with `prefix`.
+        func leadsPrefix(_ prefix: String) -> Bool { anyWordLeads || (hostWord?.hasPrefix(prefix) ?? false) }
+
+        /// The best first-token match term through a word starting with
+        /// `prefix`: 600 when it may start the host, 450 the URL, 300 a title
+        /// word, else 150 (a substring).
+        func cap(_ prefix: String) -> Double {
+            if leadsPrefix(prefix) { return OmniboxQuickScore.hostPrefix }
+            if urlWord?.hasPrefix(prefix) == true { return OmniboxQuickScore.urlPrefix }
+            if titleWords.contains(where: { $0.hasPrefix(prefix) }) { return OmniboxQuickScore.titleWord }
+            return OmniboxQuickScore.substring
+        }
+
+        /// The prefixes of its words up to `OmniboxQuickIndex.shortLength` characters (`shortLists` keys).
+        var shortPrefixes: Set<String> {
+            Set(words.flatMap { word in (1...OmniboxQuickIndex.shortLength).map { String(word.prefix($0)) } })
+        }
     }
 
     public let cap: Int
@@ -107,6 +132,22 @@ public nonisolated struct OmniboxQuickIndex: Sendable {
     var words: [String] = []
     var wordEntries: [Int32] = []
     var wordStartsHost: [Bool] = []
+    /// Prefixes up to this many characters get a `shortLists` entry.
+    static let shortLength = 3
+    /// For every prefix of one to `shortLength` characters, the entries with a word that
+    /// starts with it, by their best score through that prefix
+    /// (`fixed + cap`, highest first; ties: lower id). A short input matches
+    /// thousands of rows; walking them best-first stops as soon as no
+    /// further row can enter the result.
+    var shortLists: [String: [ShortItem]] = [:]
+
+    struct ShortItem: Sendable {
+        var id: Int32
+        /// `fixed + cap(prefix)`: the score without recency at best.
+        var key: Double
+
+        func precedes(_ other: ShortItem) -> Bool { key != other.key ? key > other.key : id < other.id }
+    }
 
     public init(cap: Int = OmniboxQuickIndex.defaultCap, admission: Admission = .significant) {
         self.cap = cap
@@ -155,6 +196,13 @@ public nonisolated struct OmniboxQuickIndex: Sendable {
         words = pairs.map(\.word)
         wordEntries = pairs.map(\.id)
         wordStartsHost = pairs.map(\.startsHost)
+        var lists: [String: [ShortItem]] = [:]
+        for (index, entry) in kept.enumerated() {
+            for prefix in entry.shortPrefixes {
+                lists[prefix, default: []].append(ShortItem(id: Int32(index), key: entry.fixed + entry.cap(prefix)))
+            }
+        }
+        shortLists = lists.mapValues { $0.sorted { $0.precedes($1) } }
     }
 
     /// Adds or replaces one URL; a row that is no longer admitted leaves.
@@ -236,6 +284,22 @@ public nonisolated struct OmniboxQuickIndex: Sendable {
             wordEntries.insert(id, at: index)
             wordStartsHost.insert(entry.leads(word), at: index)
         }
+        for prefix in entry.shortPrefixes {
+            let item = ShortItem(id: id, key: entry.fixed + entry.cap(prefix))
+            var list = shortLists[prefix] ?? []
+            list.insert(item, at: Self.slot(of: item, in: list))
+            shortLists[prefix] = list
+        }
+    }
+
+    /// Where `item` goes (or is) in a short list.
+    static func slot(of item: ShortItem, in list: [ShortItem]) -> Int {
+        var low = 0, high = list.count
+        while low < high {
+            let middle = (low + high) / 2
+            if list[middle].precedes(item) { low = middle + 1 } else { high = middle }
+        }
+        return low
     }
 
     private mutating func unlinkWords(of id: Int32) {
@@ -251,6 +315,16 @@ public nonisolated struct OmniboxQuickIndex: Sendable {
                 }
                 index += 1
             }
+        }
+        for prefix in entry.shortPrefixes {
+            guard var list = shortLists[prefix] else { continue }
+            let slot = Self.slot(of: ShortItem(id: id, key: entry.fixed + entry.cap(prefix)), in: list)
+            if list.indices.contains(slot), list[slot].id == id {
+                list.remove(at: slot)
+            } else if let found = list.firstIndex(where: { $0.id == id }) {
+                list.remove(at: found)
+            }
+            shortLists[prefix] = list.isEmpty ? nil : list
         }
     }
 
