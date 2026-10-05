@@ -159,8 +159,8 @@ impl Gate {
         };
         let fetching = self.fetches.load(std::sync::atomic::Ordering::SeqCst) > 0;
         let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
-            let (policy, filtered, remote) =
-                (self.policy.clone(), self.filtered.clone(), self.grants.remote);
+            let (policy, filtered, log, remote) =
+                (self.policy.clone(), self.filtered.clone(), self.log.clone(), self.grants.remote);
             // The session's policy is the same for every tab it drives.
             let filter: crate::driver::RequestFilter = Arc::new(move |request| {
                 let url = request.url;
@@ -177,6 +177,15 @@ impl Gate {
                 }
                 let seq = filtered.back().map_or(1, |entry| entry.0 + 1);
                 filtered.push_back((seq, url.to_owned(), reason.clone()));
+                drop(filtered);
+                // The kind changes only the log: main logs blocked
+                // documents (navigations), never subresources.
+                if request.kind == crate::driver::RequestKind::Document {
+                    push_log(
+                        &log,
+                        json!({"url": url, "reason": reason, "at": now_ms(), "blocked": "before"}),
+                    );
+                }
                 Some(reason)
             });
             filter
