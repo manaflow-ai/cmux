@@ -61,7 +61,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
-        observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
         let fallbackCreate = emptyWorkspaceRepair.create
@@ -79,6 +78,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         themeScope.root(contentView)
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
+        // Observation applies the first snapshot synchronously, including the empty-state view.
+        observe()
     }
 
     func teardown() {
