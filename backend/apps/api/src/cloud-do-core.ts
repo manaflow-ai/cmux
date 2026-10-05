@@ -7,7 +7,8 @@ import { cloudApiOrigin, cloudConfig, cloudDriver, cloudEnvTag, cloudProviderRea
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit } from "./cloud-connect.ts"
-import { machineVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
+import { revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
+import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
@@ -36,6 +37,26 @@ const headView = (s: unknown) => {
  */
 export abstract class CloudCore extends OwnerDO<CloudState> {
   protected readonly vmStatus = new VmStatusQueue(this.sqlStore)
+  /** The one durable path that ends VM installs (cloud-vm-revoke.ts). */
+  protected readonly vmRevokes = new VmInstallRevokes(this.sqlStore)
+  /** Test only: fail the next N revoke calls (fakeControl `fail_revokes`). */
+  protected failRevokes = 0
+  protected async drainRevokes(now: number): Promise<void> {
+    const team = this.boundEntity()
+    if (!team) return
+    await this.vmRevokes.drain(now, async (a) => (this.failRevokes > 0 ? (this.failRevokes--, false) : revokeVmInstall(this.env, { ...a, team })))
+    const at = this.vmRevokes.dueAt()
+    if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
+  }
+
+  /** After every commit: a machine the commit left gone, failed or deleting loses its VM install (and a cleared ledger row's machine too). */
+  protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {
+    const engine = this.boundEngine
+    if (!engine) return
+    const value = (frames.find((f) => f.t === "result") as { value?: { audit?: { machine?: unknown } } } | undefined)?.value
+    const machines = new Set([engine.currentState.changed?.machine, op === "cloud.abandoned_clear" ? value?.audit?.machine : undefined].filter((m): m is string => typeof m === "string"))
+    for (const m of machines) this.vmRevokes.reconcile(m, engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row, Date.now() + this.skewMs)
+  }
   protected readonly config: CloudConfig
   protected readonly flights = new Map<string, Promise<void>>()
   /** Test only: moves the alarm's clock forward, and drops the next driver_result commits (a crash). */
@@ -129,10 +150,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
     if (limited) return limited
     const result = await super.submit(entity, principal, frame)
+    await this.drainRevokes(Date.now() + this.skewMs)
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return result
-    if (frame.op === "cloud.machine.delete") await ((v) => v && revokeVmInstall(this.env, { creator: v.creator, team: entity, install: v.install, why: "delete" }))(machineVmInstall(this.boundEngine?.rows, (frame.params as { machine?: unknown } | null)?.machine))
     const key = ledgerKey(principal.identity, frame.idempotency_key)
     const row = this.ledger(key)
     // No provider call (a delete the tombstone answered).
@@ -279,7 +300,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const times = Object.values(state.pending).map((p) => p.due_at)
     const prune = this.pruneAt(state)
     if (prune !== null) times.push(prune)
-    for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt()]) if (t !== null) times.push(t)
+    for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt()]) if (t !== null) times.push(t)
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {
@@ -297,6 +318,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const m of machines) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
+    await this.drainRevokes(now)
     for (const d of this.vmStatus.takeDue(now)) this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
     const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team

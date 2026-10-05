@@ -4,7 +4,7 @@ import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
-import { registerVmInstall, revokeVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import { CloudCore } from "./cloud-do-core.ts"
 
@@ -61,9 +61,15 @@ export class CloudDO extends CloudCore {
     const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, vm_install: vm.id, now }
     // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
     const reply = this.submitSystem("cloud.machine.bind", params, `bind:${crypto.randomUUID()}`).frames.find((f) => f.t === "result" || f.t === "reject")
-    if (!reply || reply.t === "reject") return (await revokeVmInstall(this.env, { creator: m.creator, team: entity, install: this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, req.machine)?.row.vm_install === vm.id ? undefined : vm.id, why: "bind refused" }), { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" })
-    if (m.vm_install && m.vm_install !== vm.id) await revokeVmInstall(this.env, { creator: m.creator, team: entity, install: m.vm_install, why: "re-bind" })
+    if (!reply || reply.t === "reject") {
+      // A retried bind (same key) keeps the install the machine already names; any other refused bind's install ends.
+      if (this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, req.machine)?.row.vm_install !== vm.id) this.vmRevokes.queue(vm.id, m.creator, "bind refused", now)
+      await this.drainRevokes(now)
+      return { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" }
+    }
     if (reply.t !== "result") return forbidden
+    this.vmRevokes.bound(req.machine, vm.id, m.creator, now)
+    await this.drainRevokes(now)
     return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset, install: { id: vm.id, user: m.creator, grant: vm.grant } } }
   }
 
@@ -119,11 +125,12 @@ export class CloudDO extends CloudCore {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
+    if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.drop_results !== undefined) this.dropResults = cmd.drop_results
     if (cmd.fail_list !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_list = ? WHERE id = 1`, cmd.fail_list ? 1 : 0)
@@ -136,6 +143,6 @@ export class CloudDO extends CloudCore {
     const ctl = this.sqlStore.exec<{ creates: number; deletes: number }>(`SELECT creates, deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), now: Date.now() + this.skewMs }
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
   }
 }
