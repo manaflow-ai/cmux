@@ -251,3 +251,34 @@ test("an account socket opens for the longest app namespace an identity allows",
     opened.socket.close();
   } finally { await mf.dispose(); }
 }, 60_000);
+
+test("a burst of 16 concurrent revocations closes every revoked account socket and empties the directory", async () => {
+  const mf = await runtime();
+  try {
+    const teams = await mf.getDurableObjectNamespace("TEAM_CONTROL");
+    const seed = (item: Device) => (teams.getByName(objectName(environment, projectId, "team-burst")) as unknown as { seed(teamId: string, device: DeviceDescriptor): Promise<string> }).seed("team-burst", item.descriptor);
+    const observer = await device(300, "team-burst", "user-burst", "observer", "mac", HOST);
+    await seed(observer);
+    const macs: { item: Device; recordId: string; socket: Awaited<ReturnType<typeof openSocket>>; closed: Promise<number> }[] = [];
+    for (let index = 0; index < 16; index++) {
+      const item = await device(301 + index, "team-burst", "user-burst", `burst-${index}`, "mac", HOST);
+      const recordId = await seed(item);
+      const socket = await openSocket(mf, "/v2/account/socket", item, "account");
+      await socket.until(frame => frame.schemaId === "account.ready.v1", `ready ${index}`);
+      const closed = new Promise<number>(resolve => socket.socket.once("close", code => resolve(code)));
+      const published = await post(mf, "/v2/account/requests", item, { schemaId: "account.publish.v1", requestId: `publish-burst-${index}` }, "account");
+      expect(JSON.parse(published.text).schemaId).toBe("account.published.v1");
+      macs.push({ item, recordId, socket, closed });
+    }
+    const results = await Promise.all(macs.map(({ item, recordId }, index) => post(mf, "/v2/requests", item,
+      { schemaId: "device.revoke.v1", requestId: `revoke-burst-${index}`, deviceRecordId: recordId }, "team")));
+    expect(results.map(result => result.status)).toEqual(macs.map(() => 200));
+    for (const [index, mac] of macs.entries()) {
+      expect((await mac.socket.until(frame => frame.schemaId === "error.v1", `revocation error ${index}`)).code).toBe("device_revoked");
+      expect(await mac.closed).toBe(1008);
+    }
+    const seen = await post(mf, "/v2/account/requests", observer, { schemaId: "account.directory.v1", requestId: "observer-directory" }, "account");
+    const directory = JSON.parse(seen.text).directory;
+    expect({ macs: directory.macs, inboundMacs: directory.inboundMacs }).toEqual({ macs: [], inboundMacs: [] });
+  } finally { await mf.dispose(); }
+}, 120_000);

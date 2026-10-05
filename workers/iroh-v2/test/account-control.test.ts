@@ -405,14 +405,13 @@ test("overlapping notices: an older metadata read cannot make a later revocation
   const a = descriptor(aKey, identity("team-x", "user-u", "mac-a"), "mac", HOST);
   const aRecord = w.x.enroll(a, NOW - 100);
   let gate: (() => void) | null = null;
-  let mode: "normal" | "hold" | "release" = "normal";
+  let mode: "normal" | "hold" = "normal";
   const store = new AccountStore(sqliteStorage());
   const broker = new AccountBroker({
     store, userId: "user-u", now: w.now, relayURLs: [RELAY_URL],
     teamRecords: async (_teamId, identities) => {
       const records = identities.map(value => w.x.store.accountMacRecord(value));
       if (mode === "hold") { mode = "normal"; await new Promise<void>(resolve => { gate = resolve; }); }
-      else if (mode === "release") { mode = "normal"; gate!(); await new Promise(resolve => setTimeout(resolve, 0)); }
       return records;
     },
   });
@@ -422,10 +421,11 @@ test("overlapping notices: an older metadata read cannot make a later revocation
   mode = "hold";
   const metadata = broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity);
   await new Promise(resolve => setTimeout(resolve, 0));
-  // The team revokes A; notice R reads the revoked record and lets M finish first.
+  // The team revokes A and notifies while M is still stalled; M then commits its stale update first.
   w.x.store.revokeDevice(aRecord.deviceRecordId, NOW, "user-u");
-  mode = "release";
   const revocation = broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  gate!();
   await Promise.all([metadata, revocation]);
   expect(store.list()).toEqual([]);
 });
@@ -442,4 +442,29 @@ test("a revocation landing while a socket's requester is checked refuses the soc
     await broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity);
   });
   await expect(broker.requireRequester(session)).rejects.toMatchObject({ code: "device_revoked" });
+});
+
+test("a burst of 16 concurrent revocation notices deletes every revoked row", async () => {
+  const w = await world();
+  const store = new AccountStore(sqliteStorage());
+  const broker = new AccountBroker({
+    store, userId: "user-u", now: w.now, relayURLs: [RELAY_URL],
+    teamRecords: async (_teamId, identities) => {
+      const records = identities.map(value => w.x.store.accountMacRecord(value));
+      await new Promise(resolve => setTimeout(resolve, 0)); // let every notice interleave
+      return records;
+    },
+  });
+  const macs: { key: DeviceKey; device: DeviceDescriptor; recordId: string }[] = [];
+  for (let index = 0; index < 16; index++) {
+    const key = await deviceKey(190 + index);
+    const device = descriptor(key, identity("team-x", "user-u", `burst-${index}`), "mac", HOST);
+    macs.push({ key, device, recordId: w.x.enroll(device, NOW - 100).deviceRecordId });
+  }
+  for (const mac of macs) await call(broker, mac.key, mac.device, "account.publish.v1");
+  expect(store.list().length).toBe(16);
+  for (const mac of macs) w.x.store.revokeDevice(mac.recordId, NOW, "user-u");
+  const results = await Promise.allSettled(macs.map(mac => broker.teamChanged("team-x", mac.recordId, mac.device.identity)));
+  expect(results.filter(result => result.status === "rejected")).toEqual([]);
+  expect(store.list()).toEqual([]);
 });
