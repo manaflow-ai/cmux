@@ -10,6 +10,8 @@ public nonisolated enum PageInfoCommandError: Error, Hashable, Sendable {
     case notAWebPage
     /// The user did not turn off certificate warnings for this site.
     case certificateWarningsAlreadyOn
+    /// The action is disabled for this page (`unavailableReason(for:)`).
+    case unavailable(String)
 
     public var message: String {
         switch self {
@@ -17,6 +19,7 @@ public nonisolated enum PageInfoCommandError: Error, Hashable, Sendable {
         case .noSiteInformation: PageInfoStrings.noSiteInformation
         case .notAWebPage: PageInfoStrings.notAWebPage
         case .certificateWarningsAlreadyOn: PageInfoStrings.certificateWarningsAlreadyOn
+        case .unavailable(let reason): reason
         }
     }
 }
@@ -81,5 +84,12 @@ extension PageInfoController {
             throw .certificateWarningsAlreadyOn
         }
         perform(command)
+    }
+
+    /// Why `command` is disabled for the current page, or nil. The App
+    /// disables the action with this reason in the menu and the palette,
+    /// and `action.run` reports it.
+    public func unavailableReason(for command: PageInfoCommand) -> String? {
+        nil
     }
 }

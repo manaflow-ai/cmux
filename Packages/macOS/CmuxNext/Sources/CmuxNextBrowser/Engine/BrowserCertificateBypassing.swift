@@ -20,6 +20,11 @@ public protocol BrowserCertificateWarningRevoking: AnyObject {
     /// What turning the warnings on covers: WebKit forgets the page's host
     /// only; Chromium can clear only every Proceed choice of the profile.
     var certificateWarningScope: BrowserCertificateWarningScope { get }
+    /// The engine knows a choice to forget for this page: WebKit, a
+    /// Proceed for the page's host in its own exception set; Chromium has
+    /// no per-host knowledge, so always (it clears the whole profile).
+    /// While false, the action is disabled in every surface.
+    var canTurnOnCertificateWarnings: Bool { get }
     /// Turns the warnings on again for the page's site in this tab's
     /// profile, then reloads, so the warning shows again. False when there
     /// was nothing to turn on or the engine could not do it.

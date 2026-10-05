@@ -91,7 +91,9 @@ struct CertificateWarningRevokeTests {
 
         controller.refreshPermissions()
         #expect(!controller.model.certificateWarningsOff)
-        #expect(throws: PageInfoCommandError.certificateWarningsAlreadyOn) { try controller.run(.reenableCertificateWarnings) }
+        let alreadyOn = PageInfoStrings.certificateWarningsAlreadyOn
+        #expect(controller.unavailableReason(for: .reenableCertificateWarnings) == alreadyOn)
+        #expect(throws: PageInfoCommandError.unavailable(alreadyOn)) { try controller.run(.reenableCertificateWarnings) }
     }
 
     /// The security page offers "Turn on warnings" only for a bypassed
@@ -164,6 +166,49 @@ struct CertificateWarningRevokeTests {
         #expect(Self.label(allSites, in: PageInfoPages(model: model, send: { _ in }).build()) == nil)
         model.certificateWarningScope = .profile
         #expect(Self.label(allSites, in: PageInfoPages(model: model, send: { _ in }).build()) != nil)
+    }
+
+    /// The action is disabled (menu, palette, `action.run`) while the
+    /// WebKit store knows no bypass for the page's host. Chromium has no
+    /// per-host knowledge: it stays enabled and clears the profile.
+    @Test func theActionIsDisabledWhileWebKitKnowsNoBypass() async throws {
+        let webKit = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .webkit, completesNavigationsImmediately: true)
+        webKit.load(page)
+        let controller = PageInfoController(tab: { webKit }, anchor: { nil })
+        let alreadyOn = PageInfoStrings.certificateWarningsAlreadyOn
+        #expect(controller.unavailableReason(for: .reenableCertificateWarnings) == alreadyOn)
+        #expect(throws: PageInfoCommandError.unavailable(alreadyOn)) { try controller.run(.reenableCertificateWarnings) }
+        #expect(controller.unavailableReason(for: .show(.security)) == nil, "only the revoke needs a bypass")
+        webKit.pageInfoFake.certificateWarningsOff = true
+        #expect(controller.unavailableReason(for: .reenableCertificateWarnings) == nil)
+
+        let chromium = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .cef, completesNavigationsImmediately: true)
+        chromium.load(page)
+        let chromiumController = PageInfoController(tab: { chromium }, anchor: { nil })
+        #expect(chromiumController.unavailableReason(for: .reenableCertificateWarnings) == nil, "Chromium stays enabled")
+        try chromiumController.run(.reenableCertificateWarnings)
+        for _ in 0 ..< 50 where chromium.commands.last != .reload { await Task.yield() }
+        #expect(chromium.commands.last == .reload, "the profile's choices were cleared and the page reloads")
+    }
+
+    /// A real WebKit tab asks its engine's exception set for the page's
+    /// host; a real Chromium tab can always turn warnings on.
+    @Test func theEnginesSayWhetherWarningsCanBeTurnedOn() {
+        let engine = WebKitEngine()
+        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        tab.apply(.urlChanged(page))
+        #expect(!tab.canTurnOnCertificateWarnings, "no Proceed for this host")
+        engine.allowCertificateException(host: host, profile: .default)
+        #expect(tab.canTurnOnCertificateWarnings)
+        engine.forgetCertificateException(host: host, profile: .default)
+        #expect(!tab.canTurnOnCertificateWarnings)
+
+        let runtime = CEFRuntime.shared
+        let paneHost = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "cert-enable"), profile: .default), runtime: runtime)
+        let chromium = CEFTab(id: .random(), profile: .default, host: paneHost, runtime: runtime)
+        paneHost.add(chromium)
+        chromium.machine.apply(.urlChanged(page))
+        #expect(chromium.canTurnOnCertificateWarnings, "Chromium has no per-host knowledge")
     }
 
     private final class NoticeRecorder: BrowserTabDelegate {
