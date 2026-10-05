@@ -470,11 +470,8 @@ struct MachinesPanelView: View {
         }
         nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
         nodeActions.addCoderouterAccount = { [self] provider in addCoderouterAccount(provider) }
-        nodeActions.refreshCoderouter = { [self] in
-            guard !coderouter.isRefreshing else { return }
-            coderouter.isRefreshing = true
-            coderouterRefreshRequest += 1
-        }
+        nodeActions.removeCoderouterAccount = { [self] account in removeCoderouterAccount(account) }
+        nodeActions.refreshCoderouter = { [self] in requestCoderouterRefresh() }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -525,6 +522,36 @@ struct MachinesPanelView: View {
     }
 
     @MainActor
+    @MainActor
+    private func removeCoderouterAccount(_ account: CloudTreeNode.CoderouterAccount) {
+        guard let teamID = accountFlow?.confirmedTeamID else { return }
+        let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
+        guard CloudTreeNodeActions.confirmDestructive(
+            title: String(format: String(localized: "coderouter.removeAccount.title", defaultValue: "Remove \u{201C}%@\u{201D} from CodeRouter?"), account.title),
+            message: String(localized: "coderouter.removeAccount.message", defaultValue: "The team stops routing agents through this account. You can add it again later."),
+            verb: String(localized: "coderouter.removeAccount.verb", defaultValue: "Remove")
+        ) else { return }
+        Task { @MainActor in
+            do {
+                try await CoderouterCLIAccountReader.remove(accountID: account.id, for: teamID, name: teamName)
+                // Drop the row now; the refresh confirms it against CodeRouter.
+                coderouter.accounts.removeAll { $0.id == account.id }
+            } catch {
+                Self.coderouterLogger.error("CodeRouter account removal failed: \(error.localizedDescription, privacy: .public)")
+                viewModel.noteTreeFailure(error.localizedDescription)
+            }
+            requestCoderouterRefresh()
+        }
+    }
+
+    /// Restarts the refresh loop now; the loop clears the spinner after its read.
+    @MainActor
+    private func requestCoderouterRefresh() {
+        guard !coderouter.isRefreshing else { return }
+        coderouter.isRefreshing = true
+        coderouterRefreshRequest += 1
+    }
+
     private func addCoderouterAccount(_ provider: CoderouterProvider) {
         guard let teamID = accountFlow?.confirmedTeamID,
               !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

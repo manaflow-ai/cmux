@@ -75,6 +75,8 @@ struct CloudTreeNodeActions {
     var showHint: @MainActor (_ message: String) -> Void = { _ in }
     /// Runs CodeRouter's add flow for one account type in a terminal.
     var addCoderouterAccount: @MainActor (_ provider: CoderouterProvider) -> Void = { _ in }
+    /// Confirms, then removes one account from the selected team's CodeRouter organization.
+    var removeCoderouterAccount: @MainActor (_ account: CloudTreeNode.CoderouterAccount) -> Void = { _ in }
     /// Re-reads the selected team's CodeRouter accounts now.
     var refreshCoderouter: @MainActor () -> Void = {}
     /// Explains why a display cannot open in the currently selected workspace.

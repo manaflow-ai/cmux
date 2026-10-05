@@ -65,6 +65,33 @@ struct CoderouterCLIAccountReaderTests {
             )
         }
     }
+
+    @Test("Removing an account selects the team's organization before the CLI removes it")
+    func removeRunsOnSelectedOrganization() async throws {
+        let cli = FakeCoderouterCLI(activeOrganizationID: Self.cmuxOrganizationID)
+        let accountID = "a10a7f6a-27b5-4e36-9a71-005d2c0539df"
+
+        try await CoderouterCLIAccountReader.remove(
+            accountID: accountID, for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
+        )
+
+        let commands = await cli.commands
+        let switchIndex = try #require(commands.firstIndex(of: ["org", "switch", Self.austinOrganizationID]))
+        let removeIndex = try #require(commands.firstIndex(of: ["remove", accountID, "--yes"]))
+        #expect(switchIndex < removeIndex)
+    }
+
+    @Test("A malformed account ID never reaches the CLI")
+    func malformedRemoveIsRejected() async {
+        let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
+
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.remove(
+                accountID: "--all", for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
+            )
+        }
+        #expect(await cli.commands.isEmpty)
+    }
 }
 
 /// Replays the byte-exact output of coderouter 0.3.11, including the trailing
@@ -106,6 +133,8 @@ private actor FakeCoderouterCLI {
         case _ where arguments.count == 3 && arguments[0] == "org" && arguments[1] == "switch":
             activeOrganizationID = switchOverride ?? arguments[2]
             return Data("Switched organization.\n".utf8)
+        case _ where arguments.count == 3 && arguments[0] == "remove" && arguments[2] == "--yes":
+            return Data("Removed.\n".utf8)
         case ["accounts", "--json"]:
             let accounts = (Self.accountLabels[activeOrganizationID] ?? []).enumerated().map { index, label in
                 var account: [String: Any] = ["id": "account-\(index)", "provider": "codex", "label": label, "state": "active"]

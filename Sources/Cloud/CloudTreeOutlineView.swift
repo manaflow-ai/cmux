@@ -828,8 +828,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .coderouterProviderGroup(let provider, _):
                 guard provider.canAdd else { return [] }
                 return [item(provider.newAccountTitle) { [nodeActions] in nodeActions.addCoderouterAccount(provider) }]
-            case .coderouterAccount:
-                return []
+            case .coderouterAccount(let account):
+                return [item(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) { [nodeActions] in nodeActions.removeCoderouterAccount(account) }]
             case .createAction, .machineEndSpacer: return []
             case .machineDetailTabs(let tabs):
                 var items: [NSMenuItem] = []

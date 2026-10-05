@@ -16,6 +16,10 @@ struct CloudTreeRowHoverButtons: View {
         // (`CloudTreeSectionRefreshHeader`), not with these buttons.
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
+        case .coderouterAccount(let account):
+            xmark(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) {
+                nodeActions.removeCoderouterAccount(account)
+            }
         case .coderouterProviderGroup(let provider, _):
             if provider.canAdd {
                 plus(provider.newAccountTitle) {
@@ -134,6 +138,8 @@ struct CloudTreeRowHoverButtons: View {
             return true
         case .coderouterProviderGroup(let provider, _):
             return provider.canAdd
+        case .coderouterAccount:
+            return true
         case .cloudMachinesSection(let canCreateMachine, _, _):
             return canCreateMachine
         case .pendingMachine:

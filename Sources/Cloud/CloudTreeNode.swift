@@ -104,7 +104,7 @@ final class CloudTreeNode: NSObject {
             switch self {
             case .cloudMachinesSection: "cloud"
             case .devicesSection: "desktopcomputer"
-            case .coderouterSection: "arrow.triangle.branch"
+            case .coderouterSection: "chevron.left.forwardslash.chevron.right"
             default: nil
             }
         }

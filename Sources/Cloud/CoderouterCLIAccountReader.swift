@@ -37,6 +37,22 @@ enum CoderouterCLIAccountReader {
         return payload.accounts
     }
 
+    /// Removes one account from the CodeRouter organization of the selected cmux
+    /// team, selecting that organization first exactly as `accounts` reads it.
+    static func remove(
+        accountID: String,
+        for cmuxTeamID: String?,
+        name cmuxTeamName: String?,
+        run: Run = runCLI
+    ) async throws {
+        guard UUID(uuidString: accountID) != nil else {
+            throw accountError("That CodeRouter account ID is not valid.")
+        }
+        _ = try await accounts(for: cmuxTeamID, name: cmuxTeamName, run: run)
+        _ = try await run(["remove", accountID, "--yes"])
+        logger.info("Removed CodeRouter account \(accountID, privacy: .public)")
+    }
+
     private static func readAccounts(run: Run) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
         let output = try await run(["accounts", "--json"])
         let object = try JSONSerialization.jsonObject(with: output) as? [String: Any]
