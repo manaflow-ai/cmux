@@ -31,6 +31,13 @@ cat >"$work/toolchain/bin/cargo" <<'S'
 #!/usr/bin/env bash
 echo "cargo $*" >>"$CALLS"
 S
+# The step's checkout has empty submodules (2026-10-05, step ee99e05f:
+# ghostty-vt-sys found no build.zig in ghostty-next).
+cat >"$work/bin/git" <<'S'
+#!/usr/bin/env bash
+echo "git $*" >>"$CALLS"
+exit "${GIT_RC:-0}"
+S
 chmod +x "$work/bin/"* "$work/toolchain/bin/cargo"
 export TOOLCHAIN_BIN="$work/toolchain/bin"
 run() { # rc out
@@ -48,9 +55,16 @@ run "$script" fmt
 grep -q "^cargo fmt --all --check$" "$work/calls" || fail "cargo fmt not run with the toolchain's own cargo"
 ! grep -q "^path-cargo" "$work/calls" || fail "a cargo from PATH ran instead of the toolchain's"
 grep -q "1.95.0-aarch64-apple-darwin" <<<"$out" || fail "active toolchain not printed"
+sub_line="$(grep -n "^git -C $work/src submodule update --init --depth 1 ghostty ghostty-next$" "$work/calls" | cut -d: -f1)"
+cargo_line="$(grep -n "^cargo " "$work/calls" | head -1 | cut -d: -f1)"
+[[ -n "$sub_line" && "$sub_line" -lt "$cargo_line" ]] || fail "submodules not initialized before cargo"
+
+GIT_RC=1 run "$script" fmt
+[[ $rc -ne 0 ]] || fail "a failed submodule update must fail the step"
+! grep -q "cargo " "$work/calls" || fail "cargo ran after a failed submodule update"
 
 RUSTUP_RC=1 run "$script" fmt
 [[ $rc -ne 0 ]] || fail "a failed component install must fail the step"
 ! grep -q "cargo " "$work/calls" || fail "cargo ran after a failed component install"
 
-echo "ok: 2 rust-check cases"
+echo "ok: 3 rust-check cases"
