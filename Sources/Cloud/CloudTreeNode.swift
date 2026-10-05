@@ -904,6 +904,13 @@ enum CloudTreeNodeBuilder {
         // snapshot, so device rows carry no Resources group.
         if let machineSnapshot {
             children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
+        } else if info?.linkState == .connecting {
+            // Keep the stable Resources control while a machine reconnects.
+            // Telemetry is unavailable until the VM snapshot arrives, so the
+            // group is intentionally empty and does not imply stale readings.
+            let placeholder = MachineSnapshot(
+                id: machine.rawValue, provider: "", image: "", isDesktop: false, activity: .pending)
+            children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: placeholder, now: now))
         }
         return children
     }

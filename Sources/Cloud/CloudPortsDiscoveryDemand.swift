@@ -28,6 +28,10 @@ final class CloudPortsDiscoveryDemand {
 
     func reconcile(coordinator: CloudTreeOutlineView.Coordinator) {
         guard let outline = coordinator.outlineView, outline.window != nil else { return }
+        // A snapshot can be applied before AppKit has performed the containing
+        // view's first layout pass. Materialize row geometry before checking
+        // the visibility boundary so an already visible machine is not missed.
+        outline.layoutSubtreeIfNeeded()
         for root in candidates where !requested.contains(root.machine) {
             // The machine row is the visibility boundary. Port discovery is a
             // lightweight cached scan, and waiting for a detail tab to open
