@@ -213,6 +213,8 @@ def test_zig_pkg_package_without_license_is_unresolved() -> None:
         assert result.returncode != 0, result.stdout
         assert "without discoverable license files" in result.stderr, result.stderr
         assert silent.name in result.stderr, result.stderr
+        # The failure says how to fix it: pin a reviewed text.
+        assert "pinned-licenses/MANIFEST.json" in result.stderr, result.stderr
         manifest = json.loads((work / "collected/SOURCE-MANIFEST.json").read_text())
         assert manifest["unresolved_packages"] == [silent.name]
 
