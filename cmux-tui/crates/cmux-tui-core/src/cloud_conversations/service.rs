@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -223,14 +223,14 @@ impl CloudConversations {
 
     /// Where events go. Set once by the hosting mux.
     pub fn set_sink(&self, sink: EventSink) {
-        *self.inner.sink.lock().unwrap() = Some(sink);
+        *self.inner.sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(sink);
     }
 
     /// `cloud-session-set`: replaces the lease. Open sockets reconnect with
     /// the new token and resume.
     pub fn set_session(&self, params: SessionParams) -> Result<Value, CloudError> {
         let reply = {
-            let mut lease = self.inner.lease.lock().unwrap();
+            let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             let session = CloudSession::new(params, lease.generation + 1)?;
             lease.generation = session.generation;
             lease.expiring_sent = false;
@@ -250,7 +250,7 @@ impl CloudConversations {
     /// `cloud-session-clear`.
     pub fn clear_session(&self) -> Value {
         {
-            let mut lease = self.inner.lease.lock().unwrap();
+            let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             lease.session = None;
             lease.generation += 1;
         }
@@ -261,7 +261,7 @@ impl CloudConversations {
     /// `cloud-session-status`. Never returns the token.
     pub fn session_status(&self) -> Value {
         let now = (self.inner.options.now_ms)();
-        let lease = self.inner.lease.lock().unwrap();
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
         match &lease.session {
             None => json!({"state": "signed_out"}),
             Some(session) => json!({
@@ -381,7 +381,8 @@ impl CloudConversations {
         // usable lease); its driver reports every later change.
         let initial = self.inner.initial_state();
         let (start, reply) = {
-            let mut subscriptions = self.inner.subscriptions.lock().unwrap();
+            let mut subscriptions =
+                self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(subscription) = subscriptions.get_mut(&target) {
                 subscription.clients.insert(client);
                 subscription.idle_since = None;
@@ -418,7 +419,11 @@ impl CloudConversations {
                 .name("mux-cloud-stream".into())
                 .spawn(move || run_driver(&inner, driver_target));
             if let Err(error) = spawned {
-                self.inner.subscriptions.lock().unwrap().remove(&target);
+                self.inner
+                    .subscriptions
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .remove(&target);
                 return Err(CloudError::Unavailable(format!("stream thread: {error}")));
             }
         }
@@ -434,7 +439,7 @@ impl CloudConversations {
             .inner
             .subscriptions
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .get(target)
             .map(|subscription| subscription.state.event(target));
         if let Some(event) = event {
@@ -446,7 +451,8 @@ impl CloudConversations {
     /// or closes when no client is left.
     pub fn unsubscribe(&self, client: u64, target: &Target) {
         {
-            let mut subscriptions = self.inner.subscriptions.lock().unwrap();
+            let mut subscriptions =
+                self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(subscription) = subscriptions.get_mut(target)
                 && subscription.clients.remove(&client)
                 && subscription.clients.is_empty()
@@ -460,7 +466,8 @@ impl CloudConversations {
     /// Ends every interest of a closed connection.
     pub fn client_closed(&self, client: u64) {
         {
-            let mut subscriptions = self.inner.subscriptions.lock().unwrap();
+            let mut subscriptions =
+                self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
             for subscription in subscriptions.values_mut() {
                 if subscription.clients.remove(&client) && subscription.clients.is_empty() {
                     subscription.idle_since = Some(Instant::now());
@@ -472,7 +479,7 @@ impl CloudConversations {
 
     /// Whether `target` still has an upstream driver (tests and diagnostics).
     pub fn has_stream(&self, target: &Target) -> bool {
-        self.inner.subscriptions.lock().unwrap().contains_key(target)
+        self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).contains_key(target)
     }
 
     /// Stops every driver; used when the daemon exits.
@@ -484,20 +491,20 @@ impl CloudConversations {
 
 impl Inner {
     fn emit(&self, event: CloudEvent) {
-        let sink = self.sink.lock().unwrap().clone();
+        let sink = self.sink.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(sink) = sink {
             sink(event);
         }
     }
 
     fn notify(&self) {
-        *self.signal.lock().unwrap() += 1;
+        *self.signal.lock().unwrap_or_else(PoisonError::into_inner) += 1;
         self.wake.notify_all();
     }
 
     /// Waits up to `timeout` for a signal newer than `seen`.
     fn wait(&self, seen: u64, timeout: Duration) {
-        let guard = self.signal.lock().unwrap();
+        let guard = self.signal.lock().unwrap_or_else(PoisonError::into_inner);
         if *guard != seen {
             return;
         }
@@ -505,13 +512,13 @@ impl Inner {
     }
 
     fn signal_now(&self) -> u64 {
-        *self.signal.lock().unwrap()
+        *self.signal.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The state a socket that has not run yet reports first.
     fn initial_state(&self) -> SocketState {
         let now = (self.options.now_ms)();
-        let lease = self.lease.lock().unwrap();
+        let lease = self.lease.lock().unwrap_or_else(PoisonError::into_inner);
         match &lease.session {
             None => {
                 SocketState { state: "disconnected", reason: Some("signed_out"), account: None }
@@ -529,18 +536,23 @@ impl Inner {
 
     /// The account of the current lease, expired or not.
     fn lease_account(&self) -> Option<String> {
-        self.lease.lock().unwrap().session.as_ref().and_then(|session| session.account.clone())
+        self.lease
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .session
+            .as_ref()
+            .and_then(|session| session.account.clone())
     }
 
     fn generation(&self) -> u64 {
-        self.lease.lock().unwrap().generation
+        self.lease.lock().unwrap_or_else(PoisonError::into_inner).generation
     }
 
     /// The lease for one call, announcing `expiring` once per lease.
     fn usable_session(&self) -> Result<CloudSession, CloudError> {
         let now = (self.options.now_ms)();
         let (result, event) = {
-            let mut lease = self.lease.lock().unwrap();
+            let mut lease = self.lease.lock().unwrap_or_else(PoisonError::into_inner);
             match lease.session.clone() {
                 None => (
                     Err(CloudError::SignedOut),
@@ -577,7 +589,7 @@ impl Inner {
     fn stream_session(&self) -> Result<CloudSession, &'static str> {
         let now = (self.options.now_ms)();
         let (result, event) = {
-            let mut lease = self.lease.lock().unwrap();
+            let mut lease = self.lease.lock().unwrap_or_else(PoisonError::into_inner);
             match lease.session.clone() {
                 None => (Err("signed_out"), None),
                 Some(session) if session.is_expired(now) => {
@@ -614,7 +626,7 @@ impl Inner {
         if self.shutdown.load(Ordering::SeqCst) {
             return true;
         }
-        let mut subscriptions = self.subscriptions.lock().unwrap();
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(subscription) = subscriptions.get(target) else { return true };
         let expired =
             subscription.idle_since.is_some_and(|since| since.elapsed() >= self.options.linger);
@@ -627,7 +639,7 @@ impl Inner {
 
     /// Time left before an idle subscription retires, capped at `cap`.
     fn idle_wait(&self, target: &Target, cap: Duration) -> Duration {
-        let subscriptions = self.subscriptions.lock().unwrap();
+        let subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
         match subscriptions.get(target).and_then(|subscription| subscription.idle_since) {
             Some(since) => self.options.linger.saturating_sub(since.elapsed()).min(cap),
             None => cap,
@@ -635,7 +647,7 @@ impl Inner {
     }
 
     fn remove(&self, target: &Target) {
-        self.subscriptions.lock().unwrap().remove(target);
+        self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
     }
 }
 
@@ -653,7 +665,13 @@ impl StateReporter<'_> {
         if self.last.as_ref() == Some(&next) {
             return;
         }
-        if let Some(subscription) = self.inner.subscriptions.lock().unwrap().get_mut(&self.target) {
+        if let Some(subscription) = self
+            .inner
+            .subscriptions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&self.target)
+        {
             subscription.state = next.clone();
         }
         self.inner.emit(next.event(&self.target));

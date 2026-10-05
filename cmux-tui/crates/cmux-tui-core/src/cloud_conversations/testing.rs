@@ -3,7 +3,7 @@
 //! frames while recording what the daemon sent.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -35,26 +35,33 @@ pub(crate) struct ScriptedWire {
 
 impl ScriptedWire {
     pub(crate) fn push_text(&self, text: impl Into<String>) {
-        self.incoming.lock().unwrap().push_back(WireRecv::Text(text.into()));
+        self.incoming
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push_back(WireRecv::Text(text.into()));
     }
 
     pub(crate) fn push_close(&self, code: Option<u16>) {
-        self.incoming.lock().unwrap().push_back(WireRecv::Closed { code });
+        self.incoming
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push_back(WireRecv::Closed { code });
     }
 
     pub(crate) fn sent(&self) -> Vec<String> {
-        self.sent.lock().unwrap().clone()
+        self.sent.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
 
 impl CloudWire for ScriptedWire {
     fn send(&mut self, text: &str) -> Result<(), TransportError> {
-        self.sent.lock().unwrap().push(text.to_string());
+        self.sent.lock().unwrap_or_else(PoisonError::into_inner).push(text.to_string());
         Ok(())
     }
 
     fn recv(&mut self, timeout: Duration) -> WireRecv {
-        if let Some(next) = self.incoming.lock().unwrap().pop_front() {
+        if let Some(next) = self.incoming.lock().unwrap_or_else(PoisonError::into_inner).pop_front()
+        {
             return next;
         }
         std::thread::sleep(timeout.min(Duration::from_millis(2)));
@@ -74,7 +81,7 @@ impl FakeBackend {
     pub(crate) fn reply(&self, path: &str, status: u16, body: Value) {
         self.replies
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .entry(path.to_string())
             .or_default()
             .push_back(Ok(HttpReply { status, body }));
@@ -83,7 +90,7 @@ impl FakeBackend {
     pub(crate) fn fail(&self, path: &str, detail: &str) {
         self.replies
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .entry(path.to_string())
             .or_default()
             .push_back(Err(TransportError(detail.to_string())));
@@ -91,20 +98,20 @@ impl FakeBackend {
 
     pub(crate) fn wire(&self) -> ScriptedWire {
         let wire = ScriptedWire::default();
-        self.wires.lock().unwrap().push_back(Ok(wire.clone()));
+        self.wires.lock().unwrap_or_else(PoisonError::into_inner).push_back(Ok(wire.clone()));
         wire
     }
 
     pub(crate) fn refuse(&self, error: ConnectError) {
-        self.wires.lock().unwrap().push_back(Err(error));
+        self.wires.lock().unwrap_or_else(PoisonError::into_inner).push_back(Err(error));
     }
 
     pub(crate) fn posted(&self) -> Vec<Posted> {
-        self.posted.lock().unwrap().clone()
+        self.posted.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     pub(crate) fn connected(&self) -> Vec<Connected> {
-        self.connected.lock().unwrap().clone()
+        self.connected.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
 
@@ -116,7 +123,7 @@ impl CloudBackend for FakeBackend {
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError> {
-        self.posted.lock().unwrap().push(Posted {
+        self.posted.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {
             url: url.to_string(),
             bearer: bearer.to_string(),
             client_version: client_version.map(str::to_string),
@@ -125,7 +132,7 @@ impl CloudBackend for FakeBackend {
         let path = url.find("/v1/").map_or(url, |at| &url[at..]).to_string();
         self.replies
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .get_mut(&path)
             .and_then(VecDeque::pop_front)
             .unwrap_or_else(|| Err(TransportError(format!("no scripted reply for {path}"))))
@@ -139,9 +146,9 @@ impl CloudBackend for FakeBackend {
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
         self.connected
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .push(Connected { url: url.to_string(), bearer: bearer.to_string() });
-        match self.wires.lock().unwrap().pop_front() {
+        match self.wires.lock().unwrap_or_else(PoisonError::into_inner).pop_front() {
             Some(Ok(wire)) => Ok(Box::new(wire)),
             Some(Err(error)) => Err(error),
             None => Err(ConnectError::Unavailable("no scripted connection".into())),
@@ -156,11 +163,11 @@ pub(crate) struct Events(pub Arc<Mutex<Vec<CloudEvent>>>);
 impl Events {
     pub(crate) fn sink(&self) -> super::EventSink {
         let events = self.0.clone();
-        Arc::new(move |event| events.lock().unwrap().push(event))
+        Arc::new(move |event| events.lock().unwrap_or_else(PoisonError::into_inner).push(event))
     }
 
     pub(crate) fn take(&self) -> Vec<CloudEvent> {
-        std::mem::take(&mut *self.0.lock().unwrap())
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     /// Waits (test-only polling) until `predicate` holds for the events seen
@@ -168,7 +175,7 @@ impl Events {
     pub(crate) fn wait_for(&self, predicate: impl Fn(&[CloudEvent]) -> bool) -> Vec<CloudEvent> {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let seen = self.0.lock().unwrap().clone();
+            let seen = self.0.lock().unwrap_or_else(PoisonError::into_inner).clone();
             if predicate(&seen) {
                 return seen;
             }
