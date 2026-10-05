@@ -14,18 +14,21 @@ struct SidebarExtensionManagementCoordinator {
 
     let tabManager: TabManager
     let notificationStore: TerminalNotificationStore
+    var authorization = SidebarActionAuthorization.current ?? SidebarActionAuthorization(isCurrent: { true })
     var requestTitle: (@MainActor (RenameTarget, String, UUID?) -> String?)?
     var confirmGroupDeletion: @MainActor (String, Int) -> Bool = { name, count in
         confirmDeleteWorkspaceGroup(groupName: name, memberCount: count)
     }
 
     func perform(_ action: CmuxSidebarAction) -> CmuxSidebarActionResult? {
+        guard authorization.isValid else { return .cancelled }
         if let result = SidebarExtensionAgentSessionBindingCoordinator(tabManager: tabManager).perform(action) { return result }
         if let result = SidebarExtensionWorkspaceContextCoordinator(tabManager: tabManager).perform(action) { return result }
         switch action {
         case .renameWorkspace(let id, let title):
             guard let workspace = workspace(id) else { return missingWorkspace }
             guard let proposed = title ?? promptTitle(.workspace, current: workspace.title, workspaceID: id) else { return .cancelled }
+            guard authorization.isValid else { return .cancelled }
             guard self.workspace(id) != nil else { return missingWorkspace }
             let title = normalized(proposed)
             let applied = tabManager.setCustomTitle(tabId: id, title: title)
@@ -34,6 +37,7 @@ struct SidebarExtensionManagementCoordinator {
             guard let workspace = workspace(id), let panel = workspace.panels[surfaceID] else { return missingSurface }
             let current = workspace.panelTitle(panelId: surfaceID) ?? panel.displayTitle
             guard let proposed = title ?? promptTitle(.surface, current: current, workspaceID: id) else { return .cancelled }
+            guard authorization.isValid else { return .cancelled }
             guard let live = self.workspace(id), live.panels[surfaceID] != nil else { return missingSurface }
             let title = normalized(proposed)
             let applied = live.setPanelCustomTitle(panelId: surfaceID, title: title)
@@ -41,6 +45,7 @@ struct SidebarExtensionManagementCoordinator {
         case .renameWorkspaceGroup(let id, let title):
             guard let group = tabManager.workspaceGroups.first(where: { $0.id == id }) else { return missingGroup }
             guard let proposed = title ?? promptTitle(.group, current: group.name, workspaceID: nil) else { return .cancelled }
+            guard authorization.isValid else { return .cancelled }
             guard let name = normalized(proposed) else { return unavailable }
             guard tabManager.workspaceGroups.contains(where: { $0.id == id }) else { return missingGroup }
             tabManager.renameWorkspaceGroup(groupId: id, name: name)
@@ -78,6 +83,7 @@ struct SidebarExtensionManagementCoordinator {
             guard let group = tabManager.workspaceGroups.first(where: { $0.id == id }),
                   let captured = tabManager.workspaceGrouping.deletionConfirmation(groupId: id, fallbackGroupName: group.name, fallbackAnchorWorkspaceId: group.anchorWorkspaceId) else { return missingGroup }
             guard confirmGroupDeletion(captured.groupName, captured.containedWorkspaceCount) else { return .cancelled }
+            guard authorization.isValid else { return .cancelled }
             // Never recapture membership after the alert. New members are not
             // covered by the user's confirmation and must survive.
             guard tabManager.workspaceGroups.contains(where: { $0.id == id }) else { return missingGroup }

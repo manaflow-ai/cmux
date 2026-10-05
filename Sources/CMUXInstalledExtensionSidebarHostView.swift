@@ -220,7 +220,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
     var snapshotUpdateToken: UInt64 = 0
     let unreadSource: SidebarUnreadModel
-    var actionHandler: @MainActor (CmuxSidebarAction) async -> CmuxSidebarActionResult
+    var actionHandler: @MainActor (CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult
     var onUseDefaultSidebar: @MainActor () -> Void = {}
 
     @State private var identity: AppExtensionIdentity?
@@ -1385,7 +1385,7 @@ private final class CMUXSidebarExtensionHostXPC {
     private var extensionProxy: CMUXSidebarExtensionXPC?
     private var exportedObject: CMUXSidebarHostXPCObject?
     private var snapshotProvider: (() -> CmuxSidebarSnapshot)?
-    private var actionHandler: ((CmuxSidebarAction) async -> CmuxSidebarActionResult)?
+    private var actionHandler: ((CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult)?
     private var allowedScopes = untrustedScopes
     private var allowedActionScopes = untrustedActionScopes
     private var connectionGeneration: UInt64 = 0
@@ -1408,7 +1408,7 @@ private final class CMUXSidebarExtensionHostXPC {
 
     func update(
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
-        actionHandler: @escaping @MainActor (CmuxSidebarAction) async -> CmuxSidebarActionResult
+        actionHandler: @escaping @MainActor (CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult
     ) {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
@@ -1421,7 +1421,7 @@ private final class CMUXSidebarExtensionHostXPC {
         connection: NSXPCConnection,
         bundleIdentifier: String,
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
-        actionHandler: @escaping @MainActor (CmuxSidebarAction) async -> CmuxSidebarActionResult,
+        actionHandler: @escaping @MainActor (CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult,
         onSnapshotRead: @escaping @MainActor () -> Void,
         onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void,
         onManifestBlocked: @escaping @MainActor (String?) -> Void
@@ -1444,6 +1444,9 @@ private final class CMUXSidebarExtensionHostXPC {
                 self.onSnapshotRead?()
             },
             actionHandler: scopedActionHandler(actionHandler),
+            authorizationProvider: { [weak self] in
+                self?.operationAuthorization() ?? SidebarActionAuthorization(isCurrent: { false })
+            },
             onAcceptedAction: { [weak self] in
                 self?.sendSnapshotDidChange()
             },
@@ -1643,7 +1646,7 @@ private final class CMUXSidebarExtensionHostXPC {
         }
         let effectiveGrant = grantStore.effectiveGrant(bundleIdentifier: bundleIdentifier, manifest: manifest)
         allowedScopes = effectiveGrant.readScopes
-        if allowedActionScopes != effectiveGrant.actionScopes { exportedObject?.cancelPendingActions() }
+        exportedObject?.cancelPendingActions()
         allowedActionScopes = effectiveGrant.actionScopes
         onManifestBlocked?(nil)
         onGrantChanged?(effectiveGrant)
@@ -1671,10 +1674,10 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     private func scopedActionHandler(
-        _ actionHandler: @escaping @MainActor (CmuxSidebarAction) async -> CmuxSidebarActionResult
-    ) -> (@MainActor (CmuxSidebarAction) async -> CmuxSidebarActionResult) {
-        { [weak self] action in
-            guard let self,
+        _ actionHandler: @escaping @MainActor (CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult
+    ) -> (@MainActor (CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult) {
+        { [weak self] action, authorization in
+            guard let self, authorization.isValid,
                   self.currentManifest != nil,
                   self.allowedActionScopes.isSuperset(of: action.requiredScopes) else {
                 return CmuxSidebarActionResult(
@@ -1682,7 +1685,17 @@ private final class CMUXSidebarExtensionHostXPC {
                     message: String(localized: "sidebar.extensions.action.scopeRejected", defaultValue: "Extension action is not granted")
                 )
             }
-            return await actionHandler(action)
+            return await actionHandler(action, authorization)
+        }
+    }
+
+    private func operationAuthorization() -> SidebarActionAuthorization {
+        let generation = connectionGeneration
+        let revision = grantRevision
+        return SidebarActionAuthorization { [weak self] in
+            guard let self else { return false }
+            return self.connectionGeneration == generation && self.grantRevision == revision
+                && self.currentManifest != nil
         }
     }
 
@@ -1716,7 +1729,8 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
     @MainActor private var pendingActions: [UUID: Task<Void, Never>] = [:]
     @MainActor var onSnapshotRead: (UInt64) -> Void
     @MainActor var snapshotProvider: () -> CmuxSidebarSnapshot
-    @MainActor var actionHandler: (CmuxSidebarAction) async -> CmuxSidebarActionResult
+    @MainActor var actionHandler: (CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult
+    @MainActor private let authorizationProvider: () -> SidebarActionAuthorization
     @MainActor var onAcceptedAction: () -> Void
     @MainActor var isCurrentGeneration: () -> Bool
 
@@ -1724,13 +1738,15 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
     init(
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
         onSnapshotRead: @escaping @MainActor (UInt64) -> Void,
-        actionHandler: @escaping @MainActor (CmuxSidebarAction) async -> CmuxSidebarActionResult,
+        actionHandler: @escaping @MainActor (CmuxSidebarAction, SidebarActionAuthorization) async -> CmuxSidebarActionResult,
+        authorizationProvider: @escaping @MainActor () -> SidebarActionAuthorization,
         onAcceptedAction: @escaping @MainActor () -> Void,
         isCurrentGeneration: @escaping @MainActor () -> Bool
     ) {
         self.onSnapshotRead = onSnapshotRead
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
+        self.authorizationProvider = authorizationProvider
         self.onAcceptedAction = onAcceptedAction
         self.isCurrentGeneration = isCurrentGeneration
     }
@@ -1759,34 +1775,43 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
 
     @MainActor func cancelPendingActions() {
         for task in pendingActions.values { task.cancel() }
-        pendingActions.removeAll()
     }
 
     func performSidebarAction(_ payload: NSData, reply: @escaping (NSData?, NSString?) -> Void) {
         Task { @MainActor in
-            let requestID = UUID()
-            guard pendingActions.count < 16 else { reply(nil, String(localized: "sidebar.extensions.action.unavailable", defaultValue: "Action is unavailable") as NSString); return }
-            let task = Task { @MainActor in
-            defer { pendingActions.removeValue(forKey: requestID) }
             guard isCurrentGeneration() else {
                 reply(nil, String(localized: "sidebar.extensions.action.staleConnection", defaultValue: "Extension connection is no longer active") as NSString)
                 return
             }
-            do {
-                let action = try CmuxSidebarXPCCodec.decodeAction(payload)
-                let result = await actionHandler(action)
-                guard isCurrentGeneration(), !Task.isCancelled else { reply(nil, String(localized: "sidebar.extensions.action.staleConnection", defaultValue: "Extension connection is no longer active") as NSString); return }
-                reply(try CmuxSidebarXPCCodec.encodeActionResult(result), nil)
-                if result.accepted {
-                    onAcceptedAction()
-                }
-            } catch {
-                reply(nil, error.localizedDescription as NSString)
+            guard pendingActions.count < 16 else {
+                reply(nil, String(localized: "sidebar.extensions.action.unavailable", defaultValue: "Action is unavailable") as NSString)
+                return
             }
+            let authorization = authorizationProvider()
+            let requestID = UUID()
+            let task = Task { @MainActor in
+                defer { pendingActions.removeValue(forKey: requestID) }
+                guard authorization.isValid, isCurrentGeneration() else {
+                    reply(nil, String(localized: "sidebar.extensions.action.staleConnection", defaultValue: "Extension connection is no longer active") as NSString)
+                    return
+                }
+                do {
+                    let action = try CmuxSidebarXPCCodec.decodeAction(payload)
+                    let result = await actionHandler(action, authorization)
+                    guard authorization.isValid, isCurrentGeneration() else {
+                        reply(nil, String(localized: "sidebar.extensions.action.staleConnection", defaultValue: "Extension connection is no longer active") as NSString)
+                        return
+                    }
+                    reply(try CmuxSidebarXPCCodec.encodeActionResult(result), nil)
+                    if result.accepted { onAcceptedAction() }
+                } catch {
+                    reply(nil, error.localizedDescription as NSString)
+                }
             }
             pendingActions[requestID] = task
         }
     }
+
 }
 
 /// View-owned discovery subscription. No filesystem or

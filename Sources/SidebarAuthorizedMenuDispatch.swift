@@ -6,6 +6,7 @@ struct SidebarAuthorizedMenuDispatch {
     let authorization: SidebarActionAuthorization
 
     func present(_ menu: NSMenu, using presenter: (NSMenu) -> Void) {
+        guard authorization.isValid else { return }
         let targets = wrapItems(in: menu)
         withExtendedLifetime(targets) { presenter(menu) }
     }
