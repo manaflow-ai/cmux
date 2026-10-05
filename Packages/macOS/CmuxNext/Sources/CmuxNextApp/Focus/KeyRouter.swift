@@ -171,6 +171,7 @@ final class KeyRouter: BrowserKeyRouting {
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
+            if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
             onTyping?(window)
             return false
@@ -209,6 +210,16 @@ final class KeyRouter: BrowserKeyRouting {
         case .deliver, .panel, .primaryInput, .typeAhead:
             return runExtensionShortcut(event, focus: focus)
         }
+    }
+
+    /// A bare key in a page that owns bare keys (KeyRouter+BareKeys): a sequence step, else its binding.
+    func dispatchBare(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext, facts: Facts) -> Bool {
+        if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
+        guard let winner = bareKeyWinner(event, context: context) else { return false }
+        decided.add(event)
+        run(Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
+                      arguments: winner.arguments), context: context, window: controller.state.id)
+        return true
     }
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
