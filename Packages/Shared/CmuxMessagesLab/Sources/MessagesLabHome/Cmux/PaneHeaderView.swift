@@ -13,7 +13,11 @@ final class PaneHeaderView: NSView {
     let pill = NSButton()
     var title: String = "" { didSet { if title != oldValue { applyTitle() } } }
     /// The avatar's monogram (the conversation's other participant).
-    var initials: String = "" { didSet { if initials != oldValue { avatar.image = PaneHeaderView.avatarImage(initials) } } }
+    var initials: String = "" { didSet { if initials != oldValue { avatar.image = PaneHeaderView.avatarImage(initials, light: light) } } }
+    /// A light theme: the measured white disc would vanish on a light
+    /// header, so the disc takes the theme's secondary text grey with a
+    /// white monogram (Messages' light-mode avatar).
+    var light = false { didSet { if light != oldValue { avatar.image = PaneHeaderView.avatarImage(initials, light: light) } } }
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
@@ -74,12 +78,14 @@ final class PaneHeaderView: NSView {
     /// A monogram on the header's avatar disc (white 253, as HeaderView
     /// draws it). HeaderBar draws the fixture contact's measured "I"; a Home
     /// conversation shows its participant's initials.
-    static func avatarImage(_ initials: String) -> NSImage {
-        NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: true) { r in
-            NSColor(white: 253 / 255, alpha: 1).setFill()
+    static func avatarImage(_ initials: String, light: Bool = false) -> NSImage {
+        let disc = light ? Fixture.secondaryText : NSColor(white: 253 / 255, alpha: 1)
+        let ink: NSColor = light ? .white : .black
+        return NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: true) { r in
+            disc.setFill()
             NSBezierPath(ovalIn: r).fill()
             let font = NSFont.systemFont(ofSize: initials.count > 1 ? 15 : 18, weight: .semibold)
-            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black]
+            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
             let size = (initials as NSString).size(withAttributes: attrs)
             (initials as NSString).draw(at: CGPoint(x: r.midX - size.width / 2, y: r.midY - size.height / 2), withAttributes: attrs)
             return true

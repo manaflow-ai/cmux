@@ -80,6 +80,7 @@ public final class MessagesLabHomeView: NSView {
             // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)
             controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
+            controller.host.paneHeader.light = theme.active.isLight
         }
         guard Fixture.theme != theme else { return }
         Fixture.theme = theme
