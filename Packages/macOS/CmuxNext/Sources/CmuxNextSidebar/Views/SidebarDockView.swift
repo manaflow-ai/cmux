@@ -136,6 +136,7 @@ private final class DockSymbolView: NSButton {
         imageScaling = .scaleProportionallyDown
         toolTip = info.title
         setButtonType(.momentaryChange)
+        widthAnchor.constraint(equalToConstant: 24).isActive = true
         target = self
         action = #selector(pressed)
         wantsLayer = true
@@ -150,8 +151,6 @@ private final class DockSymbolView: NSButton {
 
     override func layout() {
         super.layout()
-        let size = min(bounds.height, 22)
-        frame.size.width = max(size, 24)
         dot.frame = CGRect(x: bounds.width - 6, y: 1, width: 5, height: 5)
         dot.cornerRadius = 2.5
     }
