@@ -50,7 +50,7 @@ extension AcpmuxConnection: CustomStringConvertible, CustomDebugStringConvertibl
 }
 
 /// The daemon's per-launch LocalApp token file (acpmux `server/local_app.rs` `token_path`).
-public nonisolated enum AcpmuxLocalAppToken {
+nonisolated enum AcpmuxLocalAppToken {
     /// `home/run/localapp.token`.
     public static func path(home: URL) -> URL {
         home.appendingPathComponent("run", isDirectory: true).appendingPathComponent("localapp.token")

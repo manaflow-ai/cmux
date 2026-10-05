@@ -7,7 +7,7 @@ public import Foundation
 /// against each canonical root by path components, never by string prefix. A canonical path is
 /// what the daemon receives. Anything else is refused with a typed error. The daemon checks again
 /// (an existing canonical directory; a preset's pinned cwd wins), in its own lane.
-public nonisolated enum AcpmuxPathPolicy {
+nonisolated enum AcpmuxPathPolicy {
     /// The params a page frame may name a folder in, at any depth (C1): each value is a path or a
     /// list of paths. Every one of them must be a directory, except `path`, which may be a file.
     public static let keys = ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",

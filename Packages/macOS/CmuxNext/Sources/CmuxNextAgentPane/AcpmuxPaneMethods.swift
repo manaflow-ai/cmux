@@ -12,7 +12,7 @@ public import Foundation
 /// daemon that never uses this transport); the app sends them to the host bridge instead.
 /// The pane sends no JSON-RPC responses, so a frame without a method is refused too.
 /// Review: the protocol/origin lead (ad349). Changing the list needs that review.
-public nonisolated enum AcpmuxPaneMethods {
+nonisolated enum AcpmuxPaneMethods {
     /// The first frame of every connection, and only the first.
     public static let initialize = "initialize"
 
