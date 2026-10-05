@@ -267,11 +267,14 @@ the annotations and a hash of the descriptor, and the confirmed call passes
 the descriptor into the page call, which runs the tool only when the page
 lists it with that same descriptor, else fails with `tool_changed`. Every
 call, a confirmed draft or a `trustReadOnlyHint` one, runs only in the
-document and at the URL its tool was listed in: the listing marks its
-document (a value kept on the page's window, which a new document lacks)
-and notes its URL before it lists, and the page call checks both first and
-again right before the tool runs, else fails with `page_changed` and calls
-nothing (a reload, a navigation, or a `pushState` since the listing). A page
+document and at the URL its tool was listed in: the listing takes an
+element handle of the document's root (handles live in cmux's agent world
+and resolve only in the document that issued them, so the page cannot copy
+or forge the binding) and notes the URL before it lists; the page call runs
+through that handle, so a new document fails it before anything runs, and
+it checks the root and URL first and again right before the tool runs, else
+fails with `page_changed` and calls nothing (a reload, a navigation, or a
+`pushState` since the listing). A page
 that keeps the descriptor and swaps the implementation behind it is not
 detected: the page owns its tools' code, so a WebMCP preview describes what
 the page declares, never what its code does.
