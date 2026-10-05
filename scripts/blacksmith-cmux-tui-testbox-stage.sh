@@ -85,7 +85,7 @@ the benchmarked commit is not checked out on this Testbox
   present:  $(git rev-parse HEAD 2>/dev/null || echo unknown)
 Push the commit, then pin this box to it before running a stage:
   git push origin <branch>
-  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule deinit --force --all; git submodule update --init --depth 1 ghostty-next'
+  blacksmith testbox run --id $testbox_id 'set -euo pipefail; git fetch --no-tags origin $expected_source_sha; git reset --hard $expected_source_sha; git submodule foreach --quiet "echo \\\$sm_path" | xargs -r git submodule deinit --force --; git submodule update --init --depth 1 ghostty-next'
 REMEDY
   exit 65
 }

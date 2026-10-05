@@ -144,8 +144,9 @@ echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
 # A box warmed from main can hold a submodule checkout (the classic ghostty)
 # at main's commit. After the reset it no longer matches the candidate's
 # gitlink and the stage refuses the dirty tree, so deinitialize every
-# submodule and initialize only ghostty-next, the one cmux-tui builds from.
-pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule deinit --force --all; git submodule update --init --depth 1 ghostty-next; git rev-parse HEAD"
+# checked-out submodule and initialize only ghostty-next, the one cmux-tui
+# builds from.
+pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule foreach --quiet 'printf \"%s\\n\" \"\$sm_path\"' | xargs -r git submodule deinit --force --; git submodule update --init --depth 1 ghostty-next; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
 "$BOUNDED" 300 blacksmith testbox run --id "$TBX" "$pin_command"
 
