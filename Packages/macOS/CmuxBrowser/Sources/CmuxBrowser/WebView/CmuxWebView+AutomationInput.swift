@@ -13,14 +13,15 @@ public import WebKit
 extension CmuxWebView {
     /// Delivers one synthesized mouse or scroll event to WebKit.
     public func deliverAutomationMouseEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
+            automationContextMenuSuppression.noteAutomatedMouseDown(event)
+        }
         browserNativeInputDeliveryOwner.withDispatch {
             switch event.type {
             case .leftMouseDown: super.mouseDown(with: event)
             case .leftMouseUp: super.mouseUp(with: event)
             case .leftMouseDragged: super.mouseDragged(with: event)
-            case .rightMouseDown:
-                automationContextMenuSuppressionCount += 1
-                super.rightMouseDown(with: event)
+            case .rightMouseDown: super.rightMouseDown(with: event)
             case .rightMouseUp: super.rightMouseUp(with: event)
             case .rightMouseDragged: super.rightMouseDragged(with: event)
             case .otherMouseDown: super.otherMouseDown(with: event)
@@ -44,35 +45,35 @@ extension CmuxWebView {
         }
     }
 
-    /// Automated right clicks whose native context menu is still expected.
-    var automationContextMenuSuppressionCount: Int {
+    /// Automated clicks whose native context menu is still expected
+    /// (``BrowserAutomationContextMenuSuppression``).
+    var automationContextMenuSuppression: BrowserAutomationContextMenuSuppression {
         get {
-            (objc_getAssociatedObject(self, Self.contextMenuSuppressionKey) as? NSNumber)?.intValue ?? 0
+            BrowserAutomationContextMenuSuppression(
+                pending: (objc_getAssociatedObject(self, Self.contextMenuSuppressionKey) as? NSNumber)?.intValue ?? 0
+            )
         }
         set {
             objc_setAssociatedObject(
                 self,
                 Self.contextMenuSuppressionKey,
-                NSNumber(value: max(0, newValue)),
+                NSNumber(value: newValue.pending),
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }
     }
 
     /// Consumes one pending suppression. `willOpenMenu` calls this so the menu
-    /// WebKit builds for an automated right click never appears.
+    /// WebKit builds for an automated click never appears.
     func consumeAutomationContextMenuSuppression() -> Bool {
-        let pending = automationContextMenuSuppressionCount
-        guard pending > 0 else { return false }
-        automationContextMenuSuppressionCount = pending - 1
-        return true
+        automationContextMenuSuppression.consume()
     }
 
-    /// Forgets automated right clicks whose context menu never opened (the
-    /// page prevented it), so the user's next menu is not swallowed after
-    /// the automation leaves the tab.
+    /// Forgets automated clicks whose context menu never opened (the page
+    /// prevented it), so the user's next menu is not swallowed after the
+    /// automation leaves the tab.
     public func cancelPendingAutomationContextMenus() {
-        automationContextMenuSuppressionCount = 0
+        automationContextMenuSuppression.cancelAll()
     }
 
     private static let contextMenuSuppressionKey: UnsafeRawPointer = {

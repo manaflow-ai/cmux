@@ -14,8 +14,17 @@ public struct BrowserReplSessionDownloads: Sendable {
     private var entries: [String: Entry] = [:]
 
     private struct Entry: Sendable {
-        let sessionID: String
+        /// The session, and whether it reads the download's URLs as written.
+        let recipient: BrowserReplNetworkRecipient
         var source: BrowserReplDownloadSource
+        var sessionID: String { recipient.sessionID }
+
+        /// Why its session may not receive the download, in the form that
+        /// session may read (``BrowserReplDownloadRefusal/reason(seesCredentials:)``).
+        func refusal(policy: (String) -> BrowserReplDomainPolicy?, fileRoots: (String) -> [String]?) -> String? {
+            source.refusal(policy: policy(sessionID), fileRoots: fileRoots(sessionID) ?? [])?
+                .reason(seesCredentials: recipient.seesCredentials)
+        }
     }
 
     /// How a download that finished goes on.
@@ -31,9 +40,11 @@ public struct BrowserReplSessionDownloads: Sendable {
 
     public init() {}
 
-    /// Records that download `id`, from `source`, went to `sessionID`.
-    public mutating func add(_ id: String, sessionID: String, source: BrowserReplDownloadSource) {
-        entries[id] = Entry(sessionID: sessionID, source: source)
+    /// Records that download `id`, from `source`, went to `recipient`. A
+    /// refusal reaches a recipient that does not see the tab's credentials
+    /// without the URLs' credential values.
+    public mutating func add(_ id: String, to recipient: BrowserReplNetworkRecipient, source: BrowserReplDownloadSource) {
+        entries[id] = Entry(recipient: recipient, source: source)
     }
 
     /// The session download `id` went to, if it still is that session's.
@@ -43,7 +54,8 @@ public struct BrowserReplSessionDownloads: Sendable {
 
     /// Records that download `id` went on to `url`. When its session may not
     /// read that place, the download is no longer the session's, and the
-    /// session and the reason are returned.
+    /// session and the reason, in the form that session may read, are
+    /// returned.
     public mutating func redirect(
         _ id: String,
         to url: String,
@@ -53,7 +65,7 @@ public struct BrowserReplSessionDownloads: Sendable {
         guard var entry = entries[id] else { return nil }
         entry.source.went(to: url)
         entries[id] = entry
-        guard let reason = entry.source.refusal(policy: policy(entry.sessionID), fileRoots: fileRoots(entry.sessionID) ?? []) else {
+        guard let reason = entry.refusal(policy: policy, fileRoots: fileRoots) else {
             return nil
         }
         entries[id] = nil
@@ -69,7 +81,7 @@ public struct BrowserReplSessionDownloads: Sendable {
         fileRoots: (String) -> [String]?
     ) -> Finish {
         guard let entry = entries.removeValue(forKey: id) else { return .notSessions }
-        if let reason = entry.source.refusal(policy: policy(entry.sessionID), fileRoots: fileRoots(entry.sessionID) ?? []) {
+        if let reason = entry.refusal(policy: policy, fileRoots: fileRoots) {
             return .refused(sessionID: entry.sessionID, reason: reason)
         }
         return .session(entry.sessionID)

@@ -53,22 +53,30 @@ public final class BrowserNativeInputDeliveryOwner {
         }
     }
 
-    func withDispatch<T>(_ body: () -> T) -> T {
+    /// Runs `body`, this web view's native delivery of `event` (`nil`: a
+    /// delivery that is not one key's, such as a mouse event).
+    func withDispatch<T>(delivering event: NSEvent? = nil, _ body: () -> T) -> T {
         dispatchDepth += 1
-        Self.activeDispatchCount += 1
+        if let event { Self.deliveringEvents.append(event) }
         defer {
             dispatchDepth = max(0, dispatchDepth - 1)
-            Self.activeDispatchCount = max(0, Self.activeDispatchCount - 1)
+            if let event, let index = Self.deliveringEvents.lastIndex(where: { $0 === event }) {
+                Self.deliveringEvents.remove(at: index)
+            }
         }
         return body()
     }
 
-    /// Native key deliveries in progress in any web view.
-    private static var activeDispatchCount = 0
+    /// The key events whose native delivery is in progress, in any web view.
+    private static var deliveringEvents: [NSEvent] = []
 
-    /// Whether any web view is delivering an automated key right now. WebKit's
-    /// resend of an unhandled key runs on a later turn, outside every delivery.
-    public static var isAnyDispatchActive: Bool { activeDispatchCount > 0 }
+    /// Whether `event` itself is being delivered to its web view right now.
+    /// WebKit's resend of an unhandled key runs on a later turn, outside its
+    /// own delivery; another web view's delivery in flight then (another
+    /// tab's, another session's) is a different event and never covers it.
+    public static func isDelivering(_ event: NSEvent) -> Bool {
+        deliveringEvents.contains { $0 === event }
+    }
 
     public func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16, heldBy holder: String = "") {
         heldModifierKeys[HeldModifier(holder: holder, keyCode: keyCode)] = modifier
@@ -91,11 +99,11 @@ private final class BrowserNativeInputDeliveryOwnerAssociationKey: NSObject {
 
 @MainActor
 extension WKWebView {
-    /// Runs `body` while this web view's native WebKit key-down dispatch is
-    /// marked active, so re-entrant key routing can tell the event is already
-    /// on its way into WebKit.
-    public func withBrowserWebKitKeyDownDispatch<T>(_ body: () -> T) -> T {
-        browserNativeInputDeliveryOwner.withDispatch(body)
+    /// Runs `body` while this web view's native WebKit key-down dispatch of
+    /// `event` is marked active, so re-entrant key routing can tell that
+    /// event is already on its way into WebKit.
+    public func withBrowserWebKitKeyDownDispatch<T>(of event: NSEvent? = nil, _ body: () -> T) -> T {
+        browserNativeInputDeliveryOwner.withDispatch(delivering: event, body)
     }
 }
 
@@ -114,7 +122,7 @@ public enum BrowserKeyboardReplayResult: Sendable, Equatable {
 @MainActor
 extension CmuxWebView {
     func forwardKeyDownToWebKit(_ event: NSEvent) {
-        browserNativeInputDeliveryOwner.withDispatch {
+        browserNativeInputDeliveryOwner.withDispatch(delivering: event) {
             super.keyDown(with: event)
         }
     }
@@ -284,7 +292,7 @@ extension WKWebView {
             // already-focused window so the CGEvent retains its native context;
             // the dispatch-depth guard keeps cmux shortcut routing from seeing
             // the re-entry as a second user event.
-            browserNativeInputDeliveryOwner.withDispatch {
+            browserNativeInputDeliveryOwner.withDispatch(delivering: event) {
                 window.sendEvent(event)
             }
             return
@@ -292,14 +300,14 @@ extension WKWebView {
         if let cmuxWebView = self as? CmuxWebView {
             cmuxWebView.forwardKeyDownToWebKit(event)
         } else {
-            browserNativeInputDeliveryOwner.withDispatch {
+            browserNativeInputDeliveryOwner.withDispatch(delivering: event) {
                 keyDown(with: event)
             }
         }
     }
 
     private func deliverBrowserKeyUp(_ event: NSEvent) {
-        browserNativeInputDeliveryOwner.withDispatch {
+        browserNativeInputDeliveryOwner.withDispatch(delivering: event) {
             keyUp(with: event)
         }
     }
@@ -390,7 +398,7 @@ extension WKWebView {
         ) else {
             return false
         }
-        browserNativeInputDeliveryOwner.withDispatch {
+        browserNativeInputDeliveryOwner.withDispatch(delivering: event) {
             flagsChanged(with: event)
         }
         return true
@@ -428,11 +436,12 @@ extension NSEvent {
         return cgEvent.getIntegerValueField(.eventSourceUserData) == Self.browserAutomationKeyMark
     }
 
-    /// Whether this is an automated browser key reaching the app outside the
-    /// web view's own delivery: WebKit's resend of a key no page handled.
+    /// Whether this is an automated browser key reaching the app outside its
+    /// own delivery to its web view (``BrowserNativeInputDeliveryOwner/isDelivering(_:)``):
+    /// WebKit's resend of a key no page handled.
     @MainActor
     public var isResentBrowserAutomationKeyEvent: Bool {
-        isBrowserAutomationKeyEvent && !BrowserNativeInputDeliveryOwner.isAnyDispatchActive
+        isBrowserAutomationKeyEvent && !BrowserNativeInputDeliveryOwner.isDelivering(self)
     }
 
     /// For the app's `sendEvent`: whether to drop this event as WebKit's

@@ -503,4 +503,33 @@ import Testing
         let payload: [String: Any] = ["url": "https://app.example/search?q=tea&page=2"]
         #expect(payload.redactingBrowserReplCredentials()["url"] as? String == "https://app.example/search?q=tea&page=2")
     }
+
+    /// A configured external-open rule hands an activated link to the
+    /// user's system browser (NSWorkspace), outside the tab, its domain
+    /// policy and cmux. An agent's synthesized click is a link activation
+    /// to WebKit, and a page can activate a link itself (`a.click()`), so in
+    /// a tab sessions drive only a link the user activates, in a user's tab
+    /// they are working in, may leave; any other loads in the tab.
+    @Test func onlyTheUsersOwnLinkActivationsGoToTheExternalBrowser() {
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        #expect(users.handsLinksToExternalBrowser(userIsWorkingInTab: true))
+        #expect(!users.handsLinksToExternalBrowser(userIsWorkingInTab: false),
+                "a link activated in a tab sessions drive while the user works elsewhere left cmux")
+
+        users.beginInput(sessionID: "agent")
+        #expect(!users.handsLinksToExternalBrowser(userIsWorkingInTab: true),
+                "an agent's click handed a link to the external browser")
+        users.endInput(sessionID: "agent")
+        #expect(users.handsLinksToExternalBrowser(userIsWorkingInTab: true))
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        #expect(!own.handsLinksToExternalBrowser(userIsWorkingInTab: true),
+                "a link in a tab a session created left its domain policy for the external browser")
+        own.attach(sessionID: "other")
+        own.detach(sessionID: "agent")
+        #expect(own.handsLinksToExternalBrowser(userIsWorkingInTab: true),
+                "a tab its creator left is the user's")
+    }
 }

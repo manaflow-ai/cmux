@@ -156,7 +156,7 @@ stays in the web view and the window's first responder stays the user's.
 A key-down no page handles is not passed on: WebKit resends such a key
 through `NSApp.sendEvent` to the key window (the user's terminal, menus), so
 keys the REPL and `cmux browser press` send carry a mark (`eventSourceUserData`; the mobile browser stream's keys, a person's, do not) and the app
-drops a marked key that arrives outside the web view's own delivery. That
+drops a marked key that arrives outside that same event's own delivery (another web view delivering its own key at that moment does not exempt it). That
 resend is also how a Command shortcut's Edit menu command (select all, copy,
 cut, paste, undo, redo; bold, italic and underline in the REPL) is run: only
 once WebKit has sent the key back (no page handled it; a page that cancels
@@ -259,6 +259,12 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 
+A mouse `down` that opens a context menu (the right button, or the left with
+`Control`) fires the page's `contextmenu` event but never shows cmux's
+native menu. When the page cancels that event no menu comes; the person's
+next right click or Control-click in the tab still gets its menu, as does
+any after the sessions leave the tab.
+
 When sessions share a tab, a session's `input.mouse` `down` owns the pointer
 until its `up` (or until the session leaves the tab), and an `input.drag`
 owns it from its press to its release; another session's `input.mouse` or
@@ -308,7 +314,7 @@ Every event carries `targetId`.
 | `dialog.opened` | `{ dialogId, type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message, defaultValue, dismissedDuring? }` (stays open until `dialog.respond`; with `dismissedDuring: "copy"\|"cut"\|"paste"` it opened during that clipboard command and is already dismissed) |
 | `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (the native panel is not shown; see `tab.handleEvents` for which tabs send it) |
 | `download.started` | `{ downloadId, url, suggestedFilename }`. Only the tab's creating session gets `url` as written; a session that gets a download in a user's tab (its own input started it) gets it with the userinfo and credential-named query and fragment parameters reading `redacted`, as in network events |
-| `download.finished` | `{ downloadId, path?, error? }`. The driver judges where the download came from again at each redirect WebKit reports after it picked the destination and, under the session's domain policy and directories then, before it names the path: a place they refuse gives `error` (`refused: ...`) and no path, and in a tab the session created the download is cancelled and its file removed (in a user's tab it goes to the user's download location) |
+| `download.finished` | `{ downloadId, path?, error? }`. The driver judges where the download came from again at each redirect WebKit reports after it picked the destination and, under the session's domain policy and directories then, before it names the path: a place they refuse gives `error` (`refused: ...`, which names that place; a session that did not create the tab gets it with its credential values replaced, as `download.started` gives the URL, and without the rule's explanation) and no path, and in a tab the session created the download is cancelled and its file removed (in a user's tab it goes to the user's download location) |
 | `console` | `{ type, text, args?, location? }` |
 | `pageerror` | `{ message, stack }` |
 | `request` / `response` / `requestfailed` / `requestfinished` | `{ requestId, url, method, resourceType, status?, headers?, note? }`. The driver holds each unfinished request's details for its later events, at most 1,000 requests or 8 MiB of them per tab: past that the oldest are dropped, and their `requestfailed` or `requestfinished` comes without their headers and with a `note` saying so. Sent only to the tab's creating session, to a session whose last `tab.handleEvents` for the tab names `network`, and to the session whose call the page was handling when the request started (the rest of that request's events follow it). Only the creating session gets the credential headers (`cookie`, `set-cookie`, `authorization`, `proxy-authorization`, `x-api-key`, `x-auth-token`, `x-csrf-token`, `x-xsrf-token`, and any whose name says it carries one); the others get the headers without them, and the `url` and URL-valued headers (`location`, `content-location`, `referer`, `refresh`, `link`) with the userinfo and each credential-named query or fragment parameter (that name rule, or `code`, `sig`, `key`, `jwt`, `otp`, `pass`, `pwd`, `sid`, `ticket`, `assertion`, `SAMLResponse`, `SAMLRequest`) reading `redacted` |

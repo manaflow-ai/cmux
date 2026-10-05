@@ -44,15 +44,15 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
     /// a `data:` or opaque `blob:` download a blocked document wrote is
     /// refused too. A request that went through more than ``maximumHops``
     /// URLs is refused, since the record of it is cut short.
-    public func refusal(policy: BrowserReplDomainPolicy?, fileRoots: [String]) -> String? {
+    public func refusal(policy: BrowserReplDomainPolicy?, fileRoots: [String]) -> BrowserReplDownloadRefusal? {
         guard hops.count <= Self.maximumHops else {
-            return "the download went through more than \(Self.maximumHops) addresses"
+            return BrowserReplDownloadRefusal(hop: nil, rule: .tooManyHops, detail: "the download went through more than \(Self.maximumHops) addresses")
         }
         for hop in hops {
             let scheme = hop.prefix { $0 != ":" }.lowercased()
             if scheme == "file" {
                 if let reason = BrowserReplFileSandbox.navigationRefusal(hop, roots: fileRoots) {
-                    return "the download came from \(hop): \(reason)"
+                    return BrowserReplDownloadRefusal(hop: hop, rule: .fileSandbox, detail: reason)
                 }
                 continue
             }
@@ -66,9 +66,63 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
                 reason = policy.blockReason(hop) ?? initiator.flatMap(policy.blockReason(document:))
             }
             if let reason {
-                return "the download came from \(hop), which the domain policy blocks: \(reason)"
+                return BrowserReplDownloadRefusal(hop: hop, rule: .domainPolicy, detail: reason)
             }
         }
         return nil
+    }
+}
+
+/// Why a session may not receive a download
+/// (``BrowserReplDownloadSource/refusal(policy:fileRoots:)``), kept as data
+/// so each session gets it in the form it may read
+/// (``reason(seesCredentials:)``): the URLs a download went through carry
+/// signatures and tokens, which only the tab's creator reads as written.
+public struct BrowserReplDownloadRefusal: Sendable, Equatable {
+    /// The rule that refuses the download.
+    public enum Rule: Sendable, Equatable {
+        /// It went through more than ``BrowserReplDownloadSource/maximumHops`` URLs.
+        case tooManyHops
+        /// A local file outside the session's directories.
+        case fileSandbox
+        /// A place the session's domain policy blocks.
+        case domainPolicy
+    }
+
+    /// The URL refused, as the request went through it; `nil` for
+    /// ``Rule/tooManyHops``.
+    public let hop: String?
+    public let rule: Rule
+    /// The rule's own explanation, which may repeat the URL as written.
+    public let detail: String
+
+    public init(hop: String?, rule: Rule, detail: String) {
+        self.hop = hop
+        self.rule = rule
+        self.detail = detail
+    }
+
+    /// The reason as the tab's creator gets it, every URL as written.
+    public var reason: String { reason(seesCredentials: true) }
+
+    /// The reason for a session. One that does not see the tab's credentials
+    /// (``BrowserReplNetworkRecipient/seesCredentials``) gets the refused URL
+    /// with its credential values replaced
+    /// (``Swift/String/redactingBrowserReplURLCredentials()``) and the rule
+    /// without its explanation, which may repeat the URL as written.
+    public func reason(seesCredentials: Bool) -> String {
+        guard let hop else { return detail }
+        switch (rule, seesCredentials) {
+        case (.tooManyHops, _):
+            return detail
+        case (.fileSandbox, true):
+            return "the download came from \(hop): \(detail)"
+        case (.fileSandbox, false):
+            return "the download came from \(hop.redactingBrowserReplURLCredentials()), a local file outside the session's directories"
+        case (.domainPolicy, true):
+            return "the download came from \(hop), which the domain policy blocks: \(detail)"
+        case (.domainPolicy, false):
+            return "the download came from \(hop.redactingBrowserReplURLCredentials()), which the domain policy blocks"
+        }
     }
 }

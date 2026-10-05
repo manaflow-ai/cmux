@@ -44,7 +44,7 @@ public enum BrowserReplDownloadRoute: Sendable, Equatable {
     /// The session, which reads it from the temporary directory.
     case session(BrowserReplNetworkRecipient)
     /// Cancelled: the creating session's tab may not load it.
-    case refused(String)
+    case refused(BrowserReplDownloadRefusal)
 }
 
 /// A session a network event goes to, and whether it gets the request's
@@ -326,6 +326,18 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     public var isInputAmbiguous: Bool {
         guard let first = inputSessionIDs.first else { return false }
         return inputSessionIDs.contains { $0 != first }
+    }
+
+    /// Whether a link activated in the tab may go to the user's configured
+    /// external browser (a rule that opens matching links with
+    /// `NSWorkspace`, outside the tab and its domain policy). An agent's
+    /// synthesized click is a link activation to WebKit, and a page
+    /// activates links itself (`a.click()`), so only a user's tab the user
+    /// is working in (`userIsWorkingInTab`: shown and focused in the key
+    /// window), with no session's input in flight, hands one off. Any other
+    /// activation loads in the tab, under the usual guards.
+    public func handsLinksToExternalBrowser(userIsWorkingInTab: Bool) -> Bool {
+        !isSessionOwned && inputSessionIDs.isEmpty && userIsWorkingInTab
     }
 
     /// Ends one ``beginInput(sessionID:)``.

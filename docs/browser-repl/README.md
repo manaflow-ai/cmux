@@ -511,7 +511,12 @@ rest. Measurements: [performance.md](performance.md).
   sessions drive a tab the user is not working in (not shown and focused in
   the key window of the active app), such a window opens as a background
   tab, never as a key window over the user's work (a page that opens one
-  after an `await` in the agent's click lands here).
+  after an `await` in the agent's click lands here). A link that matches a
+  configured external-browser rule leaves cmux for the system browser only
+  when the user activated it in a user's tab they are working in, with no
+  session's input in flight; an agent's click, or the page's own link
+  activation, in a tab sessions drive (and any link in a tab a session
+  created) loads in the tab instead, under its guards.
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (the console messages and
   page errors of a main frame the policy blocks do not reach the session
