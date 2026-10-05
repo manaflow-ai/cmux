@@ -69,9 +69,13 @@ private struct BackdropTextureRenderer {
         case .grain:
             output = grain(input, strength: texture.strength)
         }
-        guard let output,
-              let cgImage = context.createCGImage(output, from: input.extent) else { return source }
-        return NSImage(cgImage: cgImage, size: source.size)
+        guard let output else { return source }
+        // Keep the Core Image representation lazy. Material application runs
+        // on AppKit's main actor; forcing a CGImage here performs a synchronous
+        // GPU readback and blocks that actor.
+        let image = NSImage(size: source.size)
+        image.addRepresentation(NSCIImageRep(ciImage: output.cropped(to: input.extent)))
+        return image
     }
 
     /// Sets `key` only when `filter` declares it. CIFilter raises an
