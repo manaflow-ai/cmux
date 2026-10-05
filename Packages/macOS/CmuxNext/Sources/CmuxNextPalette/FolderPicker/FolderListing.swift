@@ -65,16 +65,14 @@ public nonisolated struct FolderListing: Equatable, Sendable {
             return verdict
         }
         while let entry = readdir(handle) {
-            let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
-                String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
-            }
+            let (name, type) = record(entry)
             if name == "." || name == ".." { continue }
             scanned += 1
             if scanned > scanLimit {
                 stoppedEarly = true
                 break
             }
-            switch isFolder(type: entry.pointee.d_type, at: base + "/" + name) {
+            switch isFolder(type: type, at: base + "/" + name) {
             case true: folders.append(name)
             case false where lists(name): files.append(name)
             default: break
@@ -107,6 +105,14 @@ public nonisolated struct FolderListing: Equatable, Sendable {
         await Task.detached(priority: .userInitiated) {
             readNow(directory, mode: mode, limit: limit)
         }.value
+    }
+
+    /// The name and type of one `readdir` record.
+    static func record(_ entry: UnsafeMutablePointer<dirent>) -> (name: String, type: UInt8) {
+        let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
+            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        return (name, entry.pointee.d_type)
     }
 
     /// A folder, or a link to one (links and unknown types need a stat).
