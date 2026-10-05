@@ -147,7 +147,7 @@ final class CloudTreeMachineReorderLift: NSObject {
         outline.layoutSubtreeIfNeeded()
         // Every position from before, in the outline as it now scrolls.
         let scrolled = scrollOffset() - scrollBefore
-        let sectionIDs = Set((0..<outline.numberOfRows).compactMap { row in
+        let sectionIDs: Set<String> = Set((0..<outline.numberOfRows).compactMap { row -> String? in
             guard let node = outline.item(atRow: row) as? CloudTreeNode else { return nil }
             switch node.kind {
             case .cloudMachinesSection, .devicesSection, .devicesEmpty: return node.id
