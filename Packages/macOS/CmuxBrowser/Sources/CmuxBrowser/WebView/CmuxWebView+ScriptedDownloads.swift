@@ -373,7 +373,8 @@ extension CmuxWebView {
         }
         let traceID = Self.makeContextDownloadTraceID(prefix: "scriptdl")
         debugContextDownload("browser.scriptdl.start trace=\(traceID) scheme=\(url.scheme ?? "nil")")
-        if url.scheme?.caseInsensitiveCompare("blob") == .orderedSame {
+        let routed = (cmuxDownloadDelegate as? any BrowserScriptedDownloadRouting)?.routesScriptedDownloadsThroughWebKit == true
+        if routed || url.scheme?.caseInsensitiveCompare("blob") == .orderedSame {
             startScriptedWebKitDownload(url, suggestedFilename: suggestedFilename, traceID: traceID)
             return
         }
