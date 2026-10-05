@@ -138,6 +138,27 @@ if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels 2>/dev/null); then
+  refuse \
+    "not green: cannot read $ref" \
+    'check the repository, pull request number, GitHub login, and network access'
+fi
+if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
+  refuse \
+    "not green: GitHub returned invalid metadata for $ref" \
+    'retry after GitHub returns headRefOid and baseRefName'
+fi
+IFS=$'\t' read -r sha base <<<"$fields"
+if [ -z "$sha" ] || [ -z "$base" ]; then
+  refuse \
+    "not green: GitHub metadata for $ref has no head SHA or base branch" \
+    'refresh the pull request metadata and retry'
+fi
+if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
+  refuse \
+    'exploration PR, needs a decision from Leo or the team before merging.' \
+    'remove the exploration label only after Leo or the team decides to merge'
+fi
 [ $# -gt 0 ] || set -- --squash
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
@@ -165,23 +186,6 @@ if [ "$fix" -eq 1 ]; then
       'read the validator evidence and repair the failing or missing exact-head checks'
   fi
   exit 0
-fi
-
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName 2>/dev/null); then
-  refuse \
-    "not green: cannot read $ref" \
-    'check the repository, pull request number, GitHub login, and network access'
-fi
-if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
-  refuse \
-    "not green: GitHub returned invalid metadata for $ref" \
-    'retry after GitHub returns headRefOid and baseRefName'
-fi
-IFS=$'\t' read -r sha base <<<"$fields"
-if [ -z "$sha" ] || [ -z "$base" ]; then
-  refuse \
-    "not green: GitHub metadata for $ref has no head SHA or base branch" \
-    'refresh the pull request metadata and retry'
 fi
 
 # Require aggregate checks only when their workflow exists on the base. Otherwise

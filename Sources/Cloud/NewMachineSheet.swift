@@ -431,6 +431,9 @@ struct NewMachineSheet: View {
         }
         .pickerStyle(.menu)
         .fixedSize(horizontal: false, vertical: true)
+        // Keep the control inside the sheet when the cache contains many
+        // machines; the menu's item count must not determine sheet width.
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityLabel(baseImageLabel)
         .accessibilityIdentifier("NewMachineSheet.baseImage")
     }

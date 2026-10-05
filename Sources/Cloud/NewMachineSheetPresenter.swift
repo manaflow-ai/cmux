@@ -166,9 +166,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             allowlistExpanded = true
         }
 #endif
-        let controller = NSHostingController(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
-        controller.sizingOptions = [.preferredContentSize]
-        let window = NSWindow(contentViewController: controller)
+        let sheet = CloudSheetWindow(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
+        let window = sheet.window
         window.identifier = NSUserInterfaceItemIdentifier("cmux.newMachine")
         window.styleMask = [.titled]
         window.title = model.isBaseSetup
@@ -198,13 +197,12 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 #endif
         if let host, host.attachedSheet == nil {
             hostWindow = host
-            host.beginSheet(window) { _ in }
+            sheet.beginSheet(on: host)
         } else {
             // No host: float it. Cancel is the only way out, so no close button
             // can leave the presenter holding a window nobody sees.
             hostWindow = nil
-            window.center()
-            window.makeKeyAndOrderFront(nil)
+            sheet.orderFrontFloating()
         }
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime

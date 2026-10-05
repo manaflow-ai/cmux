@@ -13928,6 +13928,419 @@
           }
         }
       }
+    },
+    "settings.app.workspaceDescriptionColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Description Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون وصف مساحة العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbe der Arbeitsbereichsbeschreibung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de la descripción del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de la description de l’espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明の色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 설명 색상"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区描述颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區描述顏色"
+          }
+        }
+      }
+    },
+    "settings.automation.canonicalAgentScratch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canonical Agent Scratch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دليل مؤقت موحّد للوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einheitlicher Agent-Scratch-Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio temporal canónico de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossier de travail d’agent unifié"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント用スクラッチの統一"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 스크래치 통합"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "统一代理临时目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "統一代理程式暫存目錄"
+          }
+        }
+      }
+    },
+    "settings.automation.canonicalAgentScratch.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opt in to organize new Claude, Codex, and OpenCode panel scratch files under ~/.local/state/cmux/agent-artifacts. Provider transcripts and existing files are not moved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل هذا الخيار لتنظيم الملفات المؤقتة الجديدة للوحات Claude وCodex وOpenCode ضمن ~/.local/state/cmux/agent-artifacts. لا يتم نقل نصوص جلسات الموفّرين والملفات الموجودة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivieren, um neue Scratch-Dateien der Claude-, Codex- und OpenCode-Panels unter ~/.local/state/cmux/agent-artifacts abzulegen. Anbieter-Transkripte und vorhandene Dateien werden nicht verschoben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actívalo para organizar los nuevos archivos temporales de los paneles de Claude, Codex y OpenCode en ~/.local/state/cmux/agent-artifacts. Las transcripciones de los proveedores y los archivos existentes no se mueven."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez cette option pour ranger les nouveaux fichiers de travail des panneaux Claude, Codex et OpenCode dans ~/.local/state/cmux/agent-artifacts. Les transcriptions des fournisseurs et les fichiers existants ne sont pas déplacés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、新しい Claude、Codex、OpenCode パネルのスクラッチファイルを ~/.local/state/cmux/agent-artifacts にまとめます。プロバイダのトランスクリプトや既存のファイルは移動されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 새 Claude, Codex, OpenCode 패널 스크래치 파일을 ~/.local/state/cmux/agent-artifacts 아래에 정리합니다. 제공자 대화 기록과 기존 파일은 이동되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用后，新的 Claude、Codex 和 OpenCode 面板临时文件将统一存放在 ~/.local/state/cmux/agent-artifacts 下。提供方的对话记录和现有文件不会被移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用後，新的 Claude、Codex 和 OpenCode 面板暫存檔案將統一存放在 ~/.local/state/cmux/agent-artifacts 下。提供者的對話紀錄和現有檔案不會被移動。"
+          }
+        }
+      }
+    },
+    "settings.automation.canonicalAgentScratch.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native agent panels use the system temporary directory."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم لوحات الوكلاء الأصلية دليل النظام المؤقت."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Agent-Panels verwenden das temporäre Systemverzeichnis."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los paneles nativos de agentes usan el directorio temporal del sistema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les panneaux d’agent natifs utilisent le répertoire temporaire du système."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブエージェントパネルはシステムの一時ディレクトリを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네이티브 에이전트 패널이 시스템 임시 디렉터리를 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生代理面板使用系统临时目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生代理程式面板使用系統暫存目錄。"
+          }
+        }
+      }
+    },
+    "settings.automation.canonicalAgentScratch.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native agent panels use a cmux-owned scratch directory per session."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم لوحات الوكلاء الأصلية دليلًا مؤقتًا خاصًا بـ cmux لكل جلسة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Agent-Panels verwenden pro Sitzung ein eigenes Scratch-Verzeichnis von cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los paneles nativos de agentes usan un directorio temporal propio de cmux por sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les panneaux d’agent natifs utilisent un répertoire de travail géré par cmux pour chaque session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブエージェントパネルはセッションごとに cmux 管理のスクラッチディレクトリを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네이티브 에이전트 패널이 세션마다 cmux 소유의 스크래치 디렉터리를 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生代理面板为每个会话使用由 cmux 管理的临时目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生代理程式面板為每個工作階段使用由 cmux 管理的暫存目錄。"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceDescriptionColor.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تعيين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceDescriptionColor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text color used for workspace descriptions. Default follows the current theme."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون النص المستخدم لأوصاف مساحات العمل. يتبع الافتراضي السمة الحالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textfarbe für Arbeitsbereichsbeschreibungen. Standardmäßig folgt sie dem aktuellen Design."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del texto de las descripciones de los espacios de trabajo. De forma predeterminada sigue el tema actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur du texte des descriptions d’espace de travail. Par défaut, elle suit le thème actuel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明に使用する文字色です。デフォルトでは現在のテーマに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 설명에 사용되는 텍스트 색상입니다. 기본값은 현재 테마를 따릅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区描述使用的文字颜色。默认跟随当前主题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區描述使用的文字顏色。預設跟隨目前主題。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
