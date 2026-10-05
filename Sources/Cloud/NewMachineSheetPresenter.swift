@@ -166,17 +166,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             allowlistExpanded = true
         }
 #endif
-        let controller = NSHostingController(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
-        // Do not let SwiftUI feed preferred-size changes back into the sheet
-        // while AppKit is animating `beginSheet`. A cache update or safe-area
-        // invalidation during that display cycle otherwise asks AppKit to
-        // resize the window from inside its constraint pass and aborts.
-        controller.sizingOptions = []
-        let window = NSWindow(contentViewController: controller)
-        let initialContentSize = controller.view.fittingSize
-        if initialContentSize.width > 0, initialContentSize.height > 0 {
-            window.setContentSize(initialContentSize)
-        }
+        let sheet = CloudSheetWindow(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
+        let window = sheet.window
         window.identifier = NSUserInterfaceItemIdentifier("cmux.newMachine")
         window.styleMask = [.titled]
         window.title = model.isBaseSetup
@@ -206,13 +197,12 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 #endif
         if let host, host.attachedSheet == nil {
             hostWindow = host
-            host.beginSheet(window) { _ in }
+            sheet.beginSheet(on: host)
         } else {
             // No host: float it. Cancel is the only way out, so no close button
             // can leave the presenter holding a window nobody sees.
             hostWindow = nil
-            window.center()
-            window.makeKeyAndOrderFront(nil)
+            sheet.orderFrontFloating()
         }
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
