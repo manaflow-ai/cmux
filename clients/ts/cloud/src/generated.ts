@@ -646,7 +646,7 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
-export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link"
 
 /** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
 export type PairingCode = string
