@@ -459,6 +459,7 @@ final class CmuxSettingsFileStore {
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        parseClassicCatalogSections(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -569,14 +570,12 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("sessionContentMaxWidth") {
             logInvalid(SessionContentWidthSettings.settingsPath, sourcePath: sourcePath)
         }
-
         if let rawAlignment = jsonString(section["sessionContentAlignment"]),
            let alignment = SessionContentAlignment(rawValue: rawAlignment) {
             snapshot.managedUserDefaults[SessionContentWidthSettings.alignmentKey] = .string(alignment.rawValue)
         } else if section.keys.contains("sessionContentAlignment") {
             logInvalid(SessionContentWidthSettings.alignmentSettingsPath, sourcePath: sourcePath)
         }
-
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
         } else if section.keys.contains("showTextBoxOnNewTerminals") {
@@ -638,7 +637,7 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("rendererRealization") {
             logInvalid("terminal.rendererRealization", sourcePath: sourcePath)
         }
-
+        parseCanonicalTerminalSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {
@@ -702,6 +701,7 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
+        parseCanonicalSidebarSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if section.keys.contains("compactStatusIcons") {
             if let rawIcons = section["compactStatusIcons"] as? [String: Any] {
                 var icons: [String: String] = [:]
