@@ -1634,8 +1634,8 @@ function AcpmuxPane() {
           open: (sessionId) => client.select(sessionId),
           send: (text, attachments, promptId) => client.send(text, attachments, promptId),
           setModel: (modelId) => client.setModel(modelId),
-          setMode: (modeId) => client.setMode(modeId),
-          setConfig: (configId, value) => client.setConfig(configId, value),
+          setMode: (modeId, ticket) => client.setMode(modeId, ticket),
+          setConfig: (configId, value, ticket) => client.setConfig(configId, value, ticket),
           discard: (sessionId) => client.discard(sessionId),
           prewarm: (harness, cwd) => client.prewarm(harness, cwd),
           // A function, not a getter: the React Compiler skips a component with a getter.
@@ -1649,6 +1649,9 @@ function AcpmuxPane() {
             void queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
           },
           notice: (text) => client.notice(text),
+          // A held pick spends its gesture now (pane-native transport); the ticket goes with the
+          // pick's frame when the switch applies it. A host without the op answers with a refusal.
+          gesture: () => postNative<{ ticket?: string }>("transport.gesture").then((reply) => reply?.ticket),
         });
         harnessSwitch.connect(switchPort);
         acpmuxPerf.markAgent("composerReady");

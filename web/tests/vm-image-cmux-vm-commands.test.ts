@@ -59,3 +59,19 @@ describe("cmux VM image guest commands", () => {
     }
   });
 });
+
+describe("Freestyle key by path", () => {
+  test("FREESTYLE_API_KEY_FILE is read and trimmed; empty or absent fails closed", async () => {
+    const { freestyleApiKey } = await import("../scripts/cmux-vm-image/guest");
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "fs-key-"));
+    writeFileSync(join(dir, "k"), "fake-key-value\n");
+    writeFileSync(join(dir, "empty"), "\n");
+    expect(freestyleApiKey({ FREESTYLE_API_KEY_FILE: join(dir, "k") })).toBe("fake-key-value");
+    expect(freestyleApiKey({ FREESTYLE_API_KEY: "direct", FREESTYLE_API_KEY_FILE: join(dir, "k") })).toBe("direct");
+    expect(() => freestyleApiKey({ FREESTYLE_API_KEY_FILE: join(dir, "empty") })).toThrow(/empty/);
+    expect(() => freestyleApiKey({})).toThrow(/FREESTYLE_API_KEY_FILE/);
+  });
+});
