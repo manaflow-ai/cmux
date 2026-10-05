@@ -23,8 +23,6 @@ SPEC.loader.exec_module(ios)
 
 PIN = "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa"
 MACHO = b"\xcf\xfa\xed\xfe" + b"\0" * 60
-JOB = "9bd58301641521918a3561ba"
-ARTIFACT = "cbbad2368077ac5bf9d67957baf0aec8f9c4f24fe93e109a2ec1682ed5249f27"
 MUSL_TEXT = (ROOT / "cmux-tui/dist/notices/texts/musl-1.2.5/COPYRIGHT").read_text()
 
 
@@ -33,9 +31,14 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(ios.check_repo(), [])
 
     def test_the_pane_omits_only_what_the_real_link_proves_absent(self) -> None:
+        # The evidence is the real link of a cmux-ci iOS build for the CURRENT pin
+        # (ghosttykit_repin.py rewrites it on a pin change; the 134477ce13b2 pin used
+        # job 9bd58301641521918a3561ba, the 736e8f05256b pin job 3ec204658b6b4cf775f360e9).
         record = json.loads(ios.LINK_SET.read_text())["app_link"]
-        self.assertEqual(record["evidence"]["cmux_ci_job"], JOB)
-        self.assertEqual(record["evidence"]["artifact_sha256"], ARTIFACT)
+        self.assertEqual(record["pin_sha256"], ios.ghostty_kit_pin()["sha256"])
+        job, artifact = record["evidence"]["cmux_ci_job"], record["evidence"]["artifact_sha256"]
+        self.assertRegex(job, r"^[0-9a-f]{24}$")
+        self.assertRegex(artifact, r"^[0-9a-f]{64}$")
         self.assertIn("zig-package:gettext", record["absent_owners"])
         self.assertIn("vendored:pkg/libintl", record["absent_owners"])
         self.assertEqual(sorted(record["absent_zig_packages"]), ["iterm2_themes", "zig_js"])
@@ -46,8 +49,8 @@ class RepositoryTests(unittest.TestCase):
         # Zig code keeps no symbol names: no evidence either way, so these stay listed.
         for kept in ("vaxis (in Ghostty)", "zf (in Ghostty)", "zigimg (in Ghostty)", "freetype (in Ghostty)", "z2d (in Ghostty)"):
             self.assertIn(kept, titles)
-        self.assertIn(JOB, pane[-1]["FooterText"])
-        self.assertIn(ARTIFACT, pane[-1]["FooterText"])
+        self.assertIn(job, pane[-1]["FooterText"])
+        self.assertIn(artifact, pane[-1]["FooterText"])
 
     def test_the_pane_credits_the_freetype_project(self) -> None:
         pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
