@@ -116,6 +116,11 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
         if (r.error) throw new Error(r.error);
         return JSON.parse(JSON.stringify(repl.scope.__v === undefined ? null : repl.scope.__v));
       },
+      // Evaluates `expr`, which must return a draft, confirms it and
+      // returns the confirmed result (JSON round trip).
+      async confirmed(expr) {
+        return s.value(`(async () => { const __d = await (${expr}); if (!__d || __d.status !== "draft") throw new Error("expected a draft, got " + JSON.stringify(__d)); return sites[__d.site][__d.action](__d.id, { confirm: true }); })()`);
+      },
       async error(expr) {
         const r = await s.run(`await (async () => (${expr}))();`);
         return r.error;

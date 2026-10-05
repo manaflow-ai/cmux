@@ -299,6 +299,8 @@ export function createEditors() {
     if (file.kind !== m[1]) return { status: 404, html: "<p>Not found</p>" };
     const op = m[3];
     if (op === "edit") {
+      // A collaborator reverses the deck's slides as the editor loads.
+      if (file.reorderOnEditorLoad) (file.slides = [...file.slides].reverse()), (file.reorderOnEditorLoad = false);
       // A collaborator shares the file right after an editor page loaded
       // (its Share button still shows the old label).
       if (file.shareAfterEditorLoad && !internal.skipShare) {

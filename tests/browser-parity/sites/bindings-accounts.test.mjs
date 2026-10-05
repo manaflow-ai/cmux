@@ -17,7 +17,7 @@ test("linkedin.post: the member is read again in the share composer right before
     await s.run('var lnD = await sites.linkedin.post("Bound to my account.")');
     env.state.linkedinSwitchOnCompose = "mallory";
     const before = env.state.linkedinPosts.length;
-    assert.match(await s.error("sites.linkedin.post(lnD.id, { confirm: true })"), /account_changed|mallory/);
+    assert.match(await s.error("sites.linkedin.post(lnD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
     assert.equal(env.state.linkedinPosts.length, before, "nothing was posted as mallory");
     assert.deepEqual(await s.value("lnD.preview"), { account: "ada-lovelace", memberId: 424242, text: "Bound to my account." });
   } finally {
@@ -36,7 +36,7 @@ test("gmail.send: the account the compose page is signed in as is checked right 
     await s.run('var gmD = await sites.gmail.send({ to: "bob@example.com", subject: "Bound", body: "From my own account." })');
     env.state.googleSwitchOnLoad = SWITCHED();
     const sent = env.state.gmailSent.length;
-    assert.match(await s.error("sites.gmail.send(gmD.id, { confirm: true })"), /account_changed|ada@work\.example/);
+    assert.match(await s.error("sites.gmail.send(gmD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
     assert.equal(env.state.gmailSent.length, sent, "nothing was sent from the work account");
   } finally {
     env.state.googleAccounts = null;
@@ -49,11 +49,37 @@ test("gmail.send reply: the thread page's account is checked right before Send",
     await s.run('var grD = await sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
     env.state.googleSwitchOnLoad = SWITCHED();
     const sent = env.state.gmailSent.length;
-    assert.match(await s.error("sites.gmail.send(grD.id, { confirm: true })"), /account_changed|ada@work\.example/);
+    assert.match(await s.error("sites.gmail.send(grD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
     assert.equal(env.state.gmailSent.length, sent);
   } finally {
     env.state.googleAccounts = null;
     env.state.googleSwitchOnLoad = null;
+  }
+});
+
+// r10 whole#5: page labels are page text. A Gmail or Calendar page whose
+// title and Google Account button name the drafted account, while Google's
+// account list says the drafted index is now another account, sends and
+// saves nothing: the account comes from Google's account list, read right
+// before the click, and the labels only have to agree with it.
+test("gmail.send and googleCalendar.create: page labels naming the drafted account do not stand in for Google's account list", async () => {
+  try {
+    await s.run('var lbG = await sites.gmail.send({ to: "bob@example.com", subject: "Labels", body: "Who sends this?" })');
+    await s.run('var lbC = await sites.googleCalendar.create({ title: "Labels", start: "2026-10-03T17:00:00Z", guests: ["bob@example.com"] })');
+    env.state.googlePageAccount = "ada@example.com";
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const sent = env.state.gmailSent.length;
+    assert.match(await s.error("sites.gmail.send(lbG.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.gmailSent.length, sent, "the work account sent the drafted mail");
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const created = env.state.calendarCreated.length;
+    assert.match(await s.error("sites.googleCalendar.create(lbC.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.calendarCreated.length, created, "the work account saved the drafted event");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+    env.state.googlePageAccount = null;
   }
 });
 
@@ -62,7 +88,7 @@ test("googleCalendar.create: the event editor's account is checked right before 
     await s.run('var gcD = await sites.googleCalendar.create({ title: "Bound", start: "2026-10-03T17:00:00Z", guests: ["bob@example.com"] })');
     env.state.googleSwitchOnLoad = SWITCHED();
     const created = env.state.calendarCreated.length;
-    assert.match(await s.error("sites.googleCalendar.create(gcD.id, { confirm: true })"), /account_changed|ada@work\.example/);
+    assert.match(await s.error("sites.googleCalendar.create(gcD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
     assert.equal(env.state.calendarCreated.length, created, "no invitation went out from the work account");
   } finally {
     env.state.googleAccounts = null;
@@ -92,7 +118,7 @@ test("x.post: the draft names the account X authenticates; a switch while the co
     await s.run('var xD = await sites.x.post("Bound to my X account.")');
     env.state.xSwitchOnCompose = "mallory";
     const before = env.state.xPosts.length;
-    assert.match(await s.error("sites.x.post(xD.id, { confirm: true })"), /account_changed|mallory/);
+    assert.match(await s.error("sites.x.post(xD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
     assert.equal(env.state.xPosts.length, before, "the post went out as mallory");
     assert.equal((await s.value("xD.preview")).account, "ada");
   } finally {
@@ -125,7 +151,7 @@ test("Google editor drafts: the draft names the editor's account; another accoun
   try {
     await s.run(`var edD = await sites.googleDocs.replace(${JSON.stringify(EDIT_DOC)}, "Intro", "Opening")`);
     env.state.googleAccounts = SWITCHED();
-    assert.match(await s.error("sites.googleDocs.replace(edD.id, { confirm: true })"), /account_changed|ada@work\.example/);
+    assert.match(await s.error("sites.googleDocs.replace(edD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
     assert.equal(JSON.stringify(doc.blocks), before, "the shared doc was edited as the work account");
     assert.equal((await s.value("edD.preview")).account, "ada@example.com");
   } finally {
@@ -140,7 +166,7 @@ test("googleDrive.trash drafts: the draft names the editor's account; a switch w
   try {
     await s.run(`var trA = await sites.googleDrive.trash(${JSON.stringify(EDIT_DOC)})`);
     env.state.googleSwitchOnLoad = SWITCHED();
-    assert.match(await s.error("sites.googleDrive.trash(trA.id, { confirm: true })"), /account_changed|ada@work\.example/);
+    assert.match(await s.error("sites.googleDrive.trash(trA.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
     assert.equal(doc.trashed, false, "the shared file was trashed as the work account");
     assert.equal((await s.value("trA.preview")).account, "ada@example.com");
   } finally {
@@ -158,7 +184,7 @@ test("notion.append: the draft names the Notion user; another user at confirmati
     await s.run(`var nD = await sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Bound to Ada.")`);
     env.state.notionUser = NOTION_MALLORY;
     const ops = env.state.notionOps.length;
-    assert.match(await s.error("sites.notion.append(nD.id, { confirm: true })"), /account_changed|mallory/);
+    assert.match(await s.error("sites.notion.append(nD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
     assert.equal(env.state.notionOps.length, ops, "nothing was appended as mallory");
     assert.deepEqual((await s.value("nD.preview")).account, { userId: "user-ada", email: "ada@example.com" });
   } finally {
@@ -197,7 +223,7 @@ test("slack.post: the draft names the member; another member of the same workspa
     await s.run('var slD = await sites.slack.post({ team: "T01ACME", channel: "#eng", text: "From Ada only" })');
     await s.run(setSlackMember(SLACK_MALLORY));
     const posts = env.state.slackPosts.length;
-    assert.match(await s.error("sites.slack.post(slD.id, { confirm: true })"), /account_changed|U09MAL/);
+    assert.match(await s.error("sites.slack.post(slD.id, { confirm: true })"), /account_mismatch|account it acts as differs|U09MAL/);
     assert.equal(env.state.slackPosts.length, posts, "nothing was posted as mallory");
     assert.deepEqual((await s.value("slD.preview")).user, { id: "U01ADA", name: "ada" });
   } finally {

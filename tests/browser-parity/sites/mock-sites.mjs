@@ -65,8 +65,9 @@ export function createState() {
   // account the session cookie authenticates (X's account endpoint);
   // xSwitchOnCompose: the account another session signs in as when X's
   // post composer loads, while the page's twid cookie still names the
-  // drafted user; xAccountUnknown: X's account endpoint fails.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  // drafted user; xAccountUnknown: X's account endpoint fails;
+  // googlePageAccount: see pageAccountRow.
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +324,7 @@ function gmail(req, url, body, state) {
   if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
     // As live, the title names the account the page is signed in as.
-    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)).replace("__GMAIL_REPLY__", JSON.stringify(state.gmailReplyRecipients || null)), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)).replace("__GMAIL_REPLY__", JSON.stringify(state.gmailReplyRecipients || null)), `Inbox - ${pageAccountRow(state, googleAccountAt(state, url.pathname.split("/")[3]))[3]} - Gmail`) };
   }
   return { status: 404, text: "" };
 }
@@ -333,6 +334,10 @@ const googleAccountAt = (state, uid) => {
   const rows = state.googleAccounts || GOOGLE_ACCOUNT_ROWS;
   return rows[Number(uid) || 0] || rows[0];
 };
+// googlePageAccount: the email a Gmail or Calendar page's own labels (its
+// title, its Google Account button) name instead of the account it is
+// signed in as, as page text could.
+const pageAccountRow = (state, row) => (state.googlePageAccount ? [row[0], row[1], row[2], state.googlePageAccount, ...row.slice(4)] : row);
 // Another session signs an account in while a Gmail or Calendar page loads.
 const switchGoogleOnLoad = (state) => {
   if (state.googleSwitchOnLoad) (state.googleAccounts = state.googleSwitchOnLoad), (state.googleSwitchOnLoad = null);
@@ -351,7 +356,7 @@ function calendar(req, url, body, state) {
   }
   if (/^\/calendar\/u\/\d+\/r\/eventedit$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
-    const account = googleAccountAt(state, url.pathname.split("/")[3]);
+    const account = pageAccountRow(state, googleAccountAt(state, url.pathname.split("/")[3]));
     return {
       // As live: the form shows the template's fields, dates and times in
       // the event's time zone (ctz, else the browser's), and one guest list

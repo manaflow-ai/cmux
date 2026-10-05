@@ -38,22 +38,22 @@ test("googleSheets.write to a shared sheet is a draft; the confirmed draft paste
 test("googleSheets.write types the cells when the editor drops the paste", async () => {
   const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL paste fallback")');
   files.get(f.id).ignorePaste = true;
-  assert.deepEqual(await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]])`), { status: "written", range: "A1:B1", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]])`), { status: "written", range: "A1:B1", verified: true });
   assert.deepEqual(files.get(f.id).edits, ["typed", "typed"]);
-  await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
 });
 
-test("googleSheets.append, write and clear on a private sheet run at once and verify", async () => {
+test("googleSheets.append, write and clear on a private sheet are drafts too; confirmed, they write and verify", async () => {
   const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL test")');
   assert.match(f.url, /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+\/edit$/);
   assert.equal(f.title, "cmux REPL test");
   assert.equal(files.get(f.id).title, "cmux REPL test", "the rename reached the file");
-  assert.deepEqual(await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"], ["1", "=SUM(A2:A2)"]])`), { status: "written", range: "A1:B2", verified: true });
-  assert.deepEqual(await s.value(`sites.googleSheets.append(${JSON.stringify(f.url)}, [["2", "x"]])`), { status: "written", range: "A3:B3", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"], ["1", "=SUM(A2:A2)"]])`), { status: "written", range: "A1:B2", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.append(${JSON.stringify(f.url)}, [["2", "x"]])`), { status: "written", range: "A3:B3", verified: true });
   assert.deepEqual((await s.value(`sites.googleSheets.read(${JSON.stringify(f.url)})`)).rows, [["a", "b"], ["1", "1"], ["2", "x"]]);
-  assert.deepEqual(await s.value(`sites.googleSheets.clear(${JSON.stringify(f.url)}, "A3:B3")`), { status: "cleared", range: "A3:B3", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSheets.clear(${JSON.stringify(f.url)}, "A3:B3")`), { status: "cleared", range: "A3:B3", verified: true });
   assert.equal((await s.value(`sites.googleSheets.read(${JSON.stringify(f.url)})`)).rows.length, 2);
-  assert.deepEqual(await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed", verified: true });
   assert.equal(files.get(f.id).trashed, true);
 });
 
@@ -71,32 +71,32 @@ test("googleDocs.structure returns headings, paragraphs, lists and tables in ord
   });
 });
 
-test("googleDocs.replace, insertAfter and append edit a private doc through Find and replace and verify", async () => {
-  assert.deepEqual(await s.value(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Intro", "Opening")`), { status: "replaced", count: 1, verified: true });
-  assert.deepEqual(await s.value(`sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "Closing line.", " Thanks.")`), { status: "inserted", verified: true });
+test("googleDocs.replace, insertAfter and append edit a private doc through Find and replace and verify once confirmed", async () => {
+  assert.deepEqual(await s.confirmed(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Intro", "Opening")`), { status: "replaced", count: 1, verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "Closing line.", " Thanks.")`), { status: "inserted", verified: true });
   assert.match(await s.error(`sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "it", "!")`), /anchor "it" occurs 2 times/);
   const blocks = files.get("1docPRIVATE000000000000000000000x").blocks;
   assert.equal(blocks[1].text, "Opening paragraph.");
   assert.equal(blocks[5].text, "Closing line. Thanks.");
-  assert.deepEqual(await s.value(`sites.googleDocs.append(${JSON.stringify(DOC)}, "Last words.")`), { status: "appended", verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleDocs.append(${JSON.stringify(DOC)}, "Last words.")`), { status: "appended", verified: true });
   assert.deepEqual(blocks.at(-1), { type: "paragraph", text: "Last words." });
 });
 
-test("googleSlides.slides lists each slide's title, text and speaker notes; replace edits a private deck", async () => {
+test("googleSlides.slides lists each slide's title, text and speaker notes; a confirmed replace edits a private deck", async () => {
   assert.deepEqual(await s.value(`sites.googleSlides.slides(${JSON.stringify(DECK)})`), [
     { index: 1, title: "Roadmap", text: ["Roadmap", "Q1: ship", "Q2: grow"], notes: "Say hello" },
     { index: 2, title: "Risks", text: ["Risks", "Time"], notes: "Keep short" },
   ]);
-  assert.deepEqual(await s.value(`sites.googleSlides.replace(${JSON.stringify(DECK)}, "Q2: grow", "Q2: scale")`), { status: "replaced", count: 1, verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSlides.replace(${JSON.stringify(DECK)}, "Q2: grow", "Q2: scale")`), { status: "replaced", count: 1, verified: true });
   assert.equal(files.get("1deckPRIVATE00000000000000000000x").slides[0].body[1], "Q2: scale");
 });
 
-test("googleSlides.setNotes replaces one slide's speaker notes on a private deck and verifies", async () => {
-  assert.deepEqual(await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "First line\\nSecond line")`), { status: "notes set", slide: 2, verified: true });
+test("googleSlides.setNotes replaces one slide's speaker notes on a private deck and verifies once confirmed", async () => {
+  assert.deepEqual(await s.confirmed(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "First line\\nSecond line")`), { status: "notes set", slide: 2, verified: true });
   const slides = files.get("1deckPRIVATE00000000000000000000x").slides;
   assert.equal(slides[1].notes, "First line\nSecond line");
   assert.equal(slides[0].notes, "Say hello");
-  assert.deepEqual(await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Replaced")`), { status: "notes set", slide: 2, verified: true });
+  assert.deepEqual(await s.confirmed(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Replaced")`), { status: "notes set", slide: 2, verified: true });
   assert.equal(slides[1].notes, "Replaced");
   assert.match(await s.error(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 9, "x")`), /slide 9 does not exist; the deck has 2 slides/);
 });
@@ -106,27 +106,34 @@ test("editing a shared doc or deck is a draft until confirmed", async () => {
   try {
     const d = await s.value(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Plan", "Plan B")`);
     assert.equal(d.status, "draft");
-    assert.deepEqual(d.preview, { file: DOC, title: "Plan", find: "Plan", replace: "Plan B", matches: 1, at: [0], sharing: "Share. Anyone with the link can view.", account: "ada@example.com" });
+    const { textHash, ...shown } = d.preview;
+    assert.deepEqual(shown, { account: "ada@example.com", accountId: "1001", fileId: "1docPRIVATE000000000000000000000x", title: "Plan", sharing: "Share. Anyone with the link can view.", find: "Plan", replace: "Plan B", matches: 1, at: [0] });
+    assert.match(textHash, /^[0-9a-f]{16}$/);
     assert.equal(files.get("1docPRIVATE000000000000000000000x").blocks[0].text, "Plan");
   } finally {
     env.state.editors.files.get("1docPRIVATE000000000000000000000x").shared = false;
   }
 });
 
-// The sharing label decides between an immediate edit and a draft. It is
-// read only from the editor's own Share button in its title bar: a label
-// that says private elsewhere in the page, or a second, disagreeing label
-// inside the button, never makes a shared file's edit immediate.
-test("a decoy Share label never makes an edit of a shared file immediate", async () => {
+// The sharing label a draft shows is read only from the editor's own Share
+// button in its title bar: a label that says private elsewhere in the
+// page, or a second, disagreeing label inside the button, is never shown.
+test("a decoy Share label never shows a shared file as private", async () => {
   const doc = env.state.editors.files.get("1docPRIVATE000000000000000000000x");
   const before = JSON.stringify(doc.blocks);
   doc.shared = true;
   try {
     for (const where of ["inside", "page"]) {
       doc.decoyShare = where;
-      const d = await s.value(`sites.googleDocs.replace(${JSON.stringify(DOC)}, "Plan", "Plan B")`);
-      assert.equal(d.status, "draft", `decoy ${where}: ${JSON.stringify(d)}`);
-      assert.notEqual(d.preview.sharing, "Share. Private to only me.", `decoy ${where}`);
+      // Two disagreeing labels in the button make the sharing unknown,
+      // which drafts nothing; a label elsewhere is ignored.
+      const r = await s.run(`var decoyD = await sites.googleDocs.replace(${JSON.stringify(DOC)}, "Plan", "Plan B")`);
+      if (r.error) assert.match(r.error, /could not read the file's sharing/, `decoy ${where}`);
+      else {
+        const d = await s.value("decoyD");
+        assert.equal(d.status, "draft", `decoy ${where}: ${JSON.stringify(d)}`);
+        assert.equal(d.preview.sharing, "Share. Anyone with the link can view.", `decoy ${where}`);
+      }
       assert.equal(JSON.stringify(doc.blocks), before, `decoy ${where}: the file changed`);
     }
   } finally {

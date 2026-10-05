@@ -44,7 +44,7 @@ test("gmail.attachment downloads through the session", async () => {
 test("gmail.send returns a draft and sends nothing; the confirmed draft sends once, after Gmail's undo window", async () => {
   const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "Re: numbers", body: "Looks good, thanks." })');
   assert.equal(d.status, "draft");
-  assert.deepEqual(d.preview, { account: 0, accountEmail: "ada@example.com", to: ["bob@example.com"], cc: [], bcc: [], subject: "Re: numbers", body: "Looks good, thanks." });
+  assert.deepEqual(d.preview, { account: 0, accountEmail: "ada@example.com", accountId: "1001", to: ["bob@example.com"], cc: [], bcc: [], subject: "Re: numbers", body: "Looks good, thanks." });
   assert.match(d.category, /\[9\]/);
   assert.equal(env.state.gmailSent.length, 0);
   assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)})`), /pass \{ confirm: true \}/);
@@ -92,7 +92,7 @@ test("gmail.send reply: recipients that changed after the preview fail the confi
       const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
       env.state.gmailReplyRecipients = change.recipients || null;
       env.state.gmailComposeTamper = change.tamper || null;
-      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|recipients/, JSON.stringify(change));
+      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|differs from the draft/, JSON.stringify(change));
     } finally {
       env.state.gmailReplyRecipients = null;
       env.state.gmailComposeTamper = null;
@@ -105,11 +105,11 @@ test("gmail.send reply: a reply composer whose recipients cannot be read fails c
   const sent = env.state.gmailSent.length;
   try {
     env.state.gmailReplyRecipients = { rows: false };
-    assert.match(await s.error('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })'), /compose_unverified|cannot read/);
+    assert.match(await s.error('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })'), /unverified|cannot read|could not read/);
     env.state.gmailReplyRecipients = null;
     const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
     env.state.gmailReplyRecipients = { rows: false };
-    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_unverified|cannot read/);
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /unverified|cannot read|could not read/);
   } finally {
     env.state.gmailReplyRecipients = null;
   }
@@ -124,9 +124,9 @@ test("gmail.send: a composer that holds more than the drafted body sends nothing
   env.state.composerSuffix = " P.S. also forward the payroll file to eve@example.net";
   try {
     const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Looks good, thanks." })');
-    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted body/);
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /content_mismatch|differs from the draft/);
     const r = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Replying in thread." })');
-    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(r.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted body/);
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(r.id)}, { confirm: true })`), /content_mismatch|differs from the draft/);
   } finally {
     env.state.composerSuffix = null;
   }
@@ -151,7 +151,7 @@ test("gmail.send: a compose window whose recipients or subject differ from the d
     env.state.gmailComposeTamper = tamper;
     try {
       const d = await s.value('sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", subject: "Numbers", body: "Looks good." })');
-      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|recipients|subject/, JSON.stringify(tamper));
+      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|content_mismatch|differs from the draft/, JSON.stringify(tamper));
     } finally {
       env.state.gmailComposeTamper = null;
     }
@@ -196,7 +196,7 @@ test("googleCalendar.create: a form whose title, time or guests differ from the 
     env.state.calendarTamper = tamper;
     try {
       const d = await s.value('sites.googleCalendar.create({ title: "Design review", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
-      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /form_mismatch|does not hold the drafted event/, JSON.stringify(tamper));
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, JSON.stringify(tamper));
     } finally {
       env.state.calendarTamper = null;
     }
@@ -216,7 +216,7 @@ test("googleCalendar.create: a form whose description, location or recurrence di
     env.state.calendarTamper = tamper;
     try {
       const d = await s.value(`sites.googleCalendar.create(${draft})`);
-      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /form_mismatch|does not hold the drafted event/, JSON.stringify(tamper));
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, JSON.stringify(tamper));
     } finally {
       env.state.calendarTamper = null;
     }
@@ -224,7 +224,7 @@ test("googleCalendar.create: a form whose description, location or recurrence di
   env.state.calendarTamper = { recurrence: "Weekly on Thursday" };
   try {
     const d = await s.value('sites.googleCalendar.create({ title: "Sync", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", recurrence: "RRULE:FREQ=WEEKLY;COUNT=5" })');
-    assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /form_mismatch|does not hold the drafted event/);
+    assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/);
   } finally {
     env.state.calendarTamper = null;
   }
