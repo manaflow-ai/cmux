@@ -377,6 +377,10 @@ func (t *TypedSink[T]) Emit(v T) error {
 // Filter is the subscription's filter, or nil.
 func (t *TypedSink[T]) Filter() json.RawMessage { return t.Sink.Filter() }
 
+// afterSubscribeReply runs right after a subscription's ok is written; tests
+// use it to publish at that moment. Nil outside tests.
+var afterSubscribeReply func()
+
 func (c *Conn) handleSub(m *Message) {
 	id := *m.ID
 	stream, _ := m.StreamName()
@@ -424,6 +428,9 @@ func (c *Conn) handleSub(m *Message) {
 	if err := c.send(NewOK(id, value)); err != nil {
 		s.stop()
 		return
+	}
+	if afterSubscribeReply != nil {
+		afterSubscribeReply()
 	}
 	p.mu.Lock()
 	if p.subs[stream] == nil {
