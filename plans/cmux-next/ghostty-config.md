@@ -146,6 +146,9 @@ only); logs never contain clipboard content. Needs the full window, after agent-
    the broker from its frame reader and answers through a weak per-connection replier; no clipboard text in logs.
    The daemon sends `host.kind` `local` only (its hosts are local); remote and Cloud naming is the frontend's.
    Open: local in-process PTY surfaces (surface/spawn.rs) still ignore OSC 52 reads (not wired to the broker).
+   Review fixes (2026-10-05): only the owner connection a surface keeps requests 0x20 (`OwnerIntent`; the
+   one-shot terminate adoption asks for ADMIN); reads dispatch after the chunk's Output frames; the host reply
+   handler checks the full envelope; `Frame` Debug omits payload bytes; the Surface grant API is test-only.
 4. Mac: Ghostty `clipboard-read` allow applies to local terminals only; remote and Cloud terminals ask unless an
    explicit setting (default off) allows; the sheet names the terminal and its host.
 
