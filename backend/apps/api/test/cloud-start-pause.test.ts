@@ -52,4 +52,27 @@ describe("pause and start", { timeout: 60_000 }, () => {
     const { machine } = await createdAndBound(x)
     expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
   })
+
+  it("a call that failed after the VM changed settles from the VM's real state (review P2)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))
+    // The provider starts the VM, then the answer is lost and the retry hears "already running" (409).
+    await x.stub.fakeControl({ power_then_fail: 1 } as never)
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))
+    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "running" } })
+    expect((await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})).value.usage.active).toBe(1)
+  })
+
+  it("a start whose VM is gone marks the machine failed, not paused forever (review P3)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))
+    const vm = ((await x.stub.fakeControl({})) as unknown as { vms: Array<{ name: string }> }).vms.find((v) => v.name.endsWith(machine.replace(/_/g, "-")))!
+    await x.stub.fakeControl({ delete_vm: vm.name } as never)
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))
+    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "failed" } })
+  })
 })
