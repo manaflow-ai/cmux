@@ -781,23 +781,22 @@ final class CmuxTuiSurfaceProviderRegistry {
     private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
         guard let catalog else { return }
         for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
-            guard let info = catalog.machineInfo(for: .cloud(machineID)),
-                  let ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
+            let info = catalog.machineInfo(for: .cloud(machineID))
+            guard let ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
                   !ownerTeamID.isEmpty,
                   !isRetired, generation == refreshGeneration,
                   isCloudEnabled(), !Task.isCancelled else { continue }
-            await links.setPrivateAddresses([info.privateAddress].compactMap { $0 }, for: machineID)
+            let fetchedSummary = try? await loadMachineStatus(machineID, ownerTeamID)
+            let address = fetchedSummary?.addressIPv4 ?? info?.privateAddress
+            await links.setPrivateAddresses([address].compactMap { $0 }, for: machineID)
             await links.setOwnerTeam(ownerTeamID, for: machineID)
             guard !isRetired, generation == refreshGeneration, providers[machineID] == nil else { continue }
-            let summary = VMSummary(
-                id: machineID, provider: "freestyle", status: info.status,
-                image: info.image ?? "", createdAt: 0,
-                kind: info.hasDesktop ? .desktop : .base,
-                capabilities: VMCapabilities(
-                    snapshot: false, restore: false, fork: false,
-                    exec: true, stats: true, ports: true,
-                    desktop: info.hasDesktop, sizing: false, persistentHome: true
-                ), displayName: info.name, addressIPv4: info.privateAddress
+            let summary = fetchedSummary ?? VMSummary(
+                id: machineID, provider: "freestyle", status: info?.status ?? "running",
+                image: info?.image ?? "", createdAt: 0,
+                kind: info?.hasDesktop == false ? .base : .desktop,
+                capabilities: .all, displayName: info?.name ?? "Cloud machine",
+                addressIPv4: address
             )
             let provider = CmuxTuiSurfaceProvider(
                 summary: summary,
