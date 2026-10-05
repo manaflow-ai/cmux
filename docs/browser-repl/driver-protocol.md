@@ -248,6 +248,12 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 
+A mouse `down` that opens a context menu (the right button, or the left with
+`Control`) fires the page's `contextmenu` event but never shows cmux's
+native menu. When the page cancels that event no menu comes; the person's
+next right click or Control-click in the tab still gets its menu, as does
+any after the sessions leave the tab.
+
 When sessions share a tab, a session's `input.mouse` `down` owns the pointer
 until its `up` (or until the session leaves the tab), and an `input.drag`
 owns it from its press to its release; another session's `input.mouse` or

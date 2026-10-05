@@ -14,9 +14,11 @@ struct BrowserAutomationContextMenuSuppression: Equatable {
         self.pending = max(0, pending)
     }
 
-    /// Whether `event`, a mouse-down, opens a context menu in WebKit.
+    /// Whether `event`, a mouse-down, opens a context menu in WebKit: a
+    /// right click, or a Control-click, which WebKit treats as one.
     static func opensContextMenu(_ event: NSEvent) -> Bool {
         event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
     }
 
     /// Browser automation delivered mouse-down `event`.
