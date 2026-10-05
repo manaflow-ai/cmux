@@ -6,6 +6,16 @@ import Testing
 struct SidebarNativeInteractionTests {
     private let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
 
+    @Test
+    func defaultManifestPreservesLegacyHostCompatibility() throws {
+        let manifest = CmuxExtensionManifest(id: "dev.example.legacy", displayName: "Legacy",
+            readScopes: [.workspaceMetadata], actionScopes: [.selectWorkspace])
+        #expect(manifest.minimumAPIVersion == .sidebarV2)
+        try validateSidebarManifest(manifest, supportedAPIVersion: .sidebarV2)
+        let decoded = try CmuxSidebarXPCCodec.decodeManifest(CmuxSidebarXPCCodec.encodeManifest(manifest))
+        #expect(decoded.minimumAPIVersion == .sidebarV2)
+    }
+
     @Test(arguments: [
         CmuxSidebarSelectionModifiers(),
         CmuxSidebarSelectionModifiers(command: true),
