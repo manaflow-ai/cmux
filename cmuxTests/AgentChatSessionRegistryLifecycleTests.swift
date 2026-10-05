@@ -39,6 +39,40 @@ struct AgentChatSessionRegistryLifecycleTests {
     }
 
     @MainActor
+    @Test("Terminal input optimistically clears needs input")
+    func terminalInputMovesWaitingSessionToWorking() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "waiting-session"
+        let surfaceID = UUID().uuidString
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 100)
+        ))
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 101)
+        ))
+
+        #expect(registry.noteUserInput(surfaceID: surfaceID, at: Date(timeIntervalSince1970: 102)) == 1)
+        #expect(registry.record(sessionID: sessionID)?.state == .working(since: Date(timeIntervalSince1970: 102)))
+
+        let corrected = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 103)
+        ))
+        #expect(corrected.state == .needsInput(since: Date(timeIntervalSince1970: 103)))
+    }
+
+    @MainActor
     @Test("Feed v1 ids are decoded before chat records are indexed")
     func canonicalFeedIDIsDecodedBeforeChatBinding() throws {
         let sessionID = "thread-with-hyphens"

@@ -22,6 +22,10 @@ extension Workspace {
             guard let self, let terminalPanel else { return }
             terminalPanel.onManualMirrorExplicitInput?()
             terminalPanel.recordExplicitInput()
+            _ = TerminalController.shared.agentChatTranscriptService?.noteExplicitInput(
+                surfaceID: terminalPanel.id.uuidString
+            )
+            FeedCoordinator.shared.noteExplicitInput(surfaceID: terminalPanel.id)
             // Explicit input is shared-sizing activity for this Mac pane.
             TerminalController.shared.noteLocalTerminalSizingActivity(surfaceID: terminalPanel.id)
             AgentAutoResumeCoordinator.shared.userDidInput(surfaceId: terminalPanel.id)

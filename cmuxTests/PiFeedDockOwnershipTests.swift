@@ -165,6 +165,42 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Terminal input moves Feed attention to running before the next hook")
+    func explicitInputMovesBlockingAttentionToRunning() async throws {
+        try await withAppContext { _, manager, workspace, _ in
+            let panel = try workspace.seedPiFeedPanel()
+            let target = try #require(
+                FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: WorkstreamEvent(
+                        sessionId: "pi-input-running-feed",
+                        hookEventName: .permissionRequest,
+                        source: "pi",
+                        workspaceId: workspace.id.uuidString,
+                        surfaceId: panel.id.uuidString,
+                        requestId: "pi-input-running-request"
+                    ),
+                    resolved: (workspace.id, panel.id),
+                    tabManager: manager
+                )
+            )
+
+            FeedCoordinator.shared.noteExplicitInput(
+                surfaceID: panel.id,
+                at: Date(timeIntervalSince1970: 123)
+            )
+
+            #expect(workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == .running)
+            #expect(workspace.statusEntries[Self.attentionStatusKey]?.value == "Running")
+
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+
+            #expect(workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == nil)
+            #expect(workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running)
+            #expect(workspace.statusEntries["pi"]?.value == "Running")
+        }
+    }
+
+    @MainActor
     @Test("Muted workspaces do not surface or reorder blocking Feed attention")
     func mutedWorkspaceSuppressesBlockingFeedAttention() async throws {
         try await withAppContext { _, manager, workspace, _ in

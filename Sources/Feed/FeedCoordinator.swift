@@ -860,6 +860,50 @@ extension FeedCoordinator {
         return target
     }
 
+    /// Optimistically clears the Feed-owned needs-input overlay when the user
+    /// sends input to its terminal. Hook delivery remains authoritative and
+    /// will replace or remove this transient running state on the next event.
+    @MainActor
+    func noteExplicitInput(surfaceID: UUID, at: Date = Date()) {
+        for (target, attentionState) in pendingAttentionStates {
+            let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
+            let ownsSurface: Bool
+            switch owner {
+            case .workspace(let workspace):
+                ownsSurface = target.panelId == surfaceID
+                    || workspace.surfaceOwnershipTarget(for: surfaceID)?.containerPanelID == target.panelId
+            case .dock:
+                ownsSurface = target.panelId == surfaceID
+            }
+            guard ownsSurface else { continue }
+
+            attentionState.optimisticallyRunning = true
+
+            owner.setAgentLifecycle(
+                key: target.statusKey,
+                panelId: target.panelId,
+                lifecycle: .running
+            )
+            owner.setStatusEntry(
+                SidebarStatusEntry(
+                    key: target.statusKey,
+                    value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                    icon: "bolt.fill",
+                    color: CmuxAccentColor.builtInAgentStatusHex,
+                    timestamp: at
+                ),
+                key: target.statusKey,
+                panelId: target.panelId
+            )
+            #if DEBUG
+            cmuxDebugLog(
+                "feed.attention.input surface=\(surfaceID.uuidString.prefix(8)) "
+                + "target=\(target.statusKey) state=running"
+            )
+            #endif
+        }
+    }
+
     @MainActor
     private func surfaceTransientAttention(
         event: WorkstreamEvent,
@@ -897,6 +941,26 @@ extension FeedCoordinator {
         pendingAttentionStates.removeValue(forKey: target)
         let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
 
+        // A reply can arrive before Claude or Codex emits its next lifecycle
+        // hook. Preserve the optimistic running state on the agent-owned slot
+        // while removing the Feed overlay, so the sidebar does not flash back
+        // to Needs input between those two events.
+        if attentionState.optimisticallyRunning,
+           let baseStatusKey = Self.baseStatusKey(forAttentionStatusKey: target.statusKey) {
+            owner.setAgentLifecycle(key: baseStatusKey, panelId: target.panelId, lifecycle: .running)
+            owner.setStatusEntry(
+                SidebarStatusEntry(
+                    key: baseStatusKey,
+                    value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                    icon: "bolt.fill",
+                    color: CmuxAccentColor.builtInAgentStatusHex,
+                    timestamp: Date()
+                ),
+                key: baseStatusKey,
+                panelId: target.panelId
+            )
+        }
+
         // Lifecycle is per-panel, so clearing this Feed-owned slot is safe even
         // if another panel or the agent's own slot still needs input.
         if let panelId = target.panelId {
@@ -925,6 +989,12 @@ extension FeedCoordinator {
         if !sharedWorkspaceStatusStillPending {
             owner.clearStatusEntry(key: target.statusKey, panelId: target.panelId)
         }
+    }
+
+    private static func baseStatusKey(forAttentionStatusKey key: String) -> String? {
+        let prefix = "cmux.feed.attention:"
+        guard key.hasPrefix(prefix) else { return nil }
+        return String(key.dropFirst(prefix.count))
     }
 
     /// Resolves a pending overlay's current mutation owner. A panel target is
@@ -1074,6 +1144,7 @@ extension FeedCoordinator {
 private final class AttentionOverlayState {
     var count: Int
     var fallbackOwner: ControlSidebarPanelOwner
+    var optimisticallyRunning = false
 
     init(owner: ControlSidebarPanelOwner) {
         self.count = 0
