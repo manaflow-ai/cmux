@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e9b7e2c070196a5f42d5544650e1ab37e245710329c020c586743196a38cd18b";
+inline constexpr std::string_view kProtocolIrSha256 = "3117b4552592c333990727719bd3f574a23fcf0977583a45c9e05e63b269fcaa";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -650,6 +650,7 @@ struct AttachSurfaceRequest {
     Field<AttachSurfaceRequestMode> mode{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
+    std::optional<bool> snapshot_images{};
     std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
     Field<Id> surface{};

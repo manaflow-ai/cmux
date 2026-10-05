@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e9b7e2c070196a5f42d5544650e1ab37e245710329c020c586743196a38cd18b. */
+/* cmux-tui mux protocol 12, IR 3117b4552592c333990727719bd3f574a23fcf0977583a45c9e05e63b269fcaa. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e9b7e2c070196a5f42d5544650e1ab37e245710329c020c586743196a38cd18b" as const;
+export const SDK_IR_SHA256 = "3117b4552592c333990727719bd3f574a23fcf0977583a45c9e05e63b269fcaa" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -104,6 +104,10 @@ export const COMMAND_METADATA = {
       "snapshot": {
         "since": null,
         "capability": "terminal-snapshot-v1"
+      },
+      "snapshot_images": {
+        "since": null,
+        "capability": "terminal-snapshot-images-v1"
       },
       "snapshot_local_history": {
         "since": null,
@@ -10651,6 +10655,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "snapshot_images": {
+          "capability": "terminal-snapshot-images-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "snapshot_local_history": {

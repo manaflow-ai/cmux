@@ -259,11 +259,15 @@ def main():
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
             known.add(f"fake-{sessions}")
-            send({"jsonrpc": "2.0", "id": rid, "result": {
+            result = {
                 "sessionId": f"fake-{sessions}",
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
-            }})
+            }
+            # FAKE_NO_MODES=1: an adapter that reports no session modes.
+            if os.environ.get("FAKE_NO_MODES") == "1":
+                del result["modes"]
+            send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/load":
             # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
             # its own thread, and until then the session is unknown: a prompt

@@ -152,5 +152,26 @@ class DataTest(unittest.TestCase):
         self.assertTrue(any("c" * 40 in p for p in problems), problems)
 
 
+class PublishProvenanceTest(unittest.TestCase):
+    """Coverage restored from 2345a8c6e78 (dropped with the Windows pending notice)."""
+
+    def test_publish_workflows_take_packages_only_from_release_runs(self) -> None:
+        # The release run's notices come from package_notices.py generate.
+        workflows = HERE.parents[2] / ".github/workflows"
+        for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
+            text = (workflows / name).read_text()
+            self.assertIn('artifact_path=".github/workflows/cmux-tui-release.yml"', text, name)
+
+    def test_a_package_without_a_generated_notice_fails_the_contract(self) -> None:
+        import tempfile
+
+        import package_contract  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            problem = package_contract._notice_problem(b"some notice\n", Path(tmp), "cmux-tui", "x86_64-pc-windows-gnu", "cmux-tui-win32-x64")
+        self.assertIsNotNone(problem)
+        self.assertIn("no generated notice", problem)
+
+
 if __name__ == "__main__":
     unittest.main()
