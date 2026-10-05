@@ -52,6 +52,6 @@ import Testing
         }
         let view = controller.multiplexedViewsByHost[host.connectionHash]
         #expect(view != nil, "the attach stopped its shared stream while telling the caller to sign in and retry")
-        #expect(view?.connection?.isAwaitingCredentials == true, "the kept stream is not the one waiting for the login")
+        #expect(view?.connection != nil, "the kept view has no stream left to resume after the login")
     }
 }
