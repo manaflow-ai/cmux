@@ -41,6 +41,10 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// This build's notes while the what's-new card shows, else nil.
+    public internal(set) var whatsNew: ReleaseNotes?
+    /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
+    @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
