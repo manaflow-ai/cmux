@@ -37,6 +37,7 @@ on:
       - "ghostty"
       - "ghostty-next"
       - "cmux-tui/crates/cmux-tui-core/src/shell_integration.rs"
+      - "cmux-tui/crates/cmux-browser-host/js/**"
       - "scripts/cmux-next/bundle-ghostty-resources.sh"
       - "cmux-tui/crates/ghostty-vt-sys/build.rs"
       - "scripts/verify-app-bundle-licenses.sh"
@@ -80,6 +81,7 @@ jobs:
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_vendored.py
           python3 cmux-tui/build-support/notices/ghostty/test_shell_integration_notices.py
+          python3 cmux-tui/build-support/notices/browser-host/test_browser_host_js_notices.py
           python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
@@ -122,6 +124,11 @@ jobs:
       # every file needs a reviewed row (shell-integration.json) and its notice text.
       - name: Ghostty shell integration files have reviewed notices
         run: python3 cmux-tui/build-support/notices/ghostty/shell_integration_notices.py check
+
+      # cmux-browser-host embeds js/manifest.json's files (acorn, Playwright in js/vendor):
+      # every vendor file needs a reviewed row (browser-host-js.json) and its notice text.
+      - name: Browser host runtime JavaScript has reviewed notices
+        run: python3 cmux-tui/build-support/notices/browser-host/browser_host_js_notices.py check
 
       - name: vt-link-graph.json is for the libghostty-vt gitlink
         run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json

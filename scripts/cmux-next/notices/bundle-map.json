@@ -47,6 +47,11 @@
       "notices": ["first-party", "section:rust-cmux-app-host", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Resources/bin/cmux-browser-host",
+      "what": "browser host (cmux-tui crate cmux-browser-host): rquickjs with the QuickJS-NG C engine (Unicode data tables), sha1; embedded runtime JS with acorn and Playwright injected code (js/vendor, browser-host-js.json)",
+      "notices": ["first-party", "section:rust-cmux-browser-host", "section:manual-cmux-browser-host-runtime-javascript", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
       "path": "Contents/Resources/bin/cmux-cloud",
       "what": "first-party Cloud app server (first-party-apps/cloud/server)",
       "notices": ["first-party", "section:rust-cmux-cloud", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
