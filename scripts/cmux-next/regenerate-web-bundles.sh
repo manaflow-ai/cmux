@@ -24,6 +24,7 @@ cd "$ROOT/webviews"
 bun install --frozen-lockfile
 cd "$ROOT"
 "$ROOT/scripts/cmux-next/build-agent-pane-web.sh"
+"$ROOT/scripts/cmux-next/build-palette-ranker.sh"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh"
 "$ROOT/scripts/build-webviews-app.sh"
 "$ROOT/scripts/cmux-next/build-pages-web.sh"

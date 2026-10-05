@@ -788,6 +788,7 @@ let package = Package(
             dependencies: ["CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Localizable.xcstrings"),
+                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
