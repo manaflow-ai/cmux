@@ -10,8 +10,7 @@ nonisolated extension OmniboxQuickIndex {
     /// possible score cannot reach the current last row is skipped without
     /// any string work, which keeps one-letter input cheap.
     public func search(_ text: String, now: Date, limit: Int) -> [OmniboxQuickMatch] {
-        // Red: no lookup yet.
-        guard limit < 0, limit > 0, !entries.isEmpty, text.utf16.count <= OmniboxText.maxInputLength else { return [] }
+        guard limit > 0, !entries.isEmpty, text.utf16.count <= OmniboxText.maxInputLength else { return [] }
         let tokens = OmniboxText.queryTokens(text)
         var seen = Set<String>()
         let lookups = tokens.flatMap(OmniboxText.words).filter { seen.insert($0).inserted }
