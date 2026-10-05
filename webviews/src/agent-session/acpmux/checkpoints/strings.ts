@@ -1,4 +1,5 @@
 export const checkpointStrings = {
+  // l10n-allow: English defaults; the host sends these in the app's language (localizedCheckpointStrings)
   title: "Repository checkpoint",
   createCheckpoint: "Create checkpoint",
   create: "Create",

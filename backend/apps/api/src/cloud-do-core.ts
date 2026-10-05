@@ -370,7 +370,9 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     await this.pauseSilent(now)
     for (const d of this.vmStatus.takeDue(now)) {
       const r = this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
-      if (statusApplied(r.frames)) await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
+      if (!statusApplied(r.frames)) continue
+      this.vmStatus.markActivity(d.machine, d.report, now)
+      await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
     }
     const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team

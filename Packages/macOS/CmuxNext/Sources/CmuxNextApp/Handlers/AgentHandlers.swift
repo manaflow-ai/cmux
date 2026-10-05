@@ -137,11 +137,17 @@ enum AgentHandlers {
 
     @MainActor
     private static func waitForPaneController(in workspace: WorkspaceModel, context: AppActionContext) async -> PaneController? {
-        for await paneID in Observations({ workspace.screens.flatMap(\.panes).first?.id }) {
-            guard let paneID, let pane = workspace.screens.flatMap(\.panes).first(where: { $0.id == paneID }) else { continue }
-            for await mounted in Observations({ context.services.paneController(for: pane) != nil }) where mounted {
-                return context.services.paneController(for: pane)
-            }
+        // The store's panes are observable; mounted controllers are not, so
+        // the mount generation stands in for them (`PaneMounts`).
+        let services = context.services
+        func mounted() -> PaneController? {
+            workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
+        }
+        for await isMounted in Observations({ () -> Bool in
+            _ = services.paneMounts.generation
+            return mounted() != nil
+        }) where isMounted {
+            return mounted()
         }
         return nil
     }

@@ -9,11 +9,28 @@
       members, and the owner of every DWARF source path (Zig package, vendored
       Ghostty directory, Zig's lib). Zig code keeps no package-level DWARF, so every
       Zig-source package that Ghostty declares counts as linked (conservative).
+      --check (CI, macOS runner) compares with the committed file instead and
+      writes the generated one to --out (also for macos-link-set).
+  ios_notices.py app-link --xcframework DIR --artifact ZIP --job ID --source-commit SHA --ghostty-source DIR
+      (a Mac) The real link: the device archive app of a cmux-ci iOS job (symbols
+      intact) against the pinned xcframework's members. Writes "app_link" into
+      link-set.json: a DWARF owner is ABSENT only when every archive member that
+      carries it defines symbols and the app defines none of them (positive
+      evidence); otherwise it stays listed. Zig code keeps no symbol names, so a
+      Zig-source package is absent only by a pinned build-graph fact (zig_js: a
+      wasm32-only import; iterm2_themes: a resource directory that the app does not
+      contain). Reproduce: `cmux-ci artifact <job> app.zip` and rerun.
   ios_notices.py generate --ghostty-tree DIR [--check]
       Writes ios/cmux/Settings.bundle/Acknowledgements.plist from link-set.json, the
       collected ghostty-next license tree (collect-ghostty-licenses.py, CI only:
       cmux-next-source-archive.yml), hand-written.md sections and Zig's LICENSE.
       --check fails when the committed pane differs.
+  ios_notices.py macos-link-set --xcframework DIR --manifest FILE
+      (a Mac) ghosttykit-macos-link-set.json: the DWARF owners of the macos slice
+      that the macOS cmux-next app links (Contents/MacOS/cmux).
+  ios_notices.py check-macos --ghostty-tree DIR
+      Every package of the macOS link set has a license text in the ghostty-next
+      tree at the pin's revision (the tree that nightly-next bundles).
   ios_notices.py check-repo
       No network, no tree: the link set, the pane and the libintl rule all name
       the CmuxGhosttyKit pin of Package.swift. A new pin stops here until
@@ -21,7 +38,8 @@
   ios_notices.py check-app --app cmux.app
       The built app: Settings.bundle has the Acknowledgements pane (en and ja
       strings) and its Acknowledgements.plist equals the committed one; the app
-      binaries pass the libintl rule.
+      binaries pass the libintl rule; and no package that the pane omits as absent
+      (app_link) is in the app: none of its symbols, no libintl marker, no themes.
   ios_notices.py check-binaries --pin SHA256 PATH...
       The libintl rule on the slices of the pinned xcframework, with the ratchet.
 
@@ -44,12 +62,18 @@ import plistlib
 import re
 import subprocess
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 DATA = HERE / "ios"
 LINK_SET = DATA / "link-set.json"
+# The macOS cmux-next app links the macos slice into Contents/MacOS/cmux and ships the
+# ghostty-next license tree (nightly.yml); like vt-link-graph.json for libghostty-vt.
+MACOS_LINK_SET = HERE / "ghosttykit-macos-link-set.json"
+MACOS_SLICE = "macos-arm64_x86_64"
 EXCEPTIONS = DATA / "lgpl-exceptions.json"
 HAND_WRITTEN = HERE / "hand-written.md"
 GHOSTTY_KIT = ROOT / "Packages/Shared/CmuxGhosttyKit/Package.swift"
@@ -68,13 +92,24 @@ version in this app is available at {url} (the archive that Ghostty {revision} f
 and at https://github.com/vancluever/z2d. The Ghostty source that selects it is at \
 https://github.com/manaflow-ai/ghostty-next/tree/{revision}."""
 
+# The FreeType License (docs/FTL.TXT, section 3) asks binary redistributions to cite the
+# FreeType Project in their documentation, with the year of the FreeType version in use.
+# Keyed by the sha256 of the package's LICENSE.TXT: a new FreeType needs a reviewed entry.
+FREETYPE_YEARS = {
+    # deps.files.ghostty.org/freetype-1220b81f6ecf...tar.gz = FreeType 2.13.2 (Copyright 1996-2023)
+    "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b": ("2.13.2", 2023),
+}
+FTL_CREDIT = """This software is based in part on the work of the FreeType Team (FreeType {version}, \
+https://freetype.org). Portions of this software are copyright \u00a9 {year} The FreeType Project \
+(www.freetype.org).  All rights reserved."""
+
 
 class NoticeError(Exception):
     pass
 
 
-def ghostty_kit_pin(path: Path = GHOSTTY_KIT) -> dict:
-    text = path.read_text()
+def ghostty_kit_pin(path: Path = GHOSTTY_KIT, text: str | None = None) -> dict:
+    text = path.read_text() if text is None else text
     url = re.search(r'url:\s*"([^"]+GhosttyNextKit\.xcframework\.zip)"', text)
     checksum = re.search(r'checksum:\s*"([0-9a-f]{64})"', text)
     revision = re.search(r"xcframework-([0-9a-f]{40})-", url.group(1)) if url else None
@@ -155,6 +190,275 @@ def link_set(xcframework: Path, manifest: Path) -> dict:
     }
 
 
+def macos_link_set(xcframework: Path, manifest: Path) -> dict:
+    """The DWARF owners of the macos slice (a universal archive: both architectures)."""
+    archive = xcframework / MACOS_SLICE / "libghostty-internal.a"
+    sources = subprocess.run(
+        ["xcrun", "llvm-dwarfdump", "--show-sources", str(archive)], check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    tree = json.loads(manifest.read_text())
+    names = {key: value["dependency"] for key, value in tree["zig_packages"].items()}
+    return {
+        "schema": 1,
+        "slice": MACOS_SLICE,
+        "pin": ghostty_kit_pin(),
+        "dwarf_owners": sorted({owner for line in sources if (owner := attribute(line.strip(), names))}),
+        "libintl": contains_libintl(archive),
+        # Zig code keeps no package-level DWARF: the same conservative list as iOS.
+        "zig_source_packages": json.loads(LINK_SET.read_text())["zig_source_packages"],
+    }
+
+
+def macos_link_errors(links: dict) -> list[str]:
+    pin = ghostty_kit_pin()
+    if links.get("pin") != pin or links.get("slice") != MACOS_SLICE:
+        return [
+            f"{MACOS_LINK_SET.relative_to(ROOT)} is for {links.get('pin', {}).get('sha256', '?')[:12]}, CmuxGhosttyKit "
+            f"pins {pin['sha256'][:12]}: commit it from the ghosttykit-link-sets artifact of "
+            "cmux-next-source-archive.yml (or on a Mac run `ios_notices.py macos-link-set --xcframework <unzipped "
+            "GhosttyNextKit.xcframework> --manifest <ghostty-next-licenses/SOURCE-MANIFEST.json>`)"
+        ]
+    return []
+
+
+def check_macos(tree: Path, links: dict, pin: dict) -> list[str]:
+    """Every package that the macos slice links has a license in the ghostty-next tree at the pin."""
+    manifest = json.loads((tree / "SOURCE-MANIFEST.json").read_text())
+    if manifest["ghostty_revision"] != pin["ghostty_revision"]:
+        return [f"license tree is for Ghostty {manifest['ghostty_revision'][:11]}, the GhosttyNextKit pin is {pin['ghostty_revision'][:11]}"]
+    try:
+        packages = linked_packages({"dwarf_owners": links["dwarf_owners"], "zig_source_packages": links["zig_source_packages"]}, manifest)
+        texts = _tree_texts(tree, manifest, set(packages))
+    except NoticeError as error:
+        return [f"macOS GhosttyNextKit: {error}"]
+    return [f"macOS GhosttyNextKit links {package} but the license tree has no text for it" for package in packages if package not in texts]
+
+
+# ---------------------------------------------------------------- app link (the real link)
+
+APP_IN_ARTIFACT = "cmux-ios.xcarchive/Products/Applications/cmux.app"
+MACHO_MAGIC = (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+# Zig-source packages that a pinned build-graph fact excludes from the iOS app.
+# (package, the only file that may name it, text that its enclosing `if` must hold
+# or None, and whether the package is a resource directory that the app must not hold.)
+ZIG_ABSENT_RULES = (
+    ("zig_js", "src/build/SharedDeps.zig", "cpu.arch == .wasm32", False),
+    ("iterm2_themes", "src/build/GhosttyResources.zig", None, True),
+)
+
+
+def archive_members(path: Path):
+    """(name, bytes) of each member of a BSD ar archive, in order (names may repeat)."""
+    data = path.read_bytes()
+    if data[:8] != b"!<arch>\n":
+        raise NoticeError(f"{path}: not an ar archive")
+    offset = 8
+    while offset < len(data):
+        header = data[offset : offset + 60]
+        name, size = header[:16].decode().strip(), int(header[48:58])
+        body = data[offset + 60 : offset + 60 + size]
+        offset += 60 + size + (size & 1)
+        if name.startswith("#1/"):
+            length = int(name[3:])
+            name, body = body[:length].rstrip(b"\0").decode(), body[length:]
+        if not name.startswith("__.SYMDEF"):
+            yield name, body
+
+
+def defined_symbols(path: Path) -> set[str]:
+    """Names of the symbols that a Mach-O file (or object) defines, local ones included."""
+    result = subprocess.run(["nm", "-U", "-j", str(path)], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise NoticeError(f"nm failed for {path}: {result.stderr.strip()}")
+    return {name for name in result.stdout.split() if name.startswith("_")}
+
+
+def member_evidence(archive: Path, names: dict[str, str]) -> list[dict]:
+    """Per archive member: the DWARF owners of all its source files and its defined symbols."""
+    members = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for index, (name, body) in enumerate(archive_members(archive)):
+            path = Path(tmp) / f"{index}.o"
+            path.write_bytes(body)
+            sources = subprocess.run(
+                ["xcrun", "llvm-dwarfdump", "--show-sources", str(path)], check=True, capture_output=True, text=True
+            ).stdout.split()
+            owners = sorted({owner for line in sources if (owner := attribute(line, names))})
+            members.append({"name": name, "owners": owners, "symbols": defined_symbols(path)})
+    return members
+
+
+def decide_owners(members: list[dict], app_symbols: set[str]) -> tuple[dict, dict]:
+    """(absent, present) DWARF owners. Absent needs positive evidence: every member that
+    carries the owner defines symbols, and the app defines none of them. An owner with a
+    member that defines no symbol (nothing to look for) stays present."""
+    by_owner: dict[str, list[dict]] = {}
+    for member in members:
+        for owner in member["owners"]:
+            by_owner.setdefault(owner, []).append(member)
+    absent, present = {}, {}
+    for owner, carriers in sorted(by_owner.items()):
+        symbols = set().union(*(member["symbols"] for member in carriers))
+        found = symbols & app_symbols
+        if found or any(not member["symbols"] for member in carriers):
+            present[owner] = len(found)
+        else:
+            absent[owner] = {"members": sorted({member["name"] for member in carriers}), "symbols": sorted(symbols)}
+    return absent, present
+
+
+def zig_absent_reason(source: Path, package: str, only_file: str, guard: str | None, resource: bool, app_files: list[str]) -> str | None:
+    """Why a Zig-source package cannot be in the iOS app, or None (keep it listed)."""
+    pattern = re.compile(rf'(?:lazyDependency|dependency)\("{re.escape(package)}"')
+    uses = []
+    for path in sorted(source.rglob("*.zig")):
+        relative = path.relative_to(source).as_posix()
+        if relative.startswith(("zig-pkg/", ".zig-cache/", "zig-out/")):
+            continue
+        lines = path.read_text(errors="replace").splitlines()
+        uses += [(relative, lines, index) for index, line in enumerate(lines) if pattern.search(line)]
+    if not uses or any(relative != only_file for relative, _, _ in uses):
+        return None
+    if guard is not None:
+        for _, lines, index in uses:
+            indent = len(lines[index]) - len(lines[index].lstrip())
+            # The block that holds the use: the nearest earlier non-blank line indented less.
+            enclosing = next((line for line in reversed(lines[:index]) if line.strip() and len(line) - len(line.lstrip()) < indent), "")
+            if not (enclosing.strip().startswith("if (") and guard in enclosing):
+                return None
+        return f"{only_file} adds it only under `{guard}`; the iOS slice is arm64"
+    if resource:
+        if any("/themes/" in f"/{name}" for name in app_files):
+            return None
+        return f"only {only_file} names it (an installed resource directory, not code); the app holds no themes file"
+    return None
+
+
+def app_link(xcframework: Path, artifact: Path, job: str, source_commit: str, ghostty_source: Path, manifest: Path) -> dict:
+    pin = ghostty_kit_pin()
+    shown = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"{source_commit}:{GHOSTTY_KIT.relative_to(ROOT).as_posix()}"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    if ghostty_kit_pin(text=shown) != pin:
+        raise NoticeError(f"job source {source_commit[:11]} pins another GhosttyNextKit than {pin['sha256'][:12]}")
+    revision = subprocess.run(["git", "-C", str(ghostty_source), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    if revision != pin["ghostty_revision"]:
+        raise NoticeError(f"--ghostty-source is at {revision[:11]}, the pin is Ghostty {pin['ghostty_revision'][:11]}")
+    tree = json.loads(manifest.read_text())
+    names = {key: value["dependency"] for key, value in tree["zig_packages"].items()}
+    with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(artifact) as archive:
+        app_files = [name[len(APP_IN_ARTIFACT) + 1 :] for name in archive.namelist() if name.startswith(APP_IN_ARTIFACT + "/") and not name.endswith("/")]
+        if not app_files:
+            raise NoticeError(f"{artifact}: no {APP_IN_ARTIFACT} (the device archive app)")
+        binaries, app_symbols, markers = {}, set(), []
+        for name in app_files:
+            data = archive.read(f"{APP_IN_ARTIFACT}/{name}")
+            if data[:4] not in MACHO_MAGIC:
+                continue
+            path = Path(tmp) / f"{len(binaries)}.bin"
+            path.write_bytes(data)
+            binaries[name] = hashlib.sha256(data).hexdigest()
+            app_symbols |= defined_symbols(path)
+            if contains_libintl(path):
+                markers.append(name)
+    members = member_evidence(xcframework / SLICE / "libghostty-internal.a", names)
+    absent, present = decide_owners(members, app_symbols)
+    if not any(present.values()):
+        raise NoticeError("the app defines no symbol of the GhosttyNextKit archive: symbols are stripped, no evidence")
+    gettext = {"zig-package:gettext", "vendored:pkg/libintl"}
+    if markers and gettext & set(absent):
+        raise NoticeError(f"libintl symbols are gone but its marker strings are in {markers}: keep gettext")
+    zig_absent = {}
+    for package, only_file, guard, resource in ZIG_ABSENT_RULES:
+        reason = zig_absent_reason(ghostty_source, package, only_file, guard, resource, app_files)
+        if reason:
+            zig_absent[package] = reason
+    witnesses = []  # one symbol per present owner that the app defines: proves the symbols are intact
+    for owner, count in present.items():
+        if count:
+            owned = set().union(*(member["symbols"] for member in members if owner in member["owners"]))
+            witnesses.append(min(owned & app_symbols))
+    return {
+        "pin_sha256": pin["sha256"],
+        "evidence": {
+            "cmux_ci_job": job,
+            "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            "source_commit": source_commit,
+            "app": APP_IN_ARTIFACT,
+            "binaries": binaries,
+        },
+        "absent_owners": absent,
+        "present_owners": present,
+        "absent_zig_packages": zig_absent,
+        "witness_symbols": sorted(set(witnesses)),
+    }
+
+
+def app_link_errors(binaries: list[Path], app_files: list[str], links: dict) -> list[str]:
+    """The built app does not contain a package that the pane omits as absent."""
+    record = links.get("app_link")
+    if not record:
+        return ["link-set.json has no app_link (run ios_notices.py app-link)"]
+    symbols: set[str] = set()
+    for path in binaries:
+        symbols |= defined_symbols(path)
+    if not symbols & set(record["witness_symbols"]):
+        return ["the app binaries define no GhosttyNextKit witness symbol (stripped?): cannot show that omitted packages are absent"]
+    errors = []
+    job = record["evidence"]["cmux_ci_job"]
+    for owner, info in record["absent_owners"].items():
+        found = sorted(symbols & set(info["symbols"]))
+        if found:
+            errors.append(
+                f"{owner} is omitted from the pane (absent in cmux-ci job {job}) but the app defines {found[:3]}: "
+                "rerun ios_notices.py app-link on a new iOS job, then generate"
+            )
+    if {"zig-package:gettext", "vendored:pkg/libintl"} & set(record["absent_owners"]):
+        marked = [str(path) for path in binaries if contains_libintl(path)]
+        if marked:
+            errors.append(f"gettext (libintl) is omitted from the pane but {marked} contain libintl")
+    if "iterm2_themes" in record["absent_zig_packages"] and any("/themes/" in f"/{name}" for name in app_files):
+        errors.append("iterm2_themes is omitted from the pane but the app holds a themes file")
+    return errors
+
+
+def merge_link_set(generated: dict, previous: dict, pin: dict) -> dict:
+    """A generated link set plus the hand-kept fields of the committed one."""
+    result = dict(generated, pin=pin)
+    result["zig_source_packages"] = previous.get("zig_source_packages", [])
+    if "app_link" in previous and previous["app_link"].get("pin_sha256") == pin["sha256"]:
+        result["app_link"] = previous["app_link"]
+    return result
+
+
+def link_set_differences(generated: dict, committed: dict) -> list[str]:
+    return sorted(key for key in set(generated) | set(committed) if generated.get(key) != committed.get(key))
+
+
+def write_or_check(result: dict, committed_path: Path, out: Path, check: bool) -> int:
+    """Write the link set, or (--check) compare it with the committed file and write it to out."""
+    text = json.dumps(result, indent=2, sort_keys=True) + "\n"
+    if not check:
+        out.write_text(text)
+        print(f"wrote {out}")
+        return 0
+    committed = json.loads(committed_path.read_text()) if committed_path.is_file() else {}
+    differences = link_set_differences(result, committed)
+    if out != committed_path:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text)
+    if differences:
+        print(
+            f"error: {committed_path.relative_to(ROOT)} differs from the pinned xcframework in {differences}; "
+            f"commit the generated file ({out}; the workflow uploads it)",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"{committed_path.relative_to(ROOT)} matches the pinned xcframework")
+    return 0
+
+
 # ---------------------------------------------------------------- pane
 
 def hand_written_section(title: str, text: str) -> str:
@@ -200,7 +504,12 @@ def linked_packages(links: dict, manifest: dict) -> list[str]:
     vendored_in_tree = {entry["package"] for entry in manifest["license_files"] if entry["package"].startswith(("pkg/", "vendor/"))}
     review = json.loads(VENDORED_REVIEW.read_text())["vendored"]
     names = {GHOSTTY_OWN}
+    # app_link (the real link of a cmux-ci device archive) removes only what it proves absent.
+    record = links.get("app_link", {})
+    absent_owners = set(record.get("absent_owners", {}))
     for owner in links["dwarf_owners"]:
+        if owner in absent_owners:
+            continue
         kind, _, name = owner.partition(":")
         if kind == "zig-package":
             names.add(name)
@@ -217,11 +526,23 @@ def linked_packages(links: dict, manifest: dict) -> list[str]:
             raise NoticeError(f"{name}: vendored Ghostty directory without a reviewed license (ghostty_vendored.py)")
     # Zig code (libghostty_zcu.o) has no per-package DWARF: link-set.json lists the Zig-source
     # packages counted as linked.
-    names |= set(links["zig_source_packages"])
+    names |= set(links["zig_source_packages"]) - set(record.get("absent_zig_packages", {}))
     unknown = sorted(names - declared - vendored_in_tree - {GHOSTTY_OWN})
     if unknown:
         raise NoticeError(f"linked packages without a collected license: {unknown}")
     return sorted(names)
+
+
+def link_record(links: dict) -> str:
+    record = links.get("app_link")
+    if not record:
+        return ""
+    evidence = record["evidence"]
+    omitted = sorted({owner.partition(":")[2] for owner in record["absent_owners"]} | set(record["absent_zig_packages"]))
+    return (
+        f"Omitted as absent from the linked app ({', '.join(omitted)}): cmux-ci job {evidence['cmux_ci_job']}, "
+        f"artifact sha256 {evidence['artifact_sha256']}. "
+    )
 
 
 def build_pane(tree: Path, links: dict, pin: dict) -> dict:
@@ -258,6 +579,16 @@ def build_pane(tree: Path, links: dict, pin: dict) -> dict:
         if not files:
             raise NoticeError(f"{package}: linked but the license tree has no text for it")
         body = "\n\n".join(f"{label}:\n\n{text.strip()}" for label, text in files)
+        if package == "freetype":
+            license_text = next((text for label, text in files if label.endswith("LICENSE.TXT")), None)
+            digest = hashlib.sha256(license_text.encode()).hexdigest() if license_text is not None else None
+            if digest not in FREETYPE_YEARS:
+                raise NoticeError(
+                    f"freetype: LICENSE.TXT sha256 {digest} is not in FREETYPE_YEARS; review the FreeType version "
+                    "and add its year for the FTL credit"
+                )
+            version, year = FREETYPE_YEARS[digest]
+            body += "\n\n" + FTL_CREDIT.format(version=version, year=year)
         if package == "z2d":
             url = next(value["url"] for value in manifest["zig_packages"].values() if value["dependency"] == "z2d")
             body += "\n\n" + Z2D_OFFER.format(url=url, revision=pin["ghostty_revision"])
@@ -266,7 +597,7 @@ def build_pane(tree: Path, links: dict, pin: dict) -> dict:
     group(
         "Build record",
         f"GhosttyNextKit {pin['url']} sha256 {pin['sha256']}; Ghostty {pin['ghostty_revision']}; "
-        f"license tree {len(manifest['license_files'])} files. Generated by scripts/cmux-next/notices/ios_notices.py.",
+        f"license tree {len(manifest['license_files'])} files. " + link_record(links) + "Generated by scripts/cmux-next/notices/ios_notices.py.",
     )
     return {"StringsTable": "Acknowledgements", "PreferenceSpecifiers": groups}
 
@@ -284,9 +615,17 @@ def check_repo() -> list[str]:
     if links.get("pin") != pin:
         errors.append(
             f"{LINK_SET.relative_to(ROOT)} is for {links.get('pin', {}).get('sha256', '?')[:12]}, "
-            f"CmuxGhosttyKit pins {pin['sha256'][:12]}: on a Mac run `ios_notices.py link-set --xcframework <unzipped "
-            "GhosttyNextKit.xcframework>`, then `generate --ghostty-tree <ghostty-next-licenses from "
-            "cmux-next-source-archive.yml>`"
+            f"CmuxGhosttyKit pins {pin['sha256'][:12]}: commit link-set.json from the ghosttykit-link-sets artifact "
+            "of cmux-next-source-archive.yml (or on a Mac run `ios_notices.py link-set --xcframework <unzipped "
+            "GhosttyNextKit.xcframework> --manifest <ghostty-next-licenses/SOURCE-MANIFEST.json>`), then "
+            "`generate --ghostty-tree <ghostty-next-licenses from that run>`"
+        )
+    errors += macos_link_errors(json.loads(MACOS_LINK_SET.read_text())) if MACOS_LINK_SET.is_file() else [f"{MACOS_LINK_SET.relative_to(ROOT)} is missing"]
+    record = links.get("app_link")
+    if not record or record.get("pin_sha256") != pin["sha256"]:
+        errors.append(
+            f"{LINK_SET.relative_to(ROOT)} has no app_link for pin {pin['sha256'][:12]}: build the iOS app with "
+            "cmux-ci, then run `ios_notices.py app-link` on its artifact and `generate`"
         )
     if not PANE.is_file():
         return errors + [f"{PANE.relative_to(ROOT)} is missing"]
@@ -333,8 +672,10 @@ def check_app(app: Path) -> list[str]:
                     errors.append(f"{app.name}: {language}.lproj/{table}.strings has no {key!r}")
             except FileNotFoundError:
                 errors.append(f"{app.name}: no {language}.lproj/{table}.strings")
-    binaries = [path for path in app.rglob("*") if path.is_file() and path.read_bytes()[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")]
+    files = sorted(path for path in app.rglob("*") if path.is_file())
+    binaries = [path for path in files if path.read_bytes()[:4] in MACHO_MAGIC]
     errors += libintl_errors(ghostty_kit_pin()["sha256"], binaries)
+    errors += app_link_errors(binaries, [path.relative_to(app).as_posix() for path in files], json.loads(LINK_SET.read_text()))
     return errors
 
 
@@ -345,6 +686,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--xcframework", type=Path, required=True)
     p.add_argument("--manifest", type=Path, required=True, help="SOURCE-MANIFEST.json of the ghostty-next license tree")
     p.add_argument("--out", type=Path, default=LINK_SET)
+    p.add_argument("--check", action="store_true", help="compare with the committed file; write the generated one to --out")
+    p = sub.add_parser("macos-link-set")
+    p.add_argument("--xcframework", type=Path, required=True)
+    p.add_argument("--manifest", type=Path, required=True, help="SOURCE-MANIFEST.json of the ghostty-next license tree")
+    p.add_argument("--out", type=Path, default=None)
+    p.add_argument("--check", action="store_true", help="compare with the committed file; write the generated one to --out")
+    p = sub.add_parser("check-macos")
+    p.add_argument("--ghostty-tree", type=Path, required=True, help="the ghostty-next license tree (cmux-next-source-archive.yml)")
+    p = sub.add_parser("app-link")
+    p.add_argument("--xcframework", type=Path, required=True, help="the unzipped pinned GhosttyNextKit.xcframework")
+    p.add_argument("--artifact", type=Path, required=True, help="the zip from `cmux-ci artifact <job>` of an iOS build")
+    p.add_argument("--job", required=True, help="the cmux-ci job id of that artifact")
+    p.add_argument("--source-commit", required=True, help="the cmux commit that the job built")
+    p.add_argument("--ghostty-source", type=Path, required=True, help="a ghostty-next checkout at the pin's revision")
+    p.add_argument("--manifest", type=Path, required=True, help="SOURCE-MANIFEST.json of the ghostty-next license tree")
     p = sub.add_parser("generate")
     p.add_argument("--ghostty-tree", type=Path, required=True)
     p.add_argument("--check", action="store_true")
@@ -357,13 +713,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "link-set":
-            pin = ghostty_kit_pin()
-            result = link_set(args.xcframework, args.manifest)
-            previous = json.loads(args.out.read_text()) if args.out.is_file() else {}
-            result["pin"] = pin
-            result["zig_source_packages"] = previous.get("zig_source_packages", [])
-            args.out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-            print(f"wrote {args.out} ({len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']})")
+            previous = json.loads(LINK_SET.read_text()) if LINK_SET.is_file() else {}
+            result = merge_link_set(link_set(args.xcframework, args.manifest), previous, ghostty_kit_pin())
+            print(f"{len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']}")
+            return write_or_check(result, LINK_SET, args.out, args.check)
+        if args.command == "macos-link-set":
+            result = macos_link_set(args.xcframework, args.manifest)
+            print(f"{len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']}")
+            return write_or_check(result, MACOS_LINK_SET, args.out or MACOS_LINK_SET, args.check)
+        if args.command == "app-link":
+            links = json.loads(LINK_SET.read_text())
+            links["app_link"] = app_link(args.xcframework, args.artifact, args.job, args.source_commit, args.ghostty_source, args.manifest)
+            LINK_SET.write_text(json.dumps(links, indent=2, sort_keys=True) + "\n")
+            record = links["app_link"]
+            print(f"wrote app_link: absent owners {sorted(record['absent_owners'])}, absent Zig packages {sorted(record['absent_zig_packages'])}")
             return 0
         if args.command == "generate":
             data = pane_bytes(build_pane(args.ghostty_tree, json.loads(LINK_SET.read_text()), ghostty_kit_pin()))
@@ -378,6 +741,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "check-repo":
             errors = check_repo()
+        elif args.command == "check-macos":
+            links = json.loads(MACOS_LINK_SET.read_text())
+            errors = macos_link_errors(links) + check_macos(args.ghostty_tree, links, ghostty_kit_pin())
         elif args.command == "check-app":
             errors = check_app(args.app)
         else:

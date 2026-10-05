@@ -159,4 +159,23 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
     expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
   })
+
+  it("a held report from a replaced install does not reset the no_report clock (review P3)", async () => {
+    const s = await vmSetup("cloud-bind-4")
+    const { runInDurableObject } = await import("cloudflare:test")
+    // A capable report from another install is held for the machine (the queue keys by machine), then the alarm takes it.
+    await s.stub.fakeControl({ advance_ms: 23 * H } as never)
+    await (runInDurableObject as unknown as (x: unknown, f: (i: any) => Promise<void>) => Promise<void>)(s.stub, async (i: any) => {
+      const now = Date.now() + i.skewMs
+      i.vmStatus.offer(s.machine, { machine: s.machine, state: "running", daemon: { version: "x", capabilities: ["activity"] }, activity: { active_sessions: 1 }, install: "inst_00000000000000000099" }, now - 20_000)
+      i.vmStatus.offer(s.machine, { machine: s.machine, state: "running", daemon: { version: "x", capabilities: ["activity"] }, activity: { active_sessions: 1 }, install: "inst_00000000000000000099" }, now - 5_000)
+    })
+    await s.stub.fakeControl({ advance_ms: 30_000 } as never)
+    const { fireAlarm } = await import("./setup/alarm.ts")
+    await fireAlarm(s.stub)
+    await s.stub.fakeControl({ advance_ms: 2 * H } as never)
+    await fireAlarm(s.stub)
+    const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
+  })
 })

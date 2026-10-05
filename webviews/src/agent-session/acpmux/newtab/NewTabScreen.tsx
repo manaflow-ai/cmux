@@ -1,12 +1,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ProjectChooser, type Project } from "../ProjectChooser";
-import { useT } from "../i18n";
 import { AgentMark, FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
 import { orderedAgents, recentChatCards, screenRows, terminalConversion, type ScreenRow } from "./screenModel";
 import { type NewTabTranslate, useNt } from "./strings";
+import { useT } from "../i18n";
 
 /// What the screen asks the host to do. Agent rows stay in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -84,7 +84,7 @@ export function NewTabScreen(props: Props) {
     () => (touched && !converting ? screenRows(text, { agents, omnibar, lastAgent, home }) : []),
     [touched, converting, text, agents, omnibar, lastAgent, home],
   );
-  const cards = useMemo(() => recentChatCards(snapshot.sessions, now), [snapshot.sessions, now]);
+  const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
   useEffect(() => setSelected(0), [rows]);
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's

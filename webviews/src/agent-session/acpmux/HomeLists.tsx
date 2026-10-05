@@ -1,14 +1,14 @@
 import React from "react";
+import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { type AcpmuxSessionEntry, projectLabel, sessionMark } from "./sessionList";
 
-/// Home-list copy. English defaults until the host passes localized labels, as the rest of the pane does today.
+/// Home-list copy: keys of the pane's string table.
 export const HOME_LABELS = {
-  needsInput: "Needs input",
-  readyForReview: "Ready for review",
+  needsInput: "home.needsInput",
+  readyForReview: "home.readyForReview",
   /// `{time}` is a compact age: "now", "5m", "3h", "6d", "2mo" or "1y".
-  ago: "{time} ago",
-  now: "now",
-};
+  ago: "home.ago",
+} as const satisfies Record<string, StringKey>;
 
 /// Each list shows at most this many rows, newest first.
 export const HOME_ROWS = 3;
@@ -32,21 +32,21 @@ export function homeLists(
 }
 
 /// A compact age for a row's right edge, from milliseconds since the epoch.
-export function age(updatedAt: number | undefined, now = Date.now()): string | undefined {
+export function age(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string | undefined {
   if (updatedAt === undefined) return undefined;
   const minutes = Math.floor(Math.max(0, now - updatedAt) / 60_000);
-  if (minutes < 1) return HOME_LABELS.now;
-  const steps: [number, string][] = [
-    [60 * 24 * 360, "y"],
-    [60 * 24 * 30, "mo"],
-    [60 * 24, "d"],
-    [60, "h"],
-    [1, "m"],
+  if (minutes < 1) return t("age.now");
+  const steps: [number, StringKey][] = [
+    [60 * 24 * 360, "age.years"],
+    [60 * 24 * 30, "age.months"],
+    [60 * 24, "age.days"],
+    [60, "age.hours"],
+    [1, "age.minutes"],
   ];
   const [size, unit] = steps.find(([size]) => minutes >= size)!;
   // A year starts at 12 months of 30 days, so no age reads "12mo".
-  const count = unit === "y" ? Math.max(1, Math.round(minutes / (60 * 24 * 365))) : Math.floor(minutes / size);
-  return HOME_LABELS.ago.replace("{time}", `${count}${unit}`);
+  const count = unit === "age.years" ? Math.max(1, Math.round(minutes / (60 * 24 * 365))) : Math.floor(minutes / size);
+  return t(HOME_LABELS.ago, { time: t(unit, { n: count }) });
 }
 
 /// The lists under a new chat's composer. Each row opens its session. Renders
@@ -60,12 +60,13 @@ export function HomeLists({
   currentId?: string;
   onSelect: (sessionId: string) => void;
 }) {
+  const t = useT();
   const { input, review } = homeLists(sessions, currentId);
   if (input.length === 0 && review.length === 0) return null;
   return (
     <div className="acpmux-home">
       {input.length > 0 && (
-        <HomeList label={HOME_LABELS.needsInput}>
+        <HomeList label={t(HOME_LABELS.needsInput)}>
           {input.map((session) => (
             <HomeRow
               key={session.sessionId}
@@ -78,7 +79,7 @@ export function HomeLists({
         </HomeList>
       )}
       {review.length > 0 && (
-        <HomeList label={HOME_LABELS.readyForReview}>
+        <HomeList label={t(HOME_LABELS.readyForReview)}>
           {review.map((session) => (
             <HomeRow
               key={session.sessionId}
@@ -117,8 +118,9 @@ function HomeRow({
   detail?: string;
   onSelect: (sessionId: string) => void;
 }) {
+  const t = useT();
   const project = session.cwd ? projectLabel(session.cwd) : undefined;
-  const when = age(session.updatedAt);
+  const when = age(session.updatedAt, Date.now(), t);
   return (
     <li>
       <button type="button" className="acpmux-home-row" onClick={() => onSelect(session.sessionId)}>

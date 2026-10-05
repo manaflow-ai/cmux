@@ -357,17 +357,32 @@ async fn web_starts_asking(
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
-    if m == method::MUX_HANDOFF_START {
+    if m == method::MUX_HANDOFF_START && control == crate::hub::Control::Web {
         // The handoff prompts its target: the same rule as a prompt there.
-        let target = params
-            .get("handoffId")
-            .and_then(Value::as_str)
-            .and_then(|id| hub.handoff_target_id(id))
-            .and_then(|id| hub.resolve(&id).ok());
-        if let Some(t) = target {
-            hub.web_control_check(&t, control)?;
+        // An unknown handoff is the handler's not-found.
+        let Some((target, draft)) =
+            params.get("handoffId").and_then(Value::as_str).and_then(|id| hub.handoff_target(id))
+        else {
+            return Ok(());
+        };
+        let t = hub.resolve(&target).map_err(|e| {
+            RpcError::invalid_params(format!(
+                "{m} from a remote WebSocket connection is refused: the handoff's target cannot be resolved ({})",
+                e.message
+            ))
+        })?;
+        // A NEW target (a draft, never prompted, never drifted) in its
+        // harness's own mode is moved to the asking default, like a new Web
+        // session; a family with none is ended and refused.
+        if let Err(e) = hub.web_control_check(&t, control) {
+            let not_asking = e.data.as_ref().and_then(|d| d.get("reason"))
+                == Some(&Value::from("remote.mode_not_asking"));
+            if !(draft && not_asking) {
+                return Err(e);
+            }
+            settle_web_session_mode(hub, &t).await?;
         }
-        return Ok(());
+        return hub.web_control_check(&t, control);
     }
     if !(copies || sets_mode || controls) {
         return Ok(());

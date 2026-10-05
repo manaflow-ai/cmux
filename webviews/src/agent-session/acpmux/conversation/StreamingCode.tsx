@@ -7,9 +7,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CodeBrackets } from "./icons";
+import { useT } from "../i18n";
 
 /// An open fence: the card's chrome over plain lines.
 export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
+  const t = useT();
   const lines = code.split("\n");
   // An open fence's trailing empty line is the newline before a line still arriving; drawing it
   // would make the card a line taller than the closed card it becomes.
@@ -18,7 +20,7 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
     <div className="cv-codeblock cv-codeblock--plain">
       <div className="cv-codeblock__header">
         <CodeBrackets size={17} strokeWidth={1.2} />
-        <span>{languageLabel(lang)}</span>
+        <span>{languageLabel(lang, t)}</span>
       </div>
       <div className="cv-codeblock__body">
         <pre className="cv-code-plain selectable">
