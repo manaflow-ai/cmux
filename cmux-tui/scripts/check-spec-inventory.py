@@ -574,7 +574,12 @@ def event_names() -> set[str]:
     # Frontend brokers build their targeted control events in their own
     # server modules.
     for module in CONTROL_EVENT_MODULES:
-        source = (TUI / "crates/cmux-tui-core/src" / module).read_text()
+        # Absent in minimal test trees; in the real tree a missing module
+        # drops its events, which the SDK drift check then reports.
+        path = TUI / "crates/cmux-tui-core/src" / module
+        if not path.exists():
+            continue
+        source = path.read_text()
         source = strip_rust_comments(source.split("\n#[cfg(test)]\nmod tests", 1)[0])
         module_tokens = rust_tokens(source)
         module_constants = rust_string_constants(module_tokens)
