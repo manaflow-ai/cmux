@@ -48,11 +48,13 @@ public struct QuitConfirmationStore: Sendable {
 
     /// Whether the quit flow should show the confirmation dialog.
     ///
-    /// A logout, restart, or shutdown never shows the dialog: it would block
-    /// the whole session change. Otherwise semantics are kept verbatim from
-    /// the legacy `QuitWarningSettings` namespace: a prior in-session
-    /// confirmation always skips the dialog, dev builds never warn, and
-    /// ``confirmQuitMode`` decides (`dirtyOnly` consults `hasDirtyWorkspaces`).
+    /// Only a ``QuitRequestReason/user`` quit can show the dialog, in every
+    /// ``confirmQuitMode``. A logout, restart, or shutdown would be blocked by
+    /// it, and an update relaunch follows the user's Install and Relaunch.
+    /// For user quits, semantics are kept verbatim from the legacy
+    /// `QuitWarningSettings` namespace: a prior in-session confirmation always
+    /// skips the dialog, dev builds never warn, and ``confirmQuitMode``
+    /// decides (`dirtyOnly` consults `hasDirtyWorkspaces`).
     ///
     /// - Parameters:
     ///   - isQuitWarningConfirmed: Whether the user already confirmed the
