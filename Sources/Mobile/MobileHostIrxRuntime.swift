@@ -95,6 +95,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var acceptLoop: Task<Void, Never>?
     private var lastLoggedControlState: String?
     private var admission: V2InboundAdmissionAuthority?
+    /// Cross-team same-user Mac admission. It never holds a phone row and is
+    /// consulted only after the team authority answers `.invalidGrant`.
+    private(set) var accountAdmission: V2AccountMacAdmissionAuthority?
+    /// Per-user Mac directory sharing this generation's ticket and key.
+    private(set) var accountDirectoryClient: AccountMacDirectoryClient?
+    private var accountDirectoryTask: Task<Void, Never>?
     /// Compatibility publication for older iOS dialects. It shares the v2
     /// signing key but has its own filtered authority and broker lifecycle.
     private var legacyService: LegacyCompatibilityService?
@@ -226,6 +232,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         wantsHost = false
         requiresTransition = true
         admission?.invalidate()
+        accountAdmission?.invalidate()
         generationToken = UUID()
         listenerState = MobileHostListenerState()
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
@@ -239,6 +246,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     func beginSignOutPreparation() {
         signingOutScope = auth?.authenticatedTeamScope
         admission?.invalidate()
+        accountAdmission?.invalidate()
         generationToken = UUID()
         wantsHost = false
         listenerState = MobileHostListenerState()
@@ -338,7 +346,11 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         activePairingEnabled = pairingEnabled()
         activeDeviceCapabilities = deviceCapabilities
         admission?.invalidate()
+        accountAdmission?.invalidate()
         let oldControl = controlService
+        let oldAccount = accountDirectoryClient
+        accountDirectoryTask?.cancel(); accountDirectoryTask = nil
+        accountDirectoryClient = nil; accountAdmission = nil
         let oldEndpoint = endpointSupervisor
         let oldRegistry = registry
         let oldLegacy = legacyService
@@ -362,6 +374,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         setSettingsPhase(.idle)
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
         await outgoingDeviceClient?.enforce(nil, releaseAll: true)
+        await outgoingDeviceClient?.enforceAccount(nil)
+        // Leave the account directory while the old ticket still authenticates,
+        // before the team withdrawal and before the old control service stops.
+        await oldAccount?.withdraw()
         if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
            metadata.pairingEnabled || metadata.capabilities.contains("cmux.mac-host.v1"), scope == nil || !pairingEnabled() {
             let withdrawn = V2DeviceMetadata(appVersion: metadata.appVersion,
@@ -448,6 +464,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             initialRemoteBiStreams: 1, initialRemoteUniStreams: 0,
             additionalALPNs: Self.endpointAdditionalALPNs), journal: Self.journal)
         let admission = try V2InboundAdmissionAuthority(host: device)
+        let accountAdmission = try V2AccountMacAdmissionAuthority(host: device)
+        let accountClient = AccountMacDirectoryClient(baseURL: configuration.baseURL,
+            dependencies: .init(sign: { data in
+                guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw V2ControlFailure.scopeMismatch }
+                return try key.sign(data)
+            }, journal: Self.journal))
         if let restored { _ = admission.restore(restored) }
         let http = V2URLSessionHTTPTransport(session: .shared)
         let dependencies = V2ControlDependencies(
@@ -493,6 +515,20 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     return (access: snapshot.accessToken, refresh: snapshot.refreshToken)
                 }, journal: Self.journal)
             self.legacyService = compatibility
+        }
+        // Installed after every throwing setup step so a retried provision
+        // never leaves an orphaned observer behind.
+        self.accountAdmission = accountAdmission
+        self.accountDirectoryClient = accountClient
+        accountDirectoryTask = Task { @MainActor [weak self] in
+            for await _ in await accountClient.changes() {
+                guard !Task.isCancelled, let self, self.isCurrent(token) else { return }
+                await self.installAccountDirectory(token: token)
+                guard self.isCurrent(token), !Task.isCancelled else { return }
+                await self.enforcePeerPermissions(token: token)
+                guard self.isCurrent(token), !Task.isCancelled else { return }
+                self.schedulePermissionExpiry(token: token)
+            }
         }
         registry = IrxServerSessionRegistry(journal: Self.journal)
         endpointSupervisor = supervisor
@@ -578,6 +614,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 if revocation == .awaitRecovery { return }
             }
             admission.invalidate()
+            accountAdmission?.invalidate()
             let oldLegacy = legacyService
             legacyService = nil
             legacyAcceptorPeer = nil
@@ -594,6 +631,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             await oldEndpoint?.deactivate()
             await oldRelayWatch?.stop()
             await oldLegacy?.stop(revokeOwnBinding: true)
+            await accountDirectoryClient?.update(nil)
             guard isCurrent(token) else { return }
             setSettingsPhase(.failed)
             return
@@ -605,6 +643,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             if snapshot.cache.directory != nil { noteLiveDiscoverySucceeded() }
             startLegacyCompatibility(token: token)
         }
+        await refreshAccountDirectory(snapshot.cache, token: token)
+        guard isCurrent(token) else { return }
         await enforcePeerPermissions(token: token)
         guard isCurrent(token) else { return }
         schedulePermissionExpiry(token: token)
@@ -624,6 +664,26 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         requestEndpointReady(token: token)
         if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
         publishIrxSettingsUpdate()
+    }
+
+    /// Hands the team snapshot's ticket and record to the account directory,
+    /// then re-derives account admission from this host's current record.
+    private func refreshAccountDirectory(_ cache: V2CachedState, token: UUID) async {
+        guard isCurrent(token), let client = accountDirectoryClient else { return }
+        await client.update(AccountMacAdmissionPolicy.credentials(cache,
+            enabled: AccountMacDirectoryFeature.isEnabled(), now: Date()))
+        guard isCurrent(token) else { return }
+        await installAccountDirectory(token: token)
+    }
+
+    /// Applies the latest account directory to inbound admission and to
+    /// outgoing sessions. With the flag off both receive nil (team-only).
+    private func installAccountDirectory(token: UUID) async {
+        guard isCurrent(token), let client = accountDirectoryClient, let accountAdmission else { return }
+        let snapshot = AccountMacDirectoryFeature.isEnabled() ? await client.snapshot() : nil
+        guard isCurrent(token) else { return }
+        accountAdmission.apply(account: snapshot, hostRecord: cachedState?.device)
+        await outgoingDeviceClient?.enforceAccount(snapshot)
     }
 
     private func startLegacyCompatibility(token: UUID) {
@@ -784,12 +844,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func enforcePeerPermissions(token: UUID) async {
         guard isCurrent(token), let admission, let registry else { return }
         let legacyCurrent = legacyService?.listCurrent
+        let accountAdmission = AccountMacDirectoryFeature.isEnabled() ? accountAdmission : nil
         let macEndpoints = Set(cachedState?.directory?.inboundPeers?.filter {
             $0.device.descriptor.metadata.platform == .mac
         }.map { $0.device.descriptor.endpointID } ?? [])
         let allowsMacAccess = MobileRemoteControlPolicy.allowsIncomingAccess()
         await registry.closeAll(code: .revoked, matching: { endpoint in
             if !allowsMacAccess, macEndpoints.contains(endpoint) { return true }
+            if let closes = AccountMacAdmissionPolicy.sessionCloses(endpoint: endpoint, team: admission,
+                account: accountAdmission, allowsMacAccess: allowsMacAccess) {
+                return closes
+            }
             if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
                 return !list.isFresh(now: .now) || entry.revoked
                     || entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true
@@ -802,6 +867,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         permissionExpiryTask?.cancel()
         guard isCurrent(token), let admission else { return }
         let legacyCurrent = legacyService?.listCurrent
+        let accountAdmission = accountAdmission
         permissionExpiryTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, self.isCurrent(token) else { return }
@@ -813,7 +879,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 }.flatMap { $0 > now ? $0 : nil }
                 // An expired older-client list must not stop enforcement of
                 // future v2 permission expiry, or reschedule an elapsed deadline.
-                let deadline = [admission.nextExpiration, legacyDeadline].compactMap { $0 }.min()
+                let deadline = [admission.nextExpiration, accountAdmission?.nextExpiration, legacyDeadline]
+                    .compactMap { $0 }.min()
                 guard let deadline else { return }
                 do { try await ContinuousClock().sleep(until: deadline) }
                 catch { return }
@@ -856,6 +923,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard acceptLoop == nil, let supervisor = endpointSupervisor, let registry, let admission else { return }
         let legacyCurrent = legacyService?.listCurrent
         let v2Judgment = admission.judgment()
+        let accountAdmission = accountAdmission
+        let teamThenAccountJudgment = AccountMacAdmissionPolicy.fallbackJudgment(team: v2Judgment,
+            account: accountAdmission?.judgment(), enabled: { AccountMacDirectoryFeature.isEnabled() })
         let legacyJudgment = legacyCurrent.map { IrxListJudge(current: $0, journal: Self.journal).judgment() }
         let judgment: IrxGrantJudgment = { grant, endpoint in
             // A current legacy entry is authoritative for old peers. Modern
@@ -865,7 +935,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                let legacyJudgment {
                 return try legacyJudgment(grant, endpoint)
             }
-            return try v2Judgment(grant, endpoint)
+            return try teamThenAccountJudgment(grant, endpoint)
         }
         acceptLoop = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -886,7 +956,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 case .irx(let connection):
                     Task { [weak self] in
                         await self?.superviseConnection(connection, judgment: judgment,
-                            admission: admission, legacyCurrent: legacyCurrent,
+                            admission: admission, accountAdmission: accountAdmission,
+                            legacyCurrent: legacyCurrent,
                             registry: registry, token: token)
                     }
                 case .foreign(let alpn, let connection):
@@ -923,6 +994,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         _ irx: IrxConnection,
         judgment: @escaping IrxGrantJudgment,
         admission: V2InboundAdmissionAuthority,
+        accountAdmission: V2AccountMacAdmissionAuthority?,
         legacyCurrent: IrxDeviceListCurrent?,
         registry: IrxServerSessionRegistry,
         token: UUID
@@ -935,7 +1007,13 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 journal: journal
             )
         else { return }
-        let isMac = cachedState?.directory?.inboundPeers?.first {
+        // An account-admitted peer is a same-user Mac from another team. The
+        // team authority wins when both know the key, and the account
+        // authority holds only Mac rows, so phones never take this branch.
+        let accountRecheck = accountAdmission?.recheck(peer)
+        let accountAdmitted = admission.authorizedPeer(endpointID: peer.endpointIDHex) == nil
+            && accountRecheck?(peer.endpointIDHex) == true
+        let isMac = accountAdmitted || cachedState?.directory?.inboundPeers?.first {
             $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
         }?.device.descriptor.metadata.platform == .mac
         guard Self.allowsInboundPeer(
@@ -947,6 +1025,11 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             return
         }
         let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
+            if accountAdmitted, let accountRecheck {
+                return AccountMacAdmissionPolicy.sessionStillAuthorized(
+                    allowsIncomingAccess: MobileRemoteControlPolicy.allowsIncomingAccess(),
+                    enabled: AccountMacDirectoryFeature.isEnabled(), recheck: { accountRecheck(endpoint) })
+            }
             guard isMac ? MobileRemoteControlPolicy.allowsIncomingAccess()
                 : MobileHostService.isListeningEnabled else { return false }
             if !isMac, let list = legacyCurrent?.current, let entry = list.entries[endpoint] {

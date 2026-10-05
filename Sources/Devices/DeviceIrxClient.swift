@@ -26,7 +26,7 @@ actor DeviceIrxClient {
 
     private enum Authorization {
         case waiting
-        case verified(bindingID: String, generation: Int)
+        case verified(bindingID: String, generation: Int, source: DeviceDirectorySource)
         case closing
     }
 
@@ -45,10 +45,43 @@ actor DeviceIrxClient {
     private var stopped = false
     private var directoryObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var publishedDiscovery: DiscoveryState?
+    /// The latest authoritative inputs, so a change to either directory
+    /// re-evaluates sessions against both.
+    private var latestCache: V2CachedState?
+    private var latestAccount: AccountMacDirectorySnapshot?
 
     /// Only facts used by outgoing discovery invalidate its list. This Mac's
     /// hosting metadata, inbound grants and ticket refreshes do not change it.
     private struct DiscoveryState: Equatable {
+        let team: TeamDiscovery?
+        let account: AccountDiscovery?
+
+        static func make(cache: V2CachedState?, account: AccountMacDirectorySnapshot?) -> DiscoveryState? {
+            let team = TeamDiscovery(cache: cache)
+            let account = account.map(AccountDiscovery.init)
+            guard team != nil || account != nil else { return nil }
+            return DiscoveryState(team: team, account: account)
+        }
+    }
+
+    /// The account directory facts outgoing discovery reads.
+    private struct AccountDiscovery: Equatable {
+        let revision: Int
+        let macs: [V2DeviceRecord]
+        let permissionExpiresAt: Int
+        let relayURLs: [String]
+        let rules: [String]
+
+        init(_ snapshot: AccountMacDirectorySnapshot) {
+            revision = snapshot.directory.revision
+            macs = snapshot.directory.macs.sorted { $0.deviceRecordID < $1.deviceRecordID }
+            permissionExpiresAt = snapshot.directory.permissionExpiresAt
+            relayURLs = snapshot.directory.relayURLs
+            rules = snapshot.directory.rules.sorted()
+        }
+    }
+
+    private struct TeamDiscovery: Equatable {
         let identity: V2Identity
         let devices: [V2DeviceRecord]
         let permissionExpiresAt: Int
@@ -87,7 +120,8 @@ actor DeviceIrxClient {
         let borrowed = try await context()
         guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
         let cache = await borrowed.control.snapshot().cache
-        return Self.displayBindings(cache: cache, now: permissionNow())
+        let account = await borrowed.accountDirectory()
+        return Self.displayBindings(cache: cache, account: account, now: permissionNow())
     }
 
     /// The stamp of the complete directory that authorizes outgoing control,
@@ -95,7 +129,9 @@ actor DeviceIrxClient {
     func directoryStamp() async -> DeviceDirectoryStamp? {
         guard !stopped, let borrowed = try? await context(), await borrowed.isCurrent(),
               let directory = await borrowed.control.snapshot().cache.directory else { return nil }
-        return DeviceDirectoryStamp(revision: directory.revision, issuedAt: directory.issuedAt)
+        let account = await borrowed.accountDirectory()
+        return DeviceDirectoryStamp(revision: directory.revision, issuedAt: directory.issuedAt,
+            accountRevision: account?.directory.revision)
     }
 
     /// A pushed account-directory revision triggers a discovery refresh without polling.
@@ -130,8 +166,8 @@ actor DeviceIrxClient {
             try await Self.dial(
                 endpoint: endpoint, instance: instance,
                 context: context, journal: journal, now: permissionNow,
-                recordBinding: { [weak self] binding in
-                    await self?.record(binding: binding, endpoint: endpoint, owner: owner) == true
+                recordBinding: { [weak self] binding, source in
+                    await self?.record(binding: binding, source: source, endpoint: endpoint, owner: owner) == true
                 }
             )
         }
@@ -214,6 +250,20 @@ actor DeviceIrxClient {
 
     /// Reconciles session authorization against an authoritative control snapshot.
     func enforce(_ cache: V2CachedState?, releaseAll: Bool = false) async {
+        latestCache = cache
+        await reconcile(releaseAll: releaseAll)
+    }
+
+    /// Reconciles session authorization against a new account directory
+    /// (nil when none applies, such as an unsupported service or a disabled flag).
+    func enforceAccount(_ account: AccountMacDirectorySnapshot?) async {
+        latestAccount = account
+        await reconcile(releaseAll: false)
+    }
+
+    private func reconcile(releaseAll: Bool) async {
+        let cache = latestCache
+        let account = latestAccount
         let revoked = sessions.filter { endpoint, entry in
             if releaseAll { return true }
             guard let cache else { return false }
@@ -224,11 +274,11 @@ actor DeviceIrxClient {
                 // admission boundary; stopping it here turns that normal race
                 // into a user-requested cancellation with no retry signal.
                 return Self.shouldReleaseWaitingSession(cache: cache)
-            case .verified:
+            case .verified(_, _, let source):
                 do {
-                    let peer = try IrxMacPeerAuthorization(
+                    let peer = try Self.resolveTarget(intent: IrxMacPeerAuthorization(
                         deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
-                    ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow())
+                    ), source: source, cache: cache, account: account, localIdentity: cache.identity, now: permissionNow())
                     return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
                 } catch let failure as IrxMacPeerAuthorization.Failure {
                     return Self.shouldReleaseVerifiedSession(after: failure)
@@ -239,32 +289,38 @@ actor DeviceIrxClient {
             }
         }
         for (endpoint, entry) in revoked { await release(endpoint: endpoint, owner: entry.owner) }
-        let discovery = DiscoveryState(cache: cache)
+        let discovery = DiscoveryState.make(cache: cache, account: account)
         guard publishedDiscovery != discovery else { return }
         publishedDiscovery = discovery
         for observer in directoryObservers.values { observer.yield(()) }
     }
 
-    private func record(binding: V2DeviceRecord, endpoint: String, owner: UUID) -> Bool {
+    private func record(binding: V2DeviceRecord, source: DeviceDirectorySource, endpoint: String, owner: UUID) -> Bool {
         guard !stopped, var entry = sessions[endpoint], entry.owner == owner else { return false }
         if case .closing = entry.authorization { return false }
-        entry.authorization = .verified(bindingID: binding.deviceRecordID, generation: binding.descriptor.identityGeneration)
+        entry.authorization = .verified(bindingID: binding.deviceRecordID,
+            generation: binding.descriptor.identityGeneration, source: source)
         sessions[endpoint] = entry
         return true
     }
 
     private func permitsIO(context: DeviceIrxClientContext, endpoint: String, owner: UUID) async -> Bool {
-        guard let entry = sessions[endpoint], entry.owner == owner else { return false }
+        guard let entry = sessions[endpoint], entry.owner == owner,
+              case let .verified(_, _, source) = entry.authorization else { return false }
         let cache = await context.control.snapshot().cache
-        guard let peer = try? IrxMacPeerAuthorization(
+        let account = await context.accountDirectory()
+        guard let peer = try? Self.resolveTarget(intent: IrxMacPeerAuthorization(
             deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
-        ).resolve(cache: cache, localIdentity: context.localDevice.descriptor.identity, now: permissionNow()) else { return false }
+        ), source: source, cache: cache, account: account,
+            localIdentity: context.localDevice.descriptor.identity, now: permissionNow()) else { return false }
         return isAuthorized(peer, endpoint: endpoint, owner: owner)
     }
 
-    private func isAuthorized(_ peer: V2DeviceRecord, endpoint: String, owner: UUID) -> Bool {
+    private func isAuthorized(_ target: DeviceResolvedMacTarget, endpoint: String, owner: UUID) -> Bool {
+        let peer = target.record
         guard !stopped, let session = sessions[endpoint], session.owner == owner,
-              case let .verified(bindingID, generation) = session.authorization else { return false }
+              case let .verified(bindingID, generation, source) = session.authorization,
+              target.source == source else { return false }
         return peer.descriptor.identity.deviceID.lowercased() == session.instance.deviceID
             && peer.descriptor.identity.buildTag == session.instance.tag
             && peer.deviceRecordID == bindingID && peer.descriptor.identityGeneration == generation
@@ -307,14 +363,17 @@ actor DeviceIrxClient {
         context provider: ContextProvider,
         journal: IrxJournal,
         now: @escaping @Sendable () -> Date,
-        recordBinding: @escaping @Sendable (V2DeviceRecord) async -> Bool
+        recordBinding: @escaping @Sendable (V2DeviceRecord, DeviceDirectorySource) async -> Bool
     ) async throws -> IrxClientSession {
         let context = try await provider()
         guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
         let cache = await context.control.snapshot().cache
         let intent = IrxMacPeerAuthorization(deviceID: instance.deviceID, tag: instance.tag, endpointID: endpoint)
-        let target = try intent.resolve(cache: cache, localIdentity: context.localDevice.descriptor.identity, now: now())
-        let relay = target.descriptor.metadata.relayURLs.first { cache.directory?.relayURLs.contains($0) == true }
+        let resolved = try Self.resolveTarget(intent: intent, source: nil, cache: cache,
+            account: await context.accountDirectory(),
+            localIdentity: context.localDevice.descriptor.identity, now: now())
+        let target = resolved.record
+        let relay = target.descriptor.metadata.relayURLs.first { resolved.relayURLs.contains($0) }
         guard let relay else { throw DeviceLinkError.notConnected }
         var credentials = Self.relayCredentials(cache, at: now())
         if credentials.isEmpty {
@@ -332,11 +391,8 @@ actor DeviceIrxClient {
             // candidates; on the relay-only lane it runs here, exactly once
             // either way (recordBinding has a side effect).
             let recheckBinding: @Sendable () async throws -> Void = {
-                let latest = try intent.resolve(cache: await context.control.snapshot().cache,
-                    localIdentity: context.localDevice.descriptor.identity, now: now())
-                guard latest.deviceRecordID == target.deviceRecordID,
-                      latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
-                      await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
+                try await Self.recheck(intent: intent, resolved: resolved, context: context, now: now,
+                    recordBinding: recordBinding)
             }
             let (admit, control) = try await IrxAdmission().performClient(
                 connection: connection, journal: journal,
@@ -349,5 +405,26 @@ actor DeviceIrxClient {
             await connection.close(code: .userRequested, origin: .local)
             throw error
         }
+    }
+
+    /// The post-admit binding recheck. It resolves only against the directory
+    /// that selected the target, so the NAT preAuthorization barrier can never
+    /// be satisfied by a different source naming the same endpoint.
+    static func recheck(
+        intent: IrxMacPeerAuthorization,
+        resolved: DeviceResolvedMacTarget,
+        context: DeviceIrxClientContext,
+        now: @escaping @Sendable () -> Date,
+        recordBinding: @escaping @Sendable (V2DeviceRecord, DeviceDirectorySource) async -> Bool
+    ) async throws {
+        let target = resolved.record
+        let latest = try Self.resolveTarget(intent: intent, source: resolved.source,
+            cache: await context.control.snapshot().cache,
+            account: resolved.source == .account ? await context.accountDirectory() : nil,
+            localIdentity: context.localDevice.descriptor.identity, now: now())
+        guard latest.source == resolved.source,
+              latest.record.deviceRecordID == target.deviceRecordID,
+              latest.record.descriptor.identityGeneration == target.descriptor.identityGeneration,
+              await context.isCurrent(), await recordBinding(target, resolved.source) else { throw DeviceLinkError.identityMismatch }
     }
 }

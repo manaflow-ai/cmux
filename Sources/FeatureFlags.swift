@@ -213,6 +213,26 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
     )
 
+    // FLAG(key: mac-account-directory-release, owner: lawrencecchen,
+    //      reviewBy: 2027-01-31, defaultWhenUnavailable: true)
+    // Lets My Devices find and admit the same user's Macs across teams through
+    // the per-user account directory. Off falls back to team-only discovery
+    // and admission; the enabled fallback keeps the shipping behavior when
+    // PostHog is unavailable, and a remote false value is the kill switch.
+    // Declared nonisolated because the host's admission path reads it off main.
+    nonisolated static let macAccountDirectoryFlag = CmuxFeatureFlagDefinition(
+        key: "mac-account-directory-release",
+        title: String(
+            localized: "featureFlags.macAccountDirectory.title",
+            defaultValue: "Cross-team My Devices"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.macAccountDirectory.description",
+            defaultValue: "Finds and connects your Macs signed in to the same account even when they selected different teams."
+        ),
+        defaultWhenUnavailable: true
+    )
+
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -338,7 +358,8 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
             CmuxFeatureFlags.agentInboxQuickViewFlag,
-            CmuxFeatureFlags.conversationSidebarFlag
+            CmuxFeatureFlags.conversationSidebarFlag,
+            CmuxFeatureFlags.macAccountDirectoryFlag
         ]
     }()
 

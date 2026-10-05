@@ -33,8 +33,8 @@ final class DeviceSurfaceProviderRegistry {
     private var identity: AuthenticatedSessionIdentity?
     private var teamID: String?
     private var providers: [SurfaceDeviceInstanceID: DeviceSurfaceProvider] = [:]
-    /// The last directory revision forwarded to links; an advance retries host refusals once.
-    private var lastDirectoryRevision: Int?
+    /// The last directory stamp forwarded to links; an advance retries host refusals once.
+    private var lastDirectoryStamp: DeviceDirectoryStamp?
     private var directoryObserver: NSObjectProtocol?
     private var authorizationObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
@@ -150,7 +150,7 @@ final class DeviceSurfaceProviderRegistry {
             directoryObserver = nil
             directory?.stop()
             directory = nil
-            lastDirectoryRevision = nil
+            lastDirectoryStamp = nil
             if let client = runtime?.automaticClient { Task { await client.stop() } }
             runtime = nil
             for (instance, provider) in providers {
@@ -245,11 +245,11 @@ final class DeviceSurfaceProviderRegistry {
                 provider.update(record: record)
             }
         }
-        if let revision = directory.directoryStamp?.revision {
-            if let last = lastDirectoryRevision, revision > last {
+        if let stamp = directory.directoryStamp {
+            if let last = lastDirectoryStamp, stamp.advanced(since: last) {
                 for provider in providers.values { provider.directoryRevisionAdvanced() }
             }
-            lastDirectoryRevision = revision
+            lastDirectoryStamp = stamp
         }
     }
 }
