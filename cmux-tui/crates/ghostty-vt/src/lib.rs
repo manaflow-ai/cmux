@@ -37,11 +37,11 @@ pub use snapshot::{
 };
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
-    MAX_CLIPBOARD_READ_BYTES, HistoryPage, HistoryPages, HistorySnapshot,
-    KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState, MarkerError, NotifyFn, PtyWriteFn,
-    Rgb, SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange,
-    Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
-    VtReplay, parse_color, parse_palette_entry,
+    HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits, KittyImageIdCursors,
+    KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn, PtyWriteFn, Rgb,
+    SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
+    TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
+    parse_color, parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

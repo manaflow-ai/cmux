@@ -81,7 +81,9 @@ impl Terminal {
         } else {
             ptr::null()
         };
-        unsafe { sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ, callback) };
+        unsafe {
+            sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ, callback)
+        };
     }
 
     /// Answers the deferred read `token`: `Some(text)` returns the text (at

@@ -7,7 +7,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, ClipboardLocation, ClipboardReadRequest, Terminal, MAX_CLIPBOARD_READ_BYTES};
+use ghostty_vt::{
+    Callbacks, ClipboardLocation, ClipboardReadRequest, MAX_CLIPBOARD_READ_BYTES, Terminal,
+};
 
 struct Harness {
     term: Terminal,
