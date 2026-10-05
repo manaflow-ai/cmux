@@ -13,12 +13,12 @@ struct Connection {
 
 impl Connection {
     fn new(role: Option<&str>) -> Self {
-        let mux = Mux::new_for_test("new-screen-origin", SurfaceOptions::default());
+        let mux = Mux::new_for_test("new-screen-origin", crate::SurfaceOptions::default());
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound, control: None });
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         if let Some(role) = role {
-            crate::server::origin_gate::set_role_for_test(&mux, client, role);
+            origin_gate::set_role_for_test(&mux, client, role);
         }
         mux.new_workspace(None, Some((60, 8))).unwrap();
         Self { mux, client, writer }
