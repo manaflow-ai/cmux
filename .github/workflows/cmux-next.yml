@@ -396,7 +396,14 @@ jobs:
         run: |
           git submodule update --init --depth 1 --filter=blob:none ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
-          bash scripts/cmux-next/tests/bundled-terminfo.test.sh
+
+      # The bundled terminfo (Ghostty's entries with cmux's overlay on top)
+      # carries ghostty-next's capabilities and cmux's 256-color 8-15 patch.
+      # Its own step, so the summary names it when it is red.
+      - name: Bundled terminfo
+        id: bundled-terminfo
+        continue-on-error: true
+        run: bash scripts/cmux-next/tests/bundled-terminfo.test.sh
 
       - name: Checks job structure
         id: checks-structure
@@ -418,6 +425,7 @@ jobs:
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
+            ${{ steps.bundled-terminfo.outcome }}|Bundled terminfo
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
