@@ -43,6 +43,14 @@ import Testing
         #expect(!trackers.isEmpty)
         for tracker in region.subviews {
             #expect(tracker.frame == region.bounds, "tracking view \(tracker.frame) vs region \(region.bounds)")
+            // What the tracking area covers: its own rect, or the view's visible rect, which reaches
+            // past the bounds of a view that does not clip (live: the whole 1100 x 720 window).
+            tracker.updateTrackingAreas()
+            #expect(!tracker.trackingAreas.isEmpty)
+            for area in tracker.trackingAreas {
+                #expect(!area.options.contains(.inVisibleRect), "a visible-rect area can cover the whole window")
+                #expect(area.rect == tracker.bounds, "tracked \(area.rect) vs bounds \(tracker.bounds)")
+            }
         }
         withExtendedLifetime(reveal) {}
     }
