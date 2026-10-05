@@ -265,6 +265,14 @@ until its `up`; another session's input on the tab never carries it.
 | `tab.screenshot` | `{ targetId, clip?, fullPage?, format: "png"\|"jpeg"\|"webp", quality? }` (the session adds `secretMasks`) | `{ base64, width, height }` |
 | `tab.pdf` | `{ targetId, format?, width?, height?, landscape?, printBackground?, margin? }` | `{ base64 }` |
 
+Each screenshot edge is at most 16,384 CSS pixels, and a screenshot has at
+most 2^25 pixels (a full page 2,048 wide and 16,384 tall), counted also
+after the page's zoom, since WebKit snapshots the zoomed view; a larger
+one, or a clip that is not finite, fails with `invalid`. A PDF's paper
+edges must be above 0 and at most 14,400 points (200 inches, the largest
+page a PDF describes without a user unit), its margins 0 or more and
+leaving room on the paper, else `invalid` before anything is printed.
+
 ## Files, dialogs, popups, downloads
 
 | Method | Params |
