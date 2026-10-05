@@ -25,29 +25,17 @@ IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
 
 check_cla_guard_runner() {
-  # The guard parses attacker-controlled YAML with a trusted token, so only an
-  # ephemeral runner may take it: GitHub-hosted or a one-job Blacksmith VM.
-  # CI_TRUSTED_RUNNER picks between those so an outage of either provider does
-  # not stop every merge; it cannot name a persistent machine (the allowlist
-  # lives in this base-branch file, and anything else falls back to Blacksmith).
-  local expected
-  expected="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
-  if ! grep -Fqx "$expected" "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must use the CI_TRUSTED_RUNNER ephemeral selector"
+  if ! grep -Fqx '    runs-on: ubuntu-24.04' "$CLA_GUARD_FILE"; then
+    echo "FAIL: cla-policy-guard.yml must use the fixed GitHub-hosted ubuntu-24.04 runner"
     exit 1
   fi
 
-  if grep -Eq '^    runs-on:.*(vars\.LINUX_RUNNER|self-hosted|glaeda-)' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must not allow a persistent or owned runner"
+  if grep -Eq '^    runs-on:.*(vars\.LINUX_RUNNER|blacksmith-|self-hosted)' "$CLA_GUARD_FILE"; then
+    echo "FAIL: cla-policy-guard.yml must not allow a variable or self-hosted runner override"
     exit 1
   fi
 
-  if ! grep -Fq "if: runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-')" "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must refuse a runner that is neither GitHub-hosted nor Blacksmith"
-    exit 1
-  fi
-
-  echo "PASS: CLA policy guard uses the ephemeral trusted runner selector"
+  echo "PASS: CLA policy guard uses the fixed GitHub-hosted runner"
 }
 
 check_macos_runner() {
@@ -1151,15 +1139,17 @@ check_no_bare_github_hosted_runners() {
   # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden. A
   # GitHub-hosted macOS label may appear only as the MACOS_RUNNER_BACKGROUND
   # fallback; check_background_macos_lane enforces that.
-  # Control-plane jobs that hold trusted tokens (CLA, backend migrations, web
-  # complexity) use the CI_TRUSTED_RUNNER selector, which can only pick
-  # ephemeral GitHub-hosted or Blacksmith labels; test_ci_fork_runner_routing.py
-  # pins its exact form.
+  # The CLA policy guard is a separate immutable control-plane job and is
+  # intentionally exempted below because it must never honor a repository
+  # variable or self-hosted runner override (validate-cla-policy.rb pins it).
+  # Backend migrations and web complexity hold trusted tokens and use the
+  # CI_TRUSTED_RUNNER selector, which can only pick ephemeral GitHub-hosted or
+  # Blacksmith labels; test_ci_fork_runner_routing.py pins its exact form.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" || true)"
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"

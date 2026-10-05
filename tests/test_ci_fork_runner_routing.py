@@ -83,8 +83,6 @@ TRUSTED_RUNNER_EXPRESSION = (
 TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
-    ("cla-policy-guard.yml", "validate"),
-    ("cla.yml", "CLAAssistant"),
     ("backend-migrations.yml", "plan"),
     ("backend-migrations.yml", "apply-staging"),
     ("backend-migrations.yml", "apply-production"),
