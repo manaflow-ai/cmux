@@ -14,6 +14,7 @@ struct CloudTreeBuildInputs: Equatable {
     var includeLocalMachine = CloudTreeNodeBuilder.includesLocalMachine
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    var coderouterAccounts: [CloudTreeNode.CoderouterAccount] = []
     var showsCloudVPNWarning = false
     var canCreateCloudMachine = false
     var cloudMachinesUsage: CloudMachinesUsage? = nil
@@ -29,6 +30,7 @@ struct CloudTreeBuildInputs: Equatable {
             pinnedMachineIDs: pinnedMachineIDs.union(machines.filter(\.isPinned).map(\.id)),
             includeLocalMachine: includeLocalMachine,
             source: source, devicesSection: devicesSection,
+            coderouterAccounts: coderouterAccounts,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage,

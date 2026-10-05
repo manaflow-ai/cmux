@@ -16,6 +16,7 @@ extension CloudTreeNodeBuilder {
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
+        coderouterAccounts: [CloudTreeNode.CoderouterAccount] = [],
         showsCloudVPNWarning: Bool = false,
         canCreateCloudMachine: Bool = false,
         cloudMachinesUsage: CloudMachinesUsage? = nil,
@@ -140,13 +141,21 @@ extension CloudTreeNodeBuilder {
         }
         // Keep CodeRouter immediately below My Devices so account management
         // stays alongside the two account-scoped machine sections.
+        var coderouterChildren = coderouterAccounts.map { account in
+            CloudTreeNode(
+                id: "coderouter-section/account/\(account.id)",
+                kind: .coderouterAccount(account)
+            )
+        }
+        if coderouterChildren.isEmpty {
+            coderouterChildren.append(CloudTreeNode(id: "coderouter-section/empty", kind: .coderouterEmpty))
+        }
+        coderouterChildren.append(CloudTreeNode(id: "coderouter-section/add-account", kind: .coderouterAddAccount))
         nodes.append(CloudTreeNode(
             id: "coderouter-section",
             kind: .coderouterSection,
-            children: [
-                CloudTreeNode(id: "coderouter-section/empty", kind: .coderouterEmpty),
-                CloudTreeNode(id: "coderouter-section/add-account", kind: .coderouterAddAccount)
-            ]
+            // Account rows are snapshots. Credentials never enter the tree.
+            children: coderouterChildren
         ))
         return nodes
     }

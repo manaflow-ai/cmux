@@ -33,6 +33,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    var coderouterAccounts: [CloudTreeNode.CoderouterAccount] = []
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
@@ -74,6 +75,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             source: source,
             devicesSection: devicesSection,
+            coderouterAccounts: coderouterAccounts,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
@@ -520,7 +522,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection:
                 toggle(node)
-            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterEmpty:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAccount, .coderouterEmpty:
                 break
             case .coderouterAddAccount:
                 nodeActions.openCoderouterCLI()
@@ -811,7 +813,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
-            case .coderouterSection, .coderouterEmpty, .coderouterAddAccount:
+            case .coderouterSection, .coderouterAccount, .coderouterEmpty, .coderouterAddAccount:
                 return []
             case .createAction, .machineEndSpacer: return []
             case .machineDetailTabs(let tabs):

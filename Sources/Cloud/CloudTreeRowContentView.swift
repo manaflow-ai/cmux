@@ -52,6 +52,13 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
         case .coderouterSection:
             groupRow(title: String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter"))
+        case .coderouterAccount(let account):
+            CloudTreeLeafRow(
+                style: style,
+                icon: "person.crop.circle",
+                tint: .secondary,
+                title: account.label?.isEmpty == false ? account.label! : account.provider.capitalized
+            )
         case .coderouterEmpty:
             CloudTreeLeafRow(style: style, icon: "", tint: .clear,
                              title: String(localized: "coderouter.empty", defaultValue: "No accounts yet"), titleDimmed: true)

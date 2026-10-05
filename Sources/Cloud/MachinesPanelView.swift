@@ -24,6 +24,7 @@ struct MachinesPanelView: View {
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
     @State private var isShowingCoderouterAccountChooser = false
+    @State private var coderouterAccounts: [CloudTreeNode.CoderouterAccount] = []
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -126,6 +127,16 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
             viewModel.cancelCloudAgentTask()
+        }
+        .task(id: accountFlow?.confirmedTeamID) {
+            while !Task.isCancelled {
+                await refreshCoderouterAccounts()
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
+            }
         }
         .confirmationDialog(
             "Add coding agent account",
@@ -477,6 +488,7 @@ struct MachinesPanelView: View {
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(), isRefreshing: devicesModel.isRefreshing
             ),
+            coderouterAccounts: coderouterAccounts,
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest) : nil,
@@ -484,6 +496,35 @@ struct MachinesPanelView: View {
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
+    }
+
+    @MainActor
+    private func refreshCoderouterAccounts() async {
+        guard let teamID = accountFlow?.confirmedTeamID,
+              !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let client = AIAccountsClient.shared else {
+            coderouterAccounts = []
+            return
+        }
+        do {
+            let values = try await client.list(teamID: teamID)
+            coderouterAccounts = values.compactMap(Self.coderouterAccount(from:))
+        } catch {
+            // Keep the last successful snapshot during a transient refresh failure.
+        }
+    }
+
+    private static func coderouterAccount(from value: JSONValue) -> CloudTreeNode.CoderouterAccount? {
+        guard case .object(let object) = value,
+              case .string(let id)? = object["id"],
+              case .string(let provider)? = object["kind"] ?? object["provider"] else {
+            return nil
+        }
+        let label: String?
+        if case .string(let value)? = object["label"] { label = value } else { label = nil }
+        let state: String?
+        if case .string(let value)? = object["state"] { state = value } else { state = nil }
+        return CloudTreeNode.CoderouterAccount(id: id, provider: provider, label: label, state: state)
     }
 
     @MainActor

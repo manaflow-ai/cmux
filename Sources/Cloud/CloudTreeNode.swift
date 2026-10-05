@@ -13,6 +13,12 @@ import Foundation
 /// expansion and selection survive a rebuild. Rows below the outline receive
 /// only the node's values plus a closure bundle (snapshot-boundary rule).
 final class CloudTreeNode: NSObject {
+    struct CoderouterAccount: Equatable {
+        let id: String
+        let provider: String
+        let label: String?
+        let state: String?
+    }
     // Box the payload once: machine/catalog snapshots otherwise enlarge every
     // case and every row-content copy by hundreds of bytes.
     indirect enum Kind: Equatable {
@@ -68,6 +74,7 @@ final class CloudTreeNode: NSObject {
         case devicesSection(CloudTreeDevicesSection)
         /// The team CodeRouter account and usage section.
         case coderouterSection
+        case coderouterAccount(CoderouterAccount)
         case coderouterEmpty
         case coderouterAddAccount
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
@@ -149,6 +156,7 @@ final class CloudTreeNode: NSObject {
         case .device: return "device"
         case .devicesSection: return "devicesSection"
         case .coderouterSection: return "coderouterSection"
+        case .coderouterAccount: return "coderouterAccount"
         case .coderouterEmpty: return "coderouterEmpty"
         case .coderouterAddAccount: return "coderouterAddAccount"
         case .cloudMachinesSection: return "cloudMachinesSection"
@@ -205,7 +213,7 @@ final class CloudTreeNode: NSObject {
         case .browser(let row): return row.resource.machine
         case .device(let row): return row.machine
         case .devicesSection, .devicesEmpty: return .cloud("devices-section")
-        case .coderouterSection, .coderouterEmpty, .coderouterAddAccount: return .cloud("coderouter-section")
+        case .coderouterSection, .coderouterAccount, .coderouterEmpty, .coderouterAddAccount: return .cloud("coderouter-section")
         case .cloudMachinesSection: return .cloud("cloud-machines-section")
         case .createAction(let action): return action.machine
         case .machineDetailTabs(let tabs): return tabs.machine
@@ -243,6 +251,8 @@ final class CloudTreeNode: NSObject {
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
         case .coderouterSection: return String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter")
+        case .coderouterAccount(let account):
+            return account.label?.isEmpty == false ? account.label! : account.provider.capitalized
         case .coderouterEmpty: return String(localized: "coderouter.empty", defaultValue: "No accounts yet")
         case .coderouterAddAccount: return String(localized: "coderouter.addAccount", defaultValue: "Add coding agent account")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
@@ -311,7 +321,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .coderouterSection, .coderouterEmpty, .coderouterAddAccount, .createAction,
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .coderouterSection, .coderouterAccount, .coderouterEmpty, .coderouterAddAccount, .createAction,
              .machineDetailTabs, .machineEndSpacer:
             return nil
         }
