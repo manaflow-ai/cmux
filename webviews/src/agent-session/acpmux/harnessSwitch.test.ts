@@ -229,14 +229,18 @@ describe("harness switch: a prompt sent before the session is ready", () => {
   /// taken in the pick's own handler and goes with the pick's frame when the switch applies it.
   test("a held mode or effort pick takes a gesture ticket at once and sends it with the pick", async () => {
     const { store, port } = setup();
-    const asked: string[] = [];
+    const asked: unknown[] = [];
     let next = 0;
-    store.setHandlers({ gesture: () => (asked.push("gesture"), Promise.resolve(`ticket-${(next += 1)}`)) });
+    store.setHandlers({ gesture: (intent) => (asked.push(intent), Promise.resolve(`ticket-${(next += 1)}`)) });
     void store.switchTo("codex");
     expect(store.pickMode("read-only")).toBe(true);
     expect(store.pickConfig("reasoning_effort", "high")).toBe(true);
-    // Asked in the pick, before acpmux started anything.
-    expect(asked).toEqual(["gesture", "gesture"]);
+    // Asked in the pick, before acpmux started anything, bound to exactly the frame it will send
+    // (ad349: the frame's params without sessionId and _meta).
+    expect(asked).toEqual([
+      { method: "session/set_mode", params: { modeId: "read-only" } },
+      { method: "session/set_config_option", params: { configId: "reasoning_effort", value: "high" } },
+    ]);
     port.creates[0]!.reply.resolve("codex-1");
     await settle();
     expect(port.calls.slice(2)).toEqual(["open codex-1", "mode read-only", "config reasoning_effort=high"]);
