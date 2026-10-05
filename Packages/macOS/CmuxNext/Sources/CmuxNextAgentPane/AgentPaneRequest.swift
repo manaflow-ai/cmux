@@ -65,7 +65,32 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` whose params the bridge refused (no
     /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
+    /// `transport.open`: open the host's acpmux socket named by the last handshake
+    /// (``AgentPaneTransport``); answers `{connection}` once it is open.
+    case transportOpen
+    /// `transport.send` with `{connection, frames}`: page frames for the host's socket, checked
+    /// against ``AcpmuxPaneMethods``.
+    case transportSend(connection: Int, frames: [String])
+    /// `transport.close` with `{connection}`.
+    case transportClose(connection: Int)
+    /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
+    /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
+    /// contract (``AgentPaneGestureIntent``).
+    case transportGesture(AgentPaneGestureIntent?)
+    /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
+    case transportGestureRelease
     case unsupported(String)
+
+    /// Most frames in one `transport.send` (the page sends what one task wrote).
+    public static let maximumSendFrames = 4096
+
+    /// A transport request: frequent and carrying chat content, so never logged with its values.
+    public var isTransport: Bool {
+        switch self {
+        case .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: true
+        default: false
+        }
+    }
 
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
@@ -180,6 +205,22 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
                 self = .git(git)
             } else {
                 self = .invalidGit(method)
+            }
+        case "transport.open": self = .transportOpen
+        case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
+        case "transport.gesture.release": self = .transportGestureRelease
+        case "transport.send":
+            if let connection = params?["connection"] as? Int, let frames = params?["frames"] as? [String],
+               !frames.isEmpty, frames.count <= Self.maximumSendFrames {
+                self = .transportSend(connection: connection, frames: frames)
+            } else {
+                self = .unsupported(method)
+            }
+        case "transport.close":
+            if let connection = params?["connection"] as? Int {
+                self = .transportClose(connection: connection)
+            } else {
+                self = .unsupported(method)
             }
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)

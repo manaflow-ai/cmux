@@ -196,7 +196,7 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-pane"),

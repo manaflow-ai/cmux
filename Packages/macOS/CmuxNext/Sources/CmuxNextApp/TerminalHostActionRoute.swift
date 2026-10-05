@@ -10,6 +10,8 @@ enum TerminalHostActionRoute {
     struct Route: Equatable {
         var id: ActionID
         var arguments: [String: ActionValue] = [:]
+        /// The run targets the terminal's tab (false: the active workspace).
+        var targetsTerminal = true
     }
 
     static func route(_ action: TerminalHostAction) -> Route? {
@@ -47,7 +49,29 @@ enum TerminalHostActionRoute {
             return Route(id: "renameTab")
         case .find:
             return Route(id: "find")
-        case .closeAllWindows, .quit, .toggleMaximize, .toggleInspector, .checkForUpdates, .undo, .redo:
+        case .quit:
+            return Route(id: "quit")
+        case .checkForUpdates:
+            return Route(id: "palette.checkForUpdates")
+        case .undo:
+            // Ghostty's undo restores the last closed tab, split or window.
+            return Route(id: "history.reopen")
+        case .toggleVisibility:
+            return Route(id: "showHideAllWindows")
+        case .toggleTabOverview:
+            return Route(id: "tab.search")
+        case .promptWindowTitle:
+            // cmux's window title is the active workspace's name.
+            return Route(id: "renameWorkspace", targetsTerminal: false)
+        case .setWindowTitle(let title):
+            return Route(id: "renameWorkspace", arguments: ["name": .string(title)], targetsTerminal: false)
+        case .presentTerminal:
+            return Route(id: "tab.focus")
+        case .closeAllWindows, .toggleMaximize:
+            // Catalog actions to come (coordinator decisions A1, B1).
+            return nil
+        case .toggleInspector, .redo:
+            // No cmux equivalent: Ghostty's terminal inspector; redo of a reopen (decision C1).
             return nil
         }
     }

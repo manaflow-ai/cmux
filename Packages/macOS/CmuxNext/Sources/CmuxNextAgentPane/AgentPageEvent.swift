@@ -8,7 +8,7 @@ public import Foundation
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `theme`, `shortcuts`, `preview`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command` or `focusLocation`.
+    /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
 
@@ -63,6 +63,11 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
+
+    /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).
+    public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {
+        AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
+    }
 
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
