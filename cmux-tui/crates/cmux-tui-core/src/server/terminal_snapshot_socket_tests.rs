@@ -1001,38 +1001,27 @@ fn snapshot_images_bytes_for_one_512_image() {
 /// A 64x64 8-bit RGB PNG (one color), base64.
 const PNG_64_RGB_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PQQkAAAgEsItjJhMbywi+hcEKLFP9WgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQELgs6CKEtxmKJKgAAAABJRU5ErkJggg==";
 
-/// The dogfood flow: a real PTY child prints 400 short lines and one PNG
-/// transmission (`f=100,a=T,c=8,r=4`, no id, no `q`), then an attach by
+/// The dogfood transmission (400 short lines, then `f=100,a=T,c=8,r=4` with
+/// a PNG, no id, no `q`) through the reader's parse path, then an attach by
 /// identity (no surface) with `snapshot_images` gets an images phase that
-/// recreates the image.
+/// recreates the image. The real PTY child and terminal host flow is the
+/// cmux-tui integration test `a_hosted_png_reaches_a_snapshot_images_viewer`
+/// (this test mux runs no host).
 #[test]
-fn a_png_printed_by_the_pty_child_reaches_an_identity_attach_as_images() {
-    let script = format!(
-        "i=0; while [ $i -lt 400 ]; do echo \"line $i\"; i=$((i+1)); done; \
-         printf '\\033_Gf=100,a=T,c=8,r=4;%s\\033\\\\' '{PNG_64_RGB_BASE64}'; \
-         echo IMAGE-PRINTED; exec cat"
+fn a_png_transmission_reaches_an_identity_attach_as_images() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-images-png", 0);
+    for line in 0..400 {
+        surface.inject_output_for_test(format!("line {line}\r\n").as_bytes());
+    }
+    surface.inject_output_for_test(
+        format!("\x1b_Gf=100,a=T,c=8,r=4;{PNG_64_RGB_BASE64}\x1b\\IMAGE-PRINTED\r\n").as_bytes(),
     );
-    let mux = Mux::new_for_test(
-        "snapshot-images-pty-png",
-        SurfaceOptions {
-            command: Some(vec!["/bin/sh".into(), "-c".into(), script]),
-            ..SurfaceOptions::default()
-        },
-    );
-    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let stored = loop {
-        let stored = surface
-            .with_terminal(|term| {
-                let images = term.kitty_graphics_snapshot().map(|g| g.images.len()).unwrap_or(0);
-                (images, term.kitty_image_generation().unwrap_or(0))
-            })
-            .unwrap();
-        if stored.0 > 0 || Instant::now() >= deadline {
-            break stored;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let stored = surface
+        .with_terminal(|term| {
+            let images = term.kitty_graphics_snapshot().map(|g| g.images.len()).unwrap_or(0);
+            (images, term.kitty_image_generation().unwrap_or(0))
+        })
+        .unwrap();
     assert_eq!(stored.0, 1, "the host terminal stores the PNG image");
     assert!(stored.1 > 0, "the Kitty image generation moved");
 
