@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
 /// context menus all resolve through the registry (REWRITE.md "Action
@@ -71,9 +72,12 @@ enum AppActions {
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
         WindowKeyTable.install(services)
-        // One owner per action: a second binding would silently replace the first.
-        assert(registry.duplicateBindings.isEmpty || !registry.assertsOnDuplicateBinding,
-               "actions bound twice: \(registry.duplicateBindings.map(\.rawValue))")
+        // One owner per action: a second binding silently replaces the first. The check is a test
+        // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
+        if !registry.duplicateBindings.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions")
+                .fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        }
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {

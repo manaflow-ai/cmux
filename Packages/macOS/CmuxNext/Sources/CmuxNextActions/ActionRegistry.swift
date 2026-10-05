@@ -163,13 +163,17 @@ public final class ActionRegistry {
 
     // MARK: - Binding
 
-    /// Catalog ids bound a second time without an `unbind` first: two owners for one action, a bug
-    /// in the app's wiring that would otherwise hide (the newer handler silently wins). The app
-    /// asserts it is empty once its handlers are bound (DEBUG); a test may still replace a handler
-    /// with a fake after that.
+    /// Ids bound twice without an `unbind` (two owners; the newer silently wins). Checked by the
+    /// `noActionIsBoundTwice` test, never trapped; the app logs a fault. A real bind replacing a
+    /// ``bindUnavailable(_:reason:)`` placeholder is no duplicate; anything else bound twice is.
     public private(set) var duplicateBindings: [ActionID] = []
-    /// False only in tests that check ``duplicateBindings`` themselves.
-    public var assertsOnDuplicateBinding = true
+    private var placeholders: Set<ActionID> = []
+
+    func noteBinding(_ id: ActionID, placeholder: Bool) {
+        let canonical = canonicalID(for: id)
+        if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
+        if placeholder { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
+    }
 
     /// Registers `action`, replacing any action with the same ID. Legacy IDs
     /// are folded into their canonical ID.
@@ -216,7 +220,7 @@ public final class ActionRegistry {
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
         guard let descriptor = descriptor(for: id) else { return false }
-        if indexByID[canonicalID(for: descriptor.id)] != nil { duplicateBindings.append(descriptor.id) }
+        noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,
             title: descriptor.title,
@@ -232,6 +236,7 @@ public final class ActionRegistry {
     /// Removes the handler for `id`. The descriptor stays in the catalog.
     public func unbind(_ id: ActionID) {
         let id = canonicalID(for: id)
+        placeholders.remove(id)
         guard let index = indexByID[id] else { return }
         actions.remove(at: index)
         indexByID = Dictionary(uniqueKeysWithValues: actions.enumerated().map { ($1.id, $0) })
