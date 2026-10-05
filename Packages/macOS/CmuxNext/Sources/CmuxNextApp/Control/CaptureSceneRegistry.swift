@@ -145,6 +145,7 @@ final class CaptureSceneRegistry {
         // ordinary quiet rows so a previous scene cannot leak its appearance.
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
+        _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
         switch name {
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)

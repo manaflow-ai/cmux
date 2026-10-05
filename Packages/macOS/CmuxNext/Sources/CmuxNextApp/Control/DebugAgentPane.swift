@@ -16,7 +16,7 @@ import WebKit
 /// seeds a turn that edits three files instead, for the changes view), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
-/// `reset_typing`, `open_menu` (`label`: opens that composer menu, such as
+/// `reset_typing`, `close_menus`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
 /// keeps the newest entries), `acp_log_export` (that log as JSON Lines),
@@ -77,8 +77,31 @@ enum DebugAgentPane {
         if action == "readiness" {
             return await readiness(pane: pane, view: view)
         }
+        if action == "close_menus" {
+            let script = """
+            const target = document.activeElement || document.body;
+            target.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+              bubbles: true, cancelable: true
+            }));
+            return JSON.stringify({
+              menus: document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu').length
+            });
+            """
+            do {
+                let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+                guard let text = result as? String,
+                      let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                      let value = JSONValue(foundation: object) else {
+                    return .object(["pane": .string(pane), "error": .string("the page returned no close_menus JSON")])
+                }
+                return .object(["pane": .string(pane), "result": value])
+            } catch {
+                return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+            }
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
