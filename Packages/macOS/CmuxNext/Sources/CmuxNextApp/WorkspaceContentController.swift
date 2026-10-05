@@ -162,6 +162,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
         panes[pane] = controller
+        services.paneMounts.changed()
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
@@ -174,6 +175,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {
         panes.removeValue(forKey: pane)?.teardown()
+        services.paneMounts.changed()
     }
 
     func panePresenceDidChange(_ pane: LayoutPaneID, presence: PanePresence) {

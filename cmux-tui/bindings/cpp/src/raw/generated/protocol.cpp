@@ -8396,6 +8396,136 @@ Result<TabRef> Codec<TabRef>::decode(const Json& value) {
     return TabRef{std::move(decoded).value()};
 }
 
+Result<Json> Codec<TerminalClipboardHost>::encode(const TerminalClipboardHost& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    if (value.name) {
+        auto encoded = encode_value(*value.name);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("name", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<TerminalClipboardHost> Codec<TerminalClipboardHost>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalClipboardHost result{};
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<TerminalClipboardHostKind>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_name = value.find("name");
+    if (field_name) {
+        auto decoded = decode_value<std::string>(*field_name);
+        if (!decoded) return std::move(decoded).error();
+        result.name = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<TerminalClipboardHostKind>::encode(const TerminalClipboardHostKind& value) {
+    switch (value) {
+        case TerminalClipboardHostKind::local: return Json(std::string("local"));
+        case TerminalClipboardHostKind::remote: return Json(std::string("remote"));
+        case TerminalClipboardHostKind::cloud: return Json(std::string("cloud"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TerminalClipboardHostKind> Codec<TerminalClipboardHostKind>::decode(const Json& value) {
+    if (value == Json(std::string("local"))) return TerminalClipboardHostKind::local;
+    if (value == Json(std::string("remote"))) return TerminalClipboardHostKind::remote;
+    if (value == Json(std::string("cloud"))) return TerminalClipboardHostKind::cloud;
+    return make_error(ErrorCode::decode, "unknown TerminalClipboardHostKind value");
+}
+
+Result<Json> Codec<TerminalClipboardLocation>::encode(const TerminalClipboardLocation& value) {
+    switch (value) {
+        case TerminalClipboardLocation::standard: return Json(std::string("standard"));
+        case TerminalClipboardLocation::selection: return Json(std::string("selection"));
+        case TerminalClipboardLocation::primary: return Json(std::string("primary"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TerminalClipboardLocation> Codec<TerminalClipboardLocation>::decode(const Json& value) {
+    if (value == Json(std::string("standard"))) return TerminalClipboardLocation::standard;
+    if (value == Json(std::string("selection"))) return TerminalClipboardLocation::selection;
+    if (value == Json(std::string("primary"))) return TerminalClipboardLocation::primary;
+    return make_error(ErrorCode::decode, "unknown TerminalClipboardLocation value");
+}
+
+Result<Json> Codec<TerminalClipboardReplyResult>::encode(const TerminalClipboardReplyResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_accepted = encode_value(value.accepted);
+    if (!encoded_accepted) return std::move(encoded_accepted).error();
+    object.emplace("accepted", std::move(encoded_accepted).value());
+    auto encoded_granted = encode_value(value.granted);
+    if (!encoded_granted) return std::move(encoded_granted).error();
+    object.emplace("granted", std::move(encoded_granted).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalClipboardReplyResult> Codec<TerminalClipboardReplyResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalClipboardReplyResult result{};
+    const Json* field_accepted = value.find("accepted");
+    if (!field_accepted) {
+        return make_error(ErrorCode::decode, "missing required field 'accepted'");
+    }
+    if (field_accepted) {
+        auto decoded = decode_value<bool>(*field_accepted);
+        if (!decoded) return std::move(decoded).error();
+        result.accepted = std::move(decoded).value();
+    }
+    const Json* field_granted = value.find("granted");
+    if (!field_granted) {
+        return make_error(ErrorCode::decode, "missing required field 'granted'");
+    }
+    if (field_granted) {
+        auto decoded = decode_value<bool>(*field_granted);
+        if (!decoded) return std::move(decoded).error();
+        result.granted = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<TerminalClipboardSubscribeResult>::encode(const TerminalClipboardSubscribeResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_clipboard_read_ready = encode_value(value.clipboard_read_ready);
+    if (!encoded_clipboard_read_ready) return std::move(encoded_clipboard_read_ready).error();
+    object.emplace("clipboard_read_ready", std::move(encoded_clipboard_read_ready).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalClipboardSubscribeResult> Codec<TerminalClipboardSubscribeResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalClipboardSubscribeResult result{};
+    const Json* field_clipboard_read_ready = value.find("clipboard_read_ready");
+    if (!field_clipboard_read_ready) {
+        return make_error(ErrorCode::decode, "missing required field 'clipboard_read_ready'");
+    }
+    if (field_clipboard_read_ready) {
+        auto decoded = decode_value<bool>(*field_clipboard_read_ready);
+        if (!decoded) return std::move(decoded).error();
+        result.clipboard_read_ready = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalColorOverrides>::encode(const TerminalColorOverrides& value) {
     (void)value;
     Json::Object object;
@@ -22857,6 +22987,71 @@ Result<SwapPaneRequest> Codec<SwapPaneRequest>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<TerminalClipboardReplyRequest>::encode(const TerminalClipboardReplyRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_request_id = encode_value(value.request_id);
+    if (!encoded_request_id) return std::move(encoded_request_id).error();
+    object.emplace("request_id", std::move(encoded_request_id).value());
+    if (!value.text.is_absent()) {
+        auto encoded = encode_value(value.text);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("text", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<TerminalClipboardReplyRequest> Codec<TerminalClipboardReplyRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalClipboardReplyRequest result{};
+    const Json* field_request_id = value.find("request_id");
+    if (!field_request_id) {
+        return make_error(ErrorCode::decode, "missing required field 'request_id'");
+    }
+    if (field_request_id) {
+        auto decoded = decode_value<std::string>(*field_request_id);
+        if (!decoded) return std::move(decoded).error();
+        result.request_id = std::move(decoded).value();
+    }
+    const Json* field_text = value.find("text");
+    if (field_text) {
+        if (field_text->is_null()) {
+            result.text = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_text);
+            if (!decoded) return std::move(decoded).error();
+            result.text = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<TerminalClipboardSubscribeRequest>::encode(const TerminalClipboardSubscribeRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_terminal_ids = encode_value(value.terminal_ids);
+    if (!encoded_terminal_ids) return std::move(encoded_terminal_ids).error();
+    object.emplace("terminal_ids", std::move(encoded_terminal_ids).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalClipboardSubscribeRequest> Codec<TerminalClipboardSubscribeRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalClipboardSubscribeRequest result{};
+    const Json* field_terminal_ids = value.find("terminal_ids");
+    if (!field_terminal_ids) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_ids'");
+    }
+    if (field_terminal_ids) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_terminal_ids);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_ids = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalEventsRequest>::encode(const TerminalEventsRequest& value) {
     (void)value;
     Json::Object object;
@@ -27579,6 +27774,112 @@ Result<TabRenamedEvent> Codec<TabRenamedEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<TerminalClipboardReadEvent>::encode(const TerminalClipboardReadEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("terminal-clipboard-read")));
+    auto encoded_host = encode_value(value.host);
+    if (!encoded_host) return std::move(encoded_host).error();
+    object.emplace("host", std::move(encoded_host).value());
+    auto encoded_location = encode_value(value.location);
+    if (!encoded_location) return std::move(encoded_location).error();
+    object.emplace("location", std::move(encoded_location).value());
+    auto encoded_request_id = encode_value(value.request_id);
+    if (!encoded_request_id) return std::move(encoded_request_id).error();
+    object.emplace("request_id", std::move(encoded_request_id).value());
+    auto encoded_terminal_id = encode_value(value.terminal_id);
+    if (!encoded_terminal_id) return std::move(encoded_terminal_id).error();
+    object.emplace("terminal_id", std::move(encoded_terminal_id).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalClipboardReadEvent> Codec<TerminalClipboardReadEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalClipboardReadEvent result{};
+    const Json* field_host = value.find("host");
+    if (!field_host) {
+        return make_error(ErrorCode::decode, "missing required field 'host'");
+    }
+    if (field_host) {
+        auto decoded = decode_value<TerminalClipboardHost>(*field_host);
+        if (!decoded) return std::move(decoded).error();
+        result.host = std::move(decoded).value();
+    }
+    const Json* field_location = value.find("location");
+    if (!field_location) {
+        return make_error(ErrorCode::decode, "missing required field 'location'");
+    }
+    if (field_location) {
+        auto decoded = decode_value<TerminalClipboardLocation>(*field_location);
+        if (!decoded) return std::move(decoded).error();
+        result.location = std::move(decoded).value();
+    }
+    const Json* field_request_id = value.find("request_id");
+    if (!field_request_id) {
+        return make_error(ErrorCode::decode, "missing required field 'request_id'");
+    }
+    if (field_request_id) {
+        auto decoded = decode_value<std::string>(*field_request_id);
+        if (!decoded) return std::move(decoded).error();
+        result.request_id = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (!field_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_id'");
+    }
+    if (field_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("terminal-clipboard-read"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<TerminalClipboardReadCancelledEvent>::encode(const TerminalClipboardReadCancelledEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("terminal-clipboard-read-cancelled")));
+    auto encoded_request_id = encode_value(value.request_id);
+    if (!encoded_request_id) return std::move(encoded_request_id).error();
+    object.emplace("request_id", std::move(encoded_request_id).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalClipboardReadCancelledEvent> Codec<TerminalClipboardReadCancelledEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalClipboardReadCancelledEvent result{};
+    const Json* field_request_id = value.find("request_id");
+    if (!field_request_id) {
+        return make_error(ErrorCode::decode, "missing required field 'request_id'");
+    }
+    if (field_request_id) {
+        auto decoded = decode_value<std::string>(*field_request_id);
+        if (!decoded) return std::move(decoded).error();
+        result.request_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("terminal-clipboard-read-cancelled"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalReapedEvent>::encode(const TerminalReapedEvent& value) {
     (void)value;
     Json::Object object;
@@ -29895,6 +30196,16 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "terminal-clipboard-read") {
+        auto decoded = decode_value<TerminalClipboardReadEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "terminal-clipboard-read-cancelled") {
+        auto decoded = decode_value<TerminalClipboardReadCancelledEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "terminal-reaped") {
         auto decoded = decode_value<TerminalReapedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -30131,7 +30442,7 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand186FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 214> kCommands{{
+constexpr std::array<CommandMetadata, 216> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -30320,6 +30631,8 @@ constexpr std::array<CommandMetadata, 214> kCommands{{
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand185FieldRequirements)},
     {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand186FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"terminal-clipboard-reply", "frontend", 12U, "terminal-clipboard-read-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"terminal-clipboard-subscribe", "frontend", 12U, "terminal-clipboard-read-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-history", "control", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-read-range", "control", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -30347,7 +30660,7 @@ constexpr std::array<CommandMetadata, 214> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 58> kEvents{{
+constexpr std::array<EventMetadata, 60> kEvents{{
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},
@@ -30394,6 +30707,8 @@ constexpr std::array<EventMetadata, 58> kEvents{{
     {"tab-changed", 12U, "tab-metadata-v1", "subscribe-deltas", "emitted"},
     {"tab-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"tab-renamed", 7U, "", "subscribe-deltas", "emitted"},
+    {"terminal-clipboard-read", 12U, "terminal-clipboard-read-v1", "control", "emitted"},
+    {"terminal-clipboard-read-cancelled", 12U, "terminal-clipboard-read-v1", "control", "emitted"},
     {"terminal-reaped", 12U, "terminal-reap-v1", "subscribe", "emitted"},
     {"terminal-registry-changed", 9U, "", "subscribe", "emitted"},
     {"title-changed", 5U, "", "subscribe", "emitted"},
@@ -32490,6 +32805,26 @@ Result<EmptyResult> Client::swap_pane(
     auto response = core_.request("swap-pane", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<EmptyResult>(response.value());
+}
+
+Result<TerminalClipboardReplyResult> Client::terminal_clipboard_reply(
+    const TerminalClipboardReplyRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("terminal-clipboard-reply", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<TerminalClipboardReplyResult>(response.value());
+}
+
+Result<EventStream> Client::terminal_clipboard_subscribe(
+    const TerminalClipboardSubscribeRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    return open_event_stream("terminal-clipboard-subscribe", *parameters.value(), "", options);
 }
 
 Result<TerminalEventsResult> Client::terminal_events(

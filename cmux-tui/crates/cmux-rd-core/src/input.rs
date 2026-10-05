@@ -12,6 +12,12 @@ use cmux_rd_proto::{
     HEADER_LEN, INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC,
 };
 
+/// True when sequence number `a` is at or before `b` in serial order (RFC 1982):
+/// the numbers wrap after 2^32 events, so plain `<=` breaks at the wrap.
+pub fn seq_at_or_before(a: u32, b: u32) -> bool {
+    b.wrapping_sub(a) < 1 << 31
+}
+
 /// How many packets carry one event at most.
 pub const MAX_SENDS: u8 = 3;
 
@@ -39,7 +45,13 @@ pub struct InputSender {
 
 impl InputSender {
     pub fn new() -> Self {
-        Self { next_seq: 1, queue: VecDeque::new(), base: 1 }
+        Self::starting_at(1)
+    }
+
+    /// A sender whose first event gets sequence number `first_seq` (the
+    /// host's applier must start at the same number).
+    pub fn starting_at(first_seq: u32) -> Self {
+        Self { next_seq: first_seq, queue: VecDeque::new(), base: first_seq }
     }
 
     /// Queues an event and returns its sequence number.
@@ -69,7 +81,7 @@ impl InputSender {
 
     /// Drops events the host applied (`applied` = newest applied sequence).
     pub fn ack(&mut self, applied: u32) {
-        while self.base <= applied && !self.queue.is_empty() {
+        while !self.queue.is_empty() && seq_at_or_before(self.base, applied) {
             self.queue.pop_front();
             self.base = self.base.wrapping_add(1);
         }
@@ -165,8 +177,13 @@ pub struct InputApplier {
 impl InputApplier {
     /// `gap_timeout_us`: how long a missing event may block later ones.
     pub fn new(gap_timeout_us: u64) -> Self {
+        Self::starting_at(gap_timeout_us, 1)
+    }
+
+    /// An applier that expects `first_seq` first (see [`InputSender::starting_at`]).
+    pub fn starting_at(gap_timeout_us: u64, first_seq: u32) -> Self {
         Self {
-            next: 1,
+            next: first_seq,
             held: BTreeMap::new(),
             gap_since_us: None,
             gap_timeout_us,
@@ -197,7 +214,7 @@ impl InputApplier {
     pub fn accept(&mut self, packet: &InputPacket, now_us: u64) -> Vec<InputEvent> {
         for (i, event) in packet.events.iter().enumerate() {
             let seq = packet.first_seq.wrapping_add(i as u32);
-            if seq >= self.next && self.held.len() < self.max_held {
+            if seq_at_or_before(self.next, seq) && self.held.len() < self.max_held {
                 self.held.entry(seq).or_insert_with(|| event.clone());
             }
         }
@@ -213,7 +230,7 @@ impl InputApplier {
             return;
         };
         let last = packet.first_seq.wrapping_add(n - 1);
-        if last >= self.next {
+        if seq_at_or_before(self.next, last) {
             self.next = last.wrapping_add(1);
         }
         // Held events arrived without control too; none of them may apply.
@@ -235,7 +252,10 @@ impl InputApplier {
                 self.gap_since_us = None;
                 continue;
             }
-            let Some((&first_held, _)) = self.held.iter().next() else {
+            // Serially first held event (held keys are all at or after `next`).
+            let next = self.next;
+            let Some(&first_held) = self.held.keys().min_by_key(|seq| seq.wrapping_sub(next))
+            else {
                 self.gap_since_us = None;
                 break;
             };

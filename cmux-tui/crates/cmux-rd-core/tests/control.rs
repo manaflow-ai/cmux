@@ -303,6 +303,48 @@ fn a_refused_packet_is_discarded_and_acknowledged() {
 }
 
 #[test]
+fn sequence_numbers_wrap_after_two_to_the_32_events() {
+    let start = u32::MAX - 2;
+    let mut s = InputSender::starting_at(start);
+    let mut a = InputApplier::starting_at(200_000, start);
+    for usage in 0..6 {
+        s.push(InputEvent::Key { usage, down: true });
+    }
+    let p = s.packet().expect("packet");
+    assert_eq!(p.first_seq, start);
+    assert_eq!(a.accept(&p, 0).len(), 6);
+    assert_eq!(a.applied(), 2);
+    // The ack across the wrap empties the queue.
+    s.ack(a.applied());
+    assert!(s.is_empty());
+    // A late repeat from before the wrap is not applied again.
+    assert!(a.accept(&p, 1_000).is_empty());
+}
+
+#[test]
+fn held_input_across_the_wrap_applies_in_serial_order() {
+    let key = |usage| InputEvent::Key { usage, down: true };
+    let mut a = InputApplier::starting_at(200_000, u32::MAX - 1);
+    // Sequences 0 and 1 arrive before u32::MAX - 1 and u32::MAX.
+    assert!(a.accept(&InputPacket { first_seq: 0, events: vec![key(3), key(4)] }, 0).is_empty());
+    let before = InputPacket { first_seq: u32::MAX - 1, events: vec![key(1), key(2)] };
+    assert_eq!(a.accept(&before, 10), vec![key(1), key(2), key(3), key(4)]);
+    assert_eq!(a.applied(), 1);
+}
+
+#[test]
+fn a_gap_skip_across_the_wrap_keeps_the_serially_first_event() {
+    let key = |usage| InputEvent::Key { usage, down: true };
+    let mut a = InputApplier::starting_at(200_000, u32::MAX - 1);
+    // u32::MAX - 1 and 0 are lost; u32::MAX and 1 arrive.
+    assert!(a.accept(&InputPacket { first_seq: 1, events: vec![key(9)] }, 0).is_empty());
+    assert!(a.accept(&InputPacket { first_seq: u32::MAX, events: vec![key(5)] }, 0).is_empty());
+    // After the timeout the applier skips to u32::MAX (serially first), not to 1.
+    assert_eq!(a.tick(200_000), vec![key(5)]);
+    assert_eq!(a.tick(400_000), vec![key(9)]);
+}
+
+#[test]
 fn a_keyframe_burst_alone_is_not_overuse() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
     let (mut seq, mut now) = (0u16, 0u64);

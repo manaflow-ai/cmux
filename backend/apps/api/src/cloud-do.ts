@@ -111,7 +111,10 @@ export class CloudDO extends CloudIdle {
     if (op === "cloud.vm.status.report") {
       let applied: { machine: string; report: unknown } | undefined
       const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {
-        if (statusApplied(this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`).frames)) applied = { machine, report }
+        if (statusApplied(this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`).frames)) {
+          this.vmStatus.markActivity(machine, report, now)
+          applied = { machine, report }
+        }
       }, now)
       if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
       return r

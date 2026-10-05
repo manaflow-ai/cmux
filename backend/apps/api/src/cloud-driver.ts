@@ -5,6 +5,7 @@ import type { CloudConfig } from "./domains/cloud-plan.ts"
 import { parseAllowedTeams } from "./domains/cloud-plan.ts"
 export { providerName } from "./domains/cloud-plan.ts"
 import { FakeCloudDriver } from "./cloud-driver-fake.ts"
+import { redactReason } from "./cloud-redact.ts"
 
 /**
  * The provider behind CloudDO (state-placement.md 5.2, 5.3). The Freestyle account is shared with
@@ -298,13 +299,17 @@ export const createBody = (name: string, snapshot: string, tag: VmTag, _opts: Cr
 
 /** Freestyle REST (the same v5 calls TeamVmDO's driver measured). Errors carry only the step, status and provider code. */
 export class FreestyleCloudDriver implements RawCloudDriver {
+  private readonly apiKey: string
   constructor(
-    private readonly apiKey: string,
+    apiKey: string,
     private readonly baseUrl: string,
     private readonly snapshot: string,
     // A wrapper, never the bare global: workerd refuses fetch called as a method of another object (Illegal invocation).
     private readonly fetchFn: typeof fetch = (input, init) => fetch(input, init)
-  ) {}
+  ) {
+    // A pasted key with a trailing newline would make every header invalid (review P2).
+    this.apiKey = apiKey.trim()
+  }
 
   private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
     try {
@@ -318,7 +323,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     } catch (e) {
       // Network failure or timeout: the outcome is unknown; the retry finds the VM by name.
       // The reason (a runtime network message, never a header or key) goes into the error so a failure is diagnosable.
-      const reason = e instanceof Error ? `${e.name}: ${e.message}`.replace(/[^\x20-\x7e]/g, "").slice(0, 120) : "unknown"
+      const reason = redactReason(e instanceof Error ? `${e.name}: ${e.message}` : "unknown", this.apiKey)
       return { status: 0, json: { code: e instanceof Error && e.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE", reason } }
     }
   }
