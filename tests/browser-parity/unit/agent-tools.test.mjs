@@ -661,6 +661,26 @@ test("cookie and storage-state scope follow the Public Suffix List", async () =>
   }, { setupContext });
 });
 
+test("a host-only cookie is in reach only when the policy allows its exact host", async () => {
+  // BrowserReplDomainPolicy.cookieBlockReason: example.com's host-only
+  // cookie never goes to app.example.com, so a session allowed only
+  // app.example.com does not list it; a Domain cookie on example.com does.
+  await withRepl(async ({ run, dir }) => {
+    const r = await run(`
+      await page.context().addCookies([
+        { name: "hostonly", value: "1", domain: "example.com", path: "/" },
+        { name: "domain", value: "2", domain: ".example.com", path: "/" },
+        { name: "app", value: "3", domain: "app.example.com", path: "/" },
+      ]);
+      session.allowedDomains(["https://app.example.com"]);
+      const names = (await page.context().cookies()).map((c) => c.name).sort();
+      fs.writeFileSync("./reach.json", JSON.stringify(names));
+    `);
+    assert.equal(r.error, null);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "reach.json"), "utf8")), ["app", "domain"]);
+  });
+});
+
 test("storage state: sites by the Public Suffix List (the dev backend's stand-in for the app's)", () => {
   const d = siteOf;
   assert.equal(d("www.example.com"), "example.com");
