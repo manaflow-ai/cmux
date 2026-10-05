@@ -70,7 +70,7 @@ pub(crate) fn start_link_entry(
     // refused until G1 and G2 hold. The mode is logged once (G3).
     let choice = cmux_link::token::daemon_verifier_choice();
     let checks = cmux_link::token::StampChecks::at_daemon_start(choice.config);
-    // RED: the mode is not logged yet.
+    eprintln!("{}", cmux_link::token::mode_log_line(choice, &checks));
     if !enabled {
         return Ok(None);
     }

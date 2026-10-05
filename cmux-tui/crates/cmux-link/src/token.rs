@@ -133,7 +133,8 @@ static DAEMON_CHOICE: std::sync::OnceLock<VerifierChoice> = std::sync::OnceLock:
 /// first statement.
 pub unsafe fn take_from_process_env() {
     let choice = VerifierChoice::from_daemon_config(std::env::var_os(VERIFIER_ENV).as_deref());
-    // RED: the variable stays in the environment.
+    // SAFETY: the caller guarantees that no other thread runs.
+    unsafe { std::env::remove_var(VERIFIER_ENV) };
     let _ = DAEMON_CHOICE.set(choice);
 }
 
@@ -149,16 +150,6 @@ pub fn daemon_verifier_choice() -> VerifierChoice {
 /// The one start log line (G3): the mode and why, never a token, a secret
 /// or the raw config value.
 pub fn mode_log_line(
-    choice: VerifierChoice,
-    checks: &Result<StampChecks, VerifierRefused>,
-) -> String {
-    // RED: no log line yet.
-    let _ = (choice, checks);
-    String::new()
-}
-
-#[allow(dead_code)]
-fn mode_log_line_final(
     choice: VerifierChoice,
     checks: &Result<StampChecks, VerifierRefused>,
 ) -> String {
