@@ -28,14 +28,15 @@ import {
  * the outcome. Pause frees an active slot when it lands; start takes one at once (quota at intent).
  * A final failure returns the machine to where it was, with the error.
  */
-export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.machine.pause" | "cloud.machine.start", params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
+export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.machine.pause" | "cloud.machine.start", params: unknown, ctx: ReduceContext, system = false): ReduceResult<CloudState> => {
   const pause = op === "cloud.machine.pause"
   const d = decodeParams<{ machine: string }>(pause ? CloudMachinePause : CloudMachineStart, params)
   if (!d.ok) return d
   const stored = machineRow(ctx.rows, d.value.machine)
   if (!stored) return reject("cloud.machine.not_found", "no such machine in this team")
   const m = stored.row
-  if (!mayManage(ctx.principal, m)) return reject("auth.forbidden", "only the machine's creator or a team admin may pause or start it")
+  // The idle pause (system, cloud.machine.idle_pause) acts for the team policy, not for a person.
+  if (!system && !mayManage(ctx.principal, m)) return reject("auth.forbidden", "only the machine's creator or a team admin may pause or start it")
   // A call already running for this machine answers the machine as it is (no second ledger row).
   if ((pause && m.status === "pausing") || (!pause && m.status === "starting")) return noChangePower(state, { machine: publicMachine(m) })
   if (pause && m.status !== "running") return reject("cloud.machine.not_running", "only a running machine can be paused", { machine: m.id, state: m.status })

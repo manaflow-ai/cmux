@@ -178,6 +178,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
       case "cloud.machine.pause":
       case "cloud.machine.start":
         return powerIntent(config, state, op, params, ctx)
+      case "cloud.machine.idle_pause":
+        return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true) : reject("auth.forbidden", "internal op")
       case "cloud.machine.vm_status":
         return applyVmStatus(state, params, ctx, next)
       case "cloud.prune":

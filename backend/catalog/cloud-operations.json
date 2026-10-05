@@ -3964,6 +3964,7 @@
         "browserAutomation.rawCdp",
         "cloud.sandboxes",
         "cloud.connectServices",
+        "cloud.idlePause",
         "telemetry.level",
         "updates.channel",
         "updates.minimumVersion",
@@ -5278,6 +5279,28 @@
                 "type": {
                   "kind": "ref",
                   "name": "CloudConnectServices"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.idlePause": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
                 }
               },
               "mode": {
@@ -49775,6 +49798,22 @@
                 ],
                 "additionalProperties": true
               },
+              "cloud.idlePause": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "telemetry.level": {
                 "type": "object",
                 "properties": {
@@ -50514,6 +50553,22 @@
                 ],
                 "additionalProperties": true
               },
+              "cloud.idlePause": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "telemetry.level": {
                 "type": "object",
                 "properties": {
@@ -50791,6 +50846,7 @@
               "browserAutomation.rawCdp",
               "cloud.sandboxes",
               "cloud.connectServices",
+              "cloud.idlePause",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -51304,6 +51360,22 @@
                 ],
                 "additionalProperties": true
               },
+              "cloud.idlePause": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "telemetry.level": {
                 "type": "object",
                 "properties": {
@@ -51737,6 +51809,7 @@
               "browserAutomation.rawCdp",
               "cloud.sandboxes",
               "cloud.connectServices",
+              "cloud.idlePause",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -52109,6 +52182,22 @@
                 "properties": {
                   "value": {
                     "$ref": "#/$defs/CloudConnectServices"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.idlePause": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"

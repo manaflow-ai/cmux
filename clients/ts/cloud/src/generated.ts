@@ -683,7 +683,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -906,6 +906,10 @@ export type TeamPolicyValues = {
   }
   readonly "cloud.connectServices"?: {
     readonly value: CloudConnectServices
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.idlePause"?: {
+    readonly value: boolean
     readonly mode: PolicyMode
   }
   readonly "telemetry.level"?: {

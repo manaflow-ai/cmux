@@ -9,6 +9,7 @@ import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
+import { idleFromReport, type ReportedActivity } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
@@ -16,7 +17,7 @@ import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMac
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
 const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start"])
-const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
+const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
 const forbidden = (entity: string, key: string): SubmitResult => ({
   frames: [
     { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
@@ -47,6 +48,28 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     await this.vmRevokes.drain(now, async (a) => (this.failRevokes > 0 ? (this.failRevokes--, false) : revokeVmInstall(this.env, { ...a, team })))
     const at = this.vmRevokes.dueAt()
     if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
+  }
+
+  /** The team's Cloud policy from its TeamDO (fail closed: a failed RPC fails the caller). */
+  protected teamCloudPolicy(entity: string): Promise<{ connect_services: ReadonlyArray<string>; idle_pause: boolean }> {
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudPolicy(e: string): Promise<{ connect_services: ReadonlyArray<string>; idle_pause: boolean }> }
+    return stub.cloudPolicy(entity)
+  }
+
+  /**
+   * After a VM status report was applied: pause the machine when the report shows it idle past its
+   * idle policy and the team policy cloud.idlePause is on (cloud-idle.ts). The money-op path: the
+   * per-team limit, the ledger (cloud.machine.idle_pause), the guarded provider call.
+   */
+  protected async considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void> {
+    const engine = this.boundEngine
+    const row = engine?.rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!engine || !idleFromReport(row, (report as { activity?: ReportedActivity } | null)?.activity, now)) return
+    if (!(await this.teamCloudPolicy(entity).catch(() => ({ idle_pause: false }))).idle_pause) return
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    if (limit && !(await limit.limit({ key: `cloud:${entity}` })).success) return
+    const r = this.submitSystem("cloud.machine.idle_pause", { machine }, `idle-pause:${machine}:${engine.currentSeq}`)
+    if (r.frames.some((f) => f.t === "result")) await this.runMachine(machine, null)
   }
 
   /** After every commit: a machine the commit left gone, failed or deleting loses its VM install (and a cleared ledger row's machine too). */
@@ -321,7 +344,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
-    for (const d of this.vmStatus.takeDue(now)) this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
+    for (const d of this.vmStatus.takeDue(now)) {
+      this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
+      await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
+    }
     const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team
     if (!driver || !team) return
