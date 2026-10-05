@@ -100,6 +100,18 @@ pub fn serve_providers(
     slot: crate::engines::ProviderSlot,
     agent_bundle: Arc<str>,
 ) -> io::Result<()> {
+    serve_providers_notifying(listener, secret, slot, agent_bundle, Arc::new(|| {}))
+}
+
+/// [`serve_providers`], and `on_change` runs after a provider connected and
+/// after it left (the supervised host's idle stop).
+pub fn serve_providers_notifying(
+    listener: UnixListener,
+    secret: crate::provider::ProviderSecret,
+    slot: crate::engines::ProviderSlot,
+    agent_bundle: Arc<str>,
+    on_change: Arc<dyn Fn() + Send + Sync>,
+) -> io::Result<()> {
     // SAFETY: getuid(2) has no failure modes.
     let uid = unsafe { libc::getuid() };
     for stream in listener.incoming() {
@@ -108,9 +120,10 @@ pub fn serve_providers(
             continue;
         }
         let (secret, slot, agent_bundle) = (secret.clone(), slot.clone(), agent_bundle.clone());
+        let on_change = on_change.clone();
         let _ = std::thread::Builder::new().name("cmux-browser-host-provider-accept".into()).spawn(
             move || {
-                let _ = accept_provider(stream, &secret, &slot, &agent_bundle);
+                let _ = accept_provider(stream, &secret, &slot, &agent_bundle, on_change);
             },
         );
     }
@@ -122,6 +135,7 @@ fn accept_provider(
     secret: &crate::provider::ProviderSecret,
     slot: &crate::engines::ProviderSlot,
     agent_bundle: &str,
+    on_change: Arc<dyn Fn() + Send + Sync>,
 ) -> io::Result<()> {
     use crate::provider_link::{ProviderDriver, accept};
     let busy = || {
@@ -141,7 +155,13 @@ fn accept_provider(
         return Ok(());
     };
     stream.set_read_timeout(None)?;
-    let driver = ProviderDriver::start(reader, writer, crate::driver::discard_events(), info.tabs)?;
+    let driver = ProviderDriver::start_notifying(
+        reader,
+        writer,
+        crate::driver::discard_events(),
+        info.tabs,
+        on_change.clone(),
+    )?;
     let mut current = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if current.as_ref().is_some_and(|provider| provider.closed_reason().is_none()) {
         // Another provider won the race: this one goes.
@@ -149,10 +169,13 @@ fn accept_provider(
         return Ok(());
     }
     *current = Some(driver);
+    drop(current);
+    on_change();
     Ok(())
 }
 
 fn handle(stream: UnixStream, host: &Host) -> io::Result<()> {
+    let _serving = host.serving();
     let actor = peer_actor(&stream);
     let mut writer = stream.try_clone()?;
     let reader = BufReader::new(stream);

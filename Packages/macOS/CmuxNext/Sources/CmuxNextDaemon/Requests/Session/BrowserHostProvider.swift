@@ -9,7 +9,8 @@ public struct BrowserHostProviderRequest: DaemonRequest {
         public var socket: String
         /// The host launch's provider secret.
         public var secret: String
-        /// The host's pid: dial only when the socket's peer is this process.
+        /// The pid the provider socket's peer must report (the daemon that holds the
+        /// listening socket): send the secret only when the peer is this process.
         public var hostPID: Int32
 
         enum CodingKeys: String, CodingKey {

@@ -83,23 +83,46 @@ impl IdleExit {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Red commit stub: changes are ignored.
-    pub fn changed(&self) {}
+    /// A session opened or ended, or the provider connected or left: a busy
+    /// host cancels the delay; a host that just became idle starts it.
+    /// Call it with no session or provider lock held.
+    pub fn changed(&self) {
+        let busy = (self.busy)();
+        let mut state = self.lock();
+        if busy {
+            state.idle_since = None;
+        } else if state.idle_since.is_none() {
+            state.idle_since = Some(self.clock.now());
+        }
+        drop(state);
+        self.changed.notify_all();
+    }
 
-    /// Ends [`IdleExit::wait`] with false.
+    /// Ends [`IdleExit::wait`] with false (the host stops another way).
     pub fn stop(&self) {
         self.lock().stopped = true;
         self.changed.notify_all();
     }
 
-    /// Red commit stub: never fires; returns false at [`IdleExit::stop`].
+    /// Blocks until the host has been idle for the whole delay (true) or
+    /// [`IdleExit::stop`] (false).
     pub fn wait(&self) -> bool {
         let mut state = self.lock();
-        while !state.stopped {
-            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if state.stopped {
+                return false;
+            }
+            state = match state.idle_since {
+                None => self.changed.wait(state).unwrap_or_else(PoisonError::into_inner),
+                Some(since) => {
+                    let idle_for = self.clock.now().saturating_duration_since(since);
+                    if idle_for >= self.delay {
+                        return true;
+                    }
+                    self.clock.wait_timeout(&self.changed, state, self.delay - idle_for)
+                }
+            };
         }
-        let _ = (self.delay, &self.clock, &self.busy, state.idle_since);
-        false
     }
 }
 

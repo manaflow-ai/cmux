@@ -28,6 +28,7 @@ fn main() {
 mod unix {
     use cmux_browser_host::engines::HostEngines;
     use cmux_browser_host::host::{Host, agent_bundle, bundle};
+    use cmux_browser_host::idle_exit::{IdleExit, SystemClock};
     use cmux_browser_host::server::{bind, default_socket_path, serve};
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Read, Write};
@@ -52,6 +53,13 @@ mod unix {
         /// once both sockets listen, and exit when stdin reaches its end
         /// (the daemon closed it or died), so no host outlives its daemon.
         supervised: bool,
+        /// Listening sockets the daemon bound and keeps (socket activation:
+        /// it starts the host again on the next agent connect).
+        agent_listen_fd: Option<i32>,
+        provider_listen_fd: Option<i32>,
+        /// With `--supervised`: exit after this long with no session and no
+        /// provider (the idle stop).
+        idle_exit_ms: Option<u64>,
     }
 
     fn parse(args: &[String]) -> Result<Options, String> {
@@ -64,6 +72,9 @@ mod unix {
             code: None,
             provider_secret_fd: None,
             supervised: false,
+            agent_listen_fd: None,
+            provider_listen_fd: None,
+            idle_exit_ms: None,
         };
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
@@ -95,6 +106,27 @@ mod unix {
                     );
                 }
                 "--supervised" => options.supervised = true,
+                "--agent-listen-fd" => {
+                    options.agent_listen_fd = Some(
+                        value("--agent-listen-fd")?
+                            .parse()
+                            .map_err(|_| "--agent-listen-fd: expected a file descriptor")?,
+                    );
+                }
+                "--provider-listen-fd" => {
+                    options.provider_listen_fd = Some(
+                        value("--provider-listen-fd")?
+                            .parse()
+                            .map_err(|_| "--provider-listen-fd: expected a file descriptor")?,
+                    );
+                }
+                "--idle-exit-ms" => {
+                    options.idle_exit_ms = Some(
+                        value("--idle-exit-ms")?
+                            .parse()
+                            .map_err(|_| "--idle-exit-ms: expected a number")?,
+                    );
+                }
                 "-" => {
                     let mut code = String::new();
                     std::io::stdin()
@@ -179,23 +211,40 @@ mod unix {
 
     /// Serves the app's provider socket on its own thread.
     fn start_provider_listener(
-        socket: &std::path::Path,
-        owns_dir: bool,
+        listener: std::os::unix::net::UnixListener,
         secret: String,
         engines: &HostEngines,
+        on_change: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<(), String> {
-        let path = cmux_browser_host::server::provider_socket_path(socket);
-        let listener = bind(&path, owns_dir).map_err(|e| e.to_string())?;
         let slot = engines.provider_slot();
         let bundle: Arc<str> = agent_bundle().into();
         std::thread::Builder::new()
             .name("cmux-browser-host-providers".into())
             .spawn(move || {
                 let secret = cmux_browser_host::provider::ProviderSecret::new(secret);
-                let _ = cmux_browser_host::server::serve_providers(listener, secret, slot, bundle);
+                let _ = cmux_browser_host::server::serve_providers_notifying(
+                    listener, secret, slot, bundle, on_change,
+                );
             })
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// A listening Unix socket the daemon passed as `fd` (socket activation).
+    fn inherited_listener(fd: i32, flag: &str) -> Result<std::os::unix::net::UnixListener, String> {
+        use std::os::fd::FromRawFd;
+        if fd < 3 {
+            return Err(format!("{flag} {fd}: not an inherited descriptor"));
+        }
+        // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd, &mut stat) } != 0
+            || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
+        {
+            return Err(format!("{flag} {fd}: not a socket"));
+        }
+        // SAFETY: the daemon passes this listening socket open for this process; it is taken once.
+        Ok(unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) })
     }
 
     fn serve_command(options: &Options) -> i32 {
@@ -209,7 +258,11 @@ mod unix {
             }
         };
         let owns_dir = std::env::var_os("CMUX_BROWSER_HOST_SOCKET").is_none_or(|p| p.is_empty());
-        let listener = match bind(&options.socket, owns_dir) {
+        let listener = match options.agent_listen_fd {
+            Some(fd) => inherited_listener(fd, "--agent-listen-fd"),
+            None => bind(&options.socket, owns_dir).map_err(|error| error.to_string()),
+        };
+        let listener = match listener {
             Ok(listener) => listener,
             Err(error) => {
                 eprintln!("cmux-browser-host: {error}");
@@ -219,15 +272,65 @@ mod unix {
         let cwd =
             std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "/".into());
         let engines = Arc::new(HostEngines::new(agent_bundle()));
-        if let Some(secret) = secret
-            && let Err(error) = start_provider_listener(&options.socket, owns_dir, secret, &engines)
-        {
-            eprintln!("cmux-browser-host: provider listener: {error}");
-            return 1;
+        let host = Arc::new(Host::new(engines.clone(), cwd));
+        let idle = options.idle_exit_ms.filter(|_| options.supervised).map(|ms| {
+            let (probe_host, slot) = (Arc::downgrade(&host), engines.provider_slot());
+            let busy = move || {
+                let sessions = probe_host
+                    .upgrade()
+                    .is_some_and(|host| host.session_count() > 0 || host.connection_count() > 0);
+                let provider = slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                    .is_some_and(|provider| provider.closed_reason().is_none());
+                sessions || provider
+            };
+            IdleExit::new(Duration::from_millis(ms), Arc::new(SystemClock), Box::new(busy))
+        });
+        let on_change: Arc<dyn Fn() + Send + Sync> = match &idle {
+            Some(idle) => {
+                let idle = Arc::downgrade(idle);
+                Arc::new(move || {
+                    if let Some(idle) = idle.upgrade() {
+                        idle.changed();
+                    }
+                })
+            }
+            None => Arc::new(|| {}),
+        };
+        host.on_sessions_changed(on_change.clone());
+        if let Some(secret) = secret {
+            let provider_listener = match options.provider_listen_fd {
+                Some(fd) => inherited_listener(fd, "--provider-listen-fd"),
+                None => bind(
+                    &cmux_browser_host::server::provider_socket_path(&options.socket),
+                    owns_dir,
+                )
+                .map_err(|error| error.to_string()),
+            };
+            let started = provider_listener.and_then(|listener| {
+                start_provider_listener(listener, secret, &engines, on_change)
+            });
+            if let Err(error) = started {
+                eprintln!("cmux-browser-host: provider listener: {error}");
+                return 1;
+            }
         }
-        let host = Arc::new(Host::new(engines, cwd));
         if options.supervised {
             supervise_from_stdin();
+        }
+        if let Some(idle) = idle {
+            let spawned =
+                std::thread::Builder::new().name("supervisor-idle".into()).spawn(move || {
+                    if idle.wait() {
+                        // crash-allow: the idle stop; nothing to save (no session, no provider), and the daemon starts the host again on the next agent connect.
+                        std::process::exit(0);
+                    }
+                });
+            if spawned.is_err() {
+                eprintln!("cmux-browser-host: cannot start the idle stop; running without it");
+            }
         }
         match serve(listener, host) {
             Ok(()) => 0,
