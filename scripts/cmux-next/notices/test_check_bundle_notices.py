@@ -197,7 +197,9 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux-app-host",
         "Contents/Resources/bin/cmux-cloud",
         "Contents/Resources/bin/cmux-diff-sidecar",
-        "Contents/Frameworks/Iroh.framework/*",
+        # Release merges Iroh.framework's Rust code (rustc 1.91.0) into the
+        # app binary; Iroh.framework/Iroh is then a stub without Rust code.
+        "Contents/MacOS/cmux",
     )
     ZIG_BINARIES = (
         "Contents/MacOS/cmux",  # GhosttyNextKit (static)
@@ -233,6 +235,14 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("Contents/MacOS/app: missing notice rust-std", errors[0])
         self.assertIn("c" * 40, errors[0])
+
+    def test_a_binary_with_rust_code_needs_rust_std_in_its_entry(self) -> None:
+        self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")
+        self.assertEqual(
+            checker.check(self.app, MAP),
+            ["Contents/MacOS/app: links the Rust standard library of rustc 59807616e1fa2540724bfbac14d7976d7e4a3860, "
+             "but no bundle-map entry for it requires rust-std"],
+        )
 
     def test_zig_std_requirement_needs_the_bundled_zig_license(self) -> None:
         bundle_map = self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")

@@ -3,8 +3,8 @@
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
-      "what": "the app: Swift packages, GhosttyKit (static), iroh-ffi Swift bindings, Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
+      "what": "the app: Swift packages, GhosttyNextKit (static, Zig), iroh-ffi (Release merges Iroh.framework's Rust code here: rustc 1.91.0 std), Sparkle client",
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",
@@ -13,8 +13,8 @@
     },
     {
       "path": "Contents/Frameworks/Iroh.framework/*",
-      "what": "iroh-ffi (Rust), manaflow-ai/iroh-ffi at the Package.resolved revision",
-      "notices": ["section:rust-iroh-ffi", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+      "what": "iroh-ffi (Rust), manaflow-ai/iroh-ffi at the Package.resolved revision; in Release a stub, its code is merged into Contents/MacOS/cmux (a Mach-O that names rustc std paths without rust-std fails)",
+      "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",

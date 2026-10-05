@@ -201,8 +201,13 @@ def _bundled_problem(manifest: Manifest, app: Path, text: Text) -> Optional[str]
     return None
 
 
+def rustc_commits(path: Path) -> List[str]:
+    """The rustc commits whose std paths (`/rustc/<commit>/...`) a binary names."""
+    return sorted({m.decode() for m in RUSTC_PATH.findall(path.read_bytes())})
+
+
 def rust_std_problems(manifest: Manifest, app: Path, binary: str) -> List[str]:
-    commits = sorted({m.decode() for m in RUSTC_PATH.findall((app / binary).read_bytes())})
+    commits = rustc_commits(app / binary)
     if not commits:
         return [f"no /rustc/<commit>/ path inside {binary}; cannot tell which Rust standard library it links"]
     by_commit = {r.rustc_commit: r for r in manifest.rust}

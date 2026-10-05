@@ -179,6 +179,14 @@ def check(
             for need in entry["notices"]:
                 if not requirement_holds(need, entry["path"], rel):
                     errors.append(missing(rel, need))
+        # Rust code can land in a binary that the map does not expect (Xcode
+        # merges Iroh.framework's static code into Contents/MacOS/cmux in
+        # Release), so every Mach-O is scanned for rustc's std paths.
+        if not any("rust-std" in entry["notices"] for entry in entries):
+            module, _ = toolchain_manifest()
+            commits = module.rustc_commits(app / rel)
+            if commits:
+                errors.append(f"{rel}: links the Rust standard library of rustc {', '.join(commits)}, but no bundle-map entry for it requires rust-std")
     return errors
 
 

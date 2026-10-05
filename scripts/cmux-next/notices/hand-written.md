@@ -554,7 +554,7 @@ unchanged, for each rustc that built one of its binaries:
 - `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host` and `bin/cmux-cloud`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
-  `Iroh.framework`
+  iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
 - `Contents/Resources/toolchain-licenses/rust-1.88.0/COPYRIGHT-library.html`:
   `bin/cmux-diff-sidecar`
 
