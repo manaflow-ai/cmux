@@ -61,6 +61,10 @@ extension RemoteTmuxSessionMirror {
             guard let mirror else { return }
             workspace?.requestRemoteTmuxPaneClose(windowMirror: mirror, tmuxPaneId: tmuxPaneId)
         }
+        mirror.onRenamePaneRequest = { [weak workspace, weak mirror] tmuxPaneId in
+            guard let panelId = mirror?.panelsByPaneId[tmuxPaneId]?.id else { return }
+            workspace?.requestPaletteRenamePanel(tabId: TabID(uuid: panelId))
+        }
         // The window can already be zoomed when its first topology publish
         // arrives; apply the full update after seeding the base tree.
         mirror.apply(window: window)
