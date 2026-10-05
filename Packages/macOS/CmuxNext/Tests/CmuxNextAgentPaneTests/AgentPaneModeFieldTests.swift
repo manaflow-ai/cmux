@@ -60,8 +60,31 @@ import Testing
         for (method, params) in Self.methods.dropFirst() {
             #expect(await rig.send(method, params, ticket: nil) == nil, "\(method)")
         }
-        // A field that is not a mode field passes while the daemon gives its list.
-        #expect(await rig.send("acp.session.fork", ["sessionId": "s", "throughSeq": 3, "note": 1], ticket: nil) == nil)
+        // The known params apply also while the daemon answers: its fields are an extra deny.
+        #expect(await rig.send("acp.session.fork", ["sessionId": "s", "throughSeq": 3, "note": 1], ticket: nil) == .intentInvalid)
+    }
+
+    /// ad349: `_meta` may hold only `acpmux` (and `cmuxGesture` on a redeeming frame), on every path.
+    /// A mode set through another `_meta` namespace is refused while web_modes answers.
+    @Test func aModeInAnotherMetaNamespaceIsRefusedWhileTheDaemonAnswers() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        #expect(rig.transport.modeFields != nil)
+        let claudeCode: [String: Any] = ["options": ["permissionMode": "bypassPermissions"]]
+        #expect(await rig.send("session/new", ["mcpServers": [Any](), "_meta": ["acpmux": ["harness": "claude"], "claudeCode": claudeCode]],
+                               ticket: nil) == .intentInvalid)
+        #expect(await rig.send("acp.session.fork", ["sessionId": "s", "throughSeq": 3, "_meta": ["claudeCode": claudeCode]], ticket: nil)
+            == .intentInvalid)
+        // An acpmux key outside the method's list, and a _meta that is not an object.
+        #expect(await rig.send("session/new", ["mcpServers": [Any](), "_meta": ["acpmux": ["harness": "claude", "yolo": true]]], ticket: nil)
+            == .intentInvalid)
+        #expect(await rig.send("session/prompt", ["sessionId": "s", "prompt": [Any](), "_meta": "x"], ticket: nil) == .intentInvalid)
+        // set_mode without a ticket: _meta may hold only acpmux, so another key is refused.
+        rig.transport.gestures.record()
+        #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "plan", "_meta": ["claudeCode": claudeCode]], ticket: nil)
+            == .intentInvalid)
+        #expect(!rig.server.peers.last!.frames.contains { $0.contains("bypassPermissions") })
     }
 
     @Test func withoutTheDaemonsFieldsOnlyKnownParamsPass() async throws {

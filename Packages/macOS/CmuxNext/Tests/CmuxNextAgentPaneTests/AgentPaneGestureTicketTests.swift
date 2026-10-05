@@ -88,9 +88,9 @@ import Testing
         // A ticket for mode "default" on set_mode "bypassPermissions".
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"], ticket: await rig.ticket(Self.mode))
             == .gestureRequired)
-        // An extra field.
+        // An extra field: outside set_mode's known params, so the params rule refuses it (P1).
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "default", "force": true], ticket: await rig.ticket(Self.mode))
-            == .gestureRequired)
+            == .intentInvalid)
         // "true" is not true.
         #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "thinking", "value": "true"], ticket: await rig.ticket(Self.effort))
             == .gestureRequired)
@@ -108,9 +108,10 @@ import Testing
         try await rig.start()
         defer { rig.server.stop() }
         // A ticket on a permission allow, a prompt or a trust: refused (only a live gesture counts).
+        // Their _meta may hold only acpmux, so the params rule refuses them first (P1).
         #expect(await rig.send("_acpmux/permission_group_respond", ["sessionId": "s", "groupId": "g", "revision": 1, "decision": "allow_once"],
-                               ticket: await rig.ticket(Self.mode)) == .gestureRequired)
-        #expect(await rig.send("session/prompt", ["sessionId": "s", "prompt": [Any]()], ticket: await rig.ticket(Self.mode)) == .gestureRequired)
+                               ticket: await rig.ticket(Self.mode)) == .intentInvalid)
+        #expect(await rig.send("session/prompt", ["sessionId": "s", "prompt": [Any]()], ticket: await rig.ticket(Self.mode)) == .intentInvalid)
         // The ticket was spent by the refused frame: its own pick no longer passes.
         let spent = await rig.ticket(Self.mode)
         _ = await rig.send("_acpmux/permission_group_respond", ["sessionId": "s", "groupId": "g", "revision": 2, "decision": "allow_once"], ticket: spent)
