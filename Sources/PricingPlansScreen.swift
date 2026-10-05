@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import Foundation
 import SwiftUI
+import WebKit
 
 /// Shared entrypoint for every "Upgrade to cmux Pro" surface (sidebar badge,
 /// titlebar badge, Settings Account card, command palette, Help menu). Opens
