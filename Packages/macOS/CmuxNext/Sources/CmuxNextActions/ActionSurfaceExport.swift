@@ -64,7 +64,11 @@ public nonisolated enum ActionSurfaceExport {
     /// The whole catalog, keys sorted, one stable text.
     public static func json(_ descriptors: [ActionDescriptor], titles: ActionTitleCatalog = ActionTitleCatalog()) -> String {
         let actions = descriptors.map { catalogObject($0, titles: titles) }
-        let root: [String: Any] = ["version": 1, "actions": actions]
+        let root: [String: Any] = [
+            "version": 1, "actions": actions,
+            "context_menus": ContextMenuCatalog(descriptors: descriptors).exportObject(descriptors: descriptors, titles: titles),
+            "context_menu_rules": ContextMenuCatalog.exportRenderRules,
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
               let text = String(data: data, encoding: .utf8)
         else { return "" }
