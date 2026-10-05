@@ -9,6 +9,8 @@
       members, and the owner of every DWARF source path (Zig package, vendored
       Ghostty directory, Zig's lib). Zig code keeps no package-level DWARF, so every
       Zig-source package that Ghostty declares counts as linked (conservative).
+      --check (CI, macOS runner) compares with the committed file instead and
+      writes the generated one to --out (also for macos-link-set).
   ios_notices.py app-link --xcframework DIR --artifact ZIP --job ID --source-commit SHA --ghostty-source DIR
       (a Mac) The real link: the device archive app of a cmux-ci iOS job (symbols
       intact) against the pinned xcframework's members. Writes "app_link" into
@@ -212,8 +214,9 @@ def macos_link_errors(links: dict) -> list[str]:
     if links.get("pin") != pin or links.get("slice") != MACOS_SLICE:
         return [
             f"{MACOS_LINK_SET.relative_to(ROOT)} is for {links.get('pin', {}).get('sha256', '?')[:12]}, CmuxGhosttyKit "
-            f"pins {pin['sha256'][:12]}: on a Mac run `ios_notices.py macos-link-set --xcframework <unzipped "
-            "GhosttyNextKit.xcframework> --manifest <ghostty-next-licenses/SOURCE-MANIFEST.json>`"
+            f"pins {pin['sha256'][:12]}: commit it from the ghosttykit-link-sets artifact of "
+            "cmux-next-source-archive.yml (or on a Mac run `ios_notices.py macos-link-set --xcframework <unzipped "
+            "GhosttyNextKit.xcframework> --manifest <ghostty-next-licenses/SOURCE-MANIFEST.json>`)"
         ]
     return []
 
@@ -420,6 +423,42 @@ def app_link_errors(binaries: list[Path], app_files: list[str], links: dict) -> 
     return errors
 
 
+def merge_link_set(generated: dict, previous: dict, pin: dict) -> dict:
+    """A generated link set plus the hand-kept fields of the committed one."""
+    result = dict(generated, pin=pin)
+    result["zig_source_packages"] = previous.get("zig_source_packages", [])
+    if "app_link" in previous and previous["app_link"].get("pin_sha256") == pin["sha256"]:
+        result["app_link"] = previous["app_link"]
+    return result
+
+
+def link_set_differences(generated: dict, committed: dict) -> list[str]:
+    return sorted(key for key in set(generated) | set(committed) if generated.get(key) != committed.get(key))
+
+
+def write_or_check(result: dict, committed_path: Path, out: Path, check: bool) -> int:
+    """Write the link set, or (--check) compare it with the committed file and write it to out."""
+    text = json.dumps(result, indent=2, sort_keys=True) + "\n"
+    if not check:
+        out.write_text(text)
+        print(f"wrote {out}")
+        return 0
+    committed = json.loads(committed_path.read_text()) if committed_path.is_file() else {}
+    differences = link_set_differences(result, committed)
+    if out != committed_path:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text)
+    if differences:
+        print(
+            f"error: {committed_path.relative_to(ROOT)} differs from the pinned xcframework in {differences}; "
+            f"commit the generated file ({out}; the workflow uploads it)",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"{committed_path.relative_to(ROOT)} matches the pinned xcframework")
+    return 0
+
+
 # ---------------------------------------------------------------- pane
 
 def hand_written_section(title: str, text: str) -> str:
@@ -576,9 +615,10 @@ def check_repo() -> list[str]:
     if links.get("pin") != pin:
         errors.append(
             f"{LINK_SET.relative_to(ROOT)} is for {links.get('pin', {}).get('sha256', '?')[:12]}, "
-            f"CmuxGhosttyKit pins {pin['sha256'][:12]}: on a Mac run `ios_notices.py link-set --xcframework <unzipped "
-            "GhosttyNextKit.xcframework>`, then `generate --ghostty-tree <ghostty-next-licenses from "
-            "cmux-next-source-archive.yml>`"
+            f"CmuxGhosttyKit pins {pin['sha256'][:12]}: commit link-set.json from the ghosttykit-link-sets artifact "
+            "of cmux-next-source-archive.yml (or on a Mac run `ios_notices.py link-set --xcframework <unzipped "
+            "GhosttyNextKit.xcframework> --manifest <ghostty-next-licenses/SOURCE-MANIFEST.json>`), then "
+            "`generate --ghostty-tree <ghostty-next-licenses from that run>`"
         )
     errors += macos_link_errors(json.loads(MACOS_LINK_SET.read_text())) if MACOS_LINK_SET.is_file() else [f"{MACOS_LINK_SET.relative_to(ROOT)} is missing"]
     record = links.get("app_link")
@@ -646,9 +686,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--xcframework", type=Path, required=True)
     p.add_argument("--manifest", type=Path, required=True, help="SOURCE-MANIFEST.json of the ghostty-next license tree")
     p.add_argument("--out", type=Path, default=LINK_SET)
+    p.add_argument("--check", action="store_true", help="compare with the committed file; write the generated one to --out")
     p = sub.add_parser("macos-link-set")
     p.add_argument("--xcframework", type=Path, required=True)
     p.add_argument("--manifest", type=Path, required=True, help="SOURCE-MANIFEST.json of the ghostty-next license tree")
+    p.add_argument("--out", type=Path, default=None)
+    p.add_argument("--check", action="store_true", help="compare with the committed file; write the generated one to --out")
     p = sub.add_parser("check-macos")
     p.add_argument("--ghostty-tree", type=Path, required=True, help="the ghostty-next license tree (cmux-next-source-archive.yml)")
     p = sub.add_parser("app-link")
@@ -670,21 +713,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "link-set":
-            pin = ghostty_kit_pin()
-            result = link_set(args.xcframework, args.manifest)
-            previous = json.loads(args.out.read_text()) if args.out.is_file() else {}
-            result["pin"] = pin
-            result["zig_source_packages"] = previous.get("zig_source_packages", [])
-            if previous.get("app_link", {}).get("pin_sha256") == pin["sha256"]:
-                result["app_link"] = previous["app_link"]
-            args.out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-            print(f"wrote {args.out} ({len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']})")
-            return 0
+            previous = json.loads(LINK_SET.read_text()) if LINK_SET.is_file() else {}
+            result = merge_link_set(link_set(args.xcframework, args.manifest), previous, ghostty_kit_pin())
+            print(f"{len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']}")
+            return write_or_check(result, LINK_SET, args.out, args.check)
         if args.command == "macos-link-set":
             result = macos_link_set(args.xcframework, args.manifest)
-            MACOS_LINK_SET.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-            print(f"wrote {MACOS_LINK_SET.relative_to(ROOT)} ({len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']})")
-            return 0
+            print(f"{len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']}")
+            return write_or_check(result, MACOS_LINK_SET, args.out or MACOS_LINK_SET, args.check)
         if args.command == "app-link":
             links = json.loads(LINK_SET.read_text())
             links["app_link"] = app_link(args.xcframework, args.artifact, args.job, args.source_commit, args.ghostty_source, args.manifest)
