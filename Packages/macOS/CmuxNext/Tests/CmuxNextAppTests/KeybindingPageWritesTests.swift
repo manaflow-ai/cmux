@@ -47,7 +47,9 @@ import Testing
 
     @Test func removeUnbindsAndResetRestoresTheDefault() async throws {
         let (writes, registry, url) = try Self.writes()
-        try await writes.remove(["command": "splitRight", "key": "cmd+d", "when": .null])
+        // The row as the page lists it: Split Right yields to the code editor (R127).
+        let row = try #require(RegistryKeyBindings(registry).table.entries.last { $0.command == "splitRight" })
+        try await writes.remove(["command": "splitRight", "key": "cmd+d", "when": row.when.map { .string($0.text) } ?? .null])
         #expect(try Self.binding(url, "splitRight") == .null)
         #expect(registry.effectiveShortcut(for: "splitRight") == nil)
         try await writes.reset(["command": "splitRight"])
