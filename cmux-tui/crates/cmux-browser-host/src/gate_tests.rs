@@ -746,6 +746,15 @@ fn request_kind_changes_logging_only() {
         (entries[0]["url"].as_str(), entries[0]["blocked"].as_str()),
         (Some("https://peer.test/page"), Some("before"))
     );
+    // A blocked iframe document is refused and not logged (main logs only
+    // main-frame navigations).
+    let iframe = crate::driver::RequestInfo {
+        url: "https://peer.test/frame",
+        kind: crate::driver::RequestKind::SubframeDocument,
+        ..document
+    };
+    assert!(filter(&iframe).is_some(), "an iframe document to it is refused");
+    assert_eq!(log(&gate).len(), 1, "and not logged");
     // Allowed stays allowed whatever the kind.
     let fine = crate::driver::RequestInfo { url: "https://a.test/", ..document };
     assert!(filter(&fine).is_none());

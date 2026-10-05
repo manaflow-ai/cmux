@@ -23,7 +23,7 @@ import Testing
     }
 
     func install() -> (ControlRouter, FakeEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = FakeEngine()
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()

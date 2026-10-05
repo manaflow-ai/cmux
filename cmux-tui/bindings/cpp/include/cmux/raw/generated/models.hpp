@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe";
+inline constexpr std::string_view kProtocolIrSha256 = "c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2686,12 +2686,15 @@ struct NewScreenRequest {
     Field<std::string> color{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> group{};
     Field<std::string> icon{};
     Field<std::uint64_t> index{};
     Field<bool> pinned{};
     Field<std::uint16_t> rows{};
     Field<std::string> screen_name{};
+    Field<std::vector<std::string>> shell_args{};
+    Field<std::string> terminal_id{};
     Field<Id> workspace{};
     friend bool operator==(const NewScreenRequest&, const NewScreenRequest&) = default;
 };

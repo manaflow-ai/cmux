@@ -229,6 +229,11 @@ Hard gates before ANY link token format goes live (the daemon refuses to start w
   terminal (`PtyCommand`) and the other spawn paths inherit the daemon's process environment, so
   the strip must remove the variable from that inherited environment (every spawn path, or the
   daemon's own environment once, before any thread starts), not only in `daemon_env.rs`.
+- G3 and G4 are implemented (lane 10, 2026-10-05): `main` calls
+  `cmux_link::token::take_from_process_env` as its first statement (read, then `remove_var`),
+  and `start_link_entry` logs one `cmux link: token verifier mode ...` line. A `cmux` client
+  strips the variable too, so an owner started by `cmux server ensure` runs `deny_all`; only a
+  daemon its supervisor execs directly with the variable can ask for `control_plane`.
 - Keyset (VM side, lane 10, 2026-10-05): `cmux_link::keyset` reads `GET /v1/cloud/keyset` and
   the bind answer's `keyset` (schemas/link-token/keyset-vectors.json) and schedules refreshes:
   one daily deadline at a per-host jittered time, at most one unknown-kid fetch per 60 s, a 429
