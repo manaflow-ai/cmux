@@ -66,7 +66,7 @@ import Testing
     }
 
     @Test func aDirectBlankChatCanConvertWithoutAChooserPage() async throws {
-        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
         var opened: AgentPaneOpenTab?
         var typed: String?
         model.onOpenTab = { opened = $0 }

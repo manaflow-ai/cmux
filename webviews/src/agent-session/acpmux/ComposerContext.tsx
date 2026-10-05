@@ -44,7 +44,12 @@ export function ComposerContext({
     () => availableFolders(summary, sessions, selectedComputer),
     [summary, sessions, selectedComputer],
   );
-  const currentFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : folders[0]?.id;
+  const currentFolder =
+    summary?.cwd && computerId(summary) === selectedComputer
+      ? summary.cwd
+      : projectChoices
+        ? undefined
+        : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;

@@ -220,7 +220,8 @@ final class AgentTabStore {
             host: host,
             sessionId: sessions[key] ?? record.session,
             seed: seeds.removeValue(forKey: key),
-            newTab: newTabPages[key]?.page
+            newTab: newTabPages[key]?.page,
+            allowsTabConversion: true
         )
         model.sessionMustExist = linkedSessions.contains(key)
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)

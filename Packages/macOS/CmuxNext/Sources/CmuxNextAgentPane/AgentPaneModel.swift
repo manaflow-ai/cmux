@@ -76,8 +76,8 @@ public final class AgentPaneModel {
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
 
-    /// A directly opened blank chat keeps conversion available after choosing its project.
-    @ObservationIgnored private let startsAsBlankChat: Bool
+    /// Whether this host supports converting a fresh chat without a chooser page.
+    @ObservationIgnored private let allowsTabConversion: Bool
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored private let seed: AgentPaneSeedSource?
@@ -86,9 +86,10 @@ public final class AgentPaneModel {
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
-        newTab: AgentPaneNewTab? = nil
+        newTab: AgentPaneNewTab? = nil,
+        allowsTabConversion: Bool = false
     ) {
-        self.startsAsBlankChat = sessionId == nil && newTab == nil
+        self.allowsTabConversion = allowsTabConversion
         self.host = host
         self.sessionId = sessionId
         self.seed = seed
@@ -172,11 +173,11 @@ public final class AgentPaneModel {
             onRenderRate?(full)
             return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd, let search, let run):
-            guard newTab != nil || startsAsBlankChat, let onOpenTab else { return Self.unsupported("tab.open") }
+            guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
             return AgentPaneReply.success()
         case .typeAhead(let text):
-            guard newTab != nil || startsAsBlankChat, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
+            guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
             onTypeAhead(text)
             return AgentPaneReply.success()
         case .touched:

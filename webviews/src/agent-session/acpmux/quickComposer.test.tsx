@@ -268,6 +268,8 @@ test("a direct blank chat chooses a recent project inline without treating it as
   await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
   const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
   expect(project).not.toBeNull();
-  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+  await act(async () =>
+    project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
   expect(calls).toContainEqual(["chat.new", { cwd: "/src/app" }]);
 });
