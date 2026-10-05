@@ -357,6 +357,10 @@ struct CloudWorkspaceMembershipTests {
         #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["shell", "workspace-2"]) == "workspace-3")
         #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-7"]) == "workspace-8")
         #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-x", "workspace-"]) == "workspace-3")
+        // Same parse as the daemon's usize: a leading "+" counts, a sign or overflow does not trap.
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-+5"]) == "workspace-6")
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-\(Int.max)"]) == "workspace-\(Int.max)")
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace--3"]) == "workspace-2")
         // Other unnamed creates still awaiting receipts take the next numbers.
         #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-1"], pendingCreations: 2) == "workspace-4")
     }

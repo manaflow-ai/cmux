@@ -370,7 +370,7 @@ final class CloudWorkspaceCreationCoordinator {
         if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
         let pendingCreations = operations.values.filter {
             $0 !== operation && $0.machine == operation.machine && !$0.isExistingWorkspaceOpen
-                && $0.reservation != nil && $0.receipt == nil
+                && $0.reservation != nil && $0.receipt == nil && $0.failure == nil
         }.count
         return CloudTreeNodeBuilder.predictedDefaultWorkspaceName(
             on: operation.machine, snapshot: catalog.snapshot, pendingCreations: pendingCreations

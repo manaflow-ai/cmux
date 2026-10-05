@@ -92,13 +92,16 @@ extension CloudTreeNodeBuilder {
     }
 
     static func predictedDefaultWorkspaceName(existingNames: [String], pendingCreations: Int = 0) -> String {
+        // Names come from any client of the machine, so the arithmetic
+        // saturates like the daemon's instead of trapping on a huge suffix.
         let highest = existingNames.compactMap { name -> Int? in
-            guard name.hasPrefix("workspace-") else { return nil }
-            let suffix = name.dropFirst("workspace-".count)
-            guard !suffix.isEmpty, suffix.allSatisfy(\.isASCII), suffix.allSatisfy(\.isNumber) else { return nil }
-            return Int(suffix)
+            guard name.hasPrefix("workspace-"),
+                  let number = Int(name.dropFirst("workspace-".count)), number >= 0 else { return nil }
+            return number
         }.max() ?? 0
-        return "workspace-\(max(highest, existingNames.count) + 1 + max(pendingCreations, 0))"
+        let (afterBase, baseOverflow) = max(highest, existingNames.count).addingReportingOverflow(1)
+        let (next, pendingOverflow) = afterBase.addingReportingOverflow(max(pendingCreations, 0))
+        return "workspace-\(baseOverflow || pendingOverflow ? Int.max : next)"
     }
 
     /// Every workspace's members in ONE pass over the catalog: a resource is
