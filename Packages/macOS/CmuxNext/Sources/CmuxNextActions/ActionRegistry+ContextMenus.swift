@@ -85,7 +85,7 @@ extension ActionRegistry {
                 items.append(item)
             case .choices(let id):
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
-                      let item = makeChoicesItem(for: descriptor, target: target)
+                      let item = makeChoicesItem(for: descriptor, target: target, in: context)
                 else { continue }
                 items.append(item)
             }

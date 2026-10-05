@@ -13,7 +13,7 @@ nonisolated extension ContextMenuCatalog {
         "enabled_when can_perform: the row is enabled when its action is bound and its handler allows it for the clicked target; a disabled row may carry a reason as subtitle and tooltip.",
         "A submenu takes its action's title without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
         "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
-        "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It is left out, not disabled, unless its action can perform now: bound, enabled, and its requires true in the window's own context (the menu's implied names do not count for this check).",
+        "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
     ]
 
     /// Every context menu's export, keyed by `ActionMenuContext` raw value.

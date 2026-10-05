@@ -54,8 +54,7 @@ import Testing
                 guard visible(row), let id, let title = registry.title(for: id) else { continue }
                 nodes.append(.item(title))
             case "choices":
-                // Left out unless it can perform in the window's own context (context_menu_rules).
-                guard visible(row), registry.context.isSuperset(of: requires(row)), let id, let title = registry.title(for: id),
+                guard visible(row), let id, let title = registry.title(for: id),
                       let choices = row["choices"] as? [String: Any], let values = choices["values"] as? [[String: String]] else { continue }
                 var children = values.compactMap { $0["title"] }.map(Node.item)
                 if (choices["more_opens_palette"] as? Bool) == true { children += [.separator, .item(ActionSuggestionsStrings.more)] }
