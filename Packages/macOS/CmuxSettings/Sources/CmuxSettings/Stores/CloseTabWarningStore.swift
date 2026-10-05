@@ -2,7 +2,8 @@ import Foundation
 
 /// Repository for the close warning settings, persisted in `UserDefaults`
 /// under the catalog's `app.warnBeforeClosingTab`,
-/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingWorkspace`,
+/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingAgentSession`,
+/// `app.warnBeforeClosingWorkspace`,
 /// `app.warnBeforeClosingWindow`, and
 /// `app.hideTabCloseButton` keys.
 ///
