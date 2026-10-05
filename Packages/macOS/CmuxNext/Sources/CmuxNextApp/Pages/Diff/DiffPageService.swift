@@ -18,12 +18,13 @@ nonisolated enum DiffOpenFailure: Error, Sendable, Equatable {
 /// with its own provider, grant and patch source (``DiffPageProvider``,
 /// ``DiffSessionGrant``, ``DiffPatchSource``).
 ///
-/// Entry points: ``open(folder:source:in:focus:)`` opens the tab of a folder's
-/// repository (the bound actions with the focused pane's folder, R89's picker
-/// with a chosen one); ``openEmpty(in:focus:)`` opens the empty state, where
-/// the page lists recents, asks for a folder (``DiffFolderChoosing``, the seam
-/// R89's shared picker replaces) or takes a dropped one. Every open records
-/// the repository in ``DiffRecents``.
+/// Entry point: ``open(folder:source:in:focus:)`` opens the tab of a folder's
+/// repository (R89's open actions with the focused pane's folder, the cmux
+/// picker with a chosen one). A folder in no repository throws, and the open
+/// actions show the picker; no empty diff tab opens. A tab whose repository
+/// is not ready shows the page's empty state, which lists recents, asks for a
+/// folder (``DiffFolderChoosing``, the cmux picker) or takes a dropped one.
+/// Every open records the repository in ``DiffRecents``.
 final class DiffPageService: InternalPageProvider {
     private struct Tab {
         var repository: DiffRepository?
@@ -84,12 +85,6 @@ final class DiffPageService: InternalPageProvider {
         }
     }
 
-    /// Opens (or selects) the window's empty diff tab: recents, a folder
-    /// picker and folder drops.
-    @discardableResult
-    func openEmpty(in pane: PaneController, focus: Bool) -> String {
-        show(in: pane, focus: focus, Tab(repository: nil, source: .default)) { $0.repository == nil }
-    }
 
     private func show(in pane: PaneController, focus: Bool, _ tab: Tab, matching: (Tab) -> Bool) -> String {
         let window = services.windowController(showing: pane)

@@ -163,6 +163,14 @@ public final class ActionRegistry {
 
     // MARK: - Binding
 
+    /// Catalog ids bound a second time without an `unbind` first: two owners for one action, a bug
+    /// in the app's wiring that would otherwise hide (the newer handler silently wins). The app
+    /// asserts it is empty once its handlers are bound (DEBUG); a test may still replace a handler
+    /// with a fake after that.
+    public private(set) var duplicateBindings: [ActionID] = []
+    /// False only in tests that check ``duplicateBindings`` themselves.
+    public var assertsOnDuplicateBinding = true
+
     /// Registers `action`, replacing any action with the same ID. Legacy IDs
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
@@ -208,6 +216,7 @@ public final class ActionRegistry {
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
         guard let descriptor = descriptor(for: id) else { return false }
+        if indexByID[canonicalID(for: descriptor.id)] != nil { duplicateBindings.append(descriptor.id) }
         register(Action(
             id: descriptor.id,
             title: descriptor.title,

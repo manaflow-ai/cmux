@@ -71,6 +71,9 @@ enum AppActions {
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
         WindowKeyTable.install(services)
+        // One owner per action: a second binding would silently replace the first.
+        assert(registry.duplicateBindings.isEmpty || !registry.assertsOnDuplicateBinding,
+               "actions bound twice: \(registry.duplicateBindings.map(\.rawValue))")
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
