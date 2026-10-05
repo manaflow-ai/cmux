@@ -43,7 +43,7 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
@@ -242,8 +242,11 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(manifest.aptSnapshot).toBe(lock.apt.ubuntu.uri);
   });
 
-  test("cmux-cua stays unpinned until a non-pre-release Linux release ships LICENSE (coordinator 2026-10-05); the entry shape is ready", () => {
-    expect(lock.programs.some((p) => p.name === "cmux-cua")).toBe(false);
+  test("cmux-cua 0.8.7 (full release, LICENSE inside) is pinned by URL, sha256, size and checksums.txt, role cua", () => {
+    const pinned = lock.programs.find((p) => p.name === "cmux-cua")!;
+    expect(pinned).toMatchObject({ ...cmuxCuaReleaseShape("0.8.7", "x86_64"), expect: "cmux-cua 0.8.7", sha256: "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e", size: 8706672 });
+    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt");
+    expect(pinned.checksumsName).toBe("cmux-cua-0.8.7-linux-x86_64.tar.gz");
     expect(cmuxCuaReleaseShape("0.8.0", "x86_64")).toEqual({
       name: "cmux-cua",
       version: "0.8.0",
@@ -256,9 +259,8 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     });
     expect(cmuxCuaReleaseShape("0.8.0", "arm64").url).toContain("cmux-cua-0.8.0-linux-arm64.tar.gz");
     const raw = fresh();
-    raw.programs.push({ ...cmuxCuaReleaseShape("0.8.0", "x86_64"), sha256: "a".repeat(64), size: 1234 });
     expect(problemsOf(raw)).toEqual([]);
-    raw.programs[raw.programs.length - 1].roles = ["cua", "nope"];
+    raw.programs.find((p: { name: string }) => p.name === "cmux-cua").roles = ["cua", "nope"];
     expect(problemsOf(raw).some((p) => p.includes('roles: unknown role "nope"'))).toBe(true);
   });
 });
