@@ -84,7 +84,8 @@ enum BrowserReplHostName {
         withUnsafeMutableBytes(of: &address) { $0.copyBytes(from: bytes) }
         var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
         guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil else { return "" }
-        return String(cString: buffer)
+        let text = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return String(decoding: text, as: UTF8.self)
     }
 
     /// Why a URL whose host is written `raw` cannot be judged by its
