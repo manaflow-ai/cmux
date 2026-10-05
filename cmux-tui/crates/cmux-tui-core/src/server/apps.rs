@@ -498,6 +498,30 @@ mod tests {
         assert_eq!((plain.get("error_details"), plain["retryable"].clone()), (None, json!(false)));
     }
 
+    /// The CLI's Ctrl-C (spec/cli.md "apps run"): `cancel-request` on the
+    /// connection that sent the `apps-run` reaches the apps door and is
+    /// answered `{}`, also when no such run exists (an unknown or answered
+    /// request changes nothing).
+    #[test]
+    fn a_cancel_request_is_answered_on_the_apps_door() {
+        let mux = Mux::new_for_test("apps-cancel-request", SurfaceOptions::default());
+        let (cli, out) = connection(&mux, Some("cli"), false);
+        let writer = mux.control_clients.state.lock().unwrap().clients[&cli].writer.clone();
+        let cancel =
+            json!({ "id": "cancel-request-1", "cmd": "cancel-request", "target": "apps-run-1" });
+        assert_eq!(try_handle(&mux, cli, &cancel.to_string(), &writer), Some(true));
+        let reply: Value = serde_json::from_str(&out.try_pop().expect("reply")).unwrap();
+        assert_eq!(
+            (reply["id"].clone(), reply["ok"].clone(), reply["data"].clone()),
+            (json!("cancel-request-1"), json!(true), json!({}))
+        );
+        // Without a target the frame is a bad request, not silence.
+        let bad = json!({ "id": 2, "cmd": "cancel-request" });
+        assert_eq!(try_handle(&mux, cli, &bad.to_string(), &writer), Some(true));
+        let reply: Value = serde_json::from_str(&out.try_pop().expect("reply")).unwrap();
+        assert_eq!(reply["error_code"], "bad-request");
+    }
+
     #[test]
     fn a_client_open_token_is_not_part_of_an_apps_run_request() {
         // The supervisor alone mints open tokens; a client's top-level one is
