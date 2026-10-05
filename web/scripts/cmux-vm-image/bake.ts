@@ -382,7 +382,7 @@ async function installVmAgent(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.path", units.path, 0o644);
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.service", units.service, 0o644);
   ctx.result.vmAgent = await L.step(vm, "vm-agent-enable", [
-    `/usr/local/bin/bun build --target=bun --outfile=/dev/null ${VM_AGENT_PATH} >/dev/null`,
+    `d="$(mktemp -d)" && /usr/local/bin/bun build --target=bun --outdir "$d" ${VM_AGENT_PATH} >/dev/null && rm -rf "$d"`,
     "systemctl daemon-reload",
     "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service",
     "systemctl start cmux-vm-agent.path",
