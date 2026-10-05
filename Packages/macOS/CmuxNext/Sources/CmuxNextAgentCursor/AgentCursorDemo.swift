@@ -15,6 +15,21 @@ public struct AgentCursorDemo: Sendable {
         case pointRequired(String)
     }
 
+    /// One verb call's fields after aliases: `action` or `kind`; `x`/`y` or
+    /// `point {x, y}` (the form agent-cursor-visibility-live.py sends).
+    public struct Request: Equatable, Sendable {
+        public var action: String
+        public var x: Double?
+        public var y: Double?
+
+        public init(action: String?, kind: String?, x: Double?, y: Double?, pointX: Double?, pointY: Double?) {
+            _ = (kind, pointX, pointY)
+            self.action = action ?? "report"
+            self.x = x
+            self.y = y
+        }
+    }
+
     private var nextSeq: [String: UInt64] = [:]
 
     public init() {}
