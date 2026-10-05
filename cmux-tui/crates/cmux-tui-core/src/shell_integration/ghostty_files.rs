@@ -1,6 +1,6 @@
-//! The user's Ghostty `shell-integration-features` and `cursor-style-blink`,
-//! read from their Ghostty config files at each spawn for a shell the daemon
-//! integrates with no caller value (decision
+//! The user's Ghostty `shell-integration`, `shell-integration-features` and
+//! `cursor-style-blink`, read from their Ghostty config files at each spawn
+//! of a shell the daemon starts (decision
 //! DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES). It follows libghostty: the
 //! default files in order (`platform::ghostty_config_paths_from`), or only
 //! `CMUX_NEXT_GHOSTTY_CONFIG` as the app loads it, then the `config-file`
@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 /// The app's single-file config override (`GhosttyRuntime.configOverrideKey`).
 const CONFIG_OVERRIDE_ENV: &str = "CMUX_NEXT_GHOSTTY_CONFIG";
+const MODE_KEY: &str = "shell-integration";
 const FEATURES_KEY: &str = "shell-integration-features";
 const BLINK_KEY: &str = "cursor-style-blink";
 const INCLUDE_KEY: &str = "config-file";
@@ -83,9 +84,54 @@ impl Features {
     }
 }
 
-/// The two keys the daemon needs, as the user's files set them.
+/// Ghostty's `shell-integration`: never, by the shell's name, or one shell
+/// forced whatever the command is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Mode {
+    None,
+    #[default]
+    Detect,
+    Bash,
+    Elvish,
+    Fish,
+    Nushell,
+    Zsh,
+}
+
+impl Mode {
+    /// The enum's names exactly; nil for any other value.
+    fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "none" => Self::None,
+            "detect" => Self::Detect,
+            "bash" => Self::Bash,
+            "elvish" => Self::Elvish,
+            "fish" => Self::Fish,
+            "nushell" => Self::Nushell,
+            "zsh" => Self::Zsh,
+            _ => return None,
+        })
+    }
+
+    /// The vectors' name for the mode.
+    #[cfg(test)]
+    fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Detect => "detect",
+            Self::Bash => "bash",
+            Self::Elvish => "elvish",
+            Self::Fish => "fish",
+            Self::Nushell => "nushell",
+            Self::Zsh => "zsh",
+        }
+    }
+}
+
+/// The keys the daemon needs, as the user's files set them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) struct Settings {
+    pub mode: Mode,
     pub features: Features,
     /// Nil when unset (Ghostty then blinks).
     pub cursor_blink: Option<bool>,
@@ -184,6 +230,8 @@ impl Reader<'_> {
                         self.settings.features = features;
                     }
                 }
+                // Red: shell-integration is not read yet.
+                MODE_KEY if Mode::parse(value).is_some() && value.is_empty() => {}
                 BLINK_KEY if value.is_empty() => self.settings.cursor_blink = None,
                 BLINK_KEY => {
                     if let Some(on) = parse_bool(value) {
@@ -258,6 +306,7 @@ mod tests {
             }
             assert_eq!(settings.features, expected, "{name}");
             assert_eq!(settings.cursor_blink, case["cursor_blink"].as_bool(), "{name}");
+            assert_eq!(settings.mode.name(), case["shell_integration"].as_str().unwrap(), "{name}");
             fs::remove_dir_all(&dir).unwrap();
         }
     }
@@ -267,9 +316,14 @@ mod tests {
     #[test]
     fn the_env_value_is_ghosttys() {
         assert_eq!(Settings::default().env_value(), "cursor:blink,path,title");
-        let steady = Settings { features: Features::all(true), cursor_blink: Some(false) };
+        let steady = Settings {
+            features: Features::all(true),
+            cursor_blink: Some(false),
+            ..Settings::default()
+        };
         assert_eq!(steady.env_value(), "cursor:steady,path,ssh-env,ssh-terminfo,sudo,title");
-        let none = Settings { features: Features::all(false), cursor_blink: None };
+        let none =
+            Settings { features: Features::all(false), cursor_blink: None, ..Settings::default() };
         assert_eq!(none.env_value(), "");
     }
 }

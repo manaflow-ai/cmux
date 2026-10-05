@@ -22,6 +22,8 @@ use sha2::{Digest, Sha256};
 
 mod ghostty_files;
 
+use ghostty_files::Mode;
+
 struct Script {
     path: &'static str,
     contents: &'static str,
@@ -101,6 +103,28 @@ fn usable_features(features: &str, has_cli: bool) -> String {
         .join(",")
 }
 
+/// `GHOSTTY_SHELL_FEATURES` and the Ghostty CLI directory for a shell the
+/// daemon starts.
+fn export_features(
+    env: &mut Vec<(String, String)>,
+    lookup: &dyn Fn(&str) -> Option<String>,
+    user: &ghostty_files::Settings,
+) {
+    // A caller (or daemon) value is the user's resolved feature set; with
+    // none, the user's Ghostty config files give it, then Ghostty's defaults
+    // (DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES).
+    let cli_dir = ghostty_cli_dir(lookup);
+    let given = lookup(FEATURES_ENV);
+    let features = given.clone().unwrap_or_else(|| user.env_value());
+    let usable = usable_features(&features, cli_dir.is_some());
+    if given.as_deref() != Some(usable.as_str()) {
+        env.push((FEATURES_ENV.into(), usable));
+    }
+    if let Some(GhosttyCliDir::FromBinary(dir)) = cli_dir {
+        env.push((GHOSTTY_BIN_DIR_ENV.into(), dir));
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shell {
     Bash,
@@ -138,13 +162,34 @@ pub fn integrate_default_shell(
     if lookup(OPT_OUT_ENV).as_deref() == Some("none") {
         return ShellLaunch { command, env: extra_env };
     }
-    let Some(shell) = detect_shell(&command) else {
-        return ShellLaunch { command, env: extra_env };
+    let user = ghostty_files::read(&lookup);
+    let Some(shell) = shell_for(user.mode, &command) else {
+        if user.mode == Mode::Detect {
+            return ShellLaunch { command, env: extra_env };
+        }
+        // `shell-integration = none` (or a shell with no scripts here):
+        // Ghostty still exports the features, for a manual integration.
+        let mut env = extra_env;
+        export_features(&mut env, &lookup, &user);
+        return ShellLaunch { command, env };
     };
     let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {
         return ShellLaunch { command, env: extra_env };
     };
-    apply(shell, &root, command, extra_env, &lookup)
+    apply(shell, &root, command, extra_env, &lookup, &user)
+}
+
+/// The shell to integrate under the user's `shell-integration`: none for
+/// `none`, the command's shell for `detect`, else the forced shell, as
+/// Ghostty's `Exec` does. elvish and nushell have no scripts here.
+fn shell_for(mode: Mode, command: &[String]) -> Option<Shell> {
+    match mode {
+        Mode::Detect => detect_shell(command),
+        Mode::Bash => Some(Shell::Bash),
+        Mode::Fish => Some(Shell::Fish),
+        Mode::Zsh => Some(Shell::Zsh),
+        Mode::None | Mode::Elvish | Mode::Nushell => None,
+    }
 }
 
 fn detect_shell(command: &[String]) -> Option<Shell> {
@@ -168,23 +213,12 @@ fn apply(
     mut command: Vec<String>,
     mut env: Vec<(String, String)>,
     lookup: &dyn Fn(&str) -> Option<String>,
+    user: &ghostty_files::Settings,
 ) -> ShellLaunch {
     // The daemon integrates this shell, so it owns the Ghostty integration
     // keys: a caller value for one of them never reaches the shell.
     crate::daemon_env::warn_dropped(&crate::daemon_env::strip_integration_owned(&mut env));
-    // A caller (or daemon) value is the user's resolved feature set; with
-    // none, the user's Ghostty config files give it, then Ghostty's defaults
-    // (DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES).
-    let cli_dir = ghostty_cli_dir(lookup);
-    let given = lookup(FEATURES_ENV);
-    let features = given.clone().unwrap_or_else(|| ghostty_files::read(lookup).env_value());
-    let usable = usable_features(&features, cli_dir.is_some());
-    if given.as_deref() != Some(usable.as_str()) {
-        env.push((FEATURES_ENV.into(), usable));
-    }
-    if let Some(GhosttyCliDir::FromBinary(dir)) = cli_dir {
-        env.push((GHOSTTY_BIN_DIR_ENV.into(), dir));
-    }
+    export_features(&mut env, lookup, user);
     let root_str = root.to_string_lossy().into_owned();
     match shell {
         Shell::Zsh => {
@@ -399,6 +433,7 @@ mod tests {
             vec![shell.into()],
             env,
             &lookup,
+            &ghostty_files::read(&lookup),
         )
     }
 
@@ -621,6 +656,37 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The user's Ghostty `shell-integration` from their files decides the
+    /// shell the daemon integrates, as in Ghostty's `Exec`: `detect` by the
+    /// command's name, a forced shell whatever the command, and `none`
+    /// never; `none` still exports the features for a manual integration.
+    #[test]
+    fn the_users_shell_integration_mode_decides_the_shell() {
+        let mksh = ["mksh".to_string()];
+        let zsh = ["/bin/zsh".to_string()];
+        assert_eq!(shell_for(Mode::Detect, &zsh), Some(Shell::Zsh));
+        assert_eq!(shell_for(Mode::Detect, &mksh), None);
+        assert_eq!(shell_for(Mode::Zsh, &mksh), Some(Shell::Zsh));
+        assert_eq!(shell_for(Mode::Fish, &zsh), Some(Shell::Fish));
+        assert_eq!(shell_for(Mode::None, &zsh), None);
+        assert_eq!(shell_for(Mode::Nushell, &zsh), None, "no nushell scripts here");
+
+        let dir = std::env::temp_dir().join(format!("cmux-shell-mode-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        fs::write(&config, "shell-integration = none\nshell-integration-features = no-path\n")
+            .unwrap();
+        let launched = integrate_default_shell(
+            vec!["zsh".into()],
+            vec![("CMUX_NEXT_GHOSTTY_CONFIG".into(), config.to_str().unwrap().into())],
+        );
+        assert_eq!(launched.command, vec!["zsh".to_string()]);
+        assert_eq!(env_of(&launched, "ZDOTDIR"), None, "none: no injection");
+        assert_eq!(env_of(&launched, FEATURES_ENV).as_deref(), Some("cursor:blink,title"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// zsh passes preexec a `$2` that drops every word that does not fit its
     /// 80-byte job text, and oh-my-zsh titles the terminal with it
     /// (`/usr/bin/python3 /long/a.py /long/b.json 60` became
@@ -665,7 +731,8 @@ mod tests {
             let env = env.clone();
             move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
         };
-        let launched = apply(Shell::Zsh, &root, vec![zsh.into()], env, &lookup);
+        let launched =
+            apply(Shell::Zsh, &root, vec![zsh.into()], env, &lookup, &ghostty_files::read(&lookup));
 
         let pty = cmux_pty::open(cmux_pty::PtySize {
             rows: 24,
@@ -865,7 +932,8 @@ mod tests {
             let env = env.clone();
             move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
         };
-        let launched = apply(shell, &root, vec![exe.into()], env, &lookup);
+        let launched =
+            apply(shell, &root, vec![exe.into()], env, &lookup, &ghostty_files::read(&lookup));
         let pty = cmux_pty::open(cmux_pty::PtySize {
             rows: 24,
             cols: 200,
