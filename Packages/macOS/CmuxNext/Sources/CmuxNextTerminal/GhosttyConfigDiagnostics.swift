@@ -50,7 +50,36 @@ extension GhosttyRuntime {
         return diagnostics(of: config)
     }
 
+    /// Unsupported keys the user's files set (libghostty's own source of
+    /// each key, so includes and the last assignment count as in Ghostty;
+    /// cmux's built-in defaults are not files and never show), in load
+    /// order, then libghostty's messages.
     static func diagnostics(of config: ghostty_config_t) -> [GhosttyConfigDiagnostic] {
-        []
+        var order: [String: Int] = [:]
+        for (index, file) in loadedFiles(of: config).enumerated() where order[resolved(file)] == nil {
+            order[resolved(file)] = index
+        }
+        var keys: [(rank: Int, line: Int, diagnostic: GhosttyConfigDiagnostic)] = []
+        for (key, support) in GhosttyKeySupport.unsupported {
+            var source = ghostty_config_source_s()
+            let found = key.withCString { ghostty_config_key_source(config, $0, UInt(key.utf8.count), &source) }
+            guard found, let pointer = source.path else { continue }
+            let path = String(cString: pointer)
+            guard let rank = order[resolved(path)] else { continue }
+            let line = Int(source.line)
+            keys.append((rank, line, GhosttyConfigDiagnostic(kind: .key, name: key, file: path, line: line, support: support)))
+        }
+        keys.sort { ($0.rank, $0.line, $0.diagnostic.name) < ($1.rank, $1.line, $1.diagnostic.name) }
+        let invalid = (0..<ghostty_config_diagnostics_count(config)).compactMap { index in
+            ghostty_config_get_diagnostic(config, index).message.map {
+                GhosttyConfigDiagnostic(kind: .invalid, name: String(cString: $0))
+            }
+        }
+        return keys.map(\.diagnostic) + invalid
+    }
+
+    /// One spelling per file (`/var` and `/private/var` are the same file).
+    private static func resolved(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 }
