@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import type { ProviderId } from "./drivers";
 import { trace } from "@opentelemetry/api";
 import { setSpanAttributes } from "../telemetry";
@@ -372,19 +373,16 @@ function resolveTeamNetwork(input: {
     // every create pays the slower of the two instead of their sum (the two
     // were ~400ms and ~240ms in sequence). Membership still gates the result,
     // on reuse as well as on create, so a caller who left the team never lands
-    // on its network: a non-member's read is discarded, and its failure is
-    // surfaced only to a current member, who would have issued the same read.
-    const [result, existingRead] = yield* Effect.all(
-      [
-        listTeamMemberIdsWithTimeout(input.teamDirectory, input.billingTeamId, input.directoryTimeoutMs),
-        Effect.either(getNetwork(input.provider, slug)),
-      ],
-      { concurrency: 2 },
-    );
-    if ("error" in result) return { network: null, fallbackReason: result.error === "timeout" ? "directory_timeout" as const : "directory_error" as const };
-    if (result.memberIds === null) return { network: null, fallbackReason: "directory_error" as const };
-    if (!result.memberIds.includes(input.userId)) return { network: null, fallbackReason: "not_member" as const };
-    const existing = yield* existingRead;
+    // on its network. Only a current member joins the read, so only a member
+    // sees its failure; every fallback interrupts it and returns at once.
+    const existingRead = yield* Effect.fork(getNetwork(input.provider, slug));
+    const fallBack = (fallbackReason: Exclude<TeamNetworkResolution["fallbackReason"], null>) =>
+      Fiber.interruptFork(existingRead).pipe(Effect.as({ network: null, fallbackReason }));
+    const result = yield* listTeamMemberIdsWithTimeout(input.teamDirectory, input.billingTeamId, input.directoryTimeoutMs);
+    if ("error" in result) return yield* fallBack(result.error === "timeout" ? "directory_timeout" : "directory_error");
+    if (result.memberIds === null) return yield* fallBack("directory_error");
+    if (!result.memberIds.includes(input.userId)) return yield* fallBack("not_member");
+    const existing = yield* Fiber.join(existingRead);
     if (existing) return { network: teamNetworkFromProvider(existing, slug), fallbackReason: null };
     if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
     // No members-reach-each-other rule: each team VM admits the team network

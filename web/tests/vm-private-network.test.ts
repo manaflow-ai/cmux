@@ -472,6 +472,20 @@ describe("resolveOwnerNetwork", () => {
     expect(result).toMatchObject({ scope: "user", providerNetworkId: NETWORK.id });
   });
 
+  test("a removed member's fallback does not wait for a hung provider read", async () => {
+    const gateway = testGateway();
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-2", "user-3"] },
+    }).pipe(
+      Effect.provide(layerFor(testRepo({ network: networkRow() }), { ...gateway, getNetwork: () => Effect.never })),
+      Effect.timeout(1000),
+    ));
+    expect(result).toMatchObject({ scope: "user", providerNetworkId: NETWORK.id });
+  });
+
   test("the team directory lookup and the provider read overlap instead of running in sequence", async () => {
     let providerReadStarted!: () => void;
     const providerRead = new Promise<void>((resolve) => { providerReadStarted = resolve; });
