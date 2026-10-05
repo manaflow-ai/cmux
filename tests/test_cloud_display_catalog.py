@@ -368,6 +368,123 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertIn("-UseBlacklist=0", xvnc)
         service.shutdown.set()
 
+    def standby_service(self, occupied=lambda _: False):
+        """A service whose display starts are recorded and complete at once."""
+        service = display.DisplayService(self.catalog(occupied=occupied), self.root / "runtime")
+        started = []
+
+        def start(number):
+            started.append(number)
+            service.states[number] = "running"
+            finished = display.threading.Event()
+            finished.set()
+            service.jobs[number] = finished
+            return finished
+
+        service.start = start
+        return service, started
+
+    def test_new_display_takes_the_running_standby_and_warms_the_next(self):
+        """New Display hands over an already-running desktop instead of
+        starting Xvnc and a session while the user waits."""
+        service, started = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            listed = service.handle({"action": "list"})
+            self.assertEqual(service.standby, 2)
+            self.assertEqual([d["id"] for d in listed["displays"]], ["display:1"],
+                             "the standby is not a display until it is requested")
+            created = service.handle({"action": "create", "request": str(uuid.uuid4())})
+        self.assertEqual(created["created"], "display:2")
+        self.assertEqual(service.catalog.numbers(), [2])
+        self.assertEqual(service.standby, 3)
+        self.assertEqual(started, [2, 2, 3])
+        service.shutdown.set()
+
+    def test_retried_create_keeps_its_display_and_the_standby(self):
+        service, _ = self.standby_service()
+        request = str(uuid.uuid4())
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            first = service.handle({"action": "create", "request": request})
+            again = service.handle({"action": "create", "request": request})
+        self.assertEqual(first["created"], again["created"])
+        self.assertEqual(service.catalog.numbers(), [2])
+        self.assertEqual(service.standby, 3)
+        service.shutdown.set()
+
+    def test_standby_does_not_consume_display_capacity(self):
+        service, _ = self.standby_service()
+        for _ in range(display.MAX_DISPLAYS - 2):
+            service.catalog.allocate(str(uuid.uuid4()))
+        with mock.patch.object(display, "ready", return_value=True):
+            listed = service.handle({"action": "list"})
+        self.assertTrue(listed["canCreate"])
+        self.assertEqual(service.standby, display.MAX_DISPLAYS)
+        with mock.patch.object(display, "ready", return_value=True):
+            created = service.handle({"action": "create", "request": str(uuid.uuid4())})
+        self.assertEqual(created["created"], f"display:{display.MAX_DISPLAYS}")
+        self.assertIsNone(service.standby, "no slot remains for another standby")
+        self.assertFalse(created["canCreate"])
+        service.shutdown.set()
+
+    def test_failed_standby_is_retired_not_handed_over(self):
+        service, _ = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            service.states[2] = "unavailable"
+            created = service.handle({"action": "create", "request": str(uuid.uuid4())})
+        self.assertNotEqual(created["created"], "display:2")
+        self.assertNotIn(2, service.catalog.numbers())
+        self.assertNotIn(service.standby, (None, 2))
+        service.shutdown.set()
+
+    def test_launching_standby_number_is_never_recorded_for_another_request(self):
+        catalog = self.catalog()
+        self.assertEqual(catalog.allocate(str(uuid.uuid4()), reserved={2}), 3)
+        self.assertEqual(catalog.free_number(reserved={4}), 2)
+
+    def test_concurrent_creates_keep_one_standby_outside_the_catalog(self):
+        service, _ = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+                created = list(pool.map(
+                    lambda _: service.handle({"action": "create", "request": str(uuid.uuid4())})["created"],
+                    range(6)))
+        numbers = service.catalog.numbers()
+        self.assertEqual(len(set(created)), 6)
+        self.assertEqual(len(numbers), 6)
+        self.assertIsNotNone(service.standby)
+        self.assertNotIn(service.standby, numbers)
+        service.shutdown.set()
+
+    def test_number_recorded_after_probe_never_becomes_the_standby(self):
+        """A create can record the probed number between the unlocked probe and
+        the locked assignment; that display must not also become the standby."""
+        service, started = self.standby_service()
+        raced = {}
+        real_free_number = service.catalog.free_number
+
+        def free_number(reserved=()):
+            number = real_free_number(reserved=reserved)
+            raced["number"] = service.catalog.allocate(str(uuid.uuid4()))
+            return number
+
+        service.catalog.free_number = free_number
+        service.ensure_standby()
+        self.assertEqual(raced["number"], 2)
+        self.assertIsNone(service.standby)
+        self.assertEqual(started, [])
+        service.shutdown.set()
+
+    def test_restarted_service_adopts_the_running_standby(self):
+        service, started = self.standby_service()
+        service.catalog.allocate(str(uuid.uuid4()))
+        service.adopt_standby(is_display_server=lambda number: number == 4)
+        self.assertEqual(service.standby, 4)
+        self.assertEqual(started, [4])
+        service.shutdown.set()
+
     def test_additional_desktop_clients_use_display_scoped_process_names(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
         source = self.root / "openbox"

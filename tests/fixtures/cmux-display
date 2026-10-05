@@ -159,7 +159,18 @@ class DisplayCatalog:
         with self.lock:
             return sorted(record["number"] for record in self.records)
 
-    def allocate(self, request):
+    def free_number(self, reserved=()):
+        """The lowest number neither recorded, reserved nor in use on the guest."""
+        with self.lock:
+            used = set(self.numbers()) | set(reserved)
+            return next((n for n in range(2, MAX_DISPLAYS + 1)
+                         if n not in used and not self.occupied(n)), None)
+
+    def allocate(self, request, preferred=None, reserved=()):
+        """Records `request`. `preferred` is the warm standby display, which is
+        already running (so `occupied`) but not yet owned by any request.
+        `reserved` numbers are never chosen otherwise: a standby that is still
+        launching has no X socket yet, so `occupied` cannot see it."""
         if not isinstance(request, str) or str(uuid.UUID(request)) != request:
             raise ValueError("invalid request identity")
         with self.lock:
@@ -167,8 +178,11 @@ class DisplayCatalog:
                 if record["request"] == request:
                     return record["number"]
             used = set(self.numbers())
-            number = next((n for n in range(2, MAX_DISPLAYS + 1)
-                           if n not in used and not self.occupied(n)), None)
+            if preferred is not None and 2 <= preferred <= MAX_DISPLAYS and preferred not in used:
+                number = preferred
+            else:
+                number = next((n for n in range(2, MAX_DISPLAYS + 1)
+                               if n not in used and n not in reserved and not self.occupied(n)), None)
             if number is None:
                 raise ValueError("display capacity exhausted")
             records = self.records + [{"number": number, "request": request}]
@@ -222,6 +236,11 @@ class DisplayService:
         self.named_processes = {}
         self.websockify_processes = {}
         self.shutdown = threading.Event()
+        # One display kept running outside the catalog so New Display hands
+        # over a live desktop instead of starting Xvnc and a session (about
+        # 0.7s on the guest) while the user waits.
+        self.standby = None
+        self.stops = {}
 
     def start(self, number):
         with self.lock:
@@ -229,6 +248,7 @@ class DisplayService:
                 return self.jobs[number]
             finished = threading.Event()
             self.jobs[number] = finished
+            self.stops[number] = threading.Event()
             self.states[number] = "launching"
             threading.Thread(target=self.supervise, args=(number, finished), daemon=True).start()
             return finished
@@ -505,7 +525,7 @@ class DisplayService:
         for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
                     "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
             environment.pop(key, None)
-        while not self.shutdown.is_set():
+        while not self.shutdown.is_set() and not self.stops.get(number, threading.Event()).is_set():
             try:
                 # The supervisor is a health check, not a timer-driven restart.
                 # Preserve an active RFB/noVNC session until its owned endpoints fail.
@@ -521,27 +541,97 @@ class DisplayService:
             with self.lock:
                 self.states[number] = state
             finished.set()
-            self.shutdown.wait(30)
+            stop = self.stops.get(number)
+            if stop is None or stop.wait(30):
+                break
         self.terminate(number)
+        with self.lock:
+            # A retired standby releases its number for later displays.
+            stop = self.stops.get(number)
+            if stop is not None and stop.is_set():
+                self.jobs.pop(number, None)
+                self.states.pop(number, None)
+                self.stops.pop(number, None)
+
+    def retire_standby_locked(self):
+        """Stops a standby whose start failed instead of retrying it forever
+        or handing it to a request. Caller holds self.lock."""
+        number = self.standby
+        if number is None or self.states.get(number) != "unavailable":
+            return
+        self.standby = None
+        stop = self.stops.get(number)
+        if stop is not None:
+            stop.set()
+
+    def ensure_standby(self):
+        """Starts the standby display when none is running and a slot remains
+        for it beyond the recorded displays. Returns without waiting."""
+        with self.lock:
+            self.retire_standby_locked()
+            if self.standby is not None or self.shutdown.is_set():
+                return
+            if len(self.catalog.numbers()) >= MAX_DISPLAYS - 1:
+                return
+            busy = set(self.jobs)
+        # Probing free numbers connects to ports; keep that outside the lock.
+        number = self.catalog.free_number(reserved=busy)
+        if number is None:
+            return
+        with self.lock:
+            # A concurrent create may have recorded this number since it was
+            # probed; it must never become both a display and the standby.
+            if self.standby is not None or number in self.jobs or number in self.catalog.numbers():
+                return
+            self.standby = number
+        self.start(number)
+
+    def adopt_standby(self, is_display_server=None):
+        """After a helper restart, reuse a running standby from the previous
+        service rather than leaking it and starting another."""
+        recorded = set(self.catalog.numbers())
+        for number in range(2, MAX_DISPLAYS + 1):
+            if number in recorded:
+                continue
+            owned = is_display_server(number) if is_display_server else bool(matching_pids(
+                lambda args, number=number: Path(args[0]).name in ("Xvnc", "Xtigervnc")
+                and f":{number}" in args))
+            if owned:
+                with self.lock:
+                    self.standby = number
+                self.start(number)
+                return
+        self.ensure_standby()
 
     def snapshot(self):
         primary_state = "running" if ready(1) else "unavailable"
         with self.lock:
-            return {"version": 1, "canCreate": len(self.jobs) < MAX_DISPLAYS - 1,
+            # The standby is not a display yet; capacity counts recorded ones.
+            return {"version": 1, "canCreate": len(self.catalog.numbers()) < MAX_DISPLAYS - 1,
                     "displays": [descriptor(1, primary_state)]
                     + [descriptor(n, self.states.get(n, "launching")) for n in self.catalog.numbers()]}
 
     def handle(self, request):
         if request.get("action") == "list":
+            self.ensure_standby()
             return self.snapshot()
         if request.get("action") != "create":
             raise ValueError("unsupported display action")
-        number = self.catalog.allocate(request.get("request"))
+        with self.lock:
+            # One lock from reading the standby to releasing it, so concurrent
+            # creates cannot both take it or record its number as a new display.
+            self.retire_standby_locked()
+            standby = self.standby
+            number = self.catalog.allocate(request.get("request"), preferred=standby,
+                                           reserved=set(self.jobs) - {standby})
+            if number == standby:
+                self.standby = None
         self.start(number).wait(55)
         result = self.snapshot()
         result["created"] = f"display:{number}"
         if self.states.get(number) != "running":
             result["error"] = "display_start_failed"
+        self.ensure_standby()
         return result
 
 
@@ -560,6 +650,7 @@ def serve(runtime):
         service = DisplayService(DisplayCatalog(Path.home() / ".cmux" / "displays"), runtime / "displays")
         for number in service.catalog.numbers():
             service.start(number)
+        service.adopt_standby()
         path = runtime / "display-control.sock"
         if path.exists():
             path.unlink()
