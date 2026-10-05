@@ -11,6 +11,28 @@ import Testing
 @Suite("Cloud cwd and machine identity", .serialized)
 @MainActor
 struct CloudDirectoryLifecycleTests {
+    @Test("Finishing launch publishes sidebar metadata even when cwd does not change")
+    func launchCompletionInvalidatesSidebar() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: ["/home/cmux/first", "/home/cmux/second"], revision: 2,
+                            lifecycles: ["launching", "launching"])
+        #expect(try fixture.sidebarText().isEmpty)
+        let before = fixture.workspace.cloudBindingState.revision
+        let directories = fixture.workspace.panelDirectories
+
+        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+
+        #expect(fixture.workspace.panelDirectories == directories)
+        #expect(fixture.workspace.cloudBindingState.revision > before,
+                "A lifecycle-only delta must wake the sidebar's Cloud observation stream")
+        #expect(try fixture.sidebarText().contains("cwd-machine · /home/cmux/first"))
+        let settled = fixture.workspace.cloudBindingState.revision
+        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+        #expect(fixture.workspace.cloudBindingState.revision == settled,
+                "An identical presentation must not invalidate the sidebar again")
+    }
+
     @Test("Terminal-only cd deltas update focused and background panels without title changes")
     func liveDirectoryDelta() throws {
         let fixture = try CloudDirectoryTestFixture()
