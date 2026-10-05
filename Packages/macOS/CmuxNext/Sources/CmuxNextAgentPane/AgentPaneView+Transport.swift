@@ -48,6 +48,14 @@ extension AgentPaneView {
                               buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])
     }
 
+    /// The gesture decision for `event` (tests pass the window: a synthesized event cannot resolve it).
+    func judge(_ event: NSEvent, eventWindow: NSWindow?) {
+        var gesture = Gesture(event)
+        gesture.window = eventWindow.map(ObjectIdentifier.init)
+        // task-owner: one gesture record, on the main actor
+        Task { @MainActor [weak self] in self?.noteGesture(gesture) }
+    }
+
     /// A key or mouse event's values that decide whether it is a gesture in this pane.
     nonisolated struct Gesture: Sendable {
         var window: ObjectIdentifier?
