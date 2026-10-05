@@ -324,3 +324,15 @@ describe("per-clone machine-id and the daemon block of bind (coordinator 2026-10
     await expect(resolveDaemonInfo(store, { activitySender: false })).rejects.toThrow(/daemon/);
   });
 });
+
+describe("heartbeat interval: a test override only in dev (coordinator 2026-10-05)", () => {
+  test("dev honors CMUX_VM_AGENT_HEARTBEAT_MS within 1 s..1 h; stg and prod always use 1 h", async () => {
+    const { heartbeatMsFor, DEFAULT_HEARTBEAT_MS } = await import("../../images/cmux-vm/guest/vm-agent");
+    expect(DEFAULT_HEARTBEAT_MS).toBe(3_600_000);
+    expect(heartbeatMsFor("dev", "15000")).toBe(15_000);
+    expect(heartbeatMsFor("stg", "15000")).toBe(DEFAULT_HEARTBEAT_MS);
+    expect(heartbeatMsFor("prod", "15000")).toBe(DEFAULT_HEARTBEAT_MS);
+    expect(heartbeatMsFor("dev", undefined)).toBe(DEFAULT_HEARTBEAT_MS);
+    for (const bad of ["", "abc", "999", "3600001", "-5", "1e4", "15000.5"]) expect(heartbeatMsFor("dev", bad)).toBe(DEFAULT_HEARTBEAT_MS);
+  });
+});

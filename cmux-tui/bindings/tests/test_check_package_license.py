@@ -64,7 +64,7 @@ class RepositoryTests(unittest.TestCase):
     def test_every_published_sdk_is_registered(self) -> None:
         names = {package.name for package in check.PACKAGES}
         self.assertTrue(
-            {"cmux-sdk (crate)", "cmux-sidebar (crate)", "cmux-sdk (npm)", "cmux-sdk (pypi)", "go", "go-pane"}
+            {"cmux-sdk (crate)", "cmux-sidebar (crate)", "cmux-sdk (npm)", "cmux-sdk (pypi)", "go", "go-pane", "cmux-java-sdk (maven)"}
             <= names,
             names,
         )
@@ -156,6 +156,46 @@ class GoModuleTests(unittest.TestCase):
             self.assertTrue(any("LICENSE" in error for error in check.check_artifact("go-module", module)))
             (module / "LICENSE").write_bytes(GPL)
             self.assertEqual(check.check_artifact("go-module", module), [])
+
+
+
+POM = """<project><licenses><license><name>{name}</name></license></licenses></project>"""
+CLASS = b"\xca\xfe\xba\xbe\x00\x00\x00\x3d" + b"\0" * 32
+
+
+class JavaTests(unittest.TestCase):
+    """The Java SDK (not yet published) ships the GPL text before its first publish."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def test_the_java_sdk_directory_carries_the_gpl_text(self) -> None:
+        self.assertEqual((REPO / "cmux-tui/bindings/java/LICENSE").read_bytes(), GPL)
+
+    def test_accepts_a_jar_with_license_and_class_files(self) -> None:
+        jar = _zip(self.tmp / "ok.jar", {"META-INF/MANIFEST.MF": b"Manifest-Version: 1.0\n", "META-INF/LICENSE": GPL, "com/cmux/Client.class": CLASS})
+        self.assertEqual(check.check_artifact("jar", jar), [])
+
+    def test_refuses_a_jar_without_license(self) -> None:
+        jar = _zip(self.tmp / "nolicense.jar", {"com/cmux/Client.class": CLASS})
+        [error] = check.check_artifact("jar", jar)
+        self.assertIn("LICENSE is missing", error)
+
+    def test_refuses_native_code_in_a_jar(self) -> None:
+        jar = _zip(self.tmp / "native.jar", {"META-INF/LICENSE": GPL, "native/libcmux.so": ELF, "com/cmux/Client.class": CLASS})
+        [error] = check.check_artifact("jar", jar)
+        self.assertIn("native/libcmux.so", error)
+
+    def test_refuses_a_class_name_on_other_compiled_code(self) -> None:
+        jar = _zip(self.tmp / "disguised.jar", {"META-INF/LICENSE": GPL, "com/cmux/Native.class": ELF})
+        self.assertTrue(check.check_artifact("jar", jar))
+
+    def test_the_pom_must_declare_gpl_3_or_later(self) -> None:
+        package = next(p for p in check.PACKAGES if p.kind == "maven")
+        (self.tmp / "pom.xml").write_text(POM.format(name="GNU General Public License v3.0"))
+        self.assertTrue(check._source_metadata_errors(package, self.tmp))
+        (self.tmp / "pom.xml").write_text(POM.format(name="GPL-3.0-or-later"))
+        self.assertEqual(check._source_metadata_errors(package, self.tmp), [])
 
 
 if __name__ == "__main__":

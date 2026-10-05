@@ -439,6 +439,21 @@
       "bin": { "juicefs": "juicefs" },
       "versionArgs": ["version"],
       "expect": "1.4.1"
+    },
+    {
+      "name": "cmux-cua",
+      "version": "0.8.7",
+      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/cmux-cua-0.8.7-linux-x86_64.tar.gz",
+      "sha256": "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e",
+      "size": 8706672,
+      "format": "tar.gz",
+      "bin": { "cmux-cua": "cmux-cua-0.8.7-linux-x86_64/cmux-cua" },
+      "versionArgs": ["--version"],
+      "expect": "cmux-cua 0.8.7",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt",
+      "checksumsName": "cmux-cua-0.8.7-linux-x86_64.tar.gz",
+      "roles": ["cua"],
+      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.7 (full release 2026-10-05, LICENSE in the tarball); arm64 tarball sha256 550b1c902c4f47ded822f02dd1badb812bea2ae5e59d89817e1693805c867eaf; needs libX11 (base), libXi and libxkbcommon (display role)"
     }
   ],
   "roles": {

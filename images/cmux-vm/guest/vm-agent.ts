@@ -380,6 +380,19 @@ const retryAfter = (body: Record<string, any>): number => Number(body.error?.det
 
 // ---------------------------------------------------------------- status report
 
+export const DEFAULT_HEARTBEAT_MS = 3_600_000;
+
+/**
+ * The heartbeat deadline. CMUX_VM_AGENT_HEARTBEAT_MS (an integer, 1 s to 1 h) is a test
+ * override honored only on a dev-bound machine, so the end-to-end smoke can see a heartbeat
+ * without waiting an hour; staging and production always use 1 h.
+ */
+export function heartbeatMsFor(env: Env, raw: string | undefined): number {
+  if (env !== "dev" || raw === undefined || !/^\d+$/.test(raw)) return DEFAULT_HEARTBEAT_MS;
+  const ms = Number(raw);
+  return ms >= 1_000 && ms <= DEFAULT_HEARTBEAT_MS ? ms : DEFAULT_HEARTBEAT_MS;
+}
+
 export type Activity = { active_sessions: number; last_user_input_at?: number; last_agent_action_at?: number };
 type ReporterOptions = {
   client: CloudClient;
@@ -412,7 +425,7 @@ export class StatusReporter {
   private readonly minIntervalMs: number;
 
   constructor(private readonly o: ReporterOptions) {
-    this.heartbeatMs = o.heartbeatMs ?? 3_600_000;
+    this.heartbeatMs = o.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
     this.minIntervalMs = o.minIntervalMs ?? 10_000;
     this.backoff = new Backoff(o.initialBackoffMs ?? 5_000, o.maxBackoffMs ?? 600_000, o.random ?? Math.random);
   }
@@ -611,7 +624,9 @@ async function main(): Promise<void> {
   const start = async (bound: Bound, key: InstallKey) => {
     const client = new CloudClient({ fetch, bound, key, clock });
     const daemon = await resolveDaemonInfo(store, { activitySender: ACTIVITY_SENDER_EXISTS });
-    running = { reporter: new StatusReporter({ client, clock, machine: bound.machine, daemon }), events: new EventSender({ client, clock, machine: bound.machine }) };
+    const heartbeatMs = heartbeatMsFor(bound.env, process.env.CMUX_VM_AGENT_HEARTBEAT_MS);
+    if (heartbeatMs !== DEFAULT_HEARTBEAT_MS) log(`heartbeat test override: ${heartbeatMs} ms (dev only)`);
+    running = { reporter: new StatusReporter({ client, clock, machine: bound.machine, daemon, heartbeatMs }), events: new EventSender({ client, clock, machine: bound.machine }) };
     running.reporter.trigger("start");
   };
 
