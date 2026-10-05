@@ -39,7 +39,7 @@ export const admit = (
   if (!def.principals.includes(kind === "agent" ? "install" : kind)) {
     return { code: "auth.forbidden", message: `${opName} is not allowed for ${kind} principals` }
   }
-  // A system principal exists only inside its own DO and calls only internal ops (checked above).
+  // A system principal is built only by server code (a DO, or the Worker over DO RPC) and calls only internal ops (checked above).
   if (kind === "system") return undefined
   if (kind !== "session") {
     const grant = grantFor(principal)

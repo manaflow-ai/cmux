@@ -44,9 +44,9 @@ export const jwkThumbprint = (jwk: { crv: string; kty: string; x: string; y: str
 
 const ALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
 /** An install's default grant: its own user's interactive rights, minus account management (destructive). */
+const INSTALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute"] as const
 /** Install kinds only the server creates (CLOUD-LINK-FOLLOWUPS 4). */
 const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon"])
-const INSTALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute"] as const
 
 export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.grants[p.grant] : undefined)
 
@@ -111,7 +111,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
-    // A system principal exists only inside a DO (TeamDO's revoke of a bound install); internal ops only. Also push.target.drop.
+    // A system principal is built only by server code (a DO, or the Worker for pairing's install.register_server, sent by DO RPC that only Worker code reaches); internal ops only. Also push.target.drop.
     const confirm = USER_CONFIRM_OPS.has(op)
     const confirmRefused = () =>
       confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
@@ -182,7 +182,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           name: v.name,
           device_name: v.device_name,
           platform: v.platform,
-          ...(p.kind === "session" && p.sso_team ? { sso_team: p.sso_team } : {}),
+          ...((p.kind === "session" || (op === "install.register_server" && p.kind === "system")) && p.sso_team ? { sso_team: p.sso_team } : {}),
           public_jwk: v.public_jwk,
           thumbprint,
           grant,
