@@ -119,12 +119,8 @@ final class CmuxSettingsFileStore {
             return Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    let previousSocketAccessMode = Self.liveSocketAccessMode(defaults: self.userDefaults)
                     self.reload()
-                    self.onConfigurationIssue(self.configurationIssues)
-                    if Self.liveSocketAccessMode(defaults: self.userDefaults) != previousSocketAccessMode {
-                        self.onWatchedFileReload("settings.file_watcher")
-                    }
+                    self.onWatchedFileReload("settings.file_watcher")
                 }
             }
         }
@@ -175,6 +171,7 @@ final class CmuxSettingsFileStore {
             )
         }
         let resolved = resolveSettings()
+        reportConfigurationIssue()
         applyManagedSettings(
             snapshot: resolved,
             importedManagedDefaults: previousState.importedManagedDefaults,
@@ -207,6 +204,13 @@ final class CmuxSettingsFileStore {
             return true
         }
         return false
+    }
+
+    private func reportConfigurationIssue() {
+        let messages = configurationIssues
+        Task { @MainActor [weak self] in
+            self?.onConfigurationIssue(messages)
+        }
     }
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
@@ -338,7 +342,8 @@ final class CmuxSettingsFileStore {
             }
             return ResolvedSettingsSnapshot(path: primaryPath,
                 managedUserDefaults: [SocketControlSettings.appStorageKey: preservedSocketMode])
-        case .missing: break
+        case .missing:
+            lastGoodResolvedSettings = nil
         }
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
@@ -373,11 +378,18 @@ final class CmuxSettingsFileStore {
             let sanitized = try JSONCParser.preprocess(data: data)
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
             guard let root = object as? [String: Any] else {
-                return .invalid(Self.configurationIssue(path: path, data: data, message: "top-level value must be a JSON object"))
+                return .invalid(Self.configurationIssue(
+                    path: path,
+                    data: data,
+                    message: CmuxConfigValidationLocalization().string(
+                        "config.validation.cli.doctor.topLevelObject",
+                        defaultValue: "top-level value must be a JSON object"
+                    )
+                ))
             }
             let semanticIssues = CmuxConfigSemanticValidator(scope: .global).validate(jsonObject: root)
             if let issue = semanticIssues.first {
-                let message = "\(issue.path): \(issue.message)"
+                let message = "\(issue.path): invalid value"
                 cmuxSettingsFileStoreLogger.warning("semantic config issue '\(issue.path, privacy: .private(mask: .hash))' in \(path, privacy: .private(mask: .hash)): \(issue.message, privacy: .public)")
                 return .invalid(Self.configurationIssue(path: path, data: data, message: message, key: issue.path))
             }

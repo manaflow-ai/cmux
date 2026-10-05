@@ -1831,7 +1831,6 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
-    private let onConfigurationIssues: @Sendable ([CmuxConfigIssue]) -> Void
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1939,13 +1938,11 @@ final class CmuxConfigStore: ObservableObject {
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = false,
-        onConfigurationIssues: @escaping @Sendable ([CmuxConfigIssue]) -> Void = { _ in }
+        startFileWatchers: Bool = false
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
-        self.onConfigurationIssues = onConfigurationIssues
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
@@ -2328,7 +2325,6 @@ final class CmuxConfigStore: ObservableObject {
         }
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
-        onConfigurationIssues(issues)
         if fileWatchingEnabled {
             updateLocalHookFileWatchers(
                 paths: localHookPaths + packWatchPaths,
@@ -3520,8 +3516,10 @@ final class CmuxConfigStore: ObservableObject {
         )
     }
 
-    private static func configErrorLine(in data: Data, error: Error) -> Int {
-        let index = (error as NSError).userInfo["NSJSONSerializationErrorIndex"] as? Int ?? 0
+    private static func configErrorLine(in data: Data, error: Error) -> Int? {
+        guard let index = (error as NSError).userInfo["NSJSONSerializationErrorIndex"] as? Int else {
+            return nil
+        }
         let boundedIndex = min(max(index, 0), data.count)
         return data.prefix(boundedIndex).reduce(into: 1) { line, byte in
             if byte == 0x0A { line += 1 }

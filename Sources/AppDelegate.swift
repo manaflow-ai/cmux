@@ -920,7 +920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.isMainTerminalWindow(window) ?? false
         }
     )
-    private var cmuxConfigDiagnosticMessages: [String] = []
+    private var cmuxConfigDiagnosticMessages: [String: [String]] = [:]
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -10487,23 +10487,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
-        let cmuxConfigStore = CmuxConfigStore(
-            startFileWatchers: true,
-            onConfigurationIssues: { [weak self] issues in
-                Task { @MainActor [weak self] in
-                    self?.cmuxConfigDiagnosticsDidReload(
-                        issues.map { issue in
-                            let path = issue.sourcePath ?? CmuxConfigStore.defaultGlobalConfigPath()
-                            let line = issue.line ?? 1
-                            let message = issue.message ?? issue.settingName
-                            return "\(path):\(line): \(message)"
-                        }
-                    )
-                }
-            }
-        )
+        let cmuxConfigStore = CmuxConfigStore()
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
+        refreshCmuxConfigDiagnostics()
 
         let fileExplorerState = FileExplorerState()
 #if DEBUG
@@ -14587,8 +14574,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
-    func cmuxConfigDiagnosticsDidReload(_ messages: [String]) {
-        cmuxConfigDiagnosticMessages = messages
+    func cmuxConfigDiagnosticsDidReload(source: String, messages: [String]) {
+        cmuxConfigDiagnosticMessages[source] = messages
+        updateConfigurationDiagnosticsNotice()
+    }
+
+    @MainActor
+    private func refreshCmuxConfigDiagnostics() {
+        var messagesByStore: [String: [String]] = [:]
+        for context in mainWindowContexts.values {
+            guard let store = context.cmuxConfigStore else { continue }
+            let messages = store.configurationIssues.compactMap { issue -> String? in
+                guard let path = issue.sourcePath else { return nil }
+                let location = issue.line.map { "\(path):\($0)" } ?? path
+                return "\(location): \(issue.message ?? issue.settingName)"
+            }
+            messagesByStore[String(ObjectIdentifier(store).hashValue)] = messages
+        }
+        messagesByStore[CmuxSettingsFileStore.defaultPrimaryPath] =
+            KeyboardShortcutSettings.settingsFileStore.configurationIssues
+        cmuxConfigDiagnosticMessages = messagesByStore
         updateConfigurationDiagnosticsNotice()
     }
 
@@ -14596,7 +14601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func updateConfigurationDiagnosticsNotice() {
         ghosttyConfigDiagnosticsNoticePresenter.update(
             diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
-                + cmuxConfigDiagnosticMessages
+                + cmuxConfigDiagnosticMessages.values.flatMap { $0 }
         )
     }
 
@@ -14695,9 +14700,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @MainActor
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
         reconcileSocketListenerConfiguration(source: source)
+        refreshCmuxConfigDiagnostics()
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {

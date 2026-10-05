@@ -343,6 +343,7 @@ extension CMUXCLI {
                 )
             }
             let sanitized = try JSONCParser.preprocess(data: data)
+            loadedData = sanitized
             let object = try JSONSerialization.jsonObject(with: sanitized)
             guard let dictionary = object as? [String: Any] else {
                 return ConfigDoctorFinding(
@@ -604,7 +605,8 @@ extension CMUXCLI {
         let line: Int
         if let data {
             let errorIndex = (error as NSError).userInfo["NSJSONSerializationErrorIndex"] as? Int ?? 0
-            line = data.prefix(errorIndex).reduce(into: 1) { count, byte in
+            let bounded = min(max(errorIndex, 0), data.count)
+            line = data.prefix(bounded).reduce(into: 1) { count, byte in
                 if byte == 0x0A { count += 1 }
             }
         } else {

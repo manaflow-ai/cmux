@@ -1766,7 +1766,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
-    func testWatcherPreservesLastGoodSettingsAcrossInvalidEditAndRecoversAfterRecreate() throws {
+    func testWatcherPreservesLastGoodSettingsAcrossInvalidEditAndRecoversAfterDeleteRecreate() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
