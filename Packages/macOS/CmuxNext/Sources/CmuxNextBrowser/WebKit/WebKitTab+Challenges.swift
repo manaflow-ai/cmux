@@ -47,7 +47,7 @@ extension WebKitTab: BrowserCertificateBypassing {
 extension WebKitTab: BrowserCertificateWarningRevoking {
     public var certificateWarningsTurnedOff: Bool { engine?.certificateWarningsTurnedOff(self) ?? false }
     public var certificateWarningScope: BrowserCertificateWarningScope { .site }
-    public var canTurnOnCertificateWarnings: Bool { certificateWarningsTurnedOff }
+    public var canTurnOnCertificateWarnings: Bool { engine?.knowsCertificateBypass(self) ?? false }
     public func turnOnCertificateWarnings() async -> Bool { engine?.turnOnCertificateWarnings(self) ?? false }
 }
 
