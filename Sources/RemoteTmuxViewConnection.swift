@@ -145,6 +145,8 @@ final class RemoteTmuxViewConnection {
     private var isStopped = false
     private var reconcileInFlight = false
     private var reconcileQueued = false
+    /// Whether a reconcile is running or one is queued behind it.
+    var isReconciling: Bool { reconcileInFlight || reconcileQueued }
     /// Set once the view has surfaced at least one real workspace. STICKY for the
     /// coordinator's lifetime (never reset, including across an internal `-CC`
     /// reconnect): the empty-host bootstrap fires only while this is false, so closing

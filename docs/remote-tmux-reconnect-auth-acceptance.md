@@ -5,9 +5,12 @@ login and resumes afterwards. The reconnect runs `BatchMode=yes` on pipes with n
 password / MFA / security-key touch cannot be satisfied by retrying.
 
 Automated equivalent: `scripts/remote-tmux-reconnect-auth-harness.sh` (exit code = failed
-scenarios). It covers all five criteria below: scenario 1 covers 1, 2 and 5, scenario 2
-covers 3, scenario 3 checks the pane does not vanish before the reconnect, and scenario 4
-checks it closes after it. Run that first; the steps here are for manual verification on a real 2FA host.
+scenarios). It covers all five criteria below. Scenario 1 (a reconnect that cannot
+authenticate offers a login) covers 1, 2 and 5. Scenario 2 (dismissing the login) covers 4.
+Scenario 3 (completing the login resumes the mirror) covers 3. Scenario 4 checks that a new
+outage offers a login again after a dismissal and that the login closes once the host is
+back, and scenario 5 checks that a live connection is never asked to authenticate. Run that
+first; the steps here are for manual verification on a real 2FA host.
 
 ## Pass criteria
 

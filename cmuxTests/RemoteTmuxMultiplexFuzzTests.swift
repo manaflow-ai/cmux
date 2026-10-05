@@ -945,8 +945,13 @@ private final class MultiplexFuzzHarness {
     /// it because the object is already out of `sessionMirrors`/`channelsByHostSession`.
     func assertNoLeaks() {
         for host in hosts { _ = controller.stopMultiplexedHost(host: host.host) }
-        // Let any run-loop-coalesced release (deferred Tasks, observer teardown) run.
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        // Releases coalesced on the run loop (deferred Tasks, observer teardown) land a little
+        // later. Run it until every probe has let go, and give up only at the deadline.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while leakProbes.contains(where: { $0.mirror != nil || $0.channel != nil }),
+              ContinuousClock.now < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
         #expect(controller.sessionMirrors.isEmpty, "all mirrors removed after teardown \(seedLabel)")
         #expect(controller.channelsByHostSession.isEmpty, "all channels removed after teardown \(seedLabel)")
         for probe in leakProbes {

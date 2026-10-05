@@ -223,14 +223,25 @@ private final class ScriptedViewHost {
         }
     }
 
-    /// Answers queued commands and yields so the coordinator's reconcile tasks can run. Bounded,
-    /// so a notification that schedules nothing ends the wait instead of hanging the test.
+    /// Answers queued commands until the view is quiet: no command waiting for a reply and no
+    /// reconcile running or queued. A notification that schedules nothing is quiet at once.
     func settle() async {
-        for _ in 0..<64 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            // A notification schedules its reconcile as a main-actor task. A task enqueued after
+            // it runs once that one has started, so past this line `isReconciling` is current.
+            await Task { @MainActor in }.value
             answerPendingCommands()
-            await Task.yield()
+            guard isQuiet else { continue }
+            // A reconcile that just finished may have scheduled the one queued behind it.
+            await Task { @MainActor in }.value
+            if isQuiet { return }
         }
-        answerPendingCommands()
+        Issue.record("the view never went quiet: pending=\(connection.pendingCommandKindsForTesting) reconciling=\(view.isReconciling)")
+    }
+
+    private var isQuiet: Bool {
+        connection.pendingCommandKindsForTesting.isEmpty && !view.isReconciling
     }
 
     func close() {
