@@ -1118,3 +1118,27 @@ fn frames_that_show_browser_pages_are_refused_and_released() {
         "a child session is detached through its parent"
     );
 }
+
+/// New headless takes its window chrome out of --window-size (1280x661),
+/// so every headless tab gets the protocol's 1280x800 viewport before it
+/// runs, and a viewport reset returns to it (parity 14).
+#[test]
+fn headless_tabs_get_the_hidden_tab_viewport() {
+    let h = Harness::new();
+    let mark = h.mark();
+    let target = h.open(None);
+    let sent = h.sent_since(mark);
+    let pos = |name: &str| sent.iter().position(|(m, _)| m == name);
+    let metrics = pos("Emulation.setDeviceMetricsOverride").expect("a viewport override");
+    assert!(metrics < pos("Runtime.runIfWaitingForDebugger").unwrap());
+    assert_eq!(sent[metrics].1["width"], 1280);
+    assert_eq!(sent[metrics].1["height"], 800);
+    let mark = h.mark();
+    h.call("tab.setViewport", json!({"targetId": target, "reset": true}));
+    let sent = h.sent_since(mark);
+    assert!(
+        sent.iter().any(|(m, p)| m == "Emulation.setDeviceMetricsOverride" && p["height"] == 800),
+        "a reset returns to the hidden-tab size: {sent:?}"
+    );
+    assert!(!sent.iter().any(|(m, _)| m == "Emulation.clearDeviceMetricsOverride"));
+}
