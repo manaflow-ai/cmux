@@ -371,3 +371,15 @@ describe("report results are observable (end-to-end evidence)", () => {
     ]);
   });
 });
+
+describe("resume is an event, not a poll", () => {
+  test('a {"resume": true} socket line (sent by the OnClockChange timer) triggers a report with reason resume', async () => {
+    const { handleAgentLine } = await import("../../images/cmux-vm/guest/vm-agent");
+    const reasons: string[] = [];
+    const running = { reporter: { trigger: (r: string) => reasons.push(r), update: () => undefined }, events: { emit: () => undefined } };
+    handleAgentLine('{"resume": true}', running as never);
+    handleAgentLine("not json", running as never);
+    handleAgentLine('{"resume": false}', running as never);
+    expect(reasons).toEqual(["resume"]);
+  });
+});
