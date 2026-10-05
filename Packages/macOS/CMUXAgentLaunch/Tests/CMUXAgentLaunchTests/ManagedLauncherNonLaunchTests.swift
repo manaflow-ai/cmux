@@ -195,7 +195,7 @@ struct ManagedLauncherNonLaunchTests {
             "acp", "agents", "auth-broker", "auth-gateway", "bench", "browser-relay",
             "cleanse", "clip", "collab", "commit", "completions", "compress", "config",
             "dry-balance", "find", "gallery", "gc", "grievances", "help", "hooks",
-            "hud", "if-bench", "images", "install", "login", "models", "plugin", "ps",
+            "if-bench", "images", "install", "login", "models", "plugin", "ps",
             "read", "search", "setup", "share", "skill", "ssh", "stats", "tiny-models",
             "token", "toks", "ttsr", "update", "usage", "version", "worktree",
         ] {

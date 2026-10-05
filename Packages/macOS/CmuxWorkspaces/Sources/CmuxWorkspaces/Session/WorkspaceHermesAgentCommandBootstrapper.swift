@@ -319,16 +319,12 @@ struct WorkspaceHermesAgentCommandBootstrapper {
     }
 
     private func terminalCommandLooksLikeOMXHud(_ command: String) -> Bool {
-        let lowered = command.lowercased()
-        guard terminalCommandTextContainsWord(lowered, word: "hud") else {
+        let words = shellWords(in: command)
+        guard words.count == 3,
+              let executable = words.first?.value.split(separator: "/").last?.lowercased(),
+              executable == "omx" || executable == "oh-my-codex" else {
             return false
         }
-        return lowered.contains("omx") || lowered.contains("oh-my-codex")
-    }
-
-    private func terminalCommandTextContainsWord(_ command: String, word: String) -> Bool {
-        let escapedWord = NSRegularExpression.escapedPattern(for: word)
-        let pattern = "(^|[^A-Za-z0-9_-])\(escapedWord)([^A-Za-z0-9_-]|$)"
-        return command.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        return words[1].value == "hud" && words[2].value == "--watch"
     }
 }

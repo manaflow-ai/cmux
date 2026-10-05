@@ -76,7 +76,6 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		{"omp first-token short help", ompLaunchIsNonLaunch, []string{"-h"}, true},
 		{"omp first-token version", ompLaunchIsNonLaunch, []string{"--version"}, true},
 		{"omp management version", ompLaunchIsNonLaunch, []string{"version"}, true},
-		{"omp management hud", ompLaunchIsNonLaunch, []string{"hud"}, true},
 		{"omp management config", ompLaunchIsNonLaunch, []string{"config"}, true},
 		{"omp management usage", ompLaunchIsNonLaunch, []string{"usage"}, true},
 		{"omp bare launch", ompLaunchIsNonLaunch, []string{}, false},

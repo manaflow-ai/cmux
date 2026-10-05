@@ -1767,15 +1767,7 @@ func tmuxNewWindow(rc *rpcContext, args []string) error {
 func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	p := parseTmuxArgs(args, []string{"-c", "-F", "-l", "-t"}, []string{"-P", "-b", "-d", "-h", "-v"})
 
-	// A HUD pane whose config disables the HUD produces no split, matching the
-	// local CLI.
-	hudProvider := tmuxHudProviderForCommand(p.positional)
-	hudCwd := tmuxHudConfiguredCwd(p.value("-c"))
-	if hudProvider != "" && tmuxHudConfigDisablesHud(hudProvider, hudCwd) {
-		return nil
-	}
-
-	targetWs, targetPaneId, targetSurface, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
+	targetWs, _, targetSurface, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
 	if err != nil {
 		return err
 	}
@@ -1830,11 +1822,6 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		"direction":    direction,
 		"focus":        focusNewPane,
 	}
-	if hudProvider != "" {
-		for key, value := range tmuxHudDividerPositionParams(rc, targetWs, targetPaneId, targetSurface, direction, p.value("-l")) {
-			splitParams[key] = value
-		}
-	}
 	// Options a routed remote tmux split cannot honor, named up front so the app
 	// rejects the request before the remote mutation. `-P` prints a pane id the
 	// routed split cannot return, and the pane's command can only be typed into
@@ -1873,7 +1860,6 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 	newPaneId, _ := created["pane_id"].(string)
 
-	// Track for main-vertical layout
 	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
 		store.LastSplitSurface[targetWs] = surfaceId
 		if _, ok := store.MainVerticalLayouts[targetWs]; ok {
@@ -1897,25 +1883,29 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		return fmt.Errorf("persist tmux compatibility layout: %w", err)
 	}
 
-	// Equalize vertical splits. A HUD pane keeps the compact size it asked for,
-	// so it is excluded from the layout equalization the same way the local CLI
-	// excludes it from main-vertical tracking.
-	if hudProvider == "" {
-		rc.call("workspace.equalize_splits", map[string]any{
-			"workspace_id": targetWs,
-			"orientation":  "vertical",
-		})
-	}
+	rc.call("workspace.equalize_splits", map[string]any{
+		"workspace_id": targetWs,
+		"orientation":  "vertical",
+	})
 
-	// The pane's command — the HUD's included — is typed into its shell: the
-	// relay denies command-bearing split parameters on every method, so the
-	// startup-script path the local CLI uses cannot travel with the split.
+	// Command-bearing split parameters are denied through the remote relay. A
+	// plain remote split remains supported; command-carrying splits fail closed.
 	if commandText != "" {
-		rc.call("surface.send_text", map[string]any{
+		if _, err := rc.call("surface.send_text", map[string]any{
 			"workspace_id": targetWs,
 			"surface_id":   surfaceId,
 			"text":         commandText,
-		})
+		}); err != nil {
+			// The command never reached the shell, so the split did not take
+			// effect; close the pane instead of leaving an idle surface.
+			if _, rollbackErr := rc.call("surface.close", map[string]any{
+				"workspace_id": targetWs,
+				"surface_id":   surfaceId,
+			}); rollbackErr != nil {
+				return fmt.Errorf("type the pane command: %w (rollback failed: %v)", err, rollbackErr)
+			}
+			return fmt.Errorf("type the pane command: %w", err)
+		}
 	}
 
 	if p.hasFlag("-P") {

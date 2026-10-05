@@ -436,7 +436,7 @@ var ompManagementCommands = map[string]bool{
 	"browser-relay": true, "cleanse": true, "clip": true, "collab": true, "commit": true,
 	"completions": true, "compress": true, "config": true, "dry-balance": true, "find": true,
 	"gallery": true, "gc": true, "grievances": true, "help": true, "hooks": true,
-	"hud": true, "if-bench": true, "images": true, "install": true, "login": true,
+	"if-bench": true, "images": true, "install": true, "login": true,
 	"models": true, "plugin": true, "ps": true, "read": true, "search": true,
 	"setup": true, "share": true, "skill": true, "ssh": true, "stats": true,
 	"tiny-models": true, "token": true, "toks": true, "ttsr": true, "update": true,

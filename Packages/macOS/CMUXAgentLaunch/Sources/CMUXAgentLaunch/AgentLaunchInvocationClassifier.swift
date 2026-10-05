@@ -84,7 +84,6 @@ public struct AgentLaunchInvocationClassifier {
             "grievances",
             "help",
             "hooks",
-            "hud",
             "if-bench",
             "images",
             "install",
