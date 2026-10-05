@@ -13,7 +13,7 @@ final class SidebarAuthorizedMenuActionTarget: NSObject {
         self.originalTarget = target
     }
 
-    @objc func perform(_ sender: NSMenuItem) {
+    @objc func invokeMenuCommand(_ sender: NSMenuItem) {
         authorization.perform {
             _ = NSApplication.shared.sendAction(originalAction, to: originalTarget, from: sender)
         }

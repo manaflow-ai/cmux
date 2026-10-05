@@ -19,7 +19,7 @@ struct SidebarAuthorizedMenuDispatch {
                 authorization: authorization, action: action, target: item.target
             )
             item.target = target
-            item.action = #selector(SidebarAuthorizedMenuActionTarget.perform(_:))
+            item.action = #selector(SidebarAuthorizedMenuActionTarget.invokeMenuCommand(_:))
             targets.append(target)
         }
         return targets
