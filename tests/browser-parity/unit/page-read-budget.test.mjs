@@ -111,6 +111,25 @@ test("snapshot: DOM read beside the walk (visible-box checks, aria-owns, labels)
   }
 });
 
+// The label index charges the read's budget for every <label> it reads.
+// Once that budget is spent, a control's labels must not come from
+// WebKit's own getter, which scans the whole document for each control: a
+// page of many labels and controls would make every name a full scan. A
+// locator query past it names controls without those labels.
+test("locators: past the page-read budget, labels are not read by a whole-document scan", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const setup = `document.body.innerHTML = '<input id="a">' + '<label for="b">x</label>'.repeat(250001) + '<label for="a">Beyond the budget</label><input id="b">';`;
+      const r = await run(`await page.evaluate(() => { ${setup} }); console.log("@@" + JSON.stringify(await page.getByRole("textbox", { name: "Beyond the budget" }).count()));`);
+      assert.equal(r.value, "0", "a label past the budget was found by a whole-document scan");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("composer text: a composer past the page-read budget is refused before its text leaves the page", async () => {
   const servers = await startFixtureServers();
   try {

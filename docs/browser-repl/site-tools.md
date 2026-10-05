@@ -41,7 +41,10 @@ rules neither reference enforces together:
    workspace and channel ids and the member's user id (`team` omitted means
    Slack's last-active workspace at draft time, a `#name` the channel it
    named then), Gmail and Calendar drafts the account's email for their
-   `/u/` index, a Gmail reply the ids of the thread's messages, a LinkedIn
+   `/u/` index, a Gmail reply the ids of the thread's messages and the To, Cc
+   and Bcc Gmail's Reply (all) addresses (read from its reply composer at
+   draft time and shown in the preview; ids name the thread, never who
+   the reply goes to), a LinkedIn
    draft the signed-in member, an X draft the screen name of the account
    X's account settings endpoint (`/i/api/1.1/account/settings.json`, the
    one X's web client calls) says its session cookie authenticates, never
@@ -160,7 +163,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
-| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, for a new message the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) and the subject checked against the draft (`compose_mismatch` on any difference or a missing subject field), the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
+| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) checked against the draft, and for a new message the subject (`compose_mismatch` on any difference or a missing subject field); a reply's rows are those its draft read from Gmail's reply composer, so a changed Reply-To or Cc sends nothing, and a reply composer whose To row cannot be read, or that holds a chip outside its rows, fails closed with `compose_unverified` at the draft and at Send; `to`, `cc` and `bcc` cannot be set on a reply, the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
 | `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked against the drafted email, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's; location and description with whitespace collapsed; the recurrence menu's words against the drafted rule: "Does not repeat" without one, else its frequency and interval, `COUNT` and whether it has an `UNTIL`; the guests, organizer aside), failing with `form_mismatch` and saving nothing on any difference or a field it cannot read; Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |

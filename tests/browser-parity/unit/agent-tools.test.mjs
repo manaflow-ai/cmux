@@ -9,6 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -546,6 +547,37 @@ test("storage state reads and writes localStorage only in the page's own data st
     await browser.close();
     await servers.close();
     removeTestDir(dir);
+  }
+});
+
+// setStorageState writes an origin's items only into a document of that
+// exact origin: an origin whose page redirects elsewhere (or a tab that
+// moved since it was listed) must not hand its items to the other origin.
+test("storage state: an origin that redirects to another origin gets no items, and neither does the other", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const redirect = http.createServer((req, res) => {
+    res.writeHead(302, { location: `${primary}/agent-tools.html` });
+    res.end();
+  });
+  await new Promise((r) => redirect.listen(0, "127.0.0.1", r));
+  const from = `http://127.0.0.1:${redirect.address().port}`;
+  try {
+    await withRepl(async ({ run }) => {
+      let r = await run(`
+        let failed = null;
+        try { await session.setStorageState({ origins: [{ origin: ${JSON.stringify(from)}, localStorage: [{ name: "planted", value: "x" }] }] }); } catch (e) { failed = e.message; }
+        failed
+      `);
+      assert.equal(r.error, null);
+      assert.match(r.output, /redirect|is now|not written|instead of/i, "the restore failed naming the other origin");
+      r = await run(`await page.goto("${primary}/agent-tools.html"); await page.evaluate(() => localStorage.getItem("planted"))`);
+      assert.equal(r.error, null);
+      assert.equal(r.output, "null", "the redirect target's localStorage holds no item of the other origin");
+    });
+  } finally {
+    await new Promise((r) => redirect.close(r));
+    await servers.close();
   }
 });
 

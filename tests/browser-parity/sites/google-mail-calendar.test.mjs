@@ -59,9 +59,61 @@ test("gmail.send returns a draft and sends nothing; the confirmed draft sends on
 test("gmail.send: a reply goes into the thread; invalid drafts are refused before any draft exists", async () => {
   const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Replying in thread." })');
   await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`);
-  assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", body: "Replying in thread." });
+  assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "Replying in thread." });
   assert.match(await s.error('sites.gmail.send({ to: "not an address", body: "x" })'), /is not an email address/);
   assert.match(await s.error('sites.gmail.send({ to: "bob@example.com", body: "" })'), /body is empty/);
+});
+
+// A reply's recipients are not the thread's id: Gmail derives them from
+// the thread (a sender's Reply-To, the Cc of Reply all). The draft reads
+// them from Gmail's own reply composer and shows them, and the composer
+// must hold exactly those right before Send.
+test("gmail.send reply: the draft names who the reply goes to, and sends only to them", async () => {
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "To Bob." })');
+    assert.deepEqual([d.preview.to, d.preview.cc, d.preview.bcc], [["bob@example.com"], [], []]);
+    assert.match(d.summary, /bob@example\.com/);
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "To Bob." });
+    const all = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "To all.", replyAll: true })');
+    assert.deepEqual([all.preview.to, all.preview.cc], [["bob@example.com"], ["cy@example.com"]]);
+    env.state.gmailReplyRecipients = { reply: { to: ["eve@reply-to.example"] } };
+    const replyTo = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Hi." })');
+    assert.deepEqual(replyTo.preview.to, ["eve@reply-to.example"], "a sender's Reply-To is shown");
+  } finally {
+    env.state.gmailReplyRecipients = null;
+  }
+});
+
+test("gmail.send reply: recipients that changed after the preview fail the confirmation and send nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  for (const change of [{ recipients: { reply: { to: ["eve@reply-to.example"] } } }, { recipients: { reply: { to: ["bob@example.com"], cc: ["eve@example.net"] } } }, { tamper: { bcc: "eve@example.net" } }]) {
+    try {
+      const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
+      env.state.gmailReplyRecipients = change.recipients || null;
+      env.state.gmailComposeTamper = change.tamper || null;
+      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|recipients/, JSON.stringify(change));
+    } finally {
+      env.state.gmailReplyRecipients = null;
+      env.state.gmailComposeTamper = null;
+    }
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+});
+
+test("gmail.send reply: a reply composer whose recipients cannot be read fails closed", async () => {
+  const sent = env.state.gmailSent.length;
+  try {
+    env.state.gmailReplyRecipients = { rows: false };
+    assert.match(await s.error('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })'), /compose_unverified|cannot read/);
+    env.state.gmailReplyRecipients = null;
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
+    env.state.gmailReplyRecipients = { rows: false };
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_unverified|cannot read/);
+  } finally {
+    env.state.gmailReplyRecipients = null;
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
 });
 
 // The composer must hold the confirmed body, all of it: a page script or

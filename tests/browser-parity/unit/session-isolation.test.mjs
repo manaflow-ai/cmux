@@ -118,3 +118,61 @@ console.log(JSON.stringify({ authorization: h.authorization || null, probe: h["x
     await servers.close();
   }
 });
+
+// Two sessions that drive one user's tab share its page agent (one agent
+// world per tab until the driver gives each session its own). Code of one
+// session in that world must not change what the agent answers the other:
+// its methods, its global, the ref engine, the handle resolver the driver
+// uses, and the tables that bind refs and handles to elements are sealed.
+test("another session's code in the agent world cannot redirect a session's refs and actions", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  try {
+    const tamper = `() => {
+      const K = Symbol.for("cmux.browserRepl.agent");
+      const a = globalThis[K];
+      const decoy = document.getElementById("decoy");
+      const forged = { ...a, snapshot: () => ({ nodes: ["forged"], max: 0 }), queryAll: () => [a.handleFor(decoy)], refState: () => ({ live: true, max: 0 }) };
+      const tries = {
+        methods: () => { a.snapshot = forged.snapshot; a.queryAll = forged.queryAll; if (a.snapshot !== forged.snapshot) throw 0; },
+        redefine: () => Object.defineProperty(globalThis, K, { value: forged }),
+        replace: () => { delete globalThis[K]; globalThis[K] = forged; if (globalThis[K] !== forged) throw 0; },
+        engine: () => a.injected._engines.set("aria-ref", { queryAll: () => [decoy] }),
+        resolver: () => Object.defineProperty(globalThis, "__cmuxPageAgent", { value: { resolveHandle: () => decoy } }),
+        deref: () => { WeakRef.prototype.deref = function () { return decoy; }; },
+        mapGet: () => { const get = Map.prototype.get; Map.prototype.get = function (k) { const v = get.call(this, k); return v && typeof v.deref === "function" ? new WeakRef(decoy) : v; }; },
+      };
+      const out = {};
+      for (const [k, f] of Object.entries(tries)) { try { f(); out[k] = "applied"; } catch (e) { out[k] = "refused"; } }
+      return out;
+    }`;
+    const outputs = await runDevCells([
+      { code: `const t = await tabs.open(${JSON.stringify(primary)} + "/index.html?user"); await t.keep();` },
+      {
+        session: "a",
+        code: `await tabs.use((await tabs.list()).find((t) => t.url.endsWith("?user")).id);
+await page.evaluate(() => { document.body.innerHTML = '<button id="real" onclick="window.clicked = this.id">Real</button><button id="decoy" onclick="window.clicked = this.id">Decoy</button>'; });
+globalThis.realRef = /button "Real" \\[ref=(e\\d+)\\]/.exec((await snapshot()).tree)[1];
+console.log(realRef);`,
+      },
+      {
+        session: "b",
+        code: `await tabs.use((await tabs.list()).find((t) => t.url.endsWith("?user")).id);
+console.log(JSON.stringify(await page._mainFrame._call("agent", ${JSON.stringify(tamper)}, [])));`,
+      },
+      {
+        session: "a",
+        code: `const tree = (await snapshot()).tree;
+await page.ref(realRef).click();
+console.log(JSON.stringify({ real: /button "Real"/.test(tree), forged: /forged/.test(tree), id: await page.ref(realRef).evaluate((el) => el.id), clicked: await page.evaluate(() => window.clicked) }));`,
+      },
+    ]);
+    for (const [i, o] of outputs.entries()) assert.equal(o.error, null, `cell ${i + 1}: ${o.error}\n${o.output}`);
+    const last = (o) => JSON.parse(o.output.trim().split("\n").at(-1));
+    const tried = last(outputs[2]);
+    for (const k of ["methods", "redefine", "replace", "engine", "resolver"]) assert.equal(tried[k], "refused", `${k}: ${JSON.stringify(tried)}`);
+    assert.deepEqual(last(outputs[3]), { real: true, forged: false, id: "real", clicked: "real" });
+  } finally {
+    await servers.close();
+  }
+});

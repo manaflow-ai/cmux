@@ -24,6 +24,45 @@
 
   const document = global.document;
 
+  // Sealed against other code in this world. Until the driver gives each
+  // session its own world, every session that drives a tab shares this one
+  // and can run any script in it, so the agent keeps what binds refs and
+  // handles to elements out of that code's reach: the agent object and its
+  // global are frozen and permanent, the ref and handle tables are closures
+  // read through the built-ins as they were at install (a later
+  // `Map.prototype.get` or `WeakRef.prototype.deref` does not reach them),
+  // and the ref engine cannot be swapped. Code in this world can still
+  // patch the DOM and the built-ins the rest of the agent and Playwright's
+  // injected script call, so this narrows what another session can forge
+  // (docs/browser-repl/driver-protocol.md, Agent world); only a world per
+  // session closes it.
+  const uncurry = (fn) => Function.prototype.call.bind(fn);
+  const mapGet = uncurry(Map.prototype.get);
+  const mapSet = uncurry(Map.prototype.set);
+  const mapHas = uncurry(Map.prototype.has);
+  const mapDelete = uncurry(Map.prototype.delete);
+  const mapForEach = uncurry(Map.prototype.forEach);
+  const mapSize = uncurry(Object.getOwnPropertyDescriptor(Map.prototype, "size").get);
+  const weakMapGet = uncurry(WeakMap.prototype.get);
+  const weakMapSet = uncurry(WeakMap.prototype.set);
+  const WeakRefClass = typeof global.WeakRef === "function" ? global.WeakRef : null;
+  const weakDeref = WeakRefClass ? uncurry(WeakRefClass.prototype.deref) : null;
+  const strTrim = uncurry(String.prototype.trim);
+  const strIndexOf = uncurry(String.prototype.indexOf);
+  const strSlice = uncurry(String.prototype.slice);
+  const strEndsWith = uncurry(String.prototype.endsWith);
+  const StringOf = String;
+  const nodeProto = global.Node && global.Node.prototype;
+  const nodeGetter = (name) => {
+    const d = nodeProto && Object.getOwnPropertyDescriptor(nodeProto, name);
+    return d && d.get ? uncurry(d.get) : (n) => n[name];
+  };
+  const ownerDocumentOf = nodeGetter("ownerDocument");
+  const isConnectedOf = nodeGetter("isConnected");
+  // A table entry holds its element weakly where the engine can.
+  const weakRef = WeakRefClass ? (el) => new WeakRefClass(el) : (el) => Object.freeze({ el });
+  const derefEntry = (entry) => (!entry ? undefined : weakDeref ? weakDeref(entry) : entry.el);
+
   // The app's agent world sees closed shadow roots (WebKit's
   // allowAccessToClosedShadowRoots). WebKit's switch also opens user-agent
   // roots (the internals of <details>, <summary>, <input>, <video>), which
@@ -37,7 +76,7 @@
   if (shadowRootDescriptor && shadowRootDescriptor.get && shadowRootDescriptor.configurable) {
     const read = shadowRootDescriptor.get;
     Object.defineProperty(global.Element.prototype, "shadowRoot", {
-      configurable: true,
+      configurable: false,
       enumerable: shadowRootDescriptor.enumerable,
       get() {
         const root = read.call(this);
@@ -64,21 +103,24 @@
     if (!d || !d.get || !d.configurable) continue;
     const read = d.get;
     Object.defineProperty(proto, "labels", {
-      configurable: true,
+      configurable: false,
       enumerable: d.enumerable,
       get() {
         if (!labelIndex) return read.call(this);
         // A hidden input has no labels (null), as the native getter says.
         if (name === "HTMLInputElement" && (this.type || "").toLowerCase() === "hidden") return null;
+        // An index the budget cut short has no answer, and WebKit's getter
+        // would scan the whole document for each control: the cut read gets
+        // no labels (it already says it was cut).
         const found = labelIndex(this);
-        return found === null ? read.call(this) : found;
+        return found === null ? [] : found;
       },
     });
   }
   // Building it reads every <label> of the tree, which the page sets the
   // number of, so each one is charged to the read's budget (the snapshot's,
   // else a page-read budget of its own). An index the budget cut short
-  // answers null, and that control's labels come from the native getter.
+  // answers null, and that control has no labels in this read.
   let labelBudget = null;
   function createLabelIndex() {
     const byRoot = new Map();
@@ -159,37 +201,34 @@
   let nextHandle = 1;
   const handleOf = new WeakMap();
   const handles = new Map();
-  const weakRef = typeof global.WeakRef === "function" ? (el) => new global.WeakRef(el) : (el) => ({ deref: () => el });
   function handleFor(el) {
-    let id = handleOf.get(el);
+    let id = weakMapGet(handleOf, el);
     if (!id) {
       id = "h" + nextHandle++ + "." + docToken;
-      handleOf.set(el, id);
-      handles.set(id, weakRef(el));
+      weakMapSet(handleOf, el, id);
+      mapSet(handles, id, weakRef(el));
     }
     return id;
   }
   // Whether `id` was issued by this document's agent.
   function isOwnHandle(id) {
-    return typeof id === "string" && id.endsWith("." + docToken);
+    return typeof id === "string" && strEndsWith(id, "." + docToken);
   }
   // An element belongs to this agent only while it is in this document. A
   // same-origin page can move it into another frame's document (adoptNode,
   // or appendChild into a same-origin iframe or popup); it stays connected
   // there, but acting on it here would act under this frame's id (its
   // point, its file chooser) on another document, so it resolves as gone.
-  const inThisDocument = (el) => !!el && el.ownerDocument === document;
+  const inThisDocument = (el) => !!el && ownerDocumentOf(el) === document;
   const OTHER_DOCUMENT = "Element handle is from a previous document: the page moved its element into another document; take a new snapshot";
   function handleElement(id) {
     if (!isOwnHandle(id)) return null;
-    const entry = handles.get(id);
-    const el = entry && entry.deref();
+    const el = derefEntry(mapGet(handles, id));
     return inThisDocument(el) ? el : null;
   }
   function element(id) {
     if (!isOwnHandle(id)) throw agentError("stale", PREVIOUS_DOCUMENT);
-    const entry = handles.get(id);
-    const el = entry && entry.deref();
+    const el = derefEntry(mapGet(handles, id));
     if (!el) throw agentError("stale", "Element handle is no longer available");
     if (!inThisDocument(el)) throw agentError("stale", OTHER_DOCUMENT);
     return el;
@@ -201,11 +240,11 @@
   // `refOf` at the next snapshot.
   const TABLE_SOFT_LIMIT = 5000;
   function pruneHandles() {
-    const large = handles.size > TABLE_SOFT_LIMIT;
-    for (const [id, entry] of handles) {
-      const el = entry.deref();
-      if (!el || (large && !el.isConnected)) handles.delete(id);
-    }
+    const large = mapSize(handles) > TABLE_SOFT_LIMIT;
+    mapForEach(handles, (entry, id) => {
+      const el = derefEntry(entry);
+      if (!el || (large && !isConnectedOf(el))) mapDelete(handles, id);
+    });
   }
   function agentError(code, message) {
     const e = new Error(message);
@@ -288,25 +327,24 @@
     if (typeof base === "number" && base > refCounter) refCounter = base;
   }
   function refFor(el) {
-    let ref = refOf.get(el);
+    let ref = weakMapGet(refOf, el);
     if (!ref) {
       ref = "e" + ++refCounter;
-      refOf.set(el, ref);
-      refRegistry.set(ref, weakRef(el));
-    } else if (!refRegistry.has(ref)) refRegistry.set(ref, weakRef(el));
+      weakMapSet(refOf, el, ref);
+      mapSet(refRegistry, ref, weakRef(el));
+    } else if (!mapHas(refRegistry, ref)) mapSet(refRegistry, ref, weakRef(el));
     return ref;
   }
   function refElement(ref) {
-    const entry = refRegistry.get(ref);
-    const el = entry && entry.deref();
-    return inThisDocument(el) && el.isConnected ? el : null;
+    const el = derefEntry(mapGet(refRegistry, ref));
+    return inThisDocument(el) && isConnectedOf(el) ? el : null;
   }
   function pruneRefs() {
-    const large = refRegistry.size > TABLE_SOFT_LIMIT;
-    for (const [ref, entry] of refRegistry) {
-      const el = entry.deref();
-      if (!el || (large && !el.isConnected)) refRegistry.delete(ref);
-    }
+    const large = mapSize(refRegistry) > TABLE_SOFT_LIMIT;
+    mapForEach(refRegistry, (entry, ref) => {
+      const el = derefEntry(entry);
+      if (!el || (large && !isConnectedOf(el))) mapDelete(refRegistry, ref);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1404,7 +1442,7 @@
 
   // Table sizes, for leak checks (tests/browser-parity/perf).
   function stats() {
-    return { refs: refRegistry.size, handles: handles.size };
+    return { refs: mapSize(refRegistry), handles: mapSize(handles) };
   }
 
   // `doc`: the token of the document that issued `ref` to the caller, when
@@ -1459,17 +1497,31 @@
   }
 
   if (injected) {
-    injected._engines.set("aria-ref", {
+    const engines = injected._engines;
+    mapSet(engines, "aria-ref", Object.freeze({
       queryAll(root, selector) {
         // `e5@<token>`: the host checked the ref against this document's
         // token and pins the query to it, so a navigation between that check
         // and this query fails stale instead of matching the new document.
-        const [ref, doc] = String(selector).trim().split("@");
-        if (doc !== undefined && doc !== docToken) throw agentError("stale", PREVIOUS_DOCUMENT);
+        const text = strTrim(StringOf(selector));
+        const at = strIndexOf(text, "@");
+        const ref = at < 0 ? text : strSlice(text, 0, at);
+        if (at >= 0 && strSlice(text, at + 1) !== docToken) throw agentError("stale", PREVIOUS_DOCUMENT);
         const el = refElement(ref);
         return el ? [el] : [];
       },
+    }));
+    // The engine table answers through the built-ins as they were at
+    // install, and keeps its engines (none is added after install).
+    const own = (value) => ({ value, writable: false, enumerable: false, configurable: false });
+    Object.defineProperties(engines, {
+      get: own((name) => mapGet(engines, name)),
+      has: own((name) => mapHas(engines, name)),
+      set: own(() => engines),
+      delete: own(() => false),
+      clear: own(() => undefined),
     });
+    Object.defineProperty(injected, "_engines", own(engines));
   }
 
 
@@ -2034,14 +2086,15 @@
     annotate,
     clearAnnotations,
     budget,
-    injected,
   };
-  Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });
+  // Frozen and permanent: other code in this world cannot replace a method
+  // or the agent itself (see the top of this file).
+  Object.defineProperty(global, KEY, { value: Object.freeze(agent), enumerable: false, configurable: false, writable: false });
   // The Swift driver resolves handles for input.setFiles through this name.
   Object.defineProperty(global, "__cmuxPageAgent", {
-    value: { resolveHandle: (id) => handleElement(id) },
+    value: Object.freeze({ resolveHandle: (id) => handleElement(id) }),
     enumerable: false,
-    configurable: true,
+    configurable: false,
     writable: false,
   });
 })(

@@ -74,13 +74,14 @@
     return { subject: clean((document.querySelector("h2.hP") || {}).textContent), messages };
   }
 
-  // The recipients and subject a new-message compose window holds, read in
-  // the agent's world right before Send: per row (To, CC, BCC, found by
-  // the row's "<Row> recipients" input), each address chip
-  // (data-hovercard-id, or email in older layouts) and any address typed
-  // into the row's input; `other` lists chips in the compose window outside
-  // every row it found (a row it cannot find holds them), `subject` the
-  // subjectbox value (null when there is none).
+  // The recipients and subject a compose window (a new message's, or the
+  // reply composer in a thread) holds, read in the agent's world: per row
+  // (To, CC, BCC, found by the row's "<Row> recipients" input), each address
+  // chip (data-hovercard-id, or email in older layouts) and any address
+  // typed into the row's input; `rows` the rows it found; `other` lists
+  // chips in the compose window outside every row it found (a row it
+  // cannot find holds them), `subject` the subjectbox value (null when
+  // there is none).
   function readComposeHeader() {
     const box = document.querySelector('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]');
     const root = (box && box.closest('[role="dialog"], form')) || document;
@@ -113,7 +114,7 @@
     }
     const other = [...root.querySelectorAll(CHIPS)].filter((c) => !seen.has(c) && !(box && box.contains(c))).map(address);
     const subject = root.querySelector('input[name="subjectbox"]');
-    return { to: rows.to, cc: rows.cc, bcc: rows.bcc, other, subject: subject ? String(subject.value) : null };
+    return { to: rows.to, cc: rows.cc, bcc: rows.bcc, rows: Object.keys(inputs).filter((f) => inputs[f]), other, subject: subject ? String(subject.value) : null };
   }
 
   // "thread-f:1784...", "#thread-f:...", a legacy hex id, or a Gmail URL -> hex id for #all/.
@@ -167,6 +168,44 @@
         });
       }
 
+      // Opens Gmail's own reply (all) composer in an opened thread.
+      async function openReply(page, replyAll) {
+        const button = page.locator(replyAll ? '[data-tooltip="Reply all"], [aria-label="Reply all"]' : '[data-tooltip="Reply"], [aria-label="Reply"]');
+        await button.last().click();
+        const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').last();
+        await box.waitFor({ timeout: 20000 });
+        return box;
+      }
+
+      // The header of the compose window. A reply's recipients come from
+      // Gmail (the thread's Reply-To, Reply all's Cc), never from the thread
+      // id, so a reply composer whose rows cannot be read fails closed:
+      // its recipients could be shown to no one and still be sent to.
+      async function readHeader(page, title, reply) {
+        const held = await page._mainFrame._call("agent", core.functionSource(readComposeHeader), []);
+        if (reply && (!held || !Array.isArray(held.rows) || !held.rows.includes("to") || (held.other && held.other.length))) {
+          throw new S.SiteError("compose_unverified", `${title}: cannot read who Gmail's reply composer addresses (no To row it recognizes, or an address outside its rows); nothing was sent. Reply from Gmail itself, or send a new message with explicit recipients`);
+        }
+        return held;
+      }
+      const addresses = (list) => [...new Set((list || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+
+      // At draft time: the thread's messages and who Gmail's Reply (all)
+      // addresses, read from its reply composer, which is then left with
+      // nothing typed (the tab closes; Gmail keeps no draft of it).
+      async function previewReply(msg) {
+        const key = threadKey(msg.threadId);
+        return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
+          await openThread(page);
+          const messageIds = (await page.evaluate(threadFn, { format: "text" })).messages.map((m) => m.messageId);
+          await openReply(page, msg.replyAll);
+          const held = await readHeader(page, "gmail.send", true);
+          const recipients = { to: addresses(held.to), cc: addresses(held.cc), bcc: addresses(held.bcc) };
+          if (!recipients.to.length && !recipients.cc.length && !recipients.bcc.length) throw new S.SiteError("compose_unverified", "gmail.send: Gmail's reply composer addresses no one; nothing was drafted");
+          return { messageIds, ...recipients };
+        });
+      }
+
       async function sendNow(msg) {
         if (msg.threadId) {
           const key = threadKey(msg.threadId);
@@ -176,10 +215,7 @@
             // in since then could change who a reply (all) goes to.
             const now = (await page.evaluate(threadFn, { format: "text" })).messages.map((m) => m.messageId);
             if (JSON.stringify(now) !== JSON.stringify(msg.messageIds)) throw new S.SiteError("thread_changed", `gmail.send: thread ${msg.threadId} has a new message since the preview (messages ${now.join(", ")}); nothing was sent. Make a new draft and show it to the user again`);
-            const button = page.locator(msg.replyAll ? '[data-tooltip="Reply all"], [aria-label="Reply all"]' : '[data-tooltip="Reply"], [aria-label="Reply"]');
-            await button.last().click();
-            const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').last();
-            await box.waitFor({ timeout: 20000 });
+            const box = await openReply(page, msg.replyAll);
             await box.click();
             await page.keyboard.insertText(msg.body);
             return finishSend(page, box, msg);
@@ -198,7 +234,7 @@
       }
 
       async function checkComposeHeader(page, msg) {
-        const held = await page._mainFrame._call("agent", core.functionSource(readComposeHeader), []);
+        const held = await readHeader(page, "gmail.send", !!msg.threadId);
         const problems = [];
         const same = (a, b) => {
           const x = [...new Set(a)].sort();
@@ -207,7 +243,8 @@
         };
         for (const field of ["to", "cc", "bcc"]) if (!same(held[field] || [], msg[field])) problems.push(`${field}: ${(held[field] || []).join(", ") || "none"}`);
         if (held.other && held.other.length) problems.push(`other recipients: ${held.other.join(", ")}`);
-        if (held.subject === null || held.subject.replace(/\s+/g, " ").trim() !== msg.subject.replace(/\s+/g, " ").trim()) problems.push(`subject ${JSON.stringify(held.subject)}`);
+        // A reply's subject is the thread's, which the preview names by id.
+        if (!msg.threadId && (held.subject === null || held.subject.replace(/\s+/g, " ").trim() !== msg.subject.replace(/\s+/g, " ").trim())) problems.push(`subject ${JSON.stringify(held.subject)}`);
         if (problems.length) throw new S.SiteError("compose_mismatch", `gmail.send: the compose window's recipients or subject differ from the draft (${problems.join("; ")}); nothing was sent. Make a new draft and show it to the user again`);
       }
 
@@ -218,10 +255,12 @@
         // The whole body, not its start: a page script or another session
         // could keep the drafted opening and add to it.
         if (!(await t.composerHolds(box, msg.body, { exclude: GMAIL_OWN }))) throw new S.SiteError("compose_mismatch", "gmail.send: the compose window did not receive the drafted body, or holds more than it; nothing was sent");
-        // A new message goes to the previewed recipients with the previewed
-        // subject, nothing else: a row or subject a page script or another
-        // session changed after the compose window loaded sends nothing.
-        if (!msg.threadId) await checkComposeHeader(page, msg);
+        // A message goes to the previewed recipients (a new message's with
+        // the previewed subject), nothing else: a row or subject a page
+        // script or another session changed after the compose window
+        // loaded, or a reply whose Reply-To or Cc changed since the
+        // preview, sends nothing.
+        await checkComposeHeader(page, msg);
         // The account this page sends as, read in the page right before
         // Send (another session can sign an account in while it loads and
         // move another account to the drafted /u/ index). A switch between
@@ -275,19 +314,23 @@
             if (!m || typeof m !== "object") throw new S.SiteError("invalid", "gmail.send: expected { to, subject, body } or { threadId, body }");
             const msg = { uid: m.uid === undefined ? 0 : m.uid, to: list(m.to, "to"), cc: list(m.cc, "cc"), bcc: list(m.bcc, "bcc"), subject: m.subject ? String(m.subject) : "", body: String(m.body || ""), threadId: m.threadId || null, replyAll: !!m.replyAll };
             base(msg.uid);
-            if (msg.threadId) threadKey(msg.threadId);
-            else if (!msg.to.length && !msg.cc.length && !msg.bcc.length) throw new S.SiteError("invalid", "gmail.send: a new message needs at least one recipient");
+            if (msg.threadId) {
+              threadKey(msg.threadId);
+              // Gmail's Reply (all) decides a reply's recipients; the draft
+              // reads and shows them.
+              if (msg.to.length || msg.cc.length || msg.bcc.length) throw new S.SiteError("invalid", "gmail.send: a reply goes to the recipients Gmail's Reply (or Reply all, with replyAll: true) addresses, which the draft shows; to, cc and bcc cannot be set on it");
+            } else if (!msg.to.length && !msg.cc.length && !msg.bcc.length) throw new S.SiteError("invalid", "gmail.send: a new message needs at least one recipient");
             if (!msg.body.trim() && !m.allowEmptyBody) throw new S.SiteError("invalid", "gmail.send: the body is empty; pass allowEmptyBody: true if that is intended");
             // The draft pins the sending account by email (u/N is positional)
             // and a reply the thread's messages as previewed.
             const g = S.shared.google;
             const accountEmail = await g.accountEmail(t, "gmail.send", msg.uid);
             msg.accountEmail = accountEmail;
-            if (msg.threadId) msg.messageIds = (await thread(msg.threadId, { uid: msg.uid, format: "text" })).messages.map((x) => x.messageId);
+            if (msg.threadId) Object.assign(msg, await previewReply(msg));
             return {
               category: "[9] representational communication; [14] transmits data to the recipients",
-              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} as ${accountEmail} (u/${msg.uid})` : `Email to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} from ${accountEmail} (u/${msg.uid}): "${msg.subject}"`,
-              preview: msg.threadId ? { account: msg.uid, accountEmail, threadId: msg.threadId, messageIds: msg.messageIds, replyAll: msg.replyAll, body: msg.body } : { account: msg.uid, accountEmail, to: msg.to, cc: msg.cc, bcc: msg.bcc, subject: msg.subject, body: msg.body },
+              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} as ${accountEmail} (u/${msg.uid})` : `Email to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} from ${accountEmail} (u/${msg.uid}): "${msg.subject}"`,
+              preview: msg.threadId ? { account: msg.uid, accountEmail, threadId: msg.threadId, messageIds: msg.messageIds, replyAll: msg.replyAll, to: msg.to, cc: msg.cc, bcc: msg.bcc, body: msg.body } : { account: msg.uid, accountEmail, to: msg.to, cc: msg.cc, bcc: msg.bcc, subject: msg.subject, body: msg.body },
               run: async () => {
                 await g.checkAccount(t, "gmail.send", msg.uid, accountEmail);
                 return sendNow(msg);
