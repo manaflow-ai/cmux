@@ -1680,6 +1680,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// The function body that runs `source` with handles resolved to elements
     /// (`__els`), returning JSON text, the agent sentinel, or an error envelope.
+    /// Throws `invalid`, before anything runs, when `source` is not one
+    /// expression on its own (``BrowserReplEvaluationBody``).
+    @MainActor
     private static func evaluationBody(source: String, requiresAgent: Bool, elementsExpression: String) throws -> String {
         try BrowserReplEvaluationBody(source: source, requiresAgent: requiresAgent, elementsExpression: elementsExpression).text
     }
@@ -1716,6 +1719,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let body = try Self.evaluationBody(source: source, requiresAgent: false, elementsExpression: "[]")
             return try await runEvaluation(panel, frame, body: body, world: .page, args: args, handles: [])
         }
+        // Built first: a source that is not one expression fails before
+        // the bridge is set up in the page.
+        let collect = """
+        const __bridge = window[__key];
+        delete window[__key];
+        if (__bridge) window.removeEventListener(__key, __bridge.listener, true);
+        if (!__bridge || __bridge.got.length !== __count) return { __cmuxError__: { code: "stale", message: "Element handle is no longer attached to the document", name: "Error" } };
+        """
+        let body = try collect + "\n" + Self.evaluationBody(source: source, requiresAgent: false, elementsExpression: "__bridge.got")
         let key = "__cmuxHandleBridge_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let listen = """
         const got = [];
@@ -1755,13 +1767,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
             throw error
         }
-        let collect = """
-        const __bridge = window[__key];
-        delete window[__key];
-        if (__bridge) window.removeEventListener(__key, __bridge.listener, true);
-        if (!__bridge || __bridge.got.length !== __count) return { __cmuxError__: { code: "stale", message: "Element handle is no longer attached to the document", name: "Error" } };
-        """
-        let body = try collect + "\n" + Self.evaluationBody(source: source, requiresAgent: false, elementsExpression: "__bridge.got")
         return try await runEvaluation(
             panel,
             frame,

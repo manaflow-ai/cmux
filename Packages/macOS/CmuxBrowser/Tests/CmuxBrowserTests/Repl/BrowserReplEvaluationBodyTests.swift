@@ -40,4 +40,43 @@ struct BrowserReplEvaluationBodyTests {
         let ran = try await page.run("return document.documentElement.getAttribute('data-ran')", in: child)
         #expect(ran as? String == nil, "the breakout source ran in the blocked document")
     }
+
+    @Test("Source that is not one expression on its own is refused before anything runs")
+    func sourceThatIsNotOneExpressionIsRefused() {
+        for source in [
+            Self.breakout,
+            "0)\n) {\n}); document.title = 1; (function (b = (0",
+            "() => 1 /*",
+            "() => 1; function location() {}",
+            "() => 1 } catch (e) {} try { (0",
+        ] {
+            #expect(throws: BrowserReplDriverError.self, "accepted: \(source)") {
+                try BrowserReplEvaluationBody(source: source, requiresAgent: false, elementsExpression: "[]")
+            }
+        }
+    }
+
+    /// The forms the runtime sends (`functionSource` in runtime-core.js).
+    @Test("Function expressions the runtime sends run with their arguments")
+    func functionExpressionsRun() async throws {
+        let page = try await FramePage.load()
+        let gate = BrowserReplFrameGateTests.gate()
+        let cases: [(String, String)] = [
+            ("(a, b) => a + b", "5"),
+            ("async (a, b) => { await null; return a * b; }", "6"),
+            ("function (a, b) { return [a, b]; }", "[2,3]"),
+            ("async function named(a) { return a; } // comment", "2"),
+            ("x => x", "2"),
+            ("() => (0, eval)(\"1 + 1\")", "2"),
+            ("(a) => `${a}` + /\\)/.source", "\"2\\\\)\""),
+        ]
+        for (source, expected) in cases {
+            let body = try BrowserReplEvaluationBody(source: source, requiresAgent: false, elementsExpression: "[]")
+            let value = try await gate.callAsyncJavaScript(
+                body.text, arguments: ["__args": [2, 3], "__handles": [String]()],
+                in: page.webView, frame: page.main, contentWorld: .page
+            )
+            #expect(value as? String == expected, "\(source) returned \(String(describing: value))")
+        }
+    }
 }
