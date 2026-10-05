@@ -14,10 +14,12 @@ extension CEFTab: BrowserCertificateWarningRevoking {
     }
 
     public var certificateWarningScope: BrowserCertificateWarningScope { .profile }
-    public var canTurnOnCertificateWarnings: Bool { certificateWarningsTurnedOff }
+    /// Chromium does not say which hosts have a Proceed choice: the action
+    /// stays enabled and clears them all.
+    public var canTurnOnCertificateWarnings: Bool { true }
 
     public func turnOnCertificateWarnings() async -> Bool {
-        guard certificateWarningsTurnedOff, let browserID, await runtime.clearCertificateExceptions(browserID) else { return false }
+        guard let browserID, await runtime.clearCertificateExceptions(browserID) else { return false }
         reload()
         return true
     }

@@ -68,6 +68,13 @@ extension WebKitEngine {
         return hasCertificateException(host, profile: tab.profileID)
     }
 
+    /// The store has a Proceed for `tab`'s page host in its profile (the
+    /// revoke action is enabled only then).
+    func knowsCertificateBypass(_ tab: WebKitTab) -> Bool {
+        guard let host = tab.state.url?.host() else { return false }
+        return hasCertificateException(host, profile: tab.profileID)
+    }
+
     /// The page was loaded past its untrusted certificate: the host is
     /// excepted and WebKit's own evaluation failed (a host whose
     /// certificate became valid again is not broken).
@@ -80,8 +87,7 @@ extension WebKitEngine {
     /// Forgets the choice for `tab`'s page host and reloads the page, which
     /// shows the warning again.
     func turnOnCertificateWarnings(_ tab: WebKitTab) -> Bool {
-        guard certificateWarningsTurnedOff(tab), let host = tab.state.url?.host(),
-              forgetCertificateException(host: host, profile: tab.profileID) else { return false }
+        guard let host = tab.state.url?.host(), forgetCertificateException(host: host, profile: tab.profileID) else { return false }
         tab.reload()
         return true
     }
