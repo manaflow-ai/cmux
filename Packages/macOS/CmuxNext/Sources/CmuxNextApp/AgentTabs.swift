@@ -88,8 +88,10 @@ final class AgentTabStore {
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
-    /// Tabs opened as the new tab page, and what each does with the kind
-    /// the user picks there (``PaneController/newTabPage()``).
+    /// Shared conversion and project actions for a direct blank chat, without a chooser page.
+    var blankChatHandler: ((String) -> NewTabPageHandler?)?
+
+    /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
@@ -255,12 +257,12 @@ final class AgentTabStore {
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.open(key, request)
+            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
         model.onTypeAhead = { [weak self] text in
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.typeAhead(key, text)
+            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
         }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
@@ -270,12 +272,12 @@ final class AgentTabStore {
             _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
         model.onBrowseProject = { [weak self] in
-            guard let self, let page = self.newTabPages[resolve(provisional)] else { return nil }
-            return await page.handler.browseProject()
+            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
+            return await handler.browseProject()
         }
         model.onListProjects = { [weak self] query in
-            guard let self, let page = self.newTabPages[resolve(provisional)] else { return [] }
-            return await page.handler.listProjects(query)
+            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
+            return await handler.listProjects(query)
         }
         model.onImportAndSync = { [weak self] in
             if let page = self?.newTabPages[resolve(provisional)] { page.handler.importAndSync() }

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
+import { terminalConversion } from "./newtab/screenModel";
+import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import {
   ArrowUpIcon,
@@ -84,6 +86,11 @@ type Props = {
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
+  projectChoices?: Project[];
+  onBrowseProject?(): void;
+  /// A direct blank pane chat can become a terminal before its first prompt.
+  onTerminal?(command: string): void;
+  onTerminalTypeAhead?(command: string): void;
   /// Changes the approval mode from the + menu while keeping the keyboard shortcut path intact.
   onMode?(modeId: string): void;
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
@@ -110,6 +117,10 @@ export function Composer({
   onAttach,
   searchFiles,
   onProject,
+  projectChoices,
+  onBrowseProject,
+  onTerminal,
+  onTerminalTypeAhead,
   onMode,
   onOpenInWindow,
   handle,
@@ -121,6 +132,7 @@ export function Composer({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
+  const converting = useRef<string | undefined>(undefined);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -418,6 +430,8 @@ export function Composer({
         </ol>
       )}
       <ComposerContext
+        projectChoices={projectChoices}
+        onBrowseProject={onBrowseProject}
         summary={snapshot.summary}
         sessions={snapshot.sessions}
         peers={snapshot.peers}
@@ -491,6 +505,19 @@ export function Composer({
             "aria-controls": open ? "acpmux-slash-menu" : undefined,
             "aria-autocomplete": "list",
             "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
+          }}
+          onBeforeInput={(data, state) => {
+            if (!onTerminal || state.composing) return false;
+            if (converting.current !== undefined) {
+              converting.current += data;
+              onTerminalTypeAhead?.(converting.current);
+              return true;
+            }
+            const conversion = state.empty ? terminalConversion("", data, false) : undefined;
+            if (!conversion) return false;
+            converting.current = conversion.command;
+            onTerminal(conversion.command);
+            return true;
           }}
           onChange={(markdown, at) => edit(markdown, at)}
           onCaret={setCaret}

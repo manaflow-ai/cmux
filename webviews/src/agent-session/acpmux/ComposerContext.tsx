@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { ProjectChooser, type Project } from "./ProjectChooser";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 
@@ -24,12 +25,16 @@ export function ComposerContext({
   peers = [],
   started = false,
   onProject,
+  projectChoices,
+  onBrowseProject,
 }: {
   summary?: Summary;
   sessions?: Session[];
   peers?: string[];
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
+  projectChoices?: Project[];
+  onBrowseProject?(): void;
 }) {
   const computers = useMemo(() => availableComputers(summary, sessions, peers), [summary, sessions, peers]);
   const initialComputer = computerId(summary);
@@ -41,7 +46,7 @@ export function ComposerContext({
   );
   const currentFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
-  if (!currentComputer && !currentFolder) return null;
+  if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
@@ -62,17 +67,28 @@ export function ComposerContext({
       <span className="acpmux-context-divider" aria-hidden="true">
         ·
       </span>
-      <LocationPicker
-        label={t(CONTEXT_LABELS.folder)}
-        value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
-        options={folders}
-        selected={currentFolder}
-        disabled={readOnly}
-        allowPath
-        onPick={(cwd) => {
-          if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
-        }}
-      />
+      {!readOnly && selectedComputer === "local" && projectChoices ? (
+        <ProjectChooser
+          projects={projectChoices}
+          current={currentFolder}
+          currentLabel={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          icon={null}
+          onPick={(cwd) => onProject?.(cwd)}
+          onBrowse={onBrowseProject}
+        />
+      ) : (
+        <LocationPicker
+          label={t(CONTEXT_LABELS.folder)}
+          value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          options={folders}
+          selected={currentFolder}
+          disabled={readOnly}
+          allowPath
+          onPick={(cwd) => {
+            if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+          }}
+        />
+      )}
     </div>
   );
 }

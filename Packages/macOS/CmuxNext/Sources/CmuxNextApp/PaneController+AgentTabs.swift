@@ -4,7 +4,7 @@ extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected. It inherits
     /// the selected tab's context (`agentSeedFromSelectedTab`, #16620).
     func newAgentTab() {
-        newTabPage(seed: agentSeedFromSelectedTab())
+        openAgentTab(seed: agentSeedFromSelectedTab())
     }
 
     /// A `cmux://session/<id>` link no tab shows: a new agent tab in this

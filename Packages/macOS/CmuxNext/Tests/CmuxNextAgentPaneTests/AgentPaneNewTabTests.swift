@@ -74,6 +74,7 @@ import Testing
         #expect(await model.respond(to: .openTab(.terminal, text: "", cwd: "/src/app", run: false))["ok"] as? Bool == true)
         #expect(opened?.cwd == "/src/app")
         #expect(opened?.run == false)
+        _ = await model.respond(to: .persistSession("blank-project-session"))
         #expect(await model.respond(to: .typeAhead("git status"))["ok"] as? Bool == true)
         #expect(typed == "git status")
         let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])

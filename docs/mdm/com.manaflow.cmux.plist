@@ -82,7 +82,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>page</string>
+			<string>agent</string>
 			<key>pfm_description</key>
 			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
 			<key>pfm_name</key>

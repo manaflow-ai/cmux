@@ -1764,8 +1764,22 @@ function AcpmuxPane() {
       ),
     [],
   );
+  const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  useEffect(() => {
+    if (!freshChat || newTab || quick) return;
+    let active = true;
+    void loadNewTabProjects()
+      .then((projects) => {
+        if (active) setDirectProjects(projects);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [freshChat, newTab, quick, loadNewTabProjects]);
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
+    for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
     for (const session of composerSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
@@ -1774,7 +1788,7 @@ function AcpmuxPane() {
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
-  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects]);
+  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
       <TurnCountsContext.Provider value={turnCountsFor}>
@@ -1851,6 +1865,27 @@ function AcpmuxPane() {
         onProject={(cwd, peer) =>
           void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined)
         }
+        projectChoices={freshChat && !quick ? newTabProjects : undefined}
+        onBrowseProject={
+          freshChat && !quick
+            ? () => {
+                void callNative<{ cwd?: string }>("project.browse")
+                  .then((result) => {
+                    if (result?.cwd) return callNative("chat.new", { cwd: result.cwd });
+                  })
+                  .catch(() => undefined);
+              }
+            : undefined
+        }
+        onTerminal={
+          freshChat && !quick
+            ? (text) => {
+                const cwd = snapshot.summary?.cwd;
+                void callNative("tab.open", { kind: "terminal", text, run: false, ...(cwd ? { cwd } : {}) });
+              }
+            : undefined
+        }
+        onTerminalTypeAhead={(text) => void callNative("tab.typeAhead", { text })}
         onMode={(modeId) => void callNative("chat.mode", { modeId })}
         // Without a folder there is nothing to search; the + menu leaves the item out.
         searchFiles={fileRoot ? searchFiles : undefined}

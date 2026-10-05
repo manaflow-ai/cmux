@@ -48,11 +48,11 @@ export function NewTabScreen(props: Props) {
   const t = useT();
   const [projectCwd, setProjectCwd] = useState(props.cwd);
   const [projects, setProjects] = useState(props.projects ?? []);
+  const loadProjects = props.loadProjects;
   useEffect(() => {
-    if (!props.loadProjects) return;
+    if (!loadProjects) return;
     let cancelled = false;
-    void props
-      .loadProjects()
+    void loadProjects()
       .then((next) => {
         if (!cancelled) setProjects(next);
       })
@@ -60,7 +60,7 @@ export function NewTabScreen(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [props.loadProjects]);
+  }, [loadProjects]);
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now } = props;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.

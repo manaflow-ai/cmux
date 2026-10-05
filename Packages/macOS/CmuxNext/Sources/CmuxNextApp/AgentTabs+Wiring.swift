@@ -1,26 +1,20 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 
 /// Agent chat tabs on the workspace store (cmux-tui/spec/commands.md, new-conversation-tab): the store
 /// commands the tabs' view store sends, and where it looks up their records.
 extension AgentTabStore {
-    /// An empty workspace's explicit New action creates the chat page directly,
-    /// so no temporary shell or bare terminal flashes behind the page.
+    /// An empty workspace's explicit New action creates an agent chat directly,
+    /// so no temporary shell or chooser page appears.
     func openFirstPage(in workspace: WorkspaceModel, on daemon: DaemonService, services: AppServices) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: localHost, hostName: localHostName)
         let request = NewConversationTabRequest(agentSession: record, workspace: workspace.handle, origin: Self.createOrigin, mutationID: UUID().uuidString)
         let response = try await connection.request(request)
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
-        var page = NewTabPage.page(services, selected: nil)
-        page.cwd = daemon.defaultCwd
-        let handler = NewTabPage.handler(services, cwd: daemon.defaultCwd) { [weak services] key, request in
-            guard let services, let (_, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return }
-            NewTabPage.replace(key, with: request, cwd: request.cwd ?? daemon.defaultCwd, in: controller)
-        }
-        newTabPages[key] = (page, handler)
+        seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: daemon.defaultCwd))
         track(key, in: daemon.store)
-        views[key]?.adoptNewTab(page)
         return response.surface
     }
 
@@ -30,6 +24,13 @@ extension AgentTabStore {
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, git: services.agentGit, settings: services.settings)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
+        tabs.blankChatHandler = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }
+            return NewTabPage.handler(services, cwd: tab.cwd) { [weak controller] key, request in
+                guard let controller else { return }
+                NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)
+            }
+        }
         tabs.resolveLocalHost = { [weak services] in
             guard let services else { return nil }
             guard let id = try? services.cloud.localDeviceID() else {
