@@ -66,8 +66,38 @@ extension DockSplitStore {
                 nil
             }
             if let liveSessionOwner {
+                let attachInput = restore.restoresRemoteWorkspaceTerminalSnapshot
+                    ? nil
+                    : AgentRestoreAttachCommand.startupInput(
+                        kind: liveSessionOwner.kind,
+                        sessionID: liveSessionOwner.sessionID,
+                        launchCommand: restore.restorableAgent?.launchCommand
+                            ?? (currentResumeBinding ?? restore.resumeBinding)?.launchCommand,
+                        tmuxStartCommand: nil,
+                        workingDirectory: restore.resumeWorkingDirectory,
+                        dialect: restore.noticeDialect
+                    )
                 terminal.restoreRecovery.state = .liveOwner(
-                    kind: liveSessionOwner.kind, processID: liveSessionOwner.processID
+                    kind: liveSessionOwner.kind,
+                    processID: liveSessionOwner.processID,
+                    attachInput: attachInput
+                )
+                let attachOrNoticeInput = attachInput ?? AgentRestoreLiveOwnerNotice(
+                    processID: liveSessionOwner.processID
+                ).startupInput(dialect: restore.noticeDialect)
+                restoredAgentLifecycle.setResumeState(
+                    .manualResumeAvailable,
+                    panelId: panelId
+                )
+                restoredAgentLifecycle.registerStartupInput(attachOrNoticeInput, panelId: panelId)
+                _ = terminal.surface.admitStartupRestoreRuntime(initialInput: attachOrNoticeInput)
+                removeDeferredAgentResumeRestore(panelId: panelId)
+                AgentRestoreSuppressionJournal().record(
+                    kind: liveSessionOwner.kind,
+                    sessionID: liveSessionOwner.sessionID,
+                    workspaceID: workspaceId,
+                    surfaceID: panelId,
+                    processID: liveSessionOwner.processID
                 )
                 continue
             }
