@@ -29,11 +29,12 @@ final class FilePageService: InternalPageProvider {
     }
 
     let kind: FilePageKind
+    // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
     private unowned let services: AppServices
     private let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     private var tabs: [String: Tab] = [:]
-    private(set) lazy var look = FilePageLook(kind: kind, settings: { [unowned services] in services.settings })
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
@@ -83,7 +84,7 @@ final class FilePageService: InternalPageProvider {
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, recoveredText: String? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText)) { [unowned self] key in
+        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText)) { key in
             self.file(key) == real
         }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -138,7 +139,7 @@ final class FilePageService: InternalPageProvider {
     /// Opens (or selects) the window's empty tab of this page.
     @discardableResult
     func openEmpty(in pane: PaneController, focus: Bool) -> String {
-        show(in: pane, focus: focus, Tab(file: nil)) { [unowned self] key in self.file(key) == nil }
+        show(in: pane, focus: focus, Tab(file: nil)) { key in self.file(key) == nil }
     }
 
     private func show(in pane: PaneController, focus: Bool, _ tab: Tab, matching: (String) -> Bool) -> String {

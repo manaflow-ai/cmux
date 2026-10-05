@@ -18,6 +18,7 @@ final class ViewerService {
     private(set) var diffOpen: Task<Void, Never>?
     private weak var services: AppServices?
     /// The owner of the page services below (the app's services outlive the viewers).
+    // crash-allow: AppServices owns this ViewerService for the app's whole life, so it outlives it.
     private unowned let owner: AppServices
     /// Diff viewer tabs (plans/cmux-next/diff-host.md S4).
     private(set) lazy var diffPages = DiffPageService(services: owner)

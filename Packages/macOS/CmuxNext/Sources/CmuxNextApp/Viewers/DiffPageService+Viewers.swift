@@ -17,6 +17,7 @@ extension DiffPageService: DiffViewerOpening {
 /// `cmux.diff.chooseFolder` through the cmux picker (folder mode, the diff
 /// recents first).
 final class PickerDiffFolderChooser: DiffFolderChoosing {
+    // crash-allow: ViewerService owns the diff page service that holds this chooser, so it outlives it.
     private unowned let viewers: ViewerService
 
     init(viewers: ViewerService) {

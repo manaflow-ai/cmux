@@ -98,6 +98,7 @@ nonisolated struct PinnedTLSTransport: RemoteImageTransport {
     }
 
     /// One connection's request and its whole answer, on the connection's own queue.
+    // crash-allow: every mutable member is touched only on `queue` (the connection's own queue); the class is shared only to hop onto it.
     nonisolated final class Exchange: @unchecked Sendable {
         private let connection: NWConnection
         private var reader: HTTPReplyReader

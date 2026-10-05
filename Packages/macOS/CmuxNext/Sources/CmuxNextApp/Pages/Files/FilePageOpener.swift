@@ -7,6 +7,7 @@ import CmuxNextAgentPane
 /// editor page (read only when binary or not UTF-8), in a pane tab; images, PDFs and media keep
 /// the browser tab's preview, which shows them and runs nothing.
 final class FilePageOpener: FileOpening {
+    // crash-allow: AppServices owns ViewerService, which owns this opener, for the app's whole life.
     private unowned let services: AppServices
 
     init(services: AppServices) {

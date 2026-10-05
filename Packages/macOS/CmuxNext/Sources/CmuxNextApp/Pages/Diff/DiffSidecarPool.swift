@@ -50,9 +50,9 @@ actor DiffSidecarPool: DiffSidecarRunning {
     private var waiters: [Waiter] = []
 
     init(runner: any DiffSidecarRunning, limit: Int = 4, queueLimit: Int = 32) {
-        precondition(limit > 0)
         self.runner = runner
-        self.limit = limit
+        // At least one request runs (a limit of 0 would queue every request forever).
+        self.limit = max(1, limit)
         self.queueLimit = queueLimit
     }
 
