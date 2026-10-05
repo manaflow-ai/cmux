@@ -28,7 +28,14 @@ public final class SidebarDockView: NSView {
         stack.alignment = .centerY
         stack.spacing = Metrics.space3
         stack.edgeInsets = NSEdgeInsets(top: 0, left: Metrics.space4, bottom: 0, right: Metrics.space4)
+        stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
         observation = Task { [weak self, model] in
             for await state in Observations({ (model.layout, model.itemInfo, model.allWorkspaces, model.activeWorkspaceID) }) {
                 self?.render(layout: state.0, infos: state.1, workspaces: state.2, active: state.3)
@@ -59,11 +66,6 @@ public final class SidebarDockView: NSView {
 
     override public func mouseEntered(with event: NSEvent) { pointerInside = true; applyVisibility() }
     override public func mouseExited(with event: NSEvent) { pointerInside = false; applyVisibility() }
-
-    override public func layout() {
-        super.layout()
-        stack.frame = bounds
-    }
 
     private func applyMode() {
         layer?.backgroundColor = performWithTheme { mode == .reserved ? Palette.surfaceBackground.withAlphaComponent(0.82).cgColor : nil }
