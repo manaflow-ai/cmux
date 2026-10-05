@@ -57,7 +57,10 @@ impl Client {
         let id = self.2;
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
         loop {
-            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv()).await.unwrap().unwrap();
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
                 return v;
@@ -66,7 +69,11 @@ impl Client {
     }
 
     async fn prompt(&mut self, s: &str, text: &str) -> Value {
-        self.call("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]})).await
+        self.call(
+            "session/prompt",
+            json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await
     }
 }
 
@@ -82,7 +89,13 @@ async fn a_config_entry_for_a_non_asking_mode_is_ignored() {
     let s = web.call("session/new", new_params(&d, "fcodex")).await;
     let s = s["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{s}")).to_owned();
     let r = web.call("session/set_mode", json!({"sessionId": s, "modeId": "agent"})).await;
-    assert!(r["error"]["message"].as_str().unwrap_or_default().contains("never from a remote WebSocket"), "{r}");
+    assert!(
+        r["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("never from a remote WebSocket"),
+        "{r}"
+    );
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -91,7 +104,17 @@ fn the_daemon_logs_the_merged_table_once_and_warns_about_the_ignored_entry() {
     let d = dir("log");
     std::fs::write(d.join("config.json"), config(&d).to_string()).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
-        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "info"])
+        .args([
+            "daemon",
+            "run",
+            "--memory",
+            "--listen",
+            "127.0.0.1:0",
+            "--ready-fd",
+            "1",
+            "--log",
+            "info",
+        ])
         .env("ACPMUX_HOME", &d)
         .env("ACPMUX_SOCKET", d.join("s.sock"))
         .env_remove("ACPMUX_LOGIN_ENV")
@@ -149,11 +172,21 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
         ("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": "hi"}]})),
         ("session/set_mode", json!({"sessionId": s, "modeId": "plan"})),
         ("session/set_config_option", json!({"sessionId": s, "configId": "model", "value": "m2"})),
-        ("_acpmux/permission_respond", json!({"sessionId": s, "permissionId": "p1", "optionId": "allow"})),
-        ("_acpmux/permission_group_respond", json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k", "decision": "deny"})),
+        (
+            "_acpmux/permission_respond",
+            json!({"sessionId": s, "permissionId": "p1", "optionId": "allow"}),
+        ),
+        (
+            "_acpmux/permission_group_respond",
+            json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k", "decision": "deny"}),
+        ),
     ] {
         let r = web.call(m, p).await;
-        assert_eq!(r["error"]["data"]["reason"], json!("remote.mode_left_asking_table"), "{m}: {r}");
+        assert_eq!(
+            r["error"]["data"]["reason"],
+            json!("remote.mode_left_asking_table"),
+            "{m}: {r}"
+        );
         assert_eq!(r["error"]["data"]["mode"], json!("build"), "{m}: {r}");
     }
     // Web reads stay.
@@ -173,7 +206,13 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
     let r = web.prompt(&s, "back?").await;
     assert_eq!(r["error"]["data"]["reason"], json!("remote.mode_left_asking_table"), "{r}");
     // The local user setting an asking mode does.
-    assert!(local.call("session/set_mode", json!({"sessionId": s, "modeId": "plan"})).await.get("error").is_none());
+    assert!(
+        local
+            .call("session/set_mode", json!({"sessionId": s, "modeId": "plan"}))
+            .await
+            .get("error")
+            .is_none()
+    );
     assert!(web.prompt(&s, "back").await.get("error").is_none());
     let _ = std::fs::remove_dir_all(&d);
 }
