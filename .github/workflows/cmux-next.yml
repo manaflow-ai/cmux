@@ -36,6 +36,8 @@ on:
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/bundle-ghostty-resources.sh
+      - Resources/ghostty/**
+      - Resources/terminfo-overlay/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -79,6 +81,8 @@ on:
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/bundle-ghostty-resources.sh
+      - Resources/ghostty/**
+      - Resources/terminfo-overlay/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -392,6 +396,7 @@ jobs:
         run: |
           git submodule update --init --depth 1 --filter=blob:none ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
+          bash scripts/cmux-next/tests/bundled-terminfo.test.sh
 
       - name: Checks job structure
         id: checks-structure

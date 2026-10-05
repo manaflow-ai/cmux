@@ -79,7 +79,8 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 
 | Resource | Owner | Operations |
 | --- | --- | --- |
-| Workspace identity (title, color, icon), `ephemeral` | shared | `workspace.update`, `workspace.create` |
+| Workspace identity (title, color, icon) | shared | `workspace.update`, `workspace.create` |
+| Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | Tab pin, zoom, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
@@ -119,6 +120,12 @@ ephemeral workspaces at its next start and ends the terminals only they
 showed. `workspace.create {ephemeral: true}` writes the flag in the transaction
 that creates the workspace, so no read and no `session.events` change shows it
 without `extra.ephemeral`; the flag is part of the request's fingerprint.
+`workspace.update` does not change the flag. A move whose commit creates a
+workspace for content of an ephemeral workspace (a tab, tab group, screen or
+screen group moved to a new workspace, by a raw command or a v2 operation)
+makes the new workspace ephemeral in that commit. A move between an
+ephemeral workspace and an existing normal one is refused with a
+`bad request` error and changes nothing.
 `workspace.ensure_home {}` (`workspace-kind-v1`) is the only writer of
 `extra.kind: home`. The hosting app sends it on every connect; the store
 creates one empty home workspace with the fixed key `home`, places it first
