@@ -113,8 +113,7 @@ extension TabStripView {
             return
         }
         if let index = trailingButtonIndex(at: point) {
-            pendingTrailingPress = index
-            buttonGroup.pressedIndex = index
+            trailingMenus.pressDown(index)
             return
         }
         if let group = chipGroup(at: point) {
@@ -186,7 +185,7 @@ extension TabStripView {
             return
         }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
-        if endTrailingButtonPress(at: point) { return }
+        if endTrailingButtonPress(at: point, modifiers: event.modifierFlags) { return }
         if drag != nil { endDrag() }
         press = nil
         if groups.drag != nil {
@@ -225,7 +224,7 @@ extension TabStripView {
     private func contextMenu(for event: NSEvent) -> NSMenu? {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
-        if trailingButtonIndex(at: point) != nil { return nil }
+        if let index = trailingButtonIndex(at: point) { return trailingMenus.showIfAny(at: index) }
         if isInNewTabButton(point) {
             // Anchored under the button, like the press-and-hold menu.
             showNewTabMenu()

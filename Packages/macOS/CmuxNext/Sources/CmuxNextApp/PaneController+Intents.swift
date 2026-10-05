@@ -39,8 +39,8 @@ extension PaneController {
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
-        case .trailingButton(let id):
-            services.tabBarButtons.perform(id, paneKey: paneKey)
+        case .trailingButton(let id), .trailingButtonAlternate(let id):
+            services.tabBarButtons.perform(id, paneKey: paneKey, alternate: intent == .trailingButtonAlternate(id))
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -307,6 +307,7 @@ extension PaneController {
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
             return registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: paneKey))
+        case .trailingButton(let id): return PaneToolbar.menu(for: id, in: self)
         }
     }
 }

@@ -64,8 +64,57 @@ import Testing
 
         controller.apply(TabBarButtonsController.Input(tabBar: .defaults, commands: []))
         #expect(!services.registry.isBound("cmuxConfig.start-claude"))
-        // R120: the default tab bar has no trailing buttons.
+        // No cmux.json list: no configured buttons, the default cluster instead.
         #expect(controller.buttons.isEmpty)
+        #expect(controller.buttons(for: .terminal).map(\.id) == [PaneToolbar.splitID, PaneToolbar.moreID])
+    }
+
+    /// Without a cmux.json list each pane shows at most two buttons after
+    /// its "+", by the selected tab's kind; a list replaces them everywhere.
+    @Test func defaultClusterFollowsTheSelectedTabsKind() {
+        let services = Coverage.boundServices()
+        let controller = services.tabBarButtons!
+        controller.apply(TabBarButtonsController.Input(tabBar: .defaults, commands: []))
+        #expect(controller.buttons(for: .terminal).map(\.id) == ["cmux.split", "cmux.more"])
+        #expect(controller.buttons(for: .browser).map(\.id) == ["cmux.split", "cmux.more"])
+        #expect(controller.buttons(for: .agent).map(\.id) == ["cmux.more"])
+        for kind in PaneToolbar.Kind.allCases { #expect(controller.buttons(for: kind).count <= 3) }
+        let split = controller.buttons(for: .terminal)[0]
+        #expect(split.toolTip == "Split Right (⌘D)")
+        #expect(split.menu == .secondary)
+        #expect(controller.buttons(for: .terminal)[1].menu == .primary)
+        #expect(controller.actions["cmux.split"] == "splitRight")
+        #expect(controller.alternates["cmux.split"] == "splitDown")
+
+        controller.apply(TabBarButtonsController.Input(
+            tabBar: SurfaceTabBarConfig(buttons: [TabBarButtonSpec(id: "cmux.splitDown", actionID: "splitDown")], usesDefaults: false),
+            commands: []
+        ))
+        #expect(controller.buttons(for: .agent).map(\.id) == ["cmux.splitDown"])
+        #expect(controller.alternates.isEmpty)
+        #expect(controller.actions["cmux.split"] == nil)
+    }
+
+    /// Split's menu offers both directions; More holds files, folder,
+    /// windows and the tab's duplicate and move, plus the splits when the
+    /// strip shows no split button (agent chat). Each row keeps its shortcut.
+    @Test func clusterMenusRunRegistryActions() throws {
+        let registry = Coverage.boundServices().registry
+        func ids(_ menu: NSMenu?) -> [String] {
+            (menu?.items ?? []).map { ActionRegistry.menuRun(of: $0)?.id.rawValue ?? ($0.isSeparatorItem ? "|" : "?") }
+        }
+        let split = PaneToolbar.menu(for: PaneToolbar.splitID, kind: .terminal, pane: "p1", tab: "t1", registry: registry)
+        #expect(ids(split) == ["splitRight", "splitDown"])
+        let terminalMore = PaneToolbar.menu(for: PaneToolbar.moreID, kind: .terminal, pane: "p1", tab: "t1", registry: registry)
+        #expect(ids(terminalMore) == ["toggleRightSidebar", "openFolder", "newWindow", "|", "duplicateTab", "tab.moveToNewWindow"])
+        let agentMore = PaneToolbar.menu(for: PaneToolbar.moreID, kind: .agent, pane: "p1", tab: "t1", registry: registry)
+        #expect(ids(agentMore).prefix(3) == ["splitRight", "splitDown", "|"])
+        // Tab rows run on the selected tab, split rows on the pane.
+        #expect(terminalMore.flatMap { ActionRegistry.menuRun(of: $0.items.last!)?.target } == ActionTargetRef(kind: .tab, id: "t1"))
+        #expect(split.flatMap { ActionRegistry.menuRun(of: $0.items[0])?.target } == ActionTargetRef(kind: .pane, id: "p1"))
+        let down = try #require(split?.items.last)
+        #expect(down.keyEquivalent.lowercased() == "d")
+        #expect(PaneToolbar.menu(for: "cmux.splitRight", kind: .terminal, pane: "p1", tab: nil, registry: registry) == nil)
     }
 
     @Test func buttonsFollowCmuxJSONLive() async throws {

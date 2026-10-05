@@ -91,12 +91,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         apply(snapshot())
         let buttons = services.tabBarButtons!
-        buttonsObservation = Task { [weak self] in
-            for await list in Observations({ buttons.buttons }) {
-                guard let self else { return }
-                if self.stripModel.trailingButtons != list { self.stripModel.trailingButtons = list }
-            }
-        }
+        buttonsObservation = PaneToolbar.observe(self, buttons: buttons)
     }
 
     func snapshot() -> Snapshot {
@@ -348,6 +343,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func tab(_ id: StripTabID) -> TabModel? { pane.tabs.first { $0.id == id.rawValue } }
 
     var selectedTab: TabModel? { stripModel.selectedID.flatMap(tab) }
+
 
     var orderedIDs: [StripTabID] { stripModel.orderedTabs.map(\.id) }
 }

@@ -2,20 +2,21 @@ import CmuxNextActions
 import Testing
 @testable import CmuxNextApp
 
-/// The tab strip's "+" follows Cmd-T (coordinator decision 2026-10-01): a
-/// tab of the strip pane's kind, through `newTab.sameKind`.
+/// The tab strip's "+" opens an agent chat (Leo, 2026-10-04); Cmd-T keeps
+/// `tabs.newTabKind`, and Option-click keeps its one-shot workspace override.
 @Suite struct StripNewTabTests {
-    @Test func plusRunsTheSameKindActionOnItsPane() {
+    @Test func plusOpensAnAgentChatOnItsPane() {
         var runs: [(ActionID, ActionInvocation)] = []
         StripNewTab.request(pane: "pane_a") { runs.append(($0, $1)) }
-        #expect(runs.map(\.0) == ["newTab.sameKind"])
+        #expect(runs.map(\.0) == ["palette.newAgentChat"])
         #expect(runs.first?.1.target == ActionTargetRef(kind: .pane, id: "pane_a"))
     }
 
-    @Test func optionPlusCarriesTheOneShotWorkspaceOverride() {
-        var runs: [ActionInvocation] = []
-        StripNewTab.request(pane: "pane_a", opensWorkspace: true) { _, invocation in runs.append(invocation) }
-        #expect(runs.first?["toggleWorkspace"]?.boolValue == true)
+    @Test func optionPlusRunsCmdTsKindWithTheOneShotWorkspaceOverride() {
+        var runs: [(ActionID, ActionInvocation)] = []
+        StripNewTab.request(pane: "pane_a", opensWorkspace: true) { runs.append(($0, $1)) }
+        #expect(runs.map(\.0) == ["newTab.sameKind"])
+        #expect(runs.first?.1["toggleWorkspace"]?.boolValue == true)
     }
 }
 

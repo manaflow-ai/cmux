@@ -101,7 +101,9 @@ final class TabStripButtonGroupView: NSView {
         return buttonFrames().firstIndex { $0.contains(point) }
     }
 
-    func id(at index: Int) -> String? { slots.indices.contains(index) ? slots[index].button.id : nil }
+    func id(at index: Int) -> String? { button(at: index)?.id }
+
+    func button(at index: Int) -> TabStripButton? { slots.indices.contains(index) ? slots[index].button : nil }
 
     override func layout() {
         super.layout()

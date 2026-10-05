@@ -5306,9 +5306,9 @@
     {
       "cli" : "offered",
       "cli_name" : "file open",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "newTab"
       ],
       "default_chord" : null,
       "default_shortcut" : null,

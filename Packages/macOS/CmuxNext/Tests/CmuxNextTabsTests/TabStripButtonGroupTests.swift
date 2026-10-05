@@ -115,4 +115,50 @@ import Testing
         h.strip.endNewTabPress(at: newTabCenter(h))
         #expect(h.intents.isEmpty)
     }
+
+    static let cluster = [
+        TabStripButton(id: "cmux.split", icon: .symbol("square.split.2x1"), toolTip: "Split Right (⌘D)",
+                       accessibilityLabel: "Split Right", menu: .secondary),
+        TabStripButton(id: "cmux.more", icon: .symbol("ellipsis"), toolTip: "More", accessibilityLabel: "More", menu: .primary),
+    ]
+
+    @Test func optionReleaseSendsTheAlternate() {
+        let h = Harness(buttons: Self.cluster)
+        h.strip.pendingTrailingPress = 0
+        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 0), modifiers: .option))
+        h.strip.pendingTrailingPress = 0
+        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 0)))
+        #expect(h.intents == [.trailingButtonAlternate("cmux.split"), .trailingButton("cmux.split")])
+    }
+
+    @Test func aPrimaryMenuButtonOpensItsMenuAndRunsNothing() throws {
+        let h = Harness(buttons: Self.cluster)
+        var asked: [TabContextTarget] = []
+        // An empty menu is never shown, so the test does not block in menu tracking.
+        h.strip.contextMenuProvider = { asked.append($0); return NSMenu() }
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: h.strip.convert(h.center(of: 1), to: nil), modifierFlags: [], timestamp: 0,
+            windowNumber: h.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+        h.strip.mouseDown(with: event)
+        #expect(asked == [.trailingButton("cmux.more")])
+        #expect(h.strip.pendingTrailingPress == nil)
+        let element = try #require(h.strip.buttonGroup.accessibilityChildren()?.last as? NSAccessibilityElement)
+        #expect(element.accessibilityPerformPress())
+        #expect(asked == [.trailingButton("cmux.more"), .trailingButton("cmux.more")])
+        #expect(h.intents.isEmpty)
+    }
+
+    @Test func holdingASecondaryMenuButtonShowsItsMenuInsteadOfRunning() async {
+        let h = Harness(buttons: Self.cluster)
+        var asked: [TabContextTarget] = []
+        h.strip.contextMenuProvider = { asked.append($0); return NSMenu() }
+        h.strip.groups.sleep = { _ in }
+        h.strip.pendingTrailingPress = 0
+        h.strip.trailingMenus.startHold(0)
+        for _ in 0..<50 where asked.isEmpty { await Task.yield() }
+        #expect(asked == [.trailingButton("cmux.split")])
+        #expect(!h.strip.endTrailingButtonPress(at: h.center(of: 0)))
+        #expect(h.intents.isEmpty)
+    }
 }

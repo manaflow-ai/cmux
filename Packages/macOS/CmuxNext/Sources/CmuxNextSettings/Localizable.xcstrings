@@ -17823,127 +17823,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder."
+            "value": "What Cmd-T opens (the + button opens an agent chat). Auto picks the kind you last opened in that folder."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يفتحه Cmd-T وزر +. يختار الوضع التلقائي النوع الذي فتحته آخر مرة في ذلك المجلد."
+            "value": "ما يفتحه Cmd-T (زر + يفتح محادثة وكيل). يختار الوضع التلقائي النوع الذي فتحته آخر مرة في ذلك المجلد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Šta otvaraju Cmd-T i dugme +. Automatski bira vrstu koju ste posljednju otvorili u toj mapi."
+            "value": "Šta otvara Cmd-T (dugme + otvara chat s agentom). Automatski bira vrstu koju ste posljednju otvorili u toj mapi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvad Cmd-T og knappen + åbner. Automatisk vælger den type, du sidst åbnede i den mappe."
+            "value": "Hvad Cmd-T åbner (knappen + åbner en agentchat). Automatisk vælger den type, du sidst åbnede i den mappe."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Was Cmd-T und die Schaltfläche + öffnen. Automatisch wählt die Art, die du zuletzt in diesem Ordner geöffnet hast."
+            "value": "Was Cmd-T öffnet (die Schaltfläche + öffnet einen Agent-Chat). Automatisch wählt die Art, die du zuletzt in diesem Ordner geöffnet hast."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo que abren Cmd-T y el botón +. Automático elige el tipo que abriste por última vez en esa carpeta."
+            "value": "Lo que abre Cmd-T (el botón + abre un chat con un agente). Automático elige el tipo que abriste por última vez en esa carpeta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce qu’ouvrent Cmd-T et le bouton +. Automatique choisit le type que vous avez ouvert en dernier dans ce dossier."
+            "value": "Ce qu’ouvre Cmd-T (le bouton + ouvre une discussion avec un agent). Automatique choisit le type que vous avez ouvert en dernier dans ce dossier."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cosa aprono Cmd-T e il pulsante +. Automatico sceglie il tipo aperto per ultimo in quella cartella."
+            "value": "Cosa apre Cmd-T (il pulsante + apre una chat con un agente). Automatico sceglie il tipo aperto per ultimo in quella cartella."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-T と + ボタンで開くもの。自動では、そのフォルダで最後に開いた種類を選びます。"
+            "value": "Cmd-T で開くもの（+ ボタンはエージェントチャットを開きます）。自動では、そのフォルダで最後に開いた種類を選びます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អ្វីដែល Cmd-T និងប៊ូតុង + បើក។ ស្វ័យប្រវត្តិជ្រើសប្រភេទដែលអ្នកបានបើកចុងក្រោយក្នុងថតនោះ។"
+            "value": "អ្វីដែល Cmd-T បើក (ប៊ូតុង + បើកការជជែកជាមួយភ្នាក់ងារ)។ ស្វ័យប្រវត្តិជ្រើសប្រភេទដែលអ្នកបានបើកចុងក្រោយក្នុងថតនោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-T와 + 버튼으로 여는 항목입니다. 자동은 해당 폴더에서 마지막으로 연 종류를 고릅니다."
+            "value": "Cmd-T로 여는 항목입니다(+ 버튼은 에이전트 채팅을 엽니다). 자동은 해당 폴더에서 마지막으로 연 종류를 고릅니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hva Cmd-T og +-knappen åpner. Automatisk velger typen du sist åpnet i den mappen."
+            "value": "Hva Cmd-T åpner (+-knappen åpner en agentchat). Automatisk velger typen du sist åpnet i den mappen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Co otwiera Cmd-T i przycisk +. Automatycznie wybiera rodzaj ostatnio otwarty w tym folderze."
+            "value": "Co otwiera Cmd-T (przycisk + otwiera czat z agentem). Automatycznie wybiera rodzaj ostatnio otwarty w tym folderze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O que Cmd-T e o botão + abrem. Automático escolhe o tipo que você abriu por último nessa pasta."
+            "value": "O que Cmd-T abre (o botão + abre um chat com agente). Automático escolhe o tipo que você abriu por último nessa pasta."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Что открывают Cmd-T и кнопка +. «Авто» выбирает тип, который вы последним открывали в этой папке."
+            "value": "Что открывает Cmd-T (кнопка + открывает чат с агентом). «Авто» выбирает тип, который вы последним открывали в этой папке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สิ่งที่ Cmd-T และปุ่ม + เปิด อัตโนมัติจะเลือกชนิดที่คุณเปิดล่าสุดในโฟลเดอร์นั้น"
+            "value": "สิ่งที่ Cmd-T เปิด (ปุ่ม + เปิดแชตกับเอเจนต์) อัตโนมัติจะเลือกชนิดที่คุณเปิดล่าสุดในโฟลเดอร์นั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T ve + düğmesinin açtığı şey. Otomatik, o klasörde en son açtığınız türü seçer."
+            "value": "Cmd-T'nin açtığı şey (+ düğmesi bir ajan sohbeti açar). Otomatik, o klasörde en son açtığınız türü seçer."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Що відкривають Cmd-T і кнопка +. «Авто» вибирає тип, який ви востаннє відкривали в цій папці."
+            "value": "Що відкриває Cmd-T (кнопка + відкриває чат з агентом). «Авто» вибирає тип, який ви востаннє відкривали в цій папці."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Những gì Cmd-T và nút + mở. Tự động chọn loại bạn mở gần nhất trong thư mục đó."
+            "value": "Những gì Cmd-T mở (nút + mở cuộc trò chuyện với tác tử). Tự động chọn loại bạn mở gần nhất trong thư mục đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-T 和 + 按钮打开的内容。自动会选择你在该文件夹中最近打开的类型。"
+            "value": "Cmd-T 打开的内容（+ 按钮会打开代理聊天）。自动会选择你在该文件夹中最近打开的类型。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-T 和 + 按鈕開啟的內容。自動會選擇你在該資料夾中最近開啟的類型。"
+            "value": "Cmd-T 開啟的內容（+ 按鈕會開啟代理聊天）。自動會選擇你在該資料夾中最近開啟的類型。"
           }
         }
       }

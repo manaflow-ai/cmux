@@ -10,10 +10,18 @@ import os
 /// action in the registry as `cmuxConfig.<name>`, and resolves buttons with
 /// live shortcut tooltips. A click runs the button's registry action
 /// targeted at the clicked pane, the same path as the palette and the CLI.
+/// Without a cmux.json list, each pane shows the default cluster for its
+/// selected tab's kind (``PaneToolbar``).
 @Observable
 final class TabBarButtonsController {
+    /// The cmux.json list (empty while it sets none).
     private(set) var buttons: [TabStripButton] = []
+    /// The default cluster by kind, while cmux.json sets no list.
+    private(set) var defaultButtons: [PaneToolbar.Kind: [TabStripButton]] = [:]
+    private(set) var usesDefaults = true
     @ObservationIgnored private(set) var actions: [String: ActionID] = [:]
+    /// Option-click actions, by button id.
+    @ObservationIgnored private(set) var alternates: [String: ActionID] = [:]
     @ObservationIgnored private let context: AppActionContext
     @ObservationIgnored private var specs: [TabBarButtonSpec] = SurfaceTabBarConfig.defaultButtons
     @ObservationIgnored private var registeredCommands: [ConfigCommandAction] = []
@@ -63,13 +71,20 @@ final class TabBarButtonsController {
     func apply(_ input: Input) {
         registerCommands(input.commands)
         specs = input.tabBar.buttons
+        if usesDefaults != input.tabBar.usesDefaults { usesDefaults = input.tabBar.usesDefaults }
         refresh()
     }
 
-    /// Runs button `id` for the pane `paneKey`. Returns whether it ran.
+    /// The strip buttons of a pane whose selected tab is of `kind`.
+    func buttons(for kind: PaneToolbar.Kind) -> [TabStripButton] {
+        usesDefaults ? defaultButtons[kind] ?? [] : buttons
+    }
+
+    /// Runs button `id` (its Option-click action when `alternate`) for the
+    /// pane `paneKey`. Returns whether it ran.
     @discardableResult
-    func perform(_ id: String, paneKey: String) -> Bool {
-        guard let action = actions[id] else { return false }
+    func perform(_ id: String, paneKey: String, alternate: Bool = false) -> Bool {
+        guard let action = (alternate ? alternates[id] : nil) ?? actions[id] else { return false }
         return registry.perform(action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: paneKey)))
     }
 
@@ -79,7 +94,18 @@ final class TabBarButtonsController {
             logger.notice("tab bar button \(spec.id, privacy: .public): no action \(spec.actionID, privacy: .public)")
         }
         actions = resolved.actions
+        alternates = [:]
         if buttons != resolved.buttons { buttons = resolved.buttons }
+        guard usesDefaults else {
+            if !defaultButtons.isEmpty { defaultButtons = [:] }
+            return
+        }
+        actions.merge(PaneToolbar.actions) { current, _ in current }
+        alternates = PaneToolbar.alternates
+        let defaults = Dictionary(uniqueKeysWithValues: PaneToolbar.Kind.allCases.map {
+            ($0, PaneToolbar.buttons(for: $0, registry: registry))
+        })
+        if defaultButtons != defaults { defaultButtons = defaults }
     }
 
     /// Replaces the registry's `cmuxConfig.*` actions with `commands`.
