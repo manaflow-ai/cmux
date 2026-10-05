@@ -6,7 +6,9 @@
 use super::super::*;
 
 fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
-    let command: Command = serde_json::from_value(request)?;
+    // An undecodable request is a `bad request` on the wire (server/responses.rs).
+    let command: Command =
+        serde_json::from_value(request).map_err(|error| anyhow::anyhow!("bad request: {error}"))?;
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound, control: None });
     handle_command(mux, mux.local_test_client(0), command, &writer)
@@ -63,7 +65,8 @@ fn session_end_close_leaves_no_closed_history() {
 
     let refused =
         run(&mux, json!({"cmd":"close-tabs","surfaces":[tabs[2]],"reason":"other"})).unwrap_err();
-    assert!(refused.to_string().contains("bad request"), "{refused}");
+    let refused = refused.to_string();
+    assert!(refused.starts_with("bad request") && refused.contains("session_end"), "{refused}");
     assert!(pane_tabs(&mux, pane).contains(&tabs[2]), "a refused close closes nothing");
     mux.shutdown();
 }

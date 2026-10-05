@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b";
+pub const ir_sha256 = "1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -228,6 +228,21 @@ pub const ClientTransport = enum {
             .local => "local",
             .unix => "unix",
             .ws => "ws",
+        };
+    }
+};
+
+pub const CloseReason = enum {
+    session_end,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "session_end")) return .session_end;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .session_end => "session_end",
         };
     }
 };
@@ -3172,8 +3187,8 @@ pub const CloseTabsRequest = struct {
     expected_revision: wire.Field(u64) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
-    /// session_end only: the close is not recorded in the closed history.
-    reason: wire.Field([]const u8) = .absent,
+    /// The close is not recorded in the closed history (session_end).
+    reason: wire.Field(CloseReason) = .absent,
     surfaces: []const TabRef,
     transaction: wire.Field([]const u8) = .absent,
 
