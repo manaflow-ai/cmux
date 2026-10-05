@@ -84,7 +84,12 @@ fn decide(
         f(&RequestInfo { target: &paused.target, url: &paused.url, kind: paused.kind })
     });
     if refused.is_some() {
-        return ("Fetch.failRequest", json!({"requestId": id, "errorReason": "BlockedByClient"}));
+        // A refused document is aborted, so no error page commits and the
+        // tab stays on its page (main's WebKit policy decision); every other
+        // request fails as blocked by the client.
+        let reason =
+            if paused.kind == RequestKind::Document { "Aborted" } else { "BlockedByClient" };
+        return ("Fetch.failRequest", json!({"requestId": id, "errorReason": reason}));
     }
     let action = cors.lock().unwrap_or_else(PoisonError::into_inner).on_request(
         &paused.target,
