@@ -70,15 +70,18 @@
         if (!labelIndex) return read.call(this);
         // A hidden input has no labels (null), as the native getter says.
         if (name === "HTMLInputElement" && (this.type || "").toLowerCase() === "hidden") return null;
+        // An index the budget cut short has no answer, and WebKit's getter
+        // would scan the whole document for each control: the cut read gets
+        // no labels (it already says it was cut).
         const found = labelIndex(this);
-        return found === null ? read.call(this) : found;
+        return found === null ? [] : found;
       },
     });
   }
   // Building it reads every <label> of the tree, which the page sets the
   // number of, so each one is charged to the read's budget (the snapshot's,
   // else a page-read budget of its own). An index the budget cut short
-  // answers null, and that control's labels come from the native getter.
+  // answers null, and that control has no labels in this read.
   let labelBudget = null;
   function createLabelIndex() {
     const byRoot = new Map();

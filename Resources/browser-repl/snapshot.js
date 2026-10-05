@@ -938,18 +938,23 @@
   }
 
   // Reads a frame's tree and, a few at a time, the trees of the frames
-  // inside it. `share` is the part of the node budget this frame may read;
-  // the frames inside it split what is left after it.
+  // inside it. `share` is the part of the node budget this frame and the
+  // frames inside it may read, reserved for it before any of them is read:
+  // the frames inside split what this frame left of its own share, never
+  // the snapshot's remaining budget, which siblings still being read hold
+  // shares of. So frames read together never pass the budget.
   async function frameTree(page, frame, rootHandle, options, inner, share, sizeShare) {
     const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
     const budget = nodeBudget(options);
-    const maxNodes = Math.max(1, Math.min(share === undefined ? budget.left : share, budget.left));
-    const maxSize = Math.max(1, Math.min(sizeShare === undefined ? budget.sizeLeft : sizeShare, budget.sizeLeft));
+    const maxNodes = Math.max(1, share === undefined ? budget.left : share);
+    const maxSize = Math.max(1, sizeShare === undefined ? budget.sizeLeft : sizeShare);
     let called = 0;
     const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), maxNodes, maxSize });
     const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
-    budget.left -= Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
-    budget.sizeLeft -= Math.min(maxSize, Math.max(0, Number(r.size) || 0));
+    const usedNodes = Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
+    const usedSize = Math.min(maxSize, Math.max(0, Number(r.size) || 0));
+    budget.left -= usedNodes;
+    budget.sizeLeft -= usedSize;
     if (r.truncated && !budget.truncated) budget.truncated = r.truncated;
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
@@ -989,10 +994,10 @@
         if (e && e.code === "unsupported") page._batchContentFrames = false;
       }
     }
-    // The frames inside split what this frame left of the budget, so
+    // The frames inside split what this frame left of its share, so
     // reading them together cannot pass it.
-    const childShare = iframes.length ? Math.floor(budget.left / iframes.length) : 0;
-    const childSizeShare = iframes.length ? Math.floor(budget.sizeLeft / iframes.length) : 0;
+    const childShare = iframes.length ? Math.floor((maxNodes - usedNodes) / iframes.length) : 0;
+    const childSizeShare = iframes.length ? Math.floor((maxSize - usedSize) / iframes.length) : 0;
     await Promise.all(iframes.map(async (node) => {
       let child = null;
       try {

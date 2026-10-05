@@ -287,7 +287,9 @@ rest. Measurements: [performance.md](performance.md).
   walk runs on the page's main thread: one snapshot reads at most 250,000
   nodes and 2,000,000 characters of text, names, values and URLs (one text
   node or field value can hold megabytes) over all its frames (frames
-  inside a frame split what it left, and one past the budget prints
+  inside a frame split what that frame left of its own share, reserved
+  before any of them is read, so frames read at the same time never pass
+  the budget; one past it prints
   `[not read: the snapshot's node budget is used up]`, or `size budget`),
   and a frame's walk stops after 8 s. The string that passes the size
   budget is cut with `…`. A name or value reads text the walk may not
@@ -295,7 +297,10 @@ rest. Measurements: [performance.md](performance.md).
   text), and the name computation reads it whole and recursively, so
   that text is counted first (text outside the element against the node
   budget): past 2,000 nodes, 20,000 characters or 100 levels the name
-  is read directly from the same sources, at most 20,000 characters. The
+  is read directly from the same sources, at most 20,000 characters.
+  Labels come from an index of the read's `<label>` elements, each one
+  counted; once a read's budget is spent, controls have no labels in it,
+  never WebKit's getter, which scans the whole document per control. The
   walk descends at most 1,000 elements deep (script can nest elements
   deeper than the stack); a deeper element prints as `generic [ref=e9]
   [not read: nested deeper than 1000 elements; snapshot this ref to read
