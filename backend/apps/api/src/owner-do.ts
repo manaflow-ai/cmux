@@ -338,11 +338,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (!this.engine) return
     const now = Date.now()
     // Per channel: a backed-off channel waits, a healthy one drains now (outbox.ts).
-    const outboxAt = this.engine.outbox.nextDueAt(now)
-    const wake = this.wakeAt(now)
-    const want = earliest(outboxAt, wake)
+    const want = earliest(this.engine.outbox.nextDueAt(now), this.wakeAt(now))
     if (want === null) return
-    void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
+    // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
+    const at = Math.max(want, now)
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
   }
 
   /** One op. On an object that does not exist yet it is decided on the initial state first; a refusal writes nothing (no ledger entry). */
@@ -494,6 +494,6 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const due = this.wakeAt(Date.now())
     const at = earliest(outboxAt, wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due)
-    if (at !== null) await this.ctx.storage.setAlarm(at)
+    if (at !== null) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
   }
 }

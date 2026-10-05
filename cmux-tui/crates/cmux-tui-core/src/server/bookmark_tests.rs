@@ -17,7 +17,7 @@ fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     let mut request = request;
     request["id"] = json!(7);
     let request: Request = serde_json::from_str(&request.to_string())?;
-    handle_command(mux, 0, request.cmd, &writer)
+    handle_command(mux, mux.local_test_client(0), request.cmd, &writer)
 }
 
 fn bookmarks_mux() -> Arc<Mux> {

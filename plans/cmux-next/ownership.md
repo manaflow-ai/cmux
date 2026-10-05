@@ -37,7 +37,7 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
   tag (3).
 - The tab-loss agent owns the typed LayoutOp, the daemon conservation check, its
   proptest and `formal/LayoutConservation.tla`; step 2 builds the pure reducer from its
-  LayoutOp. The sticky-column lead adds `sticky` to columns through LayoutModel's
+  LayoutOp. The docked-column lead adds `dock` to columns through LayoutModel's
   transaction override (migrates in step 4). The federation branch adds remote-terminal
   tab rows and detached kept terminals (the store's "tab referencing `{host, terminal}`").
 - data-model.md 1 (sessions, home session, personal state) is superseded where it puts
@@ -54,7 +54,7 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
 | Input order with attribution | session host | each attached participant | session host journal | journal | refuse; never queue keystrokes |
 | Presence, kick-off, revive | session host | connections, `set-client-info`; any attached user may kick a client | viewers (presence list of every client) | memory | the kicked client shows "disconnected by X" (the old cmux screen) |
 | Notifications, unread, agent state | session host (terminal-derived) | hooks, agents; viewers ack | viewers | registry | refuse (nothing queues) |
-| Workspaces, screens, columns incl. sticky, splits, panes, tab order, tabs referencing `{host, terminal}` | workspace store | local app, CLI, TUI; remote agents via layout intents | every client of that store | store registry + journal | the local store is always reachable |
+| Workspaces, screens, columns incl. docked, splits, panes, tab order, tabs referencing `{host, terminal}` | workspace store | local app, CLI, TUI; remote agents via layout intents | every client of that store | store registry + journal | the local store is always reachable |
 | Workspace identity (name, color, icon), tab names, pins, tab groups | workspace store | same | same | same | same |
 | Browser tab record (placement, URL with revision, title, profile, zoom, short history) | workspace store | any app showing the tab: `browser.navigate` with `expected_revision`, page info for the current URL revision only; user ops (move, close) | clients (each Mac's page follows the URL) | store | same |
 | Spaces, workspace groups and order, saved groups, closed history, keep-layout records, session registry, browser profiles | workspace store (personal) | local app, CLI | clients | store | same |
@@ -239,6 +239,7 @@ The problems are around it:
 | ... never send the transaction to the daemon at all | 31 | closures written `{ c, _ in }` |
 | Second copies of shared state mutated outside `DaemonStore` | 11 | sidebar model (25 `model.apply` sites, 3 local-only: `.setIcon`, `.setGroupPinned`, `.openGroup`), tab strip `orderOverride`/`membershipOverride`/`detachedID`, `PaneController.pendingClosed`, `pendingSelect*`, `LayoutModel` split/width overrides (local `UInt64` gesture ids, not transaction ids), new-column resize, `WindowRegistry`, session-local browser tabs, incognito overlay, live page overlay, drag restore |
 | ... that can drift (no echo, no deadline) | 5 | sidebar local-only intents, screen-bar reorder (`daemon.send`, no rejection path), `pendingSelect*`, an unended layout gesture, `pendingClosed` (cleared on reply, `cache.release` even on failure) |
+| Tab membership owned by the client (named gap) | 1 | internal page tabs (`InternalPageTabStore`, `LocalPageTab.prefix`: Settings, Debug Settings, the App Store) keep pane membership and order in the app and are not persisted; agent chat tabs left this row on 2026-10-04 (store `conversation` tabs on an acpmux session, `agent-session-tabs-v1`) |
 | Per-client view state written to shared state | 6 | `zoom-pane` (shared `zoomed_pane`), 4 collapse writes (workspace and tab groups), 1 window projection |
 | Window projection clobber | 1 | `WindowStateStore.update` replaces the whole `windows` array with one default subject for every client: two Macs on one daemon overwrite each other's windows |
 | App-side destructive inference | 3 | `EmptyWorkspaceRepair`, workspace `isDead` membership pruning, `claimClosing` |

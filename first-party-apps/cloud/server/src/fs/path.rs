@@ -1,12 +1,11 @@
 //! Path checks for guest paths (on the Cloud machine) and local paths (on
-//! this Mac), done before a path enters a Cloud API query, a request body or
-//! a transfer command.
+//! this Mac), done before a path enters a daemon file op or a transfer.
 //!
-//! The Cloud API checks guest paths too (`web/app/api/vm/[id]/fs`: absolute,
-//! no `..`, no NUL, at most 4096 bytes). The server checks the same rules
+//! The machine's daemon checks guest paths too (absolute, no `..`, no NUL,
+//! at most 4096 bytes). The server checks the same rules
 //! first, so a bad path never leaves this machine, and adds two more: no
-//! control characters, and no glob characters for transfers (the SFTP mode of
-//! `scp` expands `*`, `?` and `[` in remote paths).
+//! control characters, and no glob characters for transfers (a transfer
+//! names one literal file; kept from the scp era as a conservative rule).
 
 use crate::api::CloudError;
 use serde_json::{Map, Value};
@@ -47,13 +46,7 @@ impl GuestPath {
         &self.0
     }
 
-    /// The path as a query value: every byte except unreserved characters
-    /// and `/` is percent-encoded, so no path can add a query parameter.
-    pub fn query_value(&self) -> String {
-        percent_encode(&self.0)
-    }
-
-    /// Refuses glob characters, for paths that a transfer passes to `scp`.
+    /// Refuses glob characters: a transfer names one literal file.
     pub(crate) fn literal_for_transfer(&self) -> Result<&str, CloudError> {
         if self.0.contains(['*', '?', '[', ']', '\\']) {
             return Err(CloudError::invalid(
@@ -93,16 +86,4 @@ pub(crate) fn local_arg(map: &Map<String, Value>, field: &str) -> Result<PathBuf
         )));
     }
     Ok(path.to_path_buf())
-}
-
-fn percent_encode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
-            out.push(char::from(byte));
-        } else {
-            out.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    out
 }

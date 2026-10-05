@@ -11,7 +11,10 @@ import Foundation
 final class ThreadStackSampler: @unchecked Sendable {
     let thread: thread_act_t
     let maxFrames: Int
-    // Only the watchdog thread touches the buffer.
+    // The watchdog thread writes the buffer while the target is suspended.
+    // The target reads it (``copy(count:)``) only after a sample was
+    // published for its current stall, and the next sample waits for that
+    // stall to end, so the two never overlap.
     private let buffer: UnsafeMutablePointer<UInt>
 
     init(thread: thread_act_t, maxFrames: Int = 64) {
@@ -27,10 +30,23 @@ final class ThreadStackSampler: @unchecked Sendable {
     /// Return addresses, innermost first. Empty when the thread could not be
     /// suspended or its state could not be read.
     func sample() -> [UInt] {
+        sample { _ in }
+    }
+
+    /// Same as ``sample()``, and runs `whileSuspended` with the frame count
+    /// before the thread resumes. `whileSuspended` must not allocate or take
+    /// a lock (atomics only): the suspended thread may hold them.
+    func sample(whileSuspended: (Int) -> Void) -> [UInt] {
         guard thread_suspend(thread) == KERN_SUCCESS else { return [] }
         let count = walk()
+        whileSuspended(count)
         thread_resume(thread)
-        return (0..<count).map { buffer[$0] }
+        return copy(count: count)
+    }
+
+    /// The first `count` addresses of the last sample.
+    func copy(count: Int) -> [UInt] {
+        (0..<min(max(count, 0), maxFrames)).map { buffer[$0] }
     }
 
     /// Caller has suspended the thread. No allocation in here.

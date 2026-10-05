@@ -290,6 +290,7 @@ fn handle_websocket_connection_with_permit(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    let mut hello = client_hello::HelloGate::new(ClientTransport::WebSocket);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
@@ -305,7 +306,17 @@ fn handle_websocket_connection_with_permit(
             Ok(Message::Text(text)) => {
                 let mut text = text.to_string();
                 let keep_open =
-                    handle_connection_message(&mux, client, &text, &writer, &surface_scheduler);
+                    match hello.observe(&mux, client, &text, client_hello::Peer::unknown) {
+                        Some(reply) => writer.send_control(&reply).is_ok(),
+                        None => handle_connection_frame(
+                            &mux,
+                            client,
+                            ClientTransport::WebSocket,
+                            &text,
+                            &writer,
+                            &surface_scheduler,
+                        ),
+                    };
                 zeroize_string(&mut text);
                 if !keep_open {
                     break;

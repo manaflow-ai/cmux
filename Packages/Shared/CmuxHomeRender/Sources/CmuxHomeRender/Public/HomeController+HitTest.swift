@@ -11,6 +11,17 @@ public struct HomeHit: Hashable, Sendable {
     public var isMine: Bool
     /// The bubble in viewport points (top-left origin).
     public var bubble: CGRect
+    /// The part's attachment (an image, video or file bubble).
+    public var attachment: AttachmentRef?
+
+    public init(item: IdempotencyKey, partIndex: Int, text: String, isMine: Bool, bubble: CGRect, attachment: AttachmentRef? = nil) {
+        self.item = item
+        self.partIndex = partIndex
+        self.text = text
+        self.isMine = isMine
+        self.bubble = bubble
+        self.attachment = attachment
+    }
 }
 
 extension HomeController {
@@ -56,7 +67,8 @@ extension HomeController {
               let index = Int(key[key.index(after: colon)...]) else { return nil }
         let raw = String(key[key.index(key.startIndex, offsetBy: 5)..<colon])
         guard let item = items.first(where: { $0.key.rawValue == raw }), index < item.parts.count else { return nil }
+        let attachment: AttachmentRef? = if case .attachment(let ref) = item.parts[index] { ref } else { nil }
         return HomeHit(item: item.key, partIndex: index, text: item.parts[index].plainText, isMine: item.author == me,
-                       bubble: toHost(bubble))
+                       bubble: toHost(bubble), attachment: attachment)
     }
 }

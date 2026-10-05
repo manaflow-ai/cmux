@@ -5,6 +5,8 @@ import {
   dimmedWhenSandboxed,
   filterApps,
   initials,
+  isRemovable,
+  listedInStore,
   matches,
   orderScopes,
   parseRoute,
@@ -67,5 +69,22 @@ describe("permissions", () => {
     expect(initials("GitHub PRs")).toBe("GP");
     expect(initials("Caffeinate")).toBe("CA");
     expect(initials(" ")).toBe("?");
+  });
+});
+
+describe("first-party apps (FIRST-PARTY-APPS)", () => {
+  test("the store never lists itself", () => {
+    const all = Object.values(sampleApps().details) as CatalogApp[];
+    expect(all.some((app) => app.id === "cmux/app-store")).toBe(true);
+    expect(all.filter(listedInStore).map((app) => app.id)).not.toContain("cmux/app-store");
+    expect(all.filter(listedInStore).length).toBe(all.length - 1);
+  });
+
+  test("first-party apps are hidable, never removable", () => {
+    expect(isRemovable({ tier: "first-party" })).toBe(false);
+    expect(isRemovable({ tier: "verified" })).toBe(true);
+    expect(isRemovable({ tier: "unverified" })).toBe(true);
+    // An owner that does not send a tier yet: removable, the owner still refuses first-party ids.
+    expect(isRemovable({})).toBe(true);
   });
 });

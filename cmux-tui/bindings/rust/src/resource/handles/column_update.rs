@@ -3,11 +3,16 @@
 
 use super::super::*;
 
-/// Viewport edge of a sticky column (`column.update` `edge`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// Viewport edge of a docked column (`column.update` `edge`). `Top` and
+/// `Bottom` are the edge docks of `edge-docks-v1`: the column becomes a
+/// screen-wide band rather than a docked side column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ColumnEdge {
     Left,
     Right,
+    Top,
+    Bottom,
 }
 
 impl ColumnEdge {
@@ -15,12 +20,15 @@ impl ColumnEdge {
         match self {
             Self::Left => "left",
             Self::Right => "right",
+            Self::Top => "top",
+            Self::Bottom => "bottom",
         }
     }
 }
 
-/// Presentation of a sticky column (`column.update` `mode`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// Presentation of a docked column (`column.update` `mode`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ColumnMode {
     Docked,
     Overlay,
@@ -39,7 +47,7 @@ impl ColumnUpdateOptions {
     /// Pins the column to `edge` with presentation `mode`.
     pub fn pin(edge: ColumnEdge, mode: ColumnMode) -> Self {
         Self {
-            sticky: Some(true),
+            dock: Some(true),
             edge: Some(edge.as_str().to_string()),
             mode: Some(mode.as_str().to_string()),
             width: None,
@@ -48,24 +56,28 @@ impl ColumnUpdateOptions {
 
     /// Unpins the column; it scrolls again.
     pub fn unpin() -> Self {
-        Self { sticky: Some(false), edge: None, mode: None, width: None }
+        Self { dock: Some(false), edge: None, mode: None, width: None }
     }
 
     /// Sets the column width as a fraction of the viewport (0.1 to 1).
     pub fn width(width: f64) -> Self {
-        Self { sticky: None, edge: None, mode: None, width: Some(width) }
+        Self { dock: None, edge: None, mode: None, width: Some(width) }
     }
 
     fn validate(&self) -> Result<()> {
         let invalid = |message: &str| Err(Error::InvalidArgument(message.to_string()));
-        if self.sticky.is_none() && self.width.is_none() {
-            return invalid("column update must set sticky, width, or both");
+        if self.dock.is_none() && self.width.is_none() {
+            return invalid("column update must set dock, width, or both");
         }
-        if self.sticky != Some(true) && (self.edge.is_some() || self.mode.is_some()) {
-            return invalid("column update edge and mode apply only with sticky: true");
+        if self.dock != Some(true) && (self.edge.is_some() || self.mode.is_some()) {
+            return invalid("column update edge and mode apply only with dock: true");
         }
-        if self.edge.as_deref().is_some_and(|edge| !matches!(edge, "left" | "right")) {
-            return invalid("column edge must be left or right");
+        if self
+            .edge
+            .as_deref()
+            .is_some_and(|edge| !matches!(edge, "left" | "right" | "top" | "bottom"))
+        {
+            return invalid("column edge must be left, right, top or bottom");
         }
         if self.mode.as_deref().is_some_and(|mode| !matches!(mode, "docked" | "overlay")) {
             return invalid("column mode must be docked or overlay");
@@ -98,7 +110,7 @@ impl Screen {
         let params = self
             .params()
             .string("column", column)
-            .optional_bool("sticky", options.sticky)
+            .optional_bool("dock", options.dock)
             .optional_string("edge", options.edge)
             .optional_string("mode", options.mode)
             .optional_f64("width", options.width);

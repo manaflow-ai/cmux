@@ -29,7 +29,7 @@ final class CEFOrphanTabs {
     func adopt(browser: Int32, window: Int32, created: CEFCreatedBy = .none) {
         // A popup window's tab may already belong to its popup host (fork API 11).
         guard !ledger.isClosed(browser), runtime.tabsByBrowser[browser] == nil else { return }
-        let disposition = created.disposition.tabDisposition ?? .foregroundTab
+        guard let disposition = linkDisposition(browser: browser, created: created) else { return }
         if let host = runtime.hosts.values.first(where: { $0.owns(window: window) }) {
             let placement = runtime.takePlacement(window: window, fallback: disposition, created: created)
             host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
@@ -53,14 +53,36 @@ final class CEFOrphanTabs {
         guard let created = unplaced[browser], runtime.tabsByBrowser[browser] == nil,
               let host = runtime.hosts.values.first(where: { $0.owns(window: window) }) else { return }
         unplaced[browser] = nil
-        let placement = runtime.takePlacement(window: window, fallback: created.disposition.tabDisposition ?? .foregroundTab,
-                                              created: created)
+        guard let disposition = linkDisposition(browser: browser, created: created) else { return }
+        let placement = runtime.takePlacement(window: window, fallback: disposition, created: created)
         // The event arrives inside Chromium's tab strip notification, which
         // forbids tab strip changes (the host may select the new tab): adopt
         // on the next main-actor turn.
         Task { @MainActor [weak self, weak host] in
             guard let self, let host, self.runtime.tabsByBrowser[browser] == nil, !self.ledger.isClosed(browser) else { return }
             host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
+        }
+    }
+
+    /// How a tab Chromium created for a page opens (`CEFLinkClicks`); nil
+    /// when a modified click was mapped to the current tab: the new browser
+    /// closes and its opener loads the link.
+    private func linkDisposition(browser: Int32, created: CEFCreatedBy) -> BrowserNewTabDisposition? {
+        let url = created.opener != 0 ? runtime.windowRequests.linkClicks.takePopupURL(opener: created.opener, disposition: created.disposition) : nil
+        switch runtime.windowRequests.linkClicks.context().placement(for: created.disposition, source: created.opener) {
+        case .tab(let disposition):
+            return disposition
+        case .opener:
+            guard let url, let link = URL(string: url), let opener = runtime.tabsByBrowser[created.opener] else { return .foregroundTab }
+            // Never inside Chromium's tab insertion (OnAfterCreated, the tab
+            // strip notification): close and load on the next turn.
+            Task { @MainActor [weak runtime = self.runtime, weak opener] in
+                runtime?.shim?.close(browser)
+                opener?.load(link)
+            }
+            return nil
+        case .chromium:
+            return .foregroundTab
         }
     }
 

@@ -62,7 +62,7 @@ The generic op protocol under every single-writer entity (`../ownership.md` sect
 
 ## Companion: `LayoutRows.tla`
 
-The structure that the row ops of `../rows.md` produce. Owner state: one screen as a strip of columns, each column a strip of rows (height 1..MaxH units, MaxH standing for 1000 permille), each row a sequence of panes (its split tree with geometry abstracted), each pane a sequence of tabs; sticky flags per column. A split screen (the daemon's one column with one row) is represented as that column and row. Ops, each with a key: split inside a row, new column, new row, move a tab to a pane, move a tab to a new row before or after the anchor's row (with the spawn-same-kind variant), close a tab, set the heights of a column's rows (refused when the client's row set is stale), set sticky. A rejected op changes nothing; a container that empties is removed in the same step, bottom up (pane, row, column), and sticky flags are normalized after a column removal; new ids are fresh and never reused; a replayed key changes nothing. Clients build ops from their own, possibly stale mirror, so ops can name removed panes, rows or tabs; the owner validates against its own state. A client adopts the owner's state in one step and repairs its view (focused pane, top row per column) with the close-focus rule of rows.md N3. The owner never reads client view state. The protocol under this (intent log, echo, request-settled, reordered and lost messages, reconnect) is TabLayout.tla's and OwnershipConvergence.tla's.
+The structure that the row ops of `../rows.md` produce. Owner state: one screen as a strip of columns, each column a strip of rows (height 1..MaxH units, MaxH standing for 1000 permille), each row a sequence of panes (its split tree with geometry abstracted), each pane a sequence of tabs; dock flags per column. A split screen (the daemon's one column with one row) is represented as that column and row. Ops, each with a key: split inside a row, new column, new row, move a tab to a pane, move a tab to a new row before or after the anchor's row (with the spawn-same-kind variant), close a tab, set the heights of a column's rows (refused when the client's row set is stale), set docked. A rejected op changes nothing; a container that empties is removed in the same step, bottom up (pane, row, column), and dock flags are normalized after a column removal; new ids are fresh and never reused; a replayed key changes nothing. Clients build ops from their own, possibly stale mirror, so ops can name removed panes, rows or tabs; the owner validates against its own state. A client adopts the owner's state in one step and repairs its view (focused pane, top row per column) with the close-focus rule of rows.md N3. The owner never reads client view state. The protocol under this (intent log, echo, request-settled, reordered and lost messages, reconnect) is TabLayout.tla's and OwnershipConvergence.tla's.
 
 | Name | Kind | Meaning |
 | --- | --- | --- |
@@ -70,16 +70,16 @@ The structure that the row ops of `../rows.md` produce. Owner state: one screen 
 | `R2_NoEmptyContainer` | invariant | no empty pane, row or column |
 | `R3_TabConservation` | invariant | live tabs = tabs ever created minus closed tabs (moves never add or drop a tab; spawning ops add exactly theirs) |
 | `R4_HeightInRange` | invariant | every live row height in 1..MaxH |
-| `R5_StickyConsistent` | invariant | at most one sticky column per edge; if any column is sticky, one scrolls |
+| `R5_DockConsistent` | invariant | at most one docked column per edge; if any column is docked, one scrolls |
 | `R6_OwnPlaceSound` | invariant | an op the owner treats as own place would not have changed what a user sees |
 | `R6_OwnPlaceComplete` | action | every committed change changes what a user sees (no op only churns ids) |
 | `ExactlyOnce` | invariant | one key commits at most once (I5) |
 | `ViewValid` | invariant | each client's focused pane and top rows exist in its mirror |
 | `FocusStaysLocal` | invariant | a removed focus stays in its column while that column has panes (N3) |
 
-Mutants (`BUG`), each must fail: `keepEmptyRow` (an emptied row is kept), `noStickyNormalize` (a column removal skips sticky normalization; run on the three-column start), `ownPlaceRowOnly` (own place sees only the boundary below the own row), `noDedup` (a replayed key applies again), `noFocusRepair` (a client keeps a removed focus), `focusColumnFirst` (focus repair jumps to the left column before the rows above and below), `respawnDropsTab` (the spawn-same-kind move puts the new tab in the new row and drops the moved tab).
+Mutants (`BUG`), each must fail: `keepEmptyRow` (an emptied row is kept), `noDockNormalize` (a column removal skips docked normalization; run on the three-column start), `ownPlaceRowOnly` (own place sees only the boundary below the own row), `noDedup` (a replayed key applies again), `noFocusRepair` (a client keeps a removed focus), `focusColumnFirst` (focus repair jumps to the left column before the rows above and below), `respawnDropsTab` (the spawn-same-kind move puts the new tab in the new row and drops the moved tab).
 
-`FRAME = TRUE` (`LayoutRows_frame*.cfg`, start `"frame"`) adds the four-edge docks of `../layout-model.md`: sticky edges top and bottom, `PinRow` (lift a row into a top or bottom dock), and the frame orientation (column-major or row-major). Extra properties: `E3_BandOneRow` (a top or bottom dock holds one row) and `E7_OrientationOnly` (an orientation change changes nothing else). Frame mutants: `dockAllowsRows`, `pinRowNoCascade`, `orientTouchesPins`. The frame run found that lifting the only row of the last strip column into a dock only churns ids (normalize unpins the new dock); `PinRow` now rejects when the pin would not survive.
+`FRAME = TRUE` (`LayoutRows_frame*.cfg`, start `"frame"`) adds the four-edge docks of `../layout-model.md`: dock edges top and bottom, `PinRow` (lift a row into a top or bottom dock), and the frame orientation (column-major or row-major). Extra properties: `E3_BandOneRow` (a top or bottom dock holds one row) and `E7_OrientationOnly` (an orientation change changes nothing else). Frame mutants: `dockAllowsRows`, `pinRowNoCascade`, `orientTouchesPins`. The frame run found that lifting the only row of the last strip column into a dock only churns ids (normalize unpins the new dock); `PinRow` now rejects when the pin would not survive.
 
 Run `./run-rows-tlc.sh` (main configs and mutants), `./run-rows-tlc.sh main` or `./run-rows-tlc.sh mutants`.
 
@@ -89,9 +89,9 @@ Last results (2026-10-01/02, shared Mac at load 130-160, TLC 1.7.4, Java 26; hei
 | --- | --- | --- | --- | --- | --- |
 | `LayoutRows.cfg` | 1 client, 3 ops, no replay; 4 tabs, 4 pane ids, 3 row ids, 2 column ids | pass | 22,804,256 (77,900,119 generated) | 12 | 27 min, 6 workers |
 | `LayoutRows_2clients.cfg` | 2 clients, 2 ops, 1 replay; same ids | pass | 6,793,112 (39,838,937 generated) | 14 | 2 min 43 s, 4 workers |
-| `LayoutRows_sticky3.cfg` | three columns, outer two sticky; 1 client, 2 ops, 1 replay; 5 tabs, 5 pane ids, 4 row ids, 4 column ids | pass | 1,508,296 (6,550,262 generated) | 11 | 78 s |
+| `LayoutRows_dock3.cfg` | three columns, outer two docked; 1 client, 2 ops, 1 replay; 5 tabs, 5 pane ids, 4 row ids, 4 column ids | pass | 1,508,296 (6,550,262 generated) | 11 | 78 s |
 | `keepEmptyRow` | as `LayoutRows.cfg` with 1 replay | `R2_NoEmptyContainer` violated | 16,282 when found | 5 | 1 s |
-| `sticky3_noStickyNormalize` | as `LayoutRows_sticky3.cfg` | `R5_StickyConsistent` violated | 603 when found | 5 | 1 s |
+| `dock3_noDockNormalize` | as `LayoutRows_dock3.cfg` | `R5_DockConsistent` violated | 603 when found | 5 | 1 s |
 | `ownPlaceRowOnly` | as `LayoutRows.cfg` with 1 replay | `R6_OwnPlaceComplete` violated | 65,497 when found | 5 | 2 s |
 | `noDedup` | same | `ExactlyOnce` violated | 196,016 when found | 6 | 2 s |
 | `noFocusRepair` | same | `ViewValid` violated | 11,605 when found | 5 | 1 s |
@@ -107,13 +107,13 @@ Frame and successor-rule results (2026-10-02, load about 700, TLC 1.7.4):
 | `frame_pinRowNoCascade` | same | `R2_NoEmptyContainer` violated | 4,487 when found | 4 |
 | `frame_orientTouchesPins` | same | `E7_OrientationOnly` violated | 186,203 when found | 5 |
 | `LayoutRows_2clients.cfg`, after the successor change | as above | pass | 6,793,112 | 14 |
-| `LayoutRows_sticky3.cfg`, after the successor change | as above | pass | 1,508,296 | 11 |
+| `LayoutRows_dock3.cfg`, after the successor change | as above | pass | 1,508,296 | 11 |
 | `focusColumnFirst`, after the successor change | as above | `FocusStaysLocal` violated | 12,923,609 when found | 9 |
 | `noFocusRepair`, after the successor change | as above | `ViewValid` violated | 10,663 when found | 5 |
 
 The frame runs found two rule gaps, both fixed in the model: `PinRow` on the only row of the last strip column only churned ids (now rejected), and the close-focus successor followed a row that another client had lifted into a dock (candidates must still be in the closed pane's column after the change, not merely alive). `LayoutRows.cfg` (22,804,256 states) was run before the successor change and was not rerun. The frame config with three ops did not finish (more than 26 million distinct states at load 700) and is not evidence.
 
-Bounds that did not finish and are not evidence: two clients with three ops (more than 53 million distinct states, queue still growing after 17 minutes) and one client with three ops plus a replay (79 million distinct states, 26 million queued after 70 minutes). Not covered: split ratios and column widths (the reducer does not model them yet), `fit` heights (sum 1000), sticky rows (not in `rows-v1`), the vertical scroll reducer (Swift tests), legacy commands from old clients (daemon proptest, rows.md step 3).
+Bounds that did not finish and are not evidence: two clients with three ops (more than 53 million distinct states, queue still growing after 17 minutes) and one client with three ops plus a replay (79 million distinct states, 26 million queued after 70 minutes). Not covered: split ratios and column widths (the reducer does not model them yet), `fit` heights (sum 1000), docked rows (not in `rows-v1`), the vertical scroll reducer (Swift tests), legacy commands from old clients (daemon proptest, rows.md step 3).
 
 ## Companion: `closefocus.tla`
 

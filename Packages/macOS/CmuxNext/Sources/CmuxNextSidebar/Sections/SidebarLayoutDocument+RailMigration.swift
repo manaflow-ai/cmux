@@ -7,6 +7,15 @@ import Foundation
 // changed in any way is theirs and never migrates. The sections default
 // before R53 (an inline bottom line) moves to the grid bottom row too.
 extension SidebarLayoutDocument {
+    /// What an old exact default migrates to: the sections default of that
+    /// time, which still held CodeRouter. A stored layout keeps its items;
+    /// only new defaults leave CodeRouter out (FIRST-PARTY-APPS).
+    public nonisolated static var migrationTarget: SidebarLayoutDocument {
+        var target = defaults
+        target.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")))
+        return target
+    }
+
     /// The ops that move a layout equal to the rail default back to the
     /// sections default, or none. The revision does not matter. They are
     /// ordinary layout ops, so the owner applies and syncs them like any

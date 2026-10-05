@@ -36,19 +36,19 @@ public struct MoveTabToColumnRequest: DaemonRequest {
     /// Viewport fraction 0.1...1.0; nil = 2/3.
     public var width: Double?
     /// Pins the new column to an edge in the same commit (edge-docks-v1).
-    public var sticky: StickySnapshot?
+    public var dock: DockSnapshot?
     public var transaction: ClientTransactionID?
     public init(surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
-                sticky: StickySnapshot? = nil, transaction: ClientTransactionID? = nil) {
+                dock: DockSnapshot? = nil, transaction: ClientTransactionID? = nil) {
         self.surface = surface
         self.target = target
         self.afterColumn = afterColumn
         self.width = width
-        self.sticky = sticky
+        self.dock = dock
         self.transaction = transaction
     }
 
-    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, sticky, transaction }
+    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, transaction }
     enum PinKeys: String, CodingKey { case edge, mode }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -59,10 +59,10 @@ public struct MoveTabToColumnRequest: DaemonRequest {
         }
         try c.encodeIfPresent(afterColumn, forKey: .afterColumn)
         try c.encodeIfPresent(width, forKey: .width)
-        if let sticky {
-            var pin = c.nestedContainer(keyedBy: PinKeys.self, forKey: .sticky)
-            try pin.encode(sticky.edge.rawValue, forKey: .edge)
-            try pin.encode(sticky.mode.rawValue, forKey: .mode)
+        if let dock {
+            var pin = c.nestedContainer(keyedBy: PinKeys.self, forKey: .dock)
+            try pin.encode(dock.edge.rawValue, forKey: .edge)
+            try pin.encode(dock.mode.rawValue, forKey: .mode)
         }
         try c.encodeIfPresent(transaction, forKey: .transaction)
     }

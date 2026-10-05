@@ -14,7 +14,7 @@ public nonisolated struct CFManagedPreferenceReader: ManagedPreferenceReader {
 
     /// Every key the published schema lists (docs/mdm).
     public static var publishedKeys: [String] {
-        SettingsSchema.all.map(\.id) + ManagedPreferences.policyKeys.map(\.name)
+        SettingsSchema.all.filter(\.isShownInCmuxNext).map(\.id) + ManagedPreferences.policyKeys.map(\.name)
     }
 
     public func read() -> ManagedPreferences {

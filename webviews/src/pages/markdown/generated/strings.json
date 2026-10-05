@@ -36,7 +36,8 @@
     "status.failed": "Not saved",
     "status.readOnly": "Read only",
     "status.saved": "Saved",
-    "status.saving": "Saving…"
+    "status.saving": "Saving…",
+    "toolbar.label": "Document toolbar"
   },
   "ar": {
     "block.definition": "تعريف رابط",
@@ -75,7 +76,8 @@
     "status.failed": "لم يُحفظ",
     "status.readOnly": "للقراءة فقط",
     "status.saved": "تم الحفظ",
-    "status.saving": "جارٍ الحفظ…"
+    "status.saving": "جارٍ الحفظ…",
+    "toolbar.label": "شريط أدوات المستند"
   },
   "bs": {
     "block.definition": "Definicija veze",
@@ -114,7 +116,8 @@
     "status.failed": "Nije sačuvano",
     "status.readOnly": "Samo za čitanje",
     "status.saved": "Sačuvano",
-    "status.saving": "Čuvanje…"
+    "status.saving": "Čuvanje…",
+    "toolbar.label": "Traka s alatima dokumenta"
   },
   "da": {
     "block.definition": "Linkdefinition",
@@ -153,7 +156,8 @@
     "status.failed": "Ikke gemt",
     "status.readOnly": "Skrivebeskyttet",
     "status.saved": "Gemt",
-    "status.saving": "Gemmer…"
+    "status.saving": "Gemmer…",
+    "toolbar.label": "Dokumentværktøjslinje"
   },
   "de": {
     "block.definition": "Linkdefinition",
@@ -192,7 +196,8 @@
     "status.failed": "Nicht gespeichert",
     "status.readOnly": "Schreibgeschützt",
     "status.saved": "Gespeichert",
-    "status.saving": "Wird gespeichert…"
+    "status.saving": "Wird gespeichert…",
+    "toolbar.label": "Dokument-Symbolleiste"
   },
   "es": {
     "block.definition": "Definición de enlace",
@@ -231,7 +236,8 @@
     "status.failed": "No guardado",
     "status.readOnly": "Solo lectura",
     "status.saved": "Guardado",
-    "status.saving": "Guardando…"
+    "status.saving": "Guardando…",
+    "toolbar.label": "Barra de herramientas del documento"
   },
   "fr": {
     "block.definition": "Définition de lien",
@@ -270,7 +276,8 @@
     "status.failed": "Non enregistré",
     "status.readOnly": "Lecture seule",
     "status.saved": "Enregistré",
-    "status.saving": "Enregistrement…"
+    "status.saving": "Enregistrement…",
+    "toolbar.label": "Barre d’outils du document"
   },
   "it": {
     "block.definition": "Definizione di link",
@@ -309,7 +316,8 @@
     "status.failed": "Non salvato",
     "status.readOnly": "Sola lettura",
     "status.saved": "Salvato",
-    "status.saving": "Salvataggio…"
+    "status.saving": "Salvataggio…",
+    "toolbar.label": "Barra degli strumenti del documento"
   },
   "ja": {
     "block.definition": "リンク定義",
@@ -348,7 +356,8 @@
     "status.failed": "未保存",
     "status.readOnly": "読み取り専用",
     "status.saved": "保存済み",
-    "status.saving": "保存中…"
+    "status.saving": "保存中…",
+    "toolbar.label": "書類ツールバー"
   },
   "km": {
     "block.definition": "និយមន័យតំណ",
@@ -387,7 +396,8 @@
     "status.failed": "មិនបានរក្សាទុក",
     "status.readOnly": "អានតែប៉ុណ្ណោះ",
     "status.saved": "បានរក្សាទុក",
-    "status.saving": "កំពុងរក្សាទុក…"
+    "status.saving": "កំពុងរក្សាទុក…",
+    "toolbar.label": "របារឧបករណ៍ឯកសារ"
   },
   "ko": {
     "block.definition": "링크 정의",
@@ -426,7 +436,8 @@
     "status.failed": "저장 안 됨",
     "status.readOnly": "읽기 전용",
     "status.saved": "저장됨",
-    "status.saving": "저장 중…"
+    "status.saving": "저장 중…",
+    "toolbar.label": "문서 도구 막대"
   },
   "nb": {
     "block.definition": "Lenkedefinisjon",
@@ -465,7 +476,8 @@
     "status.failed": "Ikke lagret",
     "status.readOnly": "Skrivebeskyttet",
     "status.saved": "Lagret",
-    "status.saving": "Lagrer…"
+    "status.saving": "Lagrer…",
+    "toolbar.label": "Dokumentverktøylinje"
   },
   "pl": {
     "block.definition": "Definicja odnośnika",
@@ -504,7 +516,8 @@
     "status.failed": "Nie zapisano",
     "status.readOnly": "Tylko do odczytu",
     "status.saved": "Zapisano",
-    "status.saving": "Zapisywanie…"
+    "status.saving": "Zapisywanie…",
+    "toolbar.label": "Pasek narzędzi dokumentu"
   },
   "pt-BR": {
     "block.definition": "Definição de link",
@@ -543,7 +556,8 @@
     "status.failed": "Não salvo",
     "status.readOnly": "Somente leitura",
     "status.saved": "Salvo",
-    "status.saving": "Salvando…"
+    "status.saving": "Salvando…",
+    "toolbar.label": "Barra de ferramentas do documento"
   },
   "ru": {
     "block.definition": "Определение ссылки",
@@ -582,7 +596,8 @@
     "status.failed": "Не сохранено",
     "status.readOnly": "Только чтение",
     "status.saved": "Сохранено",
-    "status.saving": "Сохранение…"
+    "status.saving": "Сохранение…",
+    "toolbar.label": "Панель инструментов документа"
   },
   "th": {
     "block.definition": "คำนิยามลิงก์",
@@ -621,7 +636,8 @@
     "status.failed": "ยังไม่ได้บันทึก",
     "status.readOnly": "อ่านอย่างเดียว",
     "status.saved": "บันทึกแล้ว",
-    "status.saving": "กำลังบันทึก…"
+    "status.saving": "กำลังบันทึก…",
+    "toolbar.label": "แถบเครื่องมือเอกสาร"
   },
   "tr": {
     "block.definition": "Bağlantı tanımı",
@@ -660,7 +676,8 @@
     "status.failed": "Kaydedilmedi",
     "status.readOnly": "Salt okunur",
     "status.saved": "Kaydedildi",
-    "status.saving": "Kaydediliyor…"
+    "status.saving": "Kaydediliyor…",
+    "toolbar.label": "Belge araç çubuğu"
   },
   "uk": {
     "block.definition": "Визначення посилання",
@@ -699,7 +716,8 @@
     "status.failed": "Не збережено",
     "status.readOnly": "Лише читання",
     "status.saved": "Збережено",
-    "status.saving": "Збереження…"
+    "status.saving": "Збереження…",
+    "toolbar.label": "Панель інструментів документа"
   },
   "vi": {
     "block.definition": "Định nghĩa liên kết",
@@ -738,7 +756,8 @@
     "status.failed": "Chưa lưu",
     "status.readOnly": "Chỉ đọc",
     "status.saved": "Đã lưu",
-    "status.saving": "Đang lưu…"
+    "status.saving": "Đang lưu…",
+    "toolbar.label": "Thanh công cụ tài liệu"
   },
   "zh-Hans": {
     "block.definition": "链接定义",
@@ -777,7 +796,8 @@
     "status.failed": "未保存",
     "status.readOnly": "只读",
     "status.saved": "已保存",
-    "status.saving": "正在保存…"
+    "status.saving": "正在保存…",
+    "toolbar.label": "文稿工具栏"
   },
   "zh-Hant": {
     "block.definition": "連結定義",
@@ -816,6 +836,7 @@
     "status.failed": "未儲存",
     "status.readOnly": "唯讀",
     "status.saved": "已儲存",
-    "status.saving": "正在儲存…"
+    "status.saving": "正在儲存…",
+    "toolbar.label": "文件工具列"
   }
 }

@@ -1,17 +1,34 @@
-// Localized strings, generated from the xcstrings catalogs by
-// scripts/pages/gen-strings.mjs (generated/strings.json). The page picks the
-// locale the app reports in ready(), else navigator.language, else English.
-import generated from "./generated/strings.json";
+// Localized strings, generated from the xcstrings catalogs by scripts/pages/gen-strings.mjs
+// (generated/strings.json). The shipped page does not bundle that file (21 locales, most of the
+// bundle): build-pages-web.sh splits it into locales/<locale>.js, and the page's <head> loads
+// English plus the active locale before the app runs (window.__cmuxStrings). Tests and the dev
+// server install the full table with installCatalog().
 import type { LocalizedText } from "./schema";
 
 type Catalog = Record<string, Record<string, string>>;
 
-const catalog = generated as Catalog;
+declare global {
+  // eslint-disable-next-line no-var
+  var __cmuxStrings: Catalog | undefined;
+}
 
-export const locales = Object.keys(catalog);
+function catalogNow(): Catalog {
+  return globalThis.__cmuxStrings ?? {};
+}
 
-let current: Record<string, string> = catalog.en ?? {};
+/** Installs a catalog (tests and the dev server; the app loads it from locales/*.js). */
+export function installCatalog(table: Catalog): void {
+  globalThis.__cmuxStrings = { ...catalogNow(), ...table };
+  current = catalogNow()[currentLocale] ?? catalogNow().en ?? {};
+}
+
+let current: Record<string, string> = catalogNow().en ?? {};
 let currentLocale = "en";
+
+/** The locales the page knows (the shipped build lists all 21 in its loader). */
+export function locales(): string[] {
+  return Object.keys(catalogNow());
+}
 
 /** Maps an app or browser language tag onto one of the catalog's locales. */
 export function resolveLocale(tag: string | null | undefined): string {
@@ -27,12 +44,12 @@ export function resolveLocale(tag: string | null | undefined): string {
   if (language === "pt") candidates.push("pt-BR");
   if (language === "no" || language === "nn") candidates.push("nb");
   candidates.push(language);
-  return candidates.find((candidate) => candidate in catalog) ?? "en";
+  return candidates.find((candidate) => candidate in catalogNow()) ?? "en";
 }
 
 export function setLocale(tag: string | null | undefined): string {
   currentLocale = resolveLocale(tag);
-  current = catalog[currentLocale] ?? catalog.en ?? {};
+  current = catalogNow()[currentLocale] ?? catalogNow().en ?? {};
   document.documentElement.lang = currentLocale;
   return currentLocale;
 }
@@ -43,7 +60,7 @@ export function locale(): string {
 
 /** A page string by key; `%@` placeholders take `args` in order. */
 export function t(key: string, ...args: Array<string | number>): string {
-  let text = current[key] ?? catalog.en?.[key] ?? key;
+  let text = current[key] ?? catalogNow().en?.[key] ?? key;
   for (const arg of args) text = text.replace("%@", String(arg));
   return text;
 }
@@ -51,7 +68,7 @@ export function t(key: string, ...args: Array<string | number>): string {
 /** A schema string: its catalog key when it has one, else the English text (proper names). */
 export function text(value: LocalizedText | null | undefined): string {
   if (!value) return "";
-  return (value.key && (current[value.key] ?? catalog.en?.[value.key])) || value.text;
+  return (value.key && (current[value.key] ?? catalogNow().en?.[value.key])) || value.text;
 }
 
 /** The unit suffix of a `%@ unit` format ("pt", "s", "秒"). */

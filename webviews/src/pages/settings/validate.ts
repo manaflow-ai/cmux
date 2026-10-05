@@ -83,6 +83,11 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return isPageURL(value) ? null : "expected an http(s), about: or file: address";
     case "host_list":
       return Array.isArray(value) && value.every(isHost) ? null : "expected a list of host names";
+    case "folder_list":
+      return Array.isArray(value) &&
+        value.every((item) => typeof item === "string" && (item.startsWith("/") || item.startsWith("~/")))
+        ? null
+        : "expected a list of absolute or ~/ folder paths";
     case "time_range": {
       const range = value as { start?: unknown; end?: unknown } | null;
       return typeof range === "object" && range !== null && isTime(range.start) && isTime(range.end)
@@ -95,5 +100,16 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return inDomain(domains?.font_families, value) ? null : "unknown font family";
     case "sound":
       return inDomain(domains?.sounds, value) ? null : "unknown sound";
+    case "number_list":
+      return Array.isArray(value) && value.every((item) => inRange(row, item))
+        ? null
+        : `expected a list of numbers from ${row.range?.min} to ${row.range?.max}`;
+    case "string_map":
+      return typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.values(value).every((item) => typeof item === "string")
+        ? null
+        : "expected an object of strings";
   }
 }

@@ -89,6 +89,9 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
         Task { reply(await queue.serially { await Self.revert(fix, runner: runner, priors: priors) }) }
     }
 
+    /// The revert reply when no apply recorded a value: nothing changed, so nothing to restore.
+    public static let nothingToRevert = "nothing to revert"
+
     public func version(reply: @escaping @Sendable (Int) -> Void) {
         reply(ServerHelperConstants().protocolVersion)
     }
@@ -117,7 +120,7 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
     }
 
     static func revert(_ fix: ServerFix, runner: any ServerFixRunner, priors: any ServerFixPriorStore) async -> String? {
-        guard let prior = priors.prior(fix) else { return "nothing to revert" }
+        guard let prior = priors.prior(fix) else { return nothingToRevert }
         guard ServerFix.allowedRange.contains(prior) else { return "the recorded \(fix.setting) value is out of range" }
         do {
             let result = try await runner.run(ServerFix.pmset, fix.arguments(setting: prior))

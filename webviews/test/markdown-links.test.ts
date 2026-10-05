@@ -5,6 +5,9 @@ import { JSDOM } from "jsdom";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import type { MarkdownEditor as MarkdownEditorType } from "../src/pages/markdown/editor";
 import type { ResolvedLink } from "../src/pages/markdown/links";
+import { act, createElement } from "react";
+import type { Root } from "react-dom/client";
+import { privateCreateRoot } from "./viewer-empty-dom";
 
 const saved = new Map<string, unknown>();
 const DOM_GLOBALS = [
@@ -14,6 +17,7 @@ const DOM_GLOBALS = [
   "Node",
   "Text",
   "HTMLElement",
+  "HTMLInputElement",
   "Element",
   "DOMParser",
   "MutationObserver",
@@ -28,6 +32,7 @@ const DOM_GLOBALS = [
 ];
 let dom: JSDOM;
 let editor: MarkdownEditorType;
+let overlayRoot: Root | null = null;
 const opened: string[] = [];
 const scrolled: Element[] = [];
 const resolved = new Map<string, ResolvedLink>();
@@ -71,10 +76,33 @@ beforeAll(async () => {
     },
   });
   await editor.create();
+  // The page renders the editor's link overlays (hover card, popover) in its React tree; here a
+  // React root of their own stands in for the page.
+  const { LinkOverlayHost } = await import("../src/pages/markdown/linkOverlays");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  overlayRoot = privateCreateRoot()(host);
+  const target = overlayRoot;
+  await act(async () =>
+    target.render(
+      createElement(UiProvider, {
+        container: dom.window.document.body,
+        // oxlint-disable-next-line react/no-children-prop -- createElement without JSX in a .ts test.
+        children: createElement(LinkOverlayHost, { overlays: editor.overlays }),
+      }),
+    ),
+  );
 });
 
 afterAll(async () => {
   await editor?.destroy();
+  const target = overlayRoot;
+  if (target) await act(async () => target.unmount());
+  delete (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT;
+  // Let React's passive effects run before the DOM globals go.
+  await new Promise((resolve) => setTimeout(resolve, 10));
   for (const [key, value] of saved) {
     if (value === undefined) delete (globalThis as Record<string, unknown>)[key];
     else (globalThis as Record<string, unknown>)[key] = value;
@@ -162,48 +190,61 @@ describe("following", () => {
   });
 });
 
+// The popover renders through React from the overlay state (an update, not synchronous): wait for
+// the DOM.
+async function until<T>(read: () => T | null | undefined | false): Promise<T> {
+  for (let tries = 0; tries < 200; tries += 1) {
+    const value = read();
+    if (value) return value;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
+  throw new Error("timed out");
+}
+
 describe("editing", () => {
-  test("Cmd-K on a selection links it; Enter applies, the block alone changes", () => {
+  test("Cmd-K on a selection links it; Enter applies, the block alone changes", async () => {
     const text = "# Title\n\nPlain words here.\n\n- list\n";
     editor.load(text);
     const from = textPos("words");
     view().dispatch(view().state.tr.setSelection(TextSelection.create(view().state.doc, from, from + 5)));
     editor.openLinkPopover();
-    const input = document.querySelector<HTMLInputElement>(".md-link-input")!;
+    const input = await until(() => document.querySelector<HTMLInputElement>(".md-link-input"));
     input.value = "docs/guide.md";
     input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(document.querySelector(".md-link-popover")).toBe(null);
+    await until(() => document.querySelector(".md-link-popover") === null);
     expect(editor.snapshot().text).toBe("# Title\n\nPlain [words](docs/guide.md) here.\n\n- list\n");
   });
 
-  test("Escape cancels the popover without a change", () => {
+  test("Escape cancels the popover without a change", async () => {
     const text = "Some text.\n";
     editor.load(text);
     editor.openLinkPopover();
-    const input = document.querySelector<HTMLInputElement>(".md-link-input")!;
+    const input = await until(() => document.querySelector<HTMLInputElement>(".md-link-input"));
     input.value = "https://x.dev";
     input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(document.querySelector(".md-link-popover")).toBe(null);
+    await until(() => document.querySelector(".md-link-popover") === null);
     expect(editor.snapshot().text).toBe(text);
   });
+
+  // The field is a React input: type through the native setter and a bubbling input event.
+  const typeInto = (input: HTMLInputElement, value: string) => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")?.set?.call(input, value);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  };
 
   test("the popover completes #headings and workspace paths", async () => {
     editor.load("# Getting Started\n\n## API\n\nx\n");
     editor.openLinkPopover();
-    const input = document.querySelector<HTMLInputElement>(".md-link-input")!;
-    input.value = "#get";
-    input.dispatchEvent(new dom.window.Event("input"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect([...document.querySelectorAll(".md-link-suggestions li")].map((li) => li.textContent)).toEqual([
-      "#getting-started",
-    ]);
-    input.value = "docs/";
-    input.dispatchEvent(new dom.window.Event("input"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect([...document.querySelectorAll(".md-link-suggestions li")].map((li) => li.textContent)).toEqual([
-      "docs/",
-      "docs/guide.md",
-    ]);
+    const input = await until(() => document.querySelector<HTMLInputElement>(".md-link-input"));
+    const suggestions = () => [...document.querySelectorAll(".md-link-suggestions li")].map((li) => li.textContent);
+    typeInto(input, "#get");
+    await until(() => suggestions().join() === "#getting-started");
+    expect(suggestions()).toEqual(["#getting-started"]);
+    typeInto(input, "docs/");
+    await until(() => suggestions().length === 2);
+    expect(suggestions()).toEqual(["docs/", "docs/guide.md"]);
     input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
 

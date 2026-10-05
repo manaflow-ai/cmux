@@ -200,6 +200,9 @@ pub mod method {
     pub const MUX_WAIT: &str = "_acpmux/wait";
     /// Start the agent children for the most recent project sessions.
     pub const MUX_WARM: &str = "_acpmux/warm";
+    /// The harness the pane is about to switch to: a hidden session for it
+    /// starts (debounced), so the switch takes a ready session.
+    pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";

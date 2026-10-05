@@ -48,9 +48,9 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
   };
   // Cmd-C (the app's Copy command reaches the page as a copy event) copies the selected emoji or
   // symbol name when no search text is selected.
-  const onCopy = (event: ClipboardEvent<HTMLElement>) => {
-    const field = event.target instanceof HTMLInputElement ? event.target : null;
-    if (field && field.selectionStart !== field.selectionEnd) return;
+  const onCopy = (event: ClipboardEvent<HTMLInputElement>) => {
+    const field = event.currentTarget;
+    if (field.selectionStart !== field.selectionEnd) return;
     const cell = store.activeCell();
     if (!cell || !gridTab) return;
     event.preventDefault();
@@ -83,7 +83,7 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
   };
 
   return (
-    <div className="icon-picker" onKeyDown={onKeyDown} onCopy={onCopy}>
+    <div className="icon-picker" aria-label={t("iconPicker.title")}>
       <div className="icon-picker-tabs" role="tablist" aria-label={t("iconPicker.tabs")}>
         {PICKER_TABS.map((tab) => (
           <button
@@ -94,6 +94,7 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
             className="icon-picker-tab"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => switchTab(tab)}
+            onKeyDown={onKeyDown}
           >
             {t(`iconPicker.tab.${tab}`)}
           </button>
@@ -117,6 +118,8 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
               aria-activedescendant={active ? `icon-grid-cell-${snap.active}` : undefined}
               autoComplete="off"
               spellCheck={false}
+              onKeyDown={onKeyDown}
+              onCopy={onCopy}
               onChange={(event) => {
                 store.setQuery(event.target.value);
                 viewport.scrollToTop();
@@ -135,13 +138,12 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
                   {TONE_SAMPLES[snap.tone]}
                 </button>
                 {toneOpen && (
-                  <div className="icon-tone-menu" role="listbox" aria-label={t("iconPicker.skinTone")}>
+                  <div className="icon-tone-menu" aria-label={t("iconPicker.skinTone")}>
                     {TONE_SAMPLES.map((sample, tone) => (
                       <button
                         key={sample}
                         type="button"
-                        role="option"
-                        aria-selected={tone === snap.tone}
+                        aria-pressed={tone === snap.tone}
                         aria-label={t(`iconPicker.tone.${tone}`)}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => chooseTone(tone as SkinTone)}
@@ -208,6 +210,7 @@ export function IconPicker({ store, strings, onPick, onCancel, onClear, assets, 
           kind={snap.tab === "svg" ? "svg" : "image"}
           sink={assets}
           strings={strings}
+          onKeyDown={onKeyDown}
           onPicked={(value) => {
             store.recordAsset(value);
             onPick(value);

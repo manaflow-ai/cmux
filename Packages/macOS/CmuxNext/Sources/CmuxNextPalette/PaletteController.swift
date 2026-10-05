@@ -183,7 +183,8 @@ public final class PaletteController {
         guard let descriptor = registry.descriptor(for: id) else { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
-                                       captured: capturedTargets, preview: sources.argumentPreview)
+                                       captured: capturedTargets, preview: sources.argumentPreview,
+                                       swatches: sources.argumentSwatches)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -366,7 +367,11 @@ public final class PaletteController {
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
-            registry: registry
+            registry: registry,
+            hierarchical: model.currentPageIsHierarchical,
+            caretAtEnd: Self.caret(in: event.window).atEnd,
+            caretAtStart: Self.caret(in: event.window).atStart,
+            selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)
     }

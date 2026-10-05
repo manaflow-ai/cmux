@@ -43,8 +43,8 @@ final class CEFRuntime {
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
-    /// Window requests so far (`debug.cef` `window_requests`).
-    var windowRequestLog = CEFWindowRequestLog()
+    /// Window requests: decisions, their log and link clicks.
+    private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?

@@ -397,138 +397,6 @@
         }
       }
     },
-    "action.fork": {
-      "comment": "Button: new machine from a snapshot",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "جهاز جديد من لقطة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nova mašina iz snimka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ny maskine fra snapshot"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neue Maschine aus Snapshot"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Machine from Snapshot"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nueva máquina desde instantánea"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouvelle machine depuis l’instantané"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuova macchina dall’istantanea"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スナップショットから新規マシン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនថ្មីពីរូបថត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스냅숏에서 새 머신"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ny maskin fra øyeblikksbilde"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowa maszyna z migawki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nova máquina a partir do snapshot"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новая машина из снимка"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องใหม่จากสแนปช็อต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anlık Görüntüden Yeni Makine"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нова машина зі знімка"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy mới từ bản chụp"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "从快照新建机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "從快照新增機器"
-          }
-        }
-      }
-    },
     "action.pause": {
       "comment": "Button",
       "extractionState": "manual",
@@ -657,138 +525,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "暫停"
-          }
-        }
-      }
-    },
-    "action.refresh": {
-      "comment": "Button",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تحديث"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Osvježi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opdater"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aktualisieren"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refresh"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Actualizar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Actualiser"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aggiorna"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទុកឡើងវិញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새로 고침"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oppdater"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odśwież"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Atualizar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Обновить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "รีเฟรช"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yenile"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Оновити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Làm mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "刷新"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重新整理"
           }
         }
       }
@@ -1321,134 +1057,134 @@
         }
       }
     },
-    "action.verify": {
-      "comment": "Button",
+    "action.upgrade": {
+      "comment": "Button: install the new cmux into a machine from cmux Cloud classic; the host asks for confirmation",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تحقق"
+            "value": "ترقية…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Provjeri"
+            "value": "Nadogradi…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bekræft"
+            "value": "Opgrader…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prüfen"
+            "value": "Aktualisieren …"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verify"
+            "value": "Upgrade…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verificar"
+            "value": "Actualizar…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vérifier"
+            "value": "Mettre à niveau…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verifica"
+            "value": "Aggiorna…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "確認"
+            "value": "アップグレード…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទៀងផ្ទាត់"
+            "value": "ដំឡើង…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "확인"
+            "value": "업그레이드…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bekreft"
+            "value": "Oppgrader …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zweryfikuj"
+            "value": "Uaktualnij…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verificar"
+            "value": "Atualizar…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Проверить"
+            "value": "Обновить…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยืนยัน"
+            "value": "อัปเกรด…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Doğrula"
+            "value": "Yükselt…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перевірити"
+            "value": "Оновити…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xác minh"
+            "value": "Nâng cấp…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "验证"
+            "value": "升级…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "驗證"
+            "value": "升級…"
           }
         }
       }
@@ -3433,402 +3169,6 @@
         }
       }
     },
-    "detail.domains": {
-      "comment": "Section title",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "النطاقات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domene"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domæner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domains"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domains"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dominios"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domaines"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domini"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドメイン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដែន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "도메인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domener"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domeny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domínios"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Домены"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โดเมน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alan Adları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Домени"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tên miền"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "域名"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "網域"
-          }
-        }
-      }
-    },
-    "detail.firewall": {
-      "comment": "Section title",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "جدار الحماية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zaštitni zid"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Firewall"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Firewall"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Firewall"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cortafuegos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pare-feu"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Firewall"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイアウォール"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជញ្ជាំងភ្លើង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "방화벽"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brannmur"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapora"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Firewall"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Брандмауэр"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไฟร์วอลล์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Güvenlik Duvarı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Брандмауер"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tường lửa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "防火墙"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "防火牆"
-          }
-        }
-      }
-    },
-    "detail.network": {
-      "comment": "Section title",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الشبكة الخاصة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Privatna mreža"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Privat netværk"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Privates Netzwerk"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Network"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Red privada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réseau privé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rete privata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライベートネットワーク"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បណ្ដាញឯកជន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사설 네트워크"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Privat nettverk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sieć prywatna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rede privada"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Частная сеть"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครือข่ายส่วนตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Özel Ağ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Приватна мережа"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mạng riêng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "专用网络"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "私人網路"
-          }
-        }
-      }
-    },
     "detail.overview": {
       "comment": "Section title",
       "extractionState": "manual",
@@ -3957,138 +3297,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "概覽"
-          }
-        }
-      }
-    },
-    "detail.publications": {
-      "comment": "Section title: ports published on a public host name",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المنافذ المنشورة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Objavljeni portovi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udgivne porte"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Veröffentlichte Ports"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Published Ports"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Puertos publicados"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ports publiés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Porte pubblicate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公開ポート"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ច្រកដែលបានផ្សាយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "게시된 포트"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publiserte porter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opublikowane porty"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Portas publicadas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Опубликованные порты"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "พอร์ตที่เผยแพร่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yayımlanan Bağlantı Noktaları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Опубліковані порти"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cổng đã công bố"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已发布端口"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已發布連接埠"
           }
         }
       }
@@ -4357,1190 +3565,530 @@
         }
       }
     },
-    "detail.stats": {
-      "comment": "Section title: CPU, memory and disk use",
+    "error.noSnapshotConfigured": {
+      "comment": "Message in the create sheet when the Cloud backend has no machine image configured yet, so no machine can be created",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الموارد"
+            "value": "لا يمكن إنشاء أجهزة جديدة بعد: لم يتم إعداد صورة جهاز لهذه السحابة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Resursi"
+            "value": "Nove mašine još nisu dostupne: za ovaj Cloud nije podešena slika mašine."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ressourcer"
+            "value": "Nye maskiner er ikke tilgængelige endnu: der er ikke konfigureret et maskinimage til denne Cloud."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ressourcen"
+            "value": "Neue Maschinen sind noch nicht verfügbar: Für diese Cloud ist kein Maschinen-Image konfiguriert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resources"
+            "value": "New machines are not available yet: no machine image is configured for this Cloud."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Recursos"
+            "value": "Las máquinas nuevas aún no están disponibles: no hay ninguna imagen de máquina configurada para esta nube."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ressources"
+            "value": "Les nouvelles machines ne sont pas encore disponibles : aucune image de machine n’est configurée pour ce Cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Risorse"
+            "value": "Le nuove macchine non sono ancora disponibili: nessuna immagine macchina è configurata per questo Cloud."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リソース"
+            "value": "新しいマシンはまだ作成できません。この Cloud にはマシンイメージが設定されていません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ធនធាន"
+            "value": "ម៉ាស៊ីនថ្មីមិនទាន់អាចប្រើបាននៅឡើយទេ៖ មិនមានរូបភាពម៉ាស៊ីនត្រូវបានកំណត់សម្រាប់ Cloud នេះទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "리소스"
+            "value": "아직 새 머신을 만들 수 없습니다. 이 Cloud에 머신 이미지가 구성되어 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ressurser"
+            "value": "Nye maskiner er ikke tilgjengelige ennå: ingen maskinavbildning er konfigurert for denne Cloud."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zasoby"
+            "value": "Nowe maszyny nie są jeszcze dostępne: dla tej chmury nie skonfigurowano obrazu maszyny."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Recursos"
+            "value": "Novas máquinas ainda não estão disponíveis: nenhuma imagem de máquina está configurada para este Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ресурсы"
+            "value": "Новые машины пока недоступны: для этого Cloud не настроен образ машины."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ทรัพยากร"
+            "value": "ยังสร้างเครื่องใหม่ไม่ได้: ยังไม่ได้กำหนดอิมเมจเครื่องสำหรับ Cloud นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kaynaklar"
+            "value": "Yeni makineler henüz kullanılamıyor: bu Cloud için yapılandırılmış bir makine görüntüsü yok."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ресурси"
+            "value": "Нові машини поки недоступні: для цього Cloud не налаштовано образ машини."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tài nguyên"
+            "value": "Chưa thể tạo máy mới: chưa có ảnh máy nào được cấu hình cho Cloud này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "资源"
+            "value": "暂时无法创建新机器：此 Cloud 尚未配置机器镜像。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "資源"
+            "value": "暫時無法建立新機器：此 Cloud 尚未設定機器映像。"
           }
         }
       }
     },
-    "domains.certificate": {
-      "comment": "Domain certificate state",
+    "error.planRequired": {
+      "comment": "Message when the Cloud service refuses a change that needs a paid plan",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الشهادة: {state}"
+            "value": "تتطلب أجهزة السحابة خطة مدفوعة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Certifikat: {state}"
+            "value": "Cloud mašine zahtijevaju plaćeni plan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Certifikat: {state}"
+            "value": "Cloud-maskiner kræver et betalt abonnement."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zertifikat: {state}"
+            "value": "Cloud-Maschinen benötigen einen kostenpflichtigen Tarif."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Certificate: {state}"
+            "value": "Cloud machines need a paid plan."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Certificado: {state}"
+            "value": "Las máquinas en la nube necesitan un plan de pago."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Certificat : {state}"
+            "value": "Les machines Cloud nécessitent un forfait payant."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Certificato: {state}"
+            "value": "Le macchine Cloud richiedono un piano a pagamento."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "証明書: {state}"
+            "value": "クラウドマシンには有料プランが必要です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "វិញ្ញាបនបត្រ: {state}"
+            "value": "ម៉ាស៊ីន Cloud ត្រូវការគម្រោងបង់ប្រាក់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "인증서: {state}"
+            "value": "클라우드 머신에는 유료 요금제가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sertifikat: {state}"
+            "value": "Cloud-maskiner krever et betalt abonnement."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Certyfikat: {state}"
+            "value": "Maszyny w chmurze wymagają płatnego planu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Certificado: {state}"
+            "value": "Máquinas na nuvem exigem um plano pago."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сертификат: {state}"
+            "value": "Для облачных машин нужен платный тариф."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใบรับรอง: {state}"
+            "value": "เครื่อง Cloud ต้องใช้แพ็กเกจแบบชำระเงิน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sertifika: {state}"
+            "value": "Bulut makineleri ücretli bir plan gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сертифікат: {state}"
+            "value": "Для хмарних машин потрібен платний тариф."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chứng chỉ: {state}"
+            "value": "Máy Cloud cần gói trả phí."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "证书：{state}"
+            "value": "云端机器需要付费套餐。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "憑證：{state}"
+            "value": "雲端機器需要付費方案。"
           }
         }
       }
     },
-    "domains.dns": {
-      "comment": "Heading before DNS records",
+    "error.quotaExceeded": {
+      "comment": "Message when a plan limit is reached; {used} and {limit} are numbers",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أضف سجلات DNS هذه:"
+            "value": "تم بلوغ حد خطتك: {used} من {limit} قيد الاستخدام."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodajte ove DNS zapise:"
+            "value": "Dosegnuto je ograničenje vašeg plana: {used} od {limit} u upotrebi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilføj disse DNS-poster:"
+            "value": "Dit abonnements grænse er nået: {used} af {limit} i brug."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese DNS-Einträge hinzufügen:"
+            "value": "Das Limit deines Tarifs ist erreicht: {used} von {limit} in Verwendung."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add these DNS records:"
+            "value": "Your plan's limit is reached: {used} of {limit} in use."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Añade estos registros DNS:"
+            "value": "Se alcanzó el límite de tu plan: {used} de {limit} en uso."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajoutez ces enregistrements DNS :"
+            "value": "La limite de votre forfait est atteinte : {used} sur {limit} utilisés."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiungi questi record DNS:"
+            "value": "Hai raggiunto il limite del piano: {used} di {limit} in uso."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次の DNS レコードを追加してください:"
+            "value": "プランの上限に達しました（{limit} 中 {used} を使用中）。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែមកំណត់ត្រា DNS ទាំងនេះ:"
+            "value": "បានដល់ដែនកំណត់នៃគម្រោងរបស់អ្នក៖ កំពុងប្រើ {used} ក្នុងចំណោម {limit}។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "다음 DNS 레코드를 추가하세요:"
+            "value": "요금제 한도에 도달했습니다: {limit}개 중 {used}개 사용 중."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legg til disse DNS-postene:"
+            "value": "Abonnementets grense er nådd: {used} av {limit} i bruk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj te rekordy DNS:"
+            "value": "Osiągnięto limit planu: w użyciu {used} z {limit}."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adicione estes registros DNS:"
+            "value": "O limite do seu plano foi atingido: {used} de {limit} em uso."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Добавьте эти записи DNS:"
+            "value": "Достигнут лимит тарифа: используется {used} из {limit}."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่มระเบียน DNS เหล่านี้:"
+            "value": "ถึงขีดจำกัดของแพ็กเกจแล้ว: ใช้อยู่ {used} จาก {limit}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu DNS kayıtlarını ekleyin:"
+            "value": "Planınızın sınırına ulaşıldı: {limit} içinden {used} kullanımda."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Додайте ці записи DNS:"
+            "value": "Досягнуто ліміту тарифу: використовується {used} з {limit}."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm các bản ghi DNS này:"
+            "value": "Đã đạt giới hạn gói: đang dùng {used} trên {limit}."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "添加以下 DNS 记录："
+            "value": "已达到套餐上限：已使用 {used}/{limit}。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增以下 DNS 記錄："
+            "value": "已達到方案上限：已使用 {used}/{limit}。"
           }
         }
       }
     },
-    "domains.empty": {
-      "comment": "Empty section",
+    "error.sizeLocked": {
+      "comment": "Message when a machine size needs another plan",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد نطاقات"
+            "value": "يتطلب هذا الحجم خطة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema domena"
+            "value": "Ova veličina zahtijeva drugi plan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen domæner"
+            "value": "Denne størrelse kræver et andet abonnement."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine Domains"
+            "value": "Diese Größe erfordert einen anderen Tarif."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No domains"
+            "value": "This size needs another plan."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay dominios"
+            "value": "Este tamaño necesita otro plan."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun domaine"
+            "value": "Cette taille nécessite un autre forfait."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun dominio"
+            "value": "Questa dimensione richiede un altro piano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドメインはありません"
+            "value": "このサイズには別のプランが必要です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានដែន"
+            "value": "ទំហំនេះត្រូវការគម្រោងផ្សេង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "도메인 없음"
+            "value": "이 크기에는 다른 요금제가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen domener"
+            "value": "Denne størrelsen krever et annet abonnement."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak domen"
+            "value": "Ten rozmiar wymaga innego planu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum domínio"
+            "value": "Este tamanho exige outro plano."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет доменов"
+            "value": "Для этого размера нужен другой тариф."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีโดเมน"
+            "value": "ขนาดนี้ต้องใช้แพ็กเกจอื่น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alan adı yok"
+            "value": "Bu boyut başka bir plan gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає доменів"
+            "value": "Для цього розміру потрібен інший тариф."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có tên miền"
+            "value": "Kích thước này cần gói khác."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有域名"
+            "value": "此规格需要其他套餐。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有網域"
-          }
-        }
-      }
-    },
-    "domains.failed": {
-      "comment": "Domain status",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فشل التحقق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Provjera nije uspjela"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bekræftelse mislykkedes"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prüfung fehlgeschlagen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verification failed"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Error de verificación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Échec de la vérification"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verifica non riuscita"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認に失敗"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការផ្ទៀងផ្ទាត់បរាជ័យ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "확인 실패"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bekreftelse mislyktes"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Weryfikacja nie powiodła się"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Falha na verificação"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Проверка не пройдена"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การยืนยันล้มเหลว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Doğrulama başarısız"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перевірка не вдалася"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xác minh thất bại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "验证失败"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "驗證失敗"
-          }
-        }
-      }
-    },
-    "domains.pending": {
-      "comment": "Domain status",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بانتظار التحقق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Čeka provjeru"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Venter på bekræftelse"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wartet auf Prüfung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waiting for verification"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pendiente de verificación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En attente de vérification"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "In attesa di verifica"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認待ち"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងរង់ចាំការផ្ទៀងផ្ទាត់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "확인 대기 중"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Venter på bekreftelse"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oczekuje na weryfikację"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aguardando verificação"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ожидает проверки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "รอการยืนยัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Doğrulama bekleniyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Очікує перевірки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang chờ xác minh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "等待验证"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "等待驗證"
-          }
-        }
-      }
-    },
-    "domains.publications": {
-      "comment": "Number of publications on a domain",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المنشورات: {count}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Objave: {count}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udgivelser: {count}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Veröffentlichungen: {count}"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Publications: {count}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publicaciones: {count}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publications : {count}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pubblicazioni: {count}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公開: {count}"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការបោះពុម្ពផ្សាយ: {count}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "게시: {count}"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publiseringer: {count}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publikacje: {count}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publicações: {count}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Публикации: {count}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเผยแพร่: {count}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yayınlar: {count}"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Публікації: {count}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bản xuất bản: {count}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "发布：{count}"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "發佈：{count}"
-          }
-        }
-      }
-    },
-    "domains.verified": {
-      "comment": "Domain status",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تم التحقق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Provjereno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bekræftet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Geprüft"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verified"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verificado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vérifié"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verificato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認済み"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បានផ្ទៀងផ្ទាត់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "확인됨"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bekreftet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zweryfikowano"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verificado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Проверен"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยืนยันแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Doğrulandı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перевірено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã xác minh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已验证"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已驗證"
-          }
-        }
-      }
-    },
-    "field.address": {
-      "comment": "Field label",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "العنوان الخاص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Privatna adresa"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Privat adresse"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Private Adresse"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private address"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dirección privada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse privée"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Indirizzo privato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライベートアドレス"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អាសយដ្ឋានឯកជន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사설 주소"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Privat adresse"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adres prywatny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Endereço privado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Частный адрес"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ที่อยู่ส่วนตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Özel adres"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Приватна адреса"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Địa chỉ riêng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "专用地址"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "私人位址"
+            "value": "此規格需要其他方案。"
           }
         }
       }
@@ -7789,6 +6337,138 @@
         }
       }
     },
+    "files.transferCancelled": {
+      "comment": "State of a file copy that was stopped before it ended",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الإلغاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otkazano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annulleret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abgebrochen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelled"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annulée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annullata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបោះបង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "취소됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avbrutt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anulowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отменено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยกเลิกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İptal edildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скасовано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã hủy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已取消"
+          }
+        }
+      }
+    },
     "files.transferDone": {
       "comment": "State of a file copy that ended without an error",
       "extractionState": "manual",
@@ -8577,798 +7257,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "上傳…"
-          }
-        }
-      }
-    },
-    "firewall.add": {
-      "comment": "Port field that adds an allow rule for that port",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "السماح بمنفذ"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dozvoli port"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillad port"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Port erlauben"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow port"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitir puerto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autoriser un port"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Consenti porta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ポートを許可"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អនុញ្ញាតច្រក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "포트 허용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillat port"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zezwól na port"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitir porta"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разрешить порт"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อนุญาตพอร์ต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bağlantı noktasına izin ver"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дозволити порт"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cho phép cổng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允许端口"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允許連接埠"
-          }
-        }
-      }
-    },
-    "firewall.allow": {
-      "comment": "Firewall rule action",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "السماح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dozvoli"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillad"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erlauben"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitir"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autoriser"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Consenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許可"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អនុញ្ញាត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "허용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zezwól"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitir"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разрешить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อนุญาต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İzin ver"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дозволити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cho phép"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允许"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允許"
-          }
-        }
-      }
-    },
-    "firewall.description": {
-      "comment": "Placeholder: note for a firewall rule",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ملاحظة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Napomena"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Note"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Notiz"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Note"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nota"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Note"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nota"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メモ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំណត់ចំណាំ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "메모"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Notat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Notatka"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nota"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Заметка"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "บันทึก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Not"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Примітка"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ghi chú"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "备注"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "備註"
-          }
-        }
-      }
-    },
-    "firewall.empty": {
-      "comment": "Empty section",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد قواعد لجدار الحماية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nema pravila zaštitnog zida"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen firewallregler"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine Firewall-Regeln"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No firewall rules"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No hay reglas de cortafuegos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucune règle de pare-feu"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuna regola firewall"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイアウォールルールはありません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានច្បាប់ជញ្ជាំងភ្លើង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "방화벽 규칙 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen brannmurregler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak reguł zapory"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhuma regra de firewall"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет правил брандмауэра"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีกฎไฟร์วอลล์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Güvenlik duvarı kuralı yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає правил брандмауера"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không có quy tắc tường lửa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "没有防火墙规则"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有防火牆規則"
-          }
-        }
-      }
-    },
-    "firewall.public": {
-      "comment": "Firewall source: any address on the internet",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الإنترنت"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Internet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "インターネット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អ៊ីនធឺណិត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "인터넷"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internett"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Интернет"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อินเทอร์เน็ต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İnternet"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Інтернет"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Internet"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "互联网"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "網際網路"
-          }
-        }
-      }
-    },
-    "firewall.source": {
-      "comment": "Placeholder: traffic source of a firewall rule",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "من (CIDR، فارغ = أي أحد)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Od (CIDR, prazno = svi)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fra (CIDR, tom = alle)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Von (CIDR, leer = alle)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "From (CIDR, empty = anyone)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desde (CIDR, vacío = cualquiera)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Depuis (CIDR, vide = tous)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Da (CIDR, vuoto = chiunque)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信元 (CIDR、空欄 = すべて)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពី (CIDR, ទទេ = អ្នកណាក៏បាន)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "보낸 곳 (CIDR, 비우면 모두)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fra (CIDR, tom = alle)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Od (CIDR, puste = każdy)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "De (CIDR, vazio = qualquer um)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Откуда (CIDR, пусто = все)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "จาก (CIDR, ว่าง = ทุกคน)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kaynak (CIDR, boş = herkes)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Звідки (CIDR, порожньо = усі)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Từ (CIDR, để trống = mọi nơi)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "来源（CIDR，留空 = 任何人）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "來源（CIDR，留空 = 任何人）"
           }
         }
       }
@@ -10693,6 +8581,402 @@
         }
       }
     },
+    "intent.upgrade": {
+      "comment": "Pending intent: a classic machine is being upgraded",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ الترقية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadogradnja…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opgraderer…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird aktualisiert …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrading…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualizando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mise à niveau…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiornamento…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレード中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងដំឡើង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업그레이드하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppgraderer …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uaktualnianie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualizando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังอัปเกรด…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yükseltiliyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang nâng cấp…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在升级…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在升級…"
+          }
+        }
+      }
+    },
+    "machines.classic": {
+      "comment": "Badge on a machine imported from cmux Cloud classic (the earlier Cloud service)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلاسيكي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clásica"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클래식"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clássica"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คลาสสิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Classic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "经典版"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "經典版"
+          }
+        }
+      }
+    },
+    "machines.classicReadOnly": {
+      "comment": "Note on a classic machine: it cannot be changed here until it is upgraded",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "للقراءة فقط إلى أن تتم ترقية هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo za čitanje dok se ova mašina ne nadogradi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrivebeskyttet, indtil maskinen er opgraderet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schreibgeschützt, bis diese Maschine aktualisiert ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read-only until this machine is upgraded."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo lectura hasta que se actualice esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En lecture seule jusqu'à la mise à niveau de cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sola lettura finché questa macchina non viene aggiornata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンはアップグレードするまで読み取り専用です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អានបានតែប៉ុណ្ណោះ រហូតដល់ម៉ាស៊ីននេះត្រូវបានដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신을 업그레이드할 때까지 읽기 전용입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrivebeskyttet til maskinen er oppgradert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko do odczytu, dopóki ta maszyna nie zostanie uaktualniona."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente leitura até que esta máquina seja atualizada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только чтение, пока эта машина не обновлена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อ่านได้อย่างเดียวจนกว่าจะอัปเกรดเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makine yükseltilene kadar salt okunur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише читання, доки цю машину не оновлено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ đọc cho đến khi máy này được nâng cấp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "升级此机器之前为只读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "升級此機器之前為唯讀。"
+          }
+        }
+      }
+    },
     "machines.create": {
       "comment": "Button that opens the create sheet",
       "extractionState": "manual",
@@ -11221,530 +9505,530 @@
         }
       }
     },
-    "network.attach": {
-      "comment": "Button: attach this Mac's tunnel to a network",
+    "migration.body": {
+      "comment": "Banner text under the classic machines title",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إرفاق هذا الـ Mac"
+            "value": "انقلها لاستخدامها هنا. حتى ذلك الحين تكون للقراءة فقط. النقل في اتجاه واحد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Poveži ovaj Mac"
+            "value": "Premjestite ih da biste ih koristili ovdje. Do tada su samo za čitanje. Premještanje je jednosmjerno."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilknyt denne Mac"
+            "value": "Flyt dem for at bruge dem her. Indtil da er de skrivebeskyttede. Flytningen kan ikke fortrydes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diesen Mac verbinden"
+            "value": "Verschiebe sie, um sie hier zu nutzen. Bis dahin sind sie schreibgeschützt. Das Verschieben ist endgültig."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attach this Mac"
+            "value": "Move them to use them here. Until then they are read-only. The move is one way."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Conectar este Mac"
+            "value": "Muévelas para usarlas aquí. Hasta entonces son de solo lectura. El traslado no se puede deshacer."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rattacher ce Mac"
+            "value": "Déplacez-les pour les utiliser ici. D'ici là, elles sont en lecture seule. Le déplacement est définitif."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Collega questo Mac"
+            "value": "Spostale per usarle qui. Fino ad allora sono di sola lettura. Lo spostamento è definitivo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac を接続"
+            "value": "ここで使うには移動してください。移動するまでは読み取り専用です。移動は元に戻せません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្ជាប់ Mac នេះ"
+            "value": "ផ្លាស់ទីពួកវាដើម្បីប្រើនៅទីនេះ។ រហូតដល់ពេលនោះ ពួកវាអានបានតែប៉ុណ្ណោះ។ ការផ្លាស់ទីគឺមួយផ្លូវ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 Mac 연결"
+            "value": "여기에서 사용하려면 옮기세요. 그전까지는 읽기 전용입니다. 이동은 되돌릴 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Koble til denne Macen"
+            "value": "Flytt dem for å bruke dem her. Inntil da er de skrivebeskyttet. Flyttingen er endelig."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dołącz tego Maca"
+            "value": "Przenieś je, aby ich tu używać. Do tego czasu są tylko do odczytu. Przeniesienia nie można cofnąć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Conectar este Mac"
+            "value": "Mova-as para usá-las aqui. Até lá, elas ficam somente leitura. A mudança não pode ser desfeita."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Подключить этот Mac"
+            "value": "Перенесите их, чтобы пользоваться ими здесь. До этого они доступны только для чтения. Перенос необратим."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เชื่อมต่อ Mac เครื่องนี้"
+            "value": "ย้ายเครื่องเหล่านี้เพื่อใช้งานที่นี่ จนกว่าจะย้าย เครื่องจะอ่านได้อย่างเดียว การย้ายเป็นแบบทางเดียว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac'i bağla"
+            "value": "Burada kullanmak için taşıyın. O zamana kadar salt okunurdur. Taşıma geri alınamaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Під'єднати цей Mac"
+            "value": "Перенесіть їх, щоб користуватися ними тут. До того вони лише для читання. Перенесення незворотне."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gắn máy Mac này"
+            "value": "Di chuyển để dùng chúng ở đây. Trước đó chúng chỉ đọc. Việc di chuyển là một chiều."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "连接这台 Mac"
+            "value": "移动后即可在这里使用。在此之前为只读。移动无法撤销。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "連接這台 Mac"
+            "value": "移動後即可在這裡使用。在此之前為唯讀。移動無法復原。"
           }
         }
       }
     },
-    "network.empty": {
-      "comment": "Empty section",
+    "migration.later": {
+      "comment": "Button: hide the classic machines banner for now",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد شبكات خاصة"
+            "value": "لاحقًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema privatnih mreža"
+            "value": "Kasnije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen private netværk"
+            "value": "Senere"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine privaten Netzwerke"
+            "value": "Später"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No private networks"
+            "value": "Later"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay redes privadas"
+            "value": "Más tarde"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun réseau privé"
+            "value": "Plus tard"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna rete privata"
+            "value": "Più tardi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プライベートネットワークはありません"
+            "value": "後で"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានបណ្ដាញឯកជន"
+            "value": "ពេលក្រោយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "사설 네트워크 없음"
+            "value": "나중에"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen private nettverk"
+            "value": "Senere"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak sieci prywatnych"
+            "value": "Później"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma rede privada"
+            "value": "Mais tarde"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет частных сетей"
+            "value": "Позже"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีเครือข่ายส่วนตัว"
+            "value": "ภายหลัง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Özel ağ yok"
+            "value": "Daha sonra"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає приватних мереж"
+            "value": "Пізніше"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có mạng riêng"
+            "value": "Để sau"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有专用网络"
+            "value": "稍后"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有私人網路"
+            "value": "稍後"
           }
         }
       }
     },
-    "network.rotateKey": {
-      "comment": "Button: new WireGuard key for this Mac's tunnel",
+    "migration.move": {
+      "comment": "Button: move the classic machines; the host asks for confirmation",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مفتاح نفق جديد"
+            "value": "نقلها…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novi ključ tunela"
+            "value": "Premjesti ih…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny tunnelnøgle"
+            "value": "Flyt dem…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer Tunnelschlüssel"
+            "value": "Verschieben …"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New tunnel key"
+            "value": "Move Them…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva clave de túnel"
+            "value": "Moverlas…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvelle clé de tunnel"
+            "value": "Les déplacer…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuova chiave del tunnel"
+            "value": "Spostale…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいトンネルキー"
+            "value": "移動…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កូនសោផ្លូវរូងថ្មី"
+            "value": "ផ្លាស់ទីពួកវា…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 터널 키"
+            "value": "옮기기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny tunnelnøkkel"
+            "value": "Flytt dem …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowy klucz tunelu"
+            "value": "Przenieś je…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova chave do túnel"
+            "value": "Movê-las…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новый ключ туннеля"
+            "value": "Перенести…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คีย์ทันเนลใหม่"
+            "value": "ย้าย…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni tünel anahtarı"
+            "value": "Taşı…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новий ключ тунелю"
+            "value": "Перенести…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khóa đường hầm mới"
+            "value": "Di chuyển…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新的隧道密钥"
+            "value": "移动…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新的通道金鑰"
+            "value": "移動…"
           }
         }
       }
     },
-    "network.tunnelNote": {
-      "comment": "Note under the network list",
+    "migration.title": {
+      "comment": "Banner title; {count} is the number of machines from cmux Cloud classic (the earlier Cloud service)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تُنفَّذ تغييرات النفق بعد التأكيد. سيتولى cmux link نفق هذا الـ Mac."
+            "value": "أجهزة من cmux Cloud classic: {count}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Promjene tunela se izvršavaju nakon potvrde. cmux link će upravljati tunelom ovog Maca."
+            "value": "Mašine iz cmux Cloud classic: {count}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tunnelændringer udføres efter en bekræftelse. cmux link overtager denne Macs tunnel."
+            "value": "Maskiner fra cmux Cloud classic: {count}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tunneländerungen laufen nach einer Bestätigung. cmux link wird den Tunnel dieses Macs verwalten."
+            "value": "Maschinen aus cmux Cloud classic: {count}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tunnel changes run after a confirmation. cmux link will own this Mac's tunnel."
+            "value": "Machines from cmux Cloud classic: {count}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Los cambios del túnel se ejecutan tras una confirmación. cmux link gestionará el túnel de este Mac."
+            "value": "Máquinas de cmux Cloud classic: {count}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les changements de tunnel s'exécutent après une confirmation. cmux link gérera le tunnel de ce Mac."
+            "value": "Machines de cmux Cloud classic : {count}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le modifiche al tunnel vengono eseguite dopo una conferma. cmux link gestirà il tunnel di questo Mac."
+            "value": "Macchine da cmux Cloud classic: {count}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "トンネルの変更は確認後に実行されます。この Mac のトンネルは今後 cmux link が管理します。"
+            "value": "cmux Cloud classic のマシン: {count} 台"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការផ្លាស់ប្តូរផ្លូវរូងដំណើរការបន្ទាប់ពីការបញ្ជាក់។ cmux link នឹងគ្រប់គ្រងផ្លូវរូងរបស់ Mac នេះ។"
+            "value": "ម៉ាស៊ីនពី cmux Cloud classic៖ {count}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "터널 변경은 확인 후 실행됩니다. 이 Mac의 터널은 cmux link가 관리하게 됩니다."
+            "value": "cmux Cloud classic의 머신: {count}대"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tunnelendringer kjøres etter en bekreftelse. cmux link skal eie denne Macens tunnel."
+            "value": "Maskiner fra cmux Cloud classic: {count}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zmiany tunelu są wykonywane po potwierdzeniu. Tunelem tego Maca będzie zarządzać cmux link."
+            "value": "Maszyny z cmux Cloud classic: {count}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As alterações do túnel são executadas após uma confirmação. O cmux link vai gerenciar o túnel deste Mac."
+            "value": "Máquinas do cmux Cloud classic: {count}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Изменения туннеля выполняются после подтверждения. Туннелем этого Mac будет управлять cmux link."
+            "value": "Машины из cmux Cloud classic: {count}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การเปลี่ยนแปลงทันเนลจะทำงานหลังการยืนยัน cmux link จะเป็นผู้ดูแลทันเนลของ Mac เครื่องนี้"
+            "value": "เครื่องจาก cmux Cloud classic: {count}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tünel değişiklikleri onaydan sonra çalışır. Bu Mac'in tünelini cmux link yönetecek."
+            "value": "cmux Cloud classic makineleri: {count}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Зміни тунелю виконуються після підтвердження. Тунелем цього Mac керуватиме cmux link."
+            "value": "Машини з cmux Cloud classic: {count}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thay đổi đường hầm chạy sau khi xác nhận. cmux link sẽ quản lý đường hầm của máy Mac này."
+            "value": "Máy từ cmux Cloud classic: {count}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "隧道更改在确认后执行。这台 Mac 的隧道将由 cmux link 管理。"
+            "value": "来自 cmux Cloud classic 的机器：{count}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "通道變更會在確認後執行。這台 Mac 的通道將由 cmux link 管理。"
+            "value": "來自 cmux Cloud classic 的機器：{count}"
           }
         }
       }
@@ -12805,134 +11089,134 @@
         }
       }
     },
-    "plan.manageBilling": {
-      "comment": "Button: opens the billing portal in the browser",
+    "plan.seePlans": {
+      "comment": "Button after a plan message: opens plan checkout in the browser after a confirmation",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إدارة الفوترة…"
+            "value": "عرض الخطط…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Upravljaj naplatom…"
+            "value": "Pogledaj planove…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Administrer betaling…"
+            "value": "Se abonnementer…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrechnung verwalten …"
+            "value": "Tarife ansehen …"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manage Billing…"
+            "value": "See Plans…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gestionar facturación…"
+            "value": "Ver planes…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gérer la facturation…"
+            "value": "Voir les forfaits…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gestisci fatturazione…"
+            "value": "Vedi i piani…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "請求を管理…"
+            "value": "プランを見る…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្រប់គ្រងការចេញវិក្កយបត្រ…"
+            "value": "មើលគម្រោង…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "결제 관리…"
+            "value": "요금제 보기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Administrer fakturering …"
+            "value": "Se abonnementer …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zarządzaj płatnościami…"
+            "value": "Zobacz plany…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gerenciar cobrança…"
+            "value": "Ver planos…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Управление оплатой…"
+            "value": "Посмотреть тарифы…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "จัดการการเรียกเก็บเงิน…"
+            "value": "ดูแพ็กเกจ…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Faturalandırmayı Yönet…"
+            "value": "Planları Gör…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Керувати оплатою…"
+            "value": "Переглянути тарифи…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quản lý thanh toán…"
+            "value": "Xem các gói…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "管理账单…"
+            "value": "查看套餐…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "管理帳單…"
+            "value": "查看方案…"
           }
         }
       }
@@ -13069,134 +11353,134 @@
         }
       }
     },
-    "plan.upgrade": {
-      "comment": "Button: opens checkout in the browser",
+    "plan.used": {
+      "comment": "Used of the plan limit (snapshots); {used} and {limit} are numbers",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ترقية الخطة…"
+            "value": "{used} من {limit}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nadogradi plan…"
+            "value": "{used} od {limit}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Opgrader abonnement…"
+            "value": "{used} af {limit}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tarif upgraden …"
+            "value": "{used} von {limit}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upgrade Plan…"
+            "value": "{used} of {limit}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mejorar plan…"
+            "value": "{used} de {limit}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Changer de forfait…"
+            "value": "{used} sur {limit}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiorna piano…"
+            "value": "{used} di {limit}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プランをアップグレード…"
+            "value": "{limit} 中 {used}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំឡើងគម្រោង…"
+            "value": "{used} ក្នុងចំណោម {limit}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "요금제 업그레이드…"
+            "value": "{limit}개 중 {used}개"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oppgrader abonnement …"
+            "value": "{used} av {limit}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zmień plan…"
+            "value": "{used} z {limit}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fazer upgrade do plano…"
+            "value": "{used} de {limit}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Повысить тариф…"
+            "value": "{used} из {limit}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อัปเกรดแพ็กเกจ…"
+            "value": "{used} จาก {limit}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Planı Yükselt…"
+            "value": "{limit} içinden {used}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Підвищити тариф…"
+            "value": "{used} з {limit}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nâng cấp gói…"
+            "value": "{used} / {limit}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "升级套餐…"
+            "value": "{used}/{limit}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "升級方案…"
+            "value": "{used}/{limit}"
           }
         }
       }
@@ -14521,930 +12805,6 @@
         }
       }
     },
-    "publications.access": {
-      "comment": "Label: who can open a published port",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الوصول"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pristup"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adgang"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zugriff"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Access"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Acceso"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Accès"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Accesso"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクセス"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចូលប្រើ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "액세스"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilgang"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dostęp"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Acesso"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Доступ"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเข้าถึง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erişim"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Доступ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quyền truy cập"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "访问权限"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "存取權限"
-          }
-        }
-      }
-    },
-    "publications.accessPersonal": {
-      "comment": "Access mode: only the signed-in user",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أنا فقط"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Samo ja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kun mig"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nur ich"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Only me"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Solo yo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Moi uniquement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Solo io"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自分のみ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "តែខ្ញុំ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "나만"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bare meg"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tylko ja"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Somente eu"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Только я"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เฉพาะฉัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yalnızca ben"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Лише я"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chỉ mình tôi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "仅自己"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "僅自己"
-          }
-        }
-      }
-    },
-    "publications.accessPublic": {
-      "comment": "Access mode: anyone on the internet",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أي شخص (عام)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Svi (javno)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alle (offentlig)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alle (öffentlich)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anyone (public)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cualquiera (público)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tout le monde (public)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiunque (pubblico)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "誰でも（公開）"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អ្នកណាក៏បាន (សាធារណៈ)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "누구나(공개)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alle (offentlig)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Każdy (publiczny)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Qualquer pessoa (público)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Все (публично)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ทุกคน (สาธารณะ)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Herkes (herkese açık)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Усі (публічно)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bất kỳ ai (công khai)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "任何人（公开）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "任何人（公開）"
-          }
-        }
-      }
-    },
-    "publications.accessTeam": {
-      "comment": "Access mode: the team",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الفريق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tim"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Team"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Team"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Team"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Equipo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Équipe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Team"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チーム"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ក្រុម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "팀"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Team"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zespół"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Equipe"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Команда"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ทีม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekip"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Команда"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhóm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "团队"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "團隊"
-          }
-        }
-      }
-    },
-    "publications.add": {
-      "comment": "Button: publish a port",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نشر"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Objavi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udgiv"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Veröffentlichen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Publish"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publicar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publier"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pubblica"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公開"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បោះពុម្ពផ្សាយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "게시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publiser"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opublikuj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Publicar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Опубликовать"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เผยแพร่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yayınla"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Опублікувати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xuất bản"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "发布"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "發佈"
-          }
-        }
-      }
-    },
-    "publications.empty": {
-      "comment": "Empty section",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد منافذ منشورة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nema objavljenih portova"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen udgivne porte"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine veröffentlichten Ports"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No published ports"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No hay puertos publicados"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun port publié"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuna porta pubblicata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公開ポートはありません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានច្រកដែលបានផ្សាយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "게시된 포트 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen publiserte porter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak opublikowanych portów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhuma porta publicada"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет опубликованных портов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีพอร์ตที่เผยแพร่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yayımlanan bağlantı noktası yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає опублікованих портів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không có cổng đã công bố"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "没有已发布端口"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有已發布連接埠"
-          }
-        }
-      }
-    },
-    "publications.port": {
-      "comment": "Port number label and placeholder",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المنفذ"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Port"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Port"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Port"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Port"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Puerto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Port"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Porta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ポート"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ច្រក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "포트"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Port"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Port"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Porta"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Порт"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "พอร์ต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bağlantı noktası"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Порт"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cổng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "端口"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "連接埠"
-          }
-        }
-      }
-    },
     "size.spec": {
       "comment": "Size line; {cpu} is a number, {memory} and {storage} are sizes like 4 GB",
       "extractionState": "manual",
@@ -15973,1058 +13333,134 @@
         }
       }
     },
-    "state.active": {
-      "comment": "State: live",
+    "status.deleting": {
+      "comment": "Machine status: the machine is being deleted",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مباشر"
+            "value": "جارٍ الحذف"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktivno"
+            "value": "Briše se"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktiv"
+            "value": "Slettes"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktiv"
+            "value": "Wird gelöscht"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live"
+            "value": "Deleting"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activo"
+            "value": "Eliminando"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Actif"
+            "value": "Suppression"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attivo"
+            "value": "Eliminazione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "稼働中"
+            "value": "削除しています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងដំណើរការ"
+            "value": "កំពុងលុប"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "활성"
+            "value": "삭제하는 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktiv"
+            "value": "Slettes"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktywne"
+            "value": "Usuwanie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ativo"
+            "value": "Excluindo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Активно"
+            "value": "Удаляется"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้งานอยู่"
+            "value": "กำลังลบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Etkin"
+            "value": "Siliniyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Активно"
+            "value": "Видаляється"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang hoạt động"
+            "value": "Đang xóa"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已生效"
+            "value": "正在删除"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已生效"
-          }
-        }
-      }
-    },
-    "state.missing": {
-      "comment": "State: missing",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مفقود"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nedostaje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mangler"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fehlt"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Missing"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Falta"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Manquant"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mancante"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "なし"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បាត់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mangler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ausente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отсутствует"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มี"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eksik"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відсутній"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thiếu"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "缺失"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "缺少"
-          }
-        }
-      }
-    },
-    "state.notRequired": {
-      "comment": "State: no check needed",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "غير مطلوب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije potrebno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikke påkrævet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nicht erforderlich"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not required"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No requerido"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Non requis"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Non richiesto"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不要"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនតម្រូវ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "필요 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikke påkrevd"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Niewymagane"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não necessário"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не требуется"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่จำเป็น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gerekmiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не потрібно"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không cần"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无需"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無需"
-          }
-        }
-      }
-    },
-    "stats.asleep": {
-      "comment": "Shown when the machine is not running",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يظهر استخدام الموارد أثناء تشغيل الجهاز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Upotreba resursa se prikazuje dok mašina radi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ressourceforbrug vises, mens maskinen kører."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Ressourcennutzung wird angezeigt, während die Maschine läuft."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resource use shows while the machine runs."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El uso de recursos se muestra mientras la máquina está en ejecución."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’utilisation des ressources s’affiche pendant que la machine fonctionne."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’uso delle risorse viene mostrato mentre la macchina è in esecuzione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンの実行中にリソース使用量が表示されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការប្រើប្រាស់ធនធានបង្ហាញពេលម៉ាស៊ីនកំពុងដំណើរការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "머신이 실행 중일 때 리소스 사용량이 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ressursbruk vises mens maskinen kjører."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Użycie zasobów jest widoczne, gdy maszyna działa."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O uso de recursos aparece enquanto a máquina está em execução."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Использование ресурсов отображается, пока машина работает."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การใช้ทรัพยากรจะแสดงขณะเครื่องทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kaynak kullanımı makine çalışırken gösterilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Використання ресурсів показується, поки машина працює."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mức dùng tài nguyên hiển thị khi máy đang chạy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "机器运行时显示资源使用情况。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "機器執行時會顯示資源使用情況。"
-          }
-        }
-      }
-    },
-    "stats.cpu": {
-      "comment": "Meter label",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المعالج"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CPU"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CPU"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ЦП"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ЦП"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "CPU"
-          }
-        }
-      }
-    },
-    "stats.disk": {
-      "comment": "Meter label",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "القرص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disk"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disk"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Festplatte"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disk"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disco"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disque"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disco"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディスク"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ថាស"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "디스크"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dysk"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disco"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Диск"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ดิสก์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Disk"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Диск"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ổ đĩa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "磁盘"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "磁碟"
-          }
-        }
-      }
-    },
-    "stats.memory": {
-      "comment": "Meter label",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الذاكرة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Memorija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hukommelse"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Speicher"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Memory"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Memoria"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mémoire"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Memoria"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メモリ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អង្គចងចាំ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "메모리"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Minne"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pamięć"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Memória"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Память"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "หน่วยความจำ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bellek"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пам’ять"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bộ nhớ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "内存"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "記憶體"
-          }
-        }
-      }
-    },
-    "status.destroyed": {
-      "comment": "Machine status",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محذوف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izbrisano"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Slettet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gelöscht"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleted"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eliminada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Supprimée"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eliminata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除済み"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បានលុប"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "삭제됨"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Slettet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usunięta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Excluída"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Удалена"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลบแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Silindi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Видалено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã xóa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已删除"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已刪除"
+            "value": "正在刪除"
           }
         }
       }
@@ -17293,134 +13729,266 @@
         }
       }
     },
-    "status.provisioning": {
-      "comment": "Machine status",
+    "status.pausing": {
+      "comment": "Machine status: the machine is pausing",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "قيد البدء"
+            "value": "جارٍ الإيقاف المؤقت"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokreće se"
+            "value": "Pauzira se"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Starter"
+            "value": "Sættes på pause"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wird gestartet"
+            "value": "Wird pausiert"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starting"
+            "value": "Pausing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Iniciando"
+            "value": "Pausando"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Démarrage"
+            "value": "Mise en pause"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avvio"
+            "value": "Sospensione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "起動中"
+            "value": "一時停止しています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងចាប់ផ្តើម"
+            "value": "កំពុងផ្អាក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시작 중"
+            "value": "일시 정지하는 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Starter"
+            "value": "Settes på pause"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uruchamianie"
+            "value": "Wstrzymywanie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Iniciando"
+            "value": "Pausando"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запускается"
+            "value": "Приостанавливается"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กำลังเริ่ม"
+            "value": "กำลังหยุดชั่วคราว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Başlatılıyor"
+            "value": "Duraklatılıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запускається"
+            "value": "Призупиняється"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang khởi động"
+            "value": "Đang tạm dừng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在启动"
+            "value": "正在暂停"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在啟動"
+            "value": "正在暫停"
+          }
+        }
+      }
+    },
+    "status.provisioning": {
+      "comment": "Machine status: a new machine is being set up",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ الإعداد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavlja se"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klargøres"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird eingerichtet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preparando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Préparation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preparazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរៀបចំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "준비 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klargjøres"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przygotowywanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preparando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подготовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเตรียม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hazırlanıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підготовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang thiết lập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在准备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在準備"
           }
         }
       }
@@ -17553,6 +14121,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "執行中"
+          }
+        }
+      }
+    },
+    "status.starting": {
+      "comment": "Machine status: the machine is starting",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قيد البدء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreće se"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្តើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시작 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamianie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускается"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başlatılıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускається"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在啟動"
           }
         }
       }

@@ -16,7 +16,8 @@ enum InputObservationBuilder {
             keyWindow: keyWindow(controllers),
             paletteOpen: context.contains(.paletteOpen),
             activeWindow: services.windows.active?.state.id,
-            context: FocusState.Context(terminal: context.contains(.terminalFocused), browser: context.contains(.browserFocused))
+            context: FocusState.Context(terminal: context.contains(.terminalFocused), browser: context.contains(.browserFocused),
+                                     agent: context.contains(.agentPaneFocused))
         )
     }
 

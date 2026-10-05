@@ -52,6 +52,8 @@ export interface CallMessage {
   op: string;
   params: unknown;
   cap?: string;
+  /** Decision 31: a client-generated operation id; providers echo it on the events the call caused. */
+  opid?: string;
 }
 export interface OkMessage {
   t: "ok";
@@ -80,6 +82,8 @@ export interface EvMessage {
   data: unknown;
   /** True on the first event after the provider dropped events from a full queue. */
   gap?: true;
+  /** Decision 31: the opid of the call that caused this event. */
+  opid?: string;
 }
 export interface UnsubMessage {
   t: "unsub";
@@ -174,6 +178,9 @@ function optionalField<T>(
 
 const isString = (v: unknown): v is string => typeof v === "string";
 const isBoolean = (v: unknown): v is boolean => typeof v === "boolean";
+/** Decision 31: an opid is 1 to 128 characters of [A-Za-z0-9._:-]. */
+const isOpidValue = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(v);
+const OPID_WHAT = "1 to 128 characters of [A-Za-z0-9._:-]";
 
 /** Parses and shape-checks one text message. Throws EnvelopeError for anything malformed. */
 export function decodeEnvelope(text: string): Envelope {
@@ -199,6 +206,8 @@ export function checkEnvelope(raw: unknown): Envelope {
       };
       const cap = optionalField(raw, "cap", isString, "a string");
       if (cap !== undefined) msg.cap = cap;
+      const opid = optionalField(raw, "opid", isOpidValue, OPID_WHAT);
+      if (opid !== undefined) msg.opid = opid;
       return msg;
     }
     case "ok":
@@ -240,6 +249,8 @@ export function checkEnvelope(raw: unknown): Envelope {
       };
       // Decision 15: the provider dropped events before this one. Omitted when false.
       if (optionalField(raw, "gap", isBoolean, "a boolean")) msg.gap = true;
+      const opid = optionalField(raw, "opid", isOpidValue, OPID_WHAT);
+      if (opid !== undefined) msg.opid = opid;
       return msg;
     }
     case "unsub":

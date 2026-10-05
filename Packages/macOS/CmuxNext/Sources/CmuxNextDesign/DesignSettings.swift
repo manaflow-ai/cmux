@@ -12,6 +12,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case columnGap
     case panelCornerRadius
     case chromeFontSize
+    /// The unified titlebar height (cmux-browser's header height reads the same key).
+    case titlebarHeight
 }
 
 /// Live, user-configurable design settings. The App fills this from
@@ -34,7 +36,7 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .auto
-    /// `sidebar.*`: section look and sticky band caps.
+    /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
@@ -44,9 +46,9 @@ public final class DesignSettings {
     public var newColumnWidth: NewColumnWidthMode = .matchCurrent
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
-    /// `layout.stickyColumnEdge`, `layout.stickyColumnMode`.
-    public var stickyColumnEdge: StickyDefaultEdge = .nearest
-    public var stickyColumnMode: StickyDefaultMode = .docked
+    /// `layout.dockColumnEdge`, `layout.dockColumnMode`.
+    public var dockColumnEdge: DockDefaultEdge = .nearest
+    public var dockColumnMode: DockDefaultMode = .docked
     /// `layout.frameOrientation`: column-major (side docks full height) or
     /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.
     public var frameOrientation: FrameOrientation = .columnMajor
@@ -58,6 +60,8 @@ public final class DesignSettings {
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
+    /// `sidebar.border` and `sidebar.borderWidth`.
+    public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
     /// `appearance.statusIndicator.*`: loading and status indicators on
@@ -85,6 +89,18 @@ public final class DesignSettings {
     public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
+    /// `window.titlebarButtons`.
+    public var titlebarButtons: TitlebarButtonsMode = .hover
+    /// `tabs.plusButton`.
+    public var plusButton: PlusButtonMode = .hover
+    /// `sidebar.side` (R109).
+    public var sidebarSide: SidebarSide = .left
+    /// `sidebar.spacesPosition` (R109).
+    public var spacesPosition: SpacesPosition = .bottom
+    /// `tabs.barPosition` (R109).
+    public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
 
     public init() {}
 
@@ -112,6 +128,7 @@ public final class DesignSettings {
         case .columnGap: 0...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .titlebarHeight: 24...56
         }
     }
 }

@@ -1,15 +1,15 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
-/// Resize handle on a column's trailing edge (columns mode). A sticky
+/// Resize handle on a column's trailing edge (columns mode). A docked
 /// column's handle is on its inner edge: the leading edge of a right-edge
 /// column, which grows to the left.
 public nonisolated struct ColumnEdgeGeometry: Hashable, Sendable {
     public var column: ColumnID
     public var columnFrame: CGRect
     public var hitFrame: CGRect
-    /// Set for a sticky column's handle (view coordinates, fixed).
-    public var stickyEdge: StickyEdge? = nil
+    /// Set for a docked column's handle (view coordinates, fixed).
+    public var dockEdge: DockEdge? = nil
     /// Horizontal for a column edge; vertical for a top or bottom dock's
     /// inner edge (a horizontal line dragged up and down).
     public var axis: SplitAxis = .horizontal
@@ -24,8 +24,8 @@ public nonisolated struct ColumnGapZone: Hashable, Sendable {
 
 /// All frames for one screen, in content space (top-left origin; in columns
 /// mode, x runs over the full scrollable strip, starting at the strip's own
-/// origin `stripMinX`). Sticky columns, their panes and dividers are in view
-/// coordinates and never scroll (`fixedPanes`, `fixedSplits`, `sticky`).
+/// origin `stripMinX`). Docked columns, their panes and dividers are in view
+/// coordinates and never scroll (`fixedPanes`, `fixedSplits`, `dock`).
 public nonisolated struct ScreenGeometry: Hashable, Sendable {
     public var viewport: CGSize
     public var panes: [PaneID: CGRect] = [:]
@@ -38,7 +38,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     public var snapOffsets: [CGFloat] = [0]
     public var isColumns: Bool
     /// The strip's origin and viewport width in view coordinates. Without a
-    /// docked sticky column they are 0 and the viewport width.
+    /// docked docked column they are 0 and the viewport width.
     public var stripMinX: CGFloat = 0
     public var stripWidth: CGFloat = 0
     /// The strip's vertical range in view coordinates: top and bottom docks
@@ -55,8 +55,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     public var clipMaxX: CGFloat = 0
     public var clipMinY: CGFloat = 0
     public var clipMaxY: CGFloat = 0
-    /// Sticky columns at their edges, and what of them never scrolls.
-    public var sticky: [StickyColumnFrame] = []
+    /// Docked columns at their edges, and what of them never scrolls.
+    public var dock: [DockColumnFrame] = []
     public var fixedPanes: Set<PaneID> = []
     /// The orientation the docks were placed with; stacking reads it (F4).
     public var frameOrientation: FrameOrientation = .columnMajor
@@ -84,10 +84,10 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                 return prototype
             }
             let gap = style.stripGap
-            let parts = StickyStripGeometry.docks(all)
+            let parts = DockStripGeometry.docks(all)
             func minimum(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).width }
             func minimumHeight(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).height }
-            let placement = StickyStripGeometry.place(
+            let placement = DockStripGeometry.place(
                 left: parts.left.map { ($0, minimum($0)) }, right: parts.right.map { ($0, minimum($0)) },
                 top: parts.top.map { ($0, minimumHeight($0)) }, bottom: parts.bottom.map { ($0, minimumHeight($0)) },
                 viewport: viewport, gap: gap, orientation: style.frameOrientation, scale: scale
@@ -106,7 +106,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
                                           uncoveredMinX: placement.uncoveredMinX, uncoveredMaxX: placement.uncoveredMaxX,
                                           uncoveredMinY: placement.uncoveredMinY, uncoveredMaxY: placement.uncoveredMaxY,
                                           clipMinX: placement.clipMinX, clipMaxX: placement.clipMaxX,
-                                          clipMinY: placement.clipMinY, clipMaxY: placement.clipMaxY, sticky: placement.sticky)
+                                          clipMinY: placement.clipMinY, clipMaxY: placement.clipMaxY, dock: placement.dock)
             geometry.frameOrientation = style.frameOrientation
             let stripY = placement.stripMinY, stripH = placement.stripHeight
             let edgeHit = style.columnEdgeHitThickness
@@ -129,9 +129,9 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             }
             geometry.snapOffsets = ColumnStripGeometry.snapOffsets(frames: strip.frames, contentWidth: strip.contentWidth,
                                                                    viewportWidth: placement.stripWidth, gap: gap)
-            for entry in placement.sticky {
+            for entry in placement.dock {
                 guard let column = all.first(where: { $0.id == entry.column }) else { continue }
-                geometry.addSticky(column, frame: entry, style: style, scale: scale)
+                geometry.addDock(column, frame: entry, style: style, scale: scale)
             }
             return geometry
         }
@@ -141,10 +141,10 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         ColumnStripGeometry.maxOffset(contentWidth: contentWidth, viewportWidth: stripWidth)
     }
 
-    /// Lays out a sticky column's split tree at its fixed frame, with its
+    /// Lays out a docked column's split tree at its fixed frame, with its
     /// resize handle on the inner edge.
-    private mutating func addSticky(_ column: LayoutColumn, frame entry: StickyColumnFrame, style: LayoutStyle, scale: CGFloat) {
-        // G5: a sticky column holds rows like any column.
+    private mutating func addDock(_ column: LayoutColumn, frame entry: DockColumnFrame, style: LayoutStyle, scale: CGFloat) {
+        // G5: a docked column holds rows like any column.
         let result = layoutContent(of: column, in: entry.frame, style: style, scale: scale)
         columns[column.id] = entry.frame
         panes.merge(result.panes) { _, new in new }
@@ -154,22 +154,22 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         let edgeHit = style.columnEdgeHitThickness
         // A top or bottom dock's handle is a horizontal line on its inner
         // edge, dragged up and down (layout-model.md, dock resize).
-        if entry.sticky.edge.isBand {
-            let y = entry.sticky.edge == .top ? entry.frame.maxY - edgeHit + 1 : entry.frame.minY - 1
+        if entry.dock.edge.isBand {
+            let y = entry.dock.edge == .top ? entry.frame.maxY - edgeHit + 1 : entry.frame.minY - 1
             columnEdges.append(ColumnEdgeGeometry(
                 column: column.id, columnFrame: entry.frame,
                 hitFrame: CGRect(x: entry.frame.minX, y: y, width: entry.frame.width, height: edgeHit),
-                stickyEdge: entry.sticky.edge, axis: .vertical
+                dockEdge: entry.dock.edge, axis: .vertical
             ))
             return
         }
         // The handle sits on the column's own inner edge, so the gap beside
         // it stays with the neighboring strip column's handle (both resize).
-        let x = entry.sticky.edge == .left ? entry.frame.maxX - edgeHit + 1 : entry.frame.minX - 1
+        let x = entry.dock.edge == .left ? entry.frame.maxX - edgeHit + 1 : entry.frame.minX - 1
         columnEdges.append(ColumnEdgeGeometry(
             column: column.id, columnFrame: entry.frame,
             hitFrame: CGRect(x: x, y: entry.frame.minY, width: edgeHit, height: entry.frame.height),
-            stickyEdge: entry.sticky.edge
+            dockEdge: entry.dock.edge
         ))
     }
 
@@ -229,10 +229,10 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
     /// The view x of strip content x at scroll `offset`.
     public func viewShift(offset: CGFloat) -> CGFloat { stripMinX - offset }
 
-    /// The sticky column holding `pane`, if any.
-    public func stickyFrame(containing pane: PaneID) -> StickyColumnFrame? {
+    /// The docked column holding `pane`, if any.
+    public func dockFrame(containing pane: PaneID) -> DockColumnFrame? {
         guard fixedPanes.contains(pane), let rect = panes[pane] else { return nil }
-        return sticky.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
+        return dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 
     /// Column frames in column order.

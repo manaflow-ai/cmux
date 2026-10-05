@@ -172,6 +172,32 @@
    }
   },
   {
+   "name": "create group: a paired device never joins a cloud head",
+   "create": {
+    "id": "conv_01J00000000000000000GROUP",
+    "actor": "user_alice",
+    "title": "Team",
+    "now": "2026-10-01T12:00:00.000Z",
+    "kind": "group",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice",
+      "person": "user_alice"
+     }
+    ]
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
    "name": "create group: custom settings",
    "create": {
     "id": "conv_01J00000000000000000GROUP",
@@ -686,6 +712,103 @@
       }
      }
     }
+   }
+  },
+  {
+   "name": "send: a cloud head refuses a paired-device mention",
+   "head": {
+    "id": "conv_GROUP",
+    "title": "Team",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0,
+    "kind": "group",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 4,
+      "gap_ms": 2000
+     },
+     "history_visible": "all"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_bob",
+    "idempotency_key": "m1d",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "m1d",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi",
+       "runs": [
+        {
+         "start": 0,
+         "length": 2,
+         "mention": "remote_inst_1"
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_GROUP",
+     "seq": 1,
+     "client_msg_id": "m1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hello"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
    }
   },
   {

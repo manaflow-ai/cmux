@@ -13,6 +13,8 @@ public struct TabItemMapping {
     /// record titled with the blank page's address: it shows `fallbackTitle`
     /// (the conversation's) and this symbol.
     public static let conversationSymbol = "bubble.left.and.bubble.right"
+    /// An agent chat tab (a conversation tab on an acpmux session, `agent-session-tabs-v1`).
+    public static let agentChatSymbol = "bubble.left.and.text.bubble.right"
 
     public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
         let isBrowser = tab.kind == .browser
@@ -38,7 +40,7 @@ public struct TabItemMapping {
     /// A live agent terminal wears its agent's brand mark (design/agent-icons); other
     /// terminals, and agents without a mark, keep the terminal symbol.
     func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool) -> TabIcon {
-        if isConversation { return .symbol(Self.conversationSymbol) }
+        if isConversation { return .symbol(tab.agentSession == nil ? Self.conversationSymbol : Self.agentChatSymbol) }
         if isBrowser { return .symbol("globe") }
         if tab.dead { return .symbol("xmark.octagon") }
         if let brand = AgentBrandCatalog.brand(for: tab.agent?.agent) { return .agentMark(brand.rawValue) }

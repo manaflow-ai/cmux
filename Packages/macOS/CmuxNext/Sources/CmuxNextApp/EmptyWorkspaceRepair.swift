@@ -225,7 +225,8 @@ final class EmptyWorkspaceRepair {
     /// Marks `key` as being populated by this app for the duration of
     /// `body` (create-workspace then create-terminal). On success the
     /// workspace stays owned until the store shows its pane, because
-    /// `body` returns with the create-terminal reply, before the delta.
+    /// `body` returns with the create-terminal reply, before the delta. On
+    /// failure the workspace is never repaired (its creator closes it).
     func populating<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async rethrows -> T {
         if case .populating(let count) = states[key] { states[key] = .populating(count + 1) } else { states[key] = .populating(1) }
         do {
@@ -243,7 +244,10 @@ final class EmptyWorkspaceRepair {
         if count > 1 {
             states[key] = .populating(count - 1)
         } else {
-            states[key] = succeeded ? .awaitingPane : nil
+            // A failed create was closed again by its creator
+            // (`WorkspaceCreation`): it is empty on purpose and never
+            // repaired. The state goes when the workspace is gone.
+            states[key] = succeeded ? .awaitingPane : .closing
         }
     }
 }

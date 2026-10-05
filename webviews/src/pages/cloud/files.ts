@@ -4,27 +4,29 @@
 // read. Make folder and save are ops with an idempotency key. Remove deletes data and push and pull
 // reach files of this Mac, so the page never calls them: the host runs them after its native
 // confirmation or file panel (`cmux.app.action.run`) and adds the local path the person picked.
-// A push or pull answers at once with a running transfer (transfers.ts); its end is an event. A
-// bare 404 means the Cloud API has no file routes yet: the section shows "Not available yet" and keeps
-// no rows. A reply for another machine than the selected one is dropped.
+// A push or pull answers at once with a running transfer (transfers.ts); its end is an event. Files
+// are daemon ops on the machine's link behind the `fs-v1` capability: a machine whose daemon lacks it
+// answers `cmux.cloud.unsupported`, and the section shows "Not available yet" for that machine only
+// and keeps no rows. A reply for another machine than the selected one is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import type { MachineDetail } from "./detail";
 import {
   ACTION_RUN,
+  CloudErrors,
   CloudOps,
-  TRANSFER_BUSY,
   isGone,
-  isNotServed,
+  isUnsupported,
   type ActionRunResult,
   type FsEntry,
   type FsListResult,
   type FsReadResult,
+  type FsWriteResult,
   type TransferActionResult,
   type TransferChanged,
 } from "./ops";
 import type { TransferWatch } from "./transfers";
 
-/** Where Browse starts: the home of user `cmux`, the user the Cloud API names for the machine. */
+/** Where Browse starts: the home of user `cmux` on a cmux Cloud machine. */
 export const FILES_HOME = "/home/cmux";
 
 /** The largest file the page reads for a preview. Larger files show their size only. */
@@ -41,6 +43,8 @@ export interface FilePreview {
   binary?: boolean;
   /** The owner gave no size (a symlink, for example): not read. */
   unread?: boolean;
+  /** The daemon's revision from `fs.stat`: a save replaces only this revision (`baseRevision`). */
+  revision?: string;
 }
 
 export interface FilesView {
@@ -50,6 +54,8 @@ export interface FilesView {
   preview?: FilePreview;
   /** The last push or pull was refused as busy (`transfer_busy`); Retry runs it again. */
   busy?: { direction: "push" | "pull"; path: string };
+  /** This machine's daemon has no file ops yet (`cmux.cloud.unsupported`, capability `fs-v1`). */
+  unavailable?: boolean;
 }
 
 export interface FilesHost {
@@ -94,6 +100,11 @@ function encodeText(text: string): string {
   return btoa(binary);
 }
 
+/** `cmux.cloud.unsupported` from a file op: the machine's daemon has no `fs-v1` (server link_files.rs). */
+function daemonLacksFiles(error: unknown): boolean {
+  return isPageError(error) && error.code === CloudErrors.unsupported;
+}
+
 export class FilesReader {
   /** Bumped by each listing and each preview: an older reply is dropped. */
   private generation = 0;
@@ -117,13 +128,13 @@ export class FilesReader {
     try {
       const result = await this.client!.call<FsListResult>(CloudOps.fsList, { machine, path });
       if (generation !== this.generation || epoch !== this.host.epoch()) return;
-      this.update(machine, { path: result.path ?? path, entries: result.entries, loading: false });
+      this.update(machine, { path: result.path ?? path, entries: result.entries ?? [], loading: false });
     } catch (error) {
       if (generation !== this.generation || epoch !== this.host.epoch()) return;
-      // A missing route keeps no rows: the section shows "Not available yet", never a stale folder.
-      const entries = isNotServed(CloudOps.fsList, error) ? [] : (kept ?? []);
-      this.update(machine, { path, entries, loading: false });
-      this.reject(machine, CloudOps.fsList, error);
+      // A daemon without file ops keeps no rows: "Not available yet", never a stale folder.
+      const unavailable = daemonLacksFiles(error);
+      this.update(machine, { path, entries: unavailable ? [] : (kept ?? []), loading: false, unavailable });
+      if (!unavailable) this.reject(machine, CloudOps.fsList, error);
     }
   }
 
@@ -147,6 +158,7 @@ export class FilesReader {
       // No size (a symlink states the link): reading could move up to the server's 16 MiB.
       if (stat.size == null || stat.kind !== "file") return this.showPreview(machine, { path, size: 0, unread: true });
       if (stat.size > PREVIEW_LIMIT) return this.showPreview(machine, { path, size: stat.size, tooLarge: true });
+      const revision = stat.revision ? { revision: stat.revision } : {};
       op = CloudOps.fsRead;
       const read = await this.client!.call<FsReadResult>(CloudOps.fsRead, { machine, path });
       if (!current()) return;
@@ -154,7 +166,7 @@ export class FilesReader {
       const text = decodeText(read.dataBase64);
       this.showPreview(
         machine,
-        text === undefined ? { path, size: read.size, binary: true } : { path, size: read.size, text },
+        text === undefined ? { path, size: read.size, binary: true } : { path, size: read.size, text, ...revision },
       );
     } catch (error) {
       if (current()) this.reject(machine, op, error);
@@ -166,19 +178,27 @@ export class FilesReader {
     if (detail?.files?.preview) this.host.set({ ...detail, files: { ...detail.files, preview: undefined } });
   }
 
-  /** Writes the whole file (`fs.write`), then shows the saved text. Answers false when nothing was written. */
+  /**
+   * Writes the whole file (`fs.write`), then shows the saved text. A file read for the preview is
+   * replaced only at the revision it was read at (`baseRevision`): a file changed meanwhile answers a
+   * conflict and the editor keeps the text. Answers false when nothing was written.
+   */
   async save(path: string, text: string): Promise<boolean> {
     const machine = this.machine();
     if (!machine || !this.host.canChange()) return false;
     const dataBase64 = encodeText(text);
+    const preview = this.host.get()?.files?.preview;
+    const baseRevision = preview?.path === path ? preview.revision : undefined;
     try {
-      const result = await this.client!.call<{ size: number }>(CloudOps.fsWrite, {
+      const result = await this.client!.call<FsWriteResult>(CloudOps.fsWrite, {
         machine,
         path,
         dataBase64,
+        ...(baseRevision ? { baseRevision } : {}),
         idempotency_key: this.host.key(),
       });
-      this.showPreview(machine, { path, size: result?.size ?? new TextEncoder().encode(text).length, text });
+      const saved = result?.revision ? { revision: result.revision } : {};
+      this.showPreview(machine, { path, size: result?.size ?? new TextEncoder().encode(text).length, text, ...saved });
       await this.refresh(machine);
       return true;
     } catch (error) {
@@ -268,7 +288,7 @@ export class FilesReader {
       else if (direction === "push") await this.refresh(machine);
     } catch (error) {
       // Nothing ran: more than 4 transfers are running. The person may try again.
-      if (isPageError(error) && error.code === TRANSFER_BUSY) this.setBusy(machine, { direction, path });
+      if (isPageError(error) && error.code === CloudErrors.transferBusy) this.setBusy(machine, { direction, path });
       else this.reject(machine, action, error);
     } finally {
       this.transfers.end(session);
@@ -295,8 +315,8 @@ export class FilesReader {
       });
       return result?.confirmed !== false;
     } catch (error) {
-      // Already gone (the kind's own 404): the outcome the person asked for.
-      if (isGone(action, error)) return true;
+      // Already gone (`cmux.cloud.not_found`): the outcome the person asked for.
+      if (isGone(error)) return true;
       this.reject(machine, action, error);
       return false;
     }
@@ -319,12 +339,21 @@ export class FilesReader {
     if (detail?.machine !== machine) return;
     // A busy refusal is about the folder it was in: another folder drops it.
     const busy = detail.files?.path === view.path ? detail.files?.busy : undefined;
-    this.host.set({ ...detail, files: { ...view, preview: detail.files?.preview, busy } });
+    const files: FilesView = { ...view, preview: detail.files?.preview, busy };
+    if (!files.unavailable) delete files.unavailable;
+    this.host.set({ ...detail, files });
   }
 
   private reject(machine: string, op: string, error: unknown): void {
-    if (this.host.get()?.machine !== machine) return;
-    if (isNotServed(op, error)) this.host.unsupported(op);
+    const detail = this.host.get();
+    if (detail?.machine !== machine) return;
+    // The server's `unsupported` names the machine's daemon (no `fs-v1`): only this machine's files
+    // are not available. Another machine's daemon may have file ops.
+    if (daemonLacksFiles(error)) {
+      if (detail.files) this.host.set({ ...detail, files: { ...detail.files, entries: [], unavailable: true } });
+      return;
+    }
+    if (isUnsupported(error)) this.host.unsupported(op);
     else this.host.fail(error);
   }
 }

@@ -28,11 +28,15 @@ export const memberOf = (s: LegacyTeamMaps, rows: RowReader | undefined, user: s
 
 export const roleOf = (s: LegacyTeamMaps, rows: RowReader | undefined, user: string | undefined) => memberOf(s, rows, user)?.role
 
+/** Targets one reach check resolves at most (the group size cap, section 4.1); a longer list gets no answer. */
+export const HOME_REACH_MAX_TARGETS = 64
+
 /**
  * Home reach (home-messaging.md section 16.7, home-reach.ts): which of `targets` share this team
  * with `adder`, with their directory names. Only owner, admin and member roles may add people.
  */
 export const homeCoMembersOf = (s: LegacyTeamMaps, rows: RowReader | undefined, adder: string, targets: ReadonlyArray<string>): Array<{ user: string; display_name: string }> => {
+  if (!Array.isArray(targets) || targets.length > HOME_REACH_MAX_TARGETS) return []
   if (!["owner", "admin", "member"].includes(roleOf(s, rows, adder) ?? "")) return []
   return targets.flatMap((user) => {
     const member = user === adder ? undefined : memberOf(s, rows, user)

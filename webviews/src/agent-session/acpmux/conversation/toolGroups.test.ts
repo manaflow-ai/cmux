@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { translatorFor } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { toolDuration, toolGroupLabel, toolGroups } from "./toolGroups";
+
+const english = translatorFor("en");
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 let next = 0;
@@ -47,22 +50,28 @@ describe("tool groups", () => {
   });
 
   test("labels count commands, distinct files and edited files", () => {
-    expect(toolGroupLabel("commands", [command("a"), command("b"), command("c")])).toBe("Ran 3 commands");
-    expect(toolGroupLabel("commands", [command("a"), command("b", { status: "in_progress" })])).toBe(
+    expect(toolGroupLabel(english, "commands", [command("a"), command("b"), command("c")])).toBe("Ran 3 commands");
+    expect(toolGroupLabel(english, "commands", [command("a"), command("b", { status: "in_progress" })])).toBe(
       "Running 2 commands",
     );
-    expect(toolGroupLabel("reads", [read("a.ts"), read("a.ts"), read("b.ts")])).toBe("Read 2 files");
-    expect(toolGroupLabel("reads", [read("a.ts")])).toBe("Read 1 file");
-    expect(toolGroupLabel("edits", [edited("/repo/src/App.tsx")], ["/repo/src/App.tsx"])).toBe("Edited App.tsx");
-    expect(toolGroupLabel("edits", [edited("a.ts"), edited("b.ts")], ["a.ts", "b.ts"])).toBe("Edited 2 files");
-    expect(toolGroupLabel("searches", [call({ kind: "search" }), call({ kind: "search" })])).toBe("Ran 2 searches");
+    expect(toolGroupLabel(english, "reads", [read("a.ts"), read("a.ts"), read("b.ts")])).toBe("Read 2 files");
+    expect(toolGroupLabel(english, "reads", [read("a.ts")])).toBe("Read 1 file");
+    expect(toolGroupLabel(english, "edits", [edited("/repo/src/App.tsx")], ["/repo/src/App.tsx"])).toBe(
+      "Edited App.tsx",
+    );
+    expect(toolGroupLabel(english, "edits", [edited("a.ts"), edited("b.ts")], ["a.ts", "b.ts"])).toBe("Edited 2 files");
+    expect(toolGroupLabel(english, "searches", [call({ kind: "search" }), call({ kind: "search" })])).toBe(
+      "Ran 2 searches",
+    );
   });
 
   test("durations read in ms, seconds, then minutes", () => {
-    expect(toolDuration({ id: "", title: "", status: "completed", startedAt: 0, endedAt: 840 })).toBe("840ms");
-    expect(toolDuration({ id: "", title: "", status: "completed", startedAt: 0, endedAt: 4210 })).toBe("4.2s");
-    expect(toolDuration({ id: "", title: "", status: "completed", startedAt: 0, endedAt: 125_000 })).toBe("2m 5s");
-    expect(toolDuration({ id: "", title: "", status: "in_progress", startedAt: 0 })).toBeUndefined();
+    expect(toolDuration(english, { id: "", title: "", status: "completed", startedAt: 0, endedAt: 840 })).toBe("840ms");
+    expect(toolDuration(english, { id: "", title: "", status: "completed", startedAt: 0, endedAt: 4210 })).toBe("4.2s");
+    expect(toolDuration(english, { id: "", title: "", status: "completed", startedAt: 0, endedAt: 125_000 })).toBe(
+      "2m 5s",
+    );
+    expect(toolDuration(english, { id: "", title: "", status: "in_progress", startedAt: 0 })).toBeUndefined();
   });
 });
 
@@ -76,6 +85,6 @@ describe("edit groups", () => {
     const removed = call({ kind: "delete", title: "Delete old.ts" });
     const groups = toolGroups([edit, removed]);
     expect(groups).toHaveLength(1);
-    expect(toolGroupLabel("edits", [edit, removed], ["src/App.tsx"])).toBe("Edited 2 files");
+    expect(toolGroupLabel(english, "edits", [edit, removed], ["src/App.tsx"])).toBe("Edited 2 files");
   });
 });

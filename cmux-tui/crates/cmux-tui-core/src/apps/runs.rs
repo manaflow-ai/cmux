@@ -23,6 +23,22 @@ pub struct RunRequest {
     /// The client's token for a user invocation (palette, keybinding).
     /// Honored only with origin user; the host gets a supervisor-minted token.
     pub gesture: Option<String>,
+    /// The connection and request id that asked; it may cancel the run.
+    pub caller: Option<Caller>,
+}
+
+/// Who asked for a run: a control connection and its request id.
+pub struct Caller {
+    pub client: u64,
+    pub request: Value,
+}
+
+/// Where a run goes.
+enum Target {
+    /// The app's QuickJS host, with the export that implements the op.
+    Host(HostKey, String),
+    /// The app's server (`servers.rs`).
+    Server,
 }
 
 pub(super) enum RunKey {
@@ -32,26 +48,48 @@ pub(super) enum RunKey {
 
 impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
-        let RunRequest { app, op, args, idempotency_key, origin, gesture } = request;
-        let (app, op) = (app.as_str(), op.as_str());
+        let RunRequest { app, op, args, idempotency_key, origin, gesture, caller } = request;
         let outs = {
             let mut inner = self.inner.lock().unwrap();
-            let respond = match idempotency_key {
+            // Full names (`cmux.cloud.machine.list`) and short names run the
+            // same op and share its idempotency keys.
+            let op = match inner.catalog.packages.get(&app) {
+                Some(package) => package.resolve_op(&op).to_string(),
+                None => op,
+            };
+            let (app, op) = (app.as_str(), op.as_str());
+            let run_key = idempotency_key.as_ref().map(|key| format!("{app}\n{op}\n{key}"));
+            let (op_call, respond) =
+                self.track_run_locked(&mut inner, run_key.as_deref(), caller, respond);
+            let respond = match run_key {
                 None => respond,
-                Some(key) => {
-                    match self.keyed_locked(&mut inner, format!("{app}\n{op}\n{key}"), respond) {
-                        Ok(respond) => respond,
-                        Err(answered) => {
-                            drop(inner);
-                            self.emit(answered.into_iter().collect());
-                            return;
-                        }
+                Some(key) => match self.keyed_locked(&mut inner, key, respond) {
+                    Ok(respond) => respond,
+                    Err(answered) => {
+                        drop(inner);
+                        self.emit(answered.into_iter().collect());
+                        return;
                     }
-                }
+                },
+            };
+            // Only a new op gets here; its answer ends it (`cancel.rs`).
+            let respond = match op_call {
+                Some(call) => self.finish_op(call, respond),
+                None => respond,
             };
             match self.prepare_run(&inner, app, op, origin) {
                 Err(error) => vec![Out::Respond(respond, Err(error))],
-                Ok((key, export)) => {
+                Ok(Target::Server) => self.call_server_locked(
+                    &mut inner,
+                    app,
+                    op,
+                    args,
+                    origin,
+                    idempotency_key,
+                    op_call,
+                    respond,
+                ),
+                Ok(Target::Host(key, export)) => {
                     let gesture = gesture.filter(|_| origin == Origin::User).and_then(|token| {
                         inner.gestures.accept_client(app, &token, Instant::now())
                     });
@@ -119,18 +157,28 @@ impl Supervisor {
         app: &str,
         op: &str,
         origin: Origin,
-    ) -> Result<(HostKey, String), ApiError> {
+    ) -> Result<Target, ApiError> {
         let package = inner
             .catalog
             .packages
             .get(app)
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
-        let export = package
-            .export_for_op(op)
-            .ok_or_else(|| ApiError::new("apps.op.unknown", format!("{app} has no op {op}")))?;
-        if !package.has_runtime() {
-            return Err(ApiError::new("apps.native", format!("{app} has no script to run {op}")));
-        }
+        // A catalog op of an app with a server runs in that server.
+        let server = Self::server_op_locked(inner, app, op);
+        let export = if server {
+            None
+        } else {
+            let export = package
+                .export_for_op(op)
+                .ok_or_else(|| ApiError::new("apps.op.unknown", format!("{app} has no op {op}")))?;
+            if !package.has_runtime() {
+                return Err(ApiError::new(
+                    "apps.native",
+                    format!("{app} has no script to run {op}"),
+                ));
+            }
+            Some(export)
+        };
         let record = inner.mirror.apps.get(app);
         let Some(record) = record.filter(|r| r.installed) else {
             return Err(ApiError::new("apps.notInstalled", "the app is not installed"));
@@ -150,10 +198,14 @@ impl Supervisor {
         if !reachable {
             return Err(ApiError::new("apps.hidden", "the app is hidden from this surface"));
         }
+        let Some(export) = export else {
+            Self::admit_server_op(inner, app, op, origin)?;
+            return Ok(Target::Server);
+        };
         if self.config.host_binary.is_none() {
             return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
         }
-        Ok((HostKey { app: app.to_string(), preview: false }, export))
+        Ok(Target::Host(HostKey { app: app.to_string(), preview: false }, export))
     }
 
     fn start_run_locked(

@@ -30,6 +30,8 @@ import { serverOps } from "./server-ops.ts"
 import { usageOps } from "./usage.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
+import { cloudMachineOps } from "./cloud-machine-ops.ts"
+import { cloudVmOps } from "./cloud-vm-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -70,8 +72,8 @@ export const InstallRegister = def({
     bound_team: Schema.optionalKey(TeamId)
   }),
   result: Install,
-  errors: mutationErrors,
-  docs: "Register an install's public key under the signed-in user; returns the install with its default grant.",
+  errors: [...mutationErrors, "install.kind_reserved"],
+  docs: "Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind).",
   cli: { path: "install register", visible: true },
   mcp: { expose: "never", group: "account" }
 })
@@ -242,6 +244,8 @@ export const cloudOps = [
   ...serverOps,
   ...teamVmOps,
   ...teamSshOps,
+  ...cloudMachineOps,
+  ...cloudVmOps,
   ...homeOps
 ] as const
 

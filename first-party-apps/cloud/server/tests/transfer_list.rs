@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::channel;
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha", "scp-endpoint"];
+const FIXTURES: &[&str] = &["vm-get", "connect-info-fs"];
 const HOUR_MS: u64 = 60 * 60 * 1000;
 
 /// Time the test sets; its timers never fire.

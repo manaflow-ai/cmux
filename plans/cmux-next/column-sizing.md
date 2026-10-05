@@ -20,10 +20,12 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `layout.newColumnWidth` (matchCurrent default, fitScreen, fixed; a number means fixed at that
   share) through `NewColumnWidth.plan(mode:)`; fixed keeps column-scroll.md W4 (a lone full-width column
   shrinks), the other modes never resize except fitScreen's visible scrolling columns.
-- `layout.stickyColumnEdge` (nearest: Dock Column's nearest-edge rule; or right, left, top,
-  bottom), `layout.stickyColumnMode` (docked); when set they are Dock Column's defaults too, `layout.minimumPaneWidth`
+- `layout.dockColumnEdge` (nearest: Dock Column's nearest-edge rule; or right, left, top,
+  bottom), `layout.dockColumnMode` (docked); when set they are Dock Column's defaults too, `layout.minimumPaneWidth`
   (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;
   `ColumnLayoutSettingsTests` checks each default in the parser, the schema and `DesignSettings`.
+  The pre-R87 keys `layout.stickyColumnEdge` and `layout.stickyColumnMode` (nightly-next only) are
+  read for one release when the dock key is absent; the dock key wins.
 - New Column is Ctrl-Cmd-D (user decision 2026-10-02; no other cmux action has it, macOS's
   text Look Up uses it only in text views). It replaces Cmd-Shift-Opt-N; rebind under
   `shortcuts.bindings.newColumn` in cmux.json or in Settings > Shortcuts. Cmd-Opt-D stays macOS's
@@ -47,8 +49,8 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   column; other columns keep their widths; the viewport keeps the newly focused column visible
   without a jump when possible.
 - `layout.closeFocus`: previous-in-column, else the column to the left (default) | `mostRecent`. Owned by the close-focus work (client view state, not a store op): see close-focus.md.
-- Every default (also minimum pane and column widths, sticky defaults) is a setting in Settings and
-  cmux.json, documented, with a test that the default matches the documented value. Sticky columns
+- Every default (also minimum pane and column widths, docked defaults) is a setting in Settings and
+  cmux.json, documented, with a test that the default matches the documented value. Docked columns
   follow the same rules.
 
 ## Agreed op shapes (ownership lead review)

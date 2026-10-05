@@ -42,9 +42,10 @@ import Testing
         #expect(installing.pillText == UpdaterStrings.installing)
     }
 
-    @Test func aPromptStillShowsAsTheReadyCircle() {
+    /// `updates.downloadAutomatically` off: a found update waits, not downloaded.
+    @Test func aPromptIsAnAvailableUpdateNotAReadyOne() {
         let available = UpdateState.updateAvailable(.init(appcastItem: item, reply: { _ in }))
-        #expect(UpdateIndicatorPhase(available, version: nil) == .ready(version: "0.71.0"))
+        #expect(UpdateIndicatorPhase(available, version: nil) == .available(version: "0.71.0"))
     }
 
     @Test func checkResultsAreNotesNotSheets() {

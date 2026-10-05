@@ -237,3 +237,49 @@ fn an_app_gone_from_the_catalog_can_still_be_uninstalled() {
         Err(Reject::UnknownApp)
     );
 }
+
+#[test]
+fn elevated_scopes_are_never_granted_at_install_and_need_a_user_grant() {
+    // terminal:backend is elevated in scope-classes.json. It is even listed
+    // in `requested` here, which the validator refuses, to prove the reducer
+    // keeps it out on its own.
+    for tier in [Tier::FirstParty, Tier::Verified, Tier::Unverified] {
+        let mut fx = facts(tier, Source::Local);
+        fx.requested.insert("terminal:backend".into());
+        let install = |key: &str| set(key, "local/c", |o| o.installed = Some(true));
+        let m = reduce(&Mirror::default(), &install("1"), Some(&fx)).unwrap().mirror;
+        assert!(!m.apps["local/c"].grants.contains("terminal:backend"), "{tier:?} install");
+        let seeded = reduce(&Mirror::default(), &Op::Seed { app: "local/c".into() }, Some(&fx))
+            .unwrap()
+            .mirror;
+        assert!(!seeded.apps["local/c"].grants.contains("terminal:backend"), "{tier:?} seed");
+        // A user grant adds it; any other origin is refused.
+        let grant = |key: &str, origin: Origin| {
+            let mut op = set(key, "local/c", |o| o.grant = Some(("terminal:backend".into(), true)));
+            if let Op::Set(set) = &mut op {
+                set.origin = origin;
+            }
+            op
+        };
+        for origin in [Origin::Cli, Origin::Script, Origin::Mcp, Origin::Remote] {
+            assert_eq!(
+                reduce(&m, &grant("2", origin), Some(&fx)),
+                Err(Reject::ScopeElevated("terminal:backend".into())),
+                "{tier:?} {origin:?}"
+            );
+        }
+        let granted = reduce(&m, &grant("3", Origin::User), Some(&fx)).unwrap().mirror;
+        assert!(granted.apps["local/c"].grants.contains("terminal:backend"), "{tier:?} user");
+        // A revoke follows the existing grant rule: origin user only.
+        let mut revoke =
+            set("4", "local/c", |o| o.grant = Some(("terminal:backend".into(), false)));
+        if let Op::Set(set) = &mut revoke {
+            set.origin = Origin::Cli;
+        }
+        assert_eq!(reduce(&granted, &revoke, Some(&fx)), Err(Reject::Origin("grants")));
+        let user_revoke =
+            set("5", "local/c", |o| o.grant = Some(("terminal:backend".into(), false)));
+        let revoked = reduce(&granted, &user_revoke, Some(&fx)).unwrap().mirror;
+        assert!(!revoked.apps["local/c"].grants.contains("terminal:backend"));
+    }
+}

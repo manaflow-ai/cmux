@@ -35,16 +35,21 @@ function isWordStart(name: string, index: number): boolean {
 }
 
 /**
- * `items` filtered by `query`, best first; ties keep their order (so recent folders stay first).
- * Without a query the order is unchanged.
+ * `items` filtered by `query`: the names that start with it first, in the order given (the
+ * level's Finder order, `c2` before `c10`, recent ones first), then the other matches by score
+ * (R89 ranking, the same as the app's palette picker); ties keep their order. Without a query the
+ * order is unchanged.
  */
 export function fuzzyFilter<T>(items: readonly T[], query: string, name: (item: T) => string): T[] {
   if (query === "") return [...items];
+  const wanted = query.toLowerCase();
+  const prefix: T[] = [];
   const scored: Array<{ item: T; score: number; index: number }> = [];
   items.forEach((item, index) => {
+    if (name(item).toLowerCase().startsWith(wanted)) return void prefix.push(item);
     const score = fuzzyScore(query, name(item));
     if (score != null) scored.push({ item, score, index });
   });
   scored.sort((a, b) => b.score - a.score || a.index - b.index);
-  return scored.map((entry) => entry.item);
+  return [...prefix, ...scored.map((entry) => entry.item)];
 }

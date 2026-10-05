@@ -74,7 +74,7 @@ enum ColumnHandlers {
     }
 
     private static func setWidth(_ width: Double, of column: LayoutColumn, in content: WorkspaceContentController, _ ctx: AppActionContext) {
-        guard abs(column.width - width) > 0.001 else { return ctx.refuse(RefusalStrings.columnAlreadyHasWidth) }
+        guard abs(column.width - width) > 0.001 else { return ctx.refuseQuietly(RefusalStrings.columnAlreadyHasWidth) }
         content.layoutModel.setColumnWidth(column.id, width: width, transaction: .make(), phase: .ended)
     }
 
@@ -89,7 +89,7 @@ enum ColumnHandlers {
         // The column's active (most recently focused) tile, else its first.
         guard let next = PaneResize.adjacentColumn(of: anchor, forward: forward, in: screen.layout),
               let pane = FocusNavigation.mostRecent(next.root.panes, recency: content.recentPanes) ?? next.root.panes.first else {
-            return ctx.refuse(RefusalStrings.noColumnInDirection(RefusalStrings.direction(forward ? .right : .left)))
+            return ctx.refuseQuietly(RefusalStrings.noColumnInDirection(RefusalStrings.direction(forward ? .right : .left)))
         }
         PaneHandlers.focus(pane, in: content)
     }
@@ -102,7 +102,7 @@ enum ColumnHandlers {
         }
         guard let screen = content.layoutModel.screen(containing: pane),
               PaneResize.adjacentColumn(of: pane, forward: direction == .right, in: screen.layout) != nil else {
-            return ctx.refuse(RefusalStrings.columnAtEdge)
+            return ctx.refuseQuietly(RefusalStrings.columnAtEdge)
         }
         guard let handle = content.handles.panes[pane] ?? ctx.refuse(RefusalStrings.paneHasNoDaemonHandle(pane.rawValue)) else { return }
         ctx.send("swap-pane") { try await $0.swapPane(handle, with: .direction(direction)) }

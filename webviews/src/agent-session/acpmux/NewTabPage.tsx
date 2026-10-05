@@ -15,7 +15,7 @@ import {
   type OmnibarRow,
 } from "./omnibar";
 import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -39,7 +39,6 @@ export const NEW_TAB_LABELS = {
   switchLabel: "Open as",
   editShortcut: (kind: string, keys: string) => `${kind} (${keys}). Right-click to change the shortcut`,
   open: "Open",
-  importAndSync: t("newtab.importAndSync"),
   suggestions: "Suggestions",
   rows: {
     tab: "Switch to tab",
@@ -83,11 +82,10 @@ export type NewTabHost = {
   projects?: string[];
   omnibar?: OmnibarContext;
   defaultKind?: DefaultKind;
-  /// Which design (Debug Settings `newTab.layout`): "b" the Search | Ask screen (default),
+  /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
-  /// Search | Ask as the user last left it, and the agent last picked (decision Q3).
-  mode?: "search" | "ask";
+  /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
@@ -126,7 +124,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),
     layout: object.layout === "a" ? "a" : "b",
-    ...(object.mode === "search" || object.mode === "ask" ? { mode: object.mode } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
   };
@@ -229,6 +226,7 @@ export function NewTabPage({
   onImport,
   onBrowseProject,
 }: Props) {
+  const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
   const [defaultKind, setDefaultKind] = useState(initialDefault);
   const [projectCwd, setProjectCwd] = useState(cwd);
@@ -501,7 +499,7 @@ export function NewTabPage({
         </button>
         {onImport && (
           <button type="button" className="acpmux-newtab-all" onClick={onImport}>
-            {NEW_TAB_LABELS.importAndSync}
+            {t("newtab.importAndSync")}
           </button>
         )}
       </div>

@@ -89,7 +89,7 @@ Output: `plans/cmux-next/team-vm-spike.md` with numbers, method, and the go or n
 
 - Code guard (S2): in production, TeamVmDO refuses every provider call with `team_vm.plan_gate_missing` while `PRODUCTION_PLAN_GATE_LANDED` is false (team-vm-driver.ts, tested). S2b flips it together with the gate. So a production key set by mistake creates nothing.
 - Do not set `FREESTYLE_API_KEY` (or `TEAM_VM_SNAPSHOT`) on the production Worker before the TeamVmDO plan gate lands. Without the gate, any team member, or an install whose grant covers `mutate-shared`, can create a paid VM with `team_vm.ensure_awake`. The gate (slice S2b) refuses `ensure_awake` for a team whose plan does not include a team VM, before any provider call; it reads the plan from the billing owner, not from the request.
-- Development and staging may set the key only with `TEAM_VM_SLUG_PREFIX` starting with `cmuxnp-dev-` (the driver refuses any other prefix outside production), and with `TEAM_VM_SNAPSHOT` set to a lane 1 image.
+- Development may set the key only with `TEAM_VM_SLUG_PREFIX` starting with `cmuxnp-dev-`, staging only with `cmuxnp-stg-` (decision FREESTYLE-NAMES; the driver refuses any other prefix outside production), and with `TEAM_VM_SNAPSHOT` set to a lane 1 image. The prefix names new VMs only; a team's VM is always reached by the id in its record.
 
 ## 3b. Journal wire shape (S6, agreed with the Tasks lead 2026-10-03)
 

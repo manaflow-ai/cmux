@@ -121,6 +121,9 @@ fn apply(
     mut env: Vec<(String, String)>,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> ShellLaunch {
+    // The daemon integrates this shell, so it owns the Ghostty integration
+    // keys: a caller value for one of them never reaches the shell.
+    crate::daemon_env::warn_dropped(&crate::daemon_env::strip_integration_owned(&mut env));
     let root_str = root.to_string_lossy().into_owned();
     match shell {
         Shell::Zsh => {
@@ -380,6 +383,33 @@ mod tests {
         assert_eq!(env_of(&with_env, "GHOSTTY_BASH_ENV").as_deref(), Some("/etc/env.sh"));
         assert_eq!(env_of(&with_env, "HISTFILE").as_deref(), Some("/tmp/h"));
         assert_eq!(env_of(&with_env, "GHOSTTY_BASH_UNEXPORT_HISTFILE"), None);
+    }
+
+    /// The daemon integrates the default shell, so it owns the Ghostty
+    /// integration keys: no caller value for one of them reaches the shell.
+    #[test]
+    fn a_daemon_integrated_shell_drops_caller_integration_keys() {
+        let caller = [
+            ("GHOSTTY_ZSH_ZDOTDIR", "/caller/zdotdir"),
+            ("GHOSTTY_BASH_ENV", "/caller/env.sh"),
+            ("GHOSTTY_BASH_INJECT", "caller-inject"),
+            ("GHOSTTY_BASH_UNEXPORT_HISTFILE", "caller-unexport"),
+            ("GHOSTTY_SHELL_INTEGRATION_XDG_DIR", "/caller/xdg"),
+        ];
+        for shell in ["/usr/local/bin/bash", "zsh", "fish"] {
+            let mut env = vec![("HOME", "/home/me")];
+            env.extend(caller);
+            let launched = launch(shell, &env);
+            for (key, value) in caller {
+                assert!(
+                    !launched.env.iter().any(|(name, current)| name == key && current == value),
+                    "{shell}: a caller {key} reached the shell: {:?}",
+                    launched.env
+                );
+            }
+        }
+        let bash = launch("/usr/local/bin/bash", &[("HOME", "/home/me"), caller[2]]);
+        assert_eq!(env_of(&bash, "GHOSTTY_BASH_INJECT").as_deref(), Some("1"));
     }
 
     #[test]

@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use serve_common::Host;
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha"];
+const FIXTURES: &[&str] = &["vm-get"];
 
 fn link_changed(line: &Value) -> bool {
     line["type"] == "event" && line["event"] == "cloud.link.changed"

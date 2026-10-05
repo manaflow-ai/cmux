@@ -80,6 +80,8 @@ echo "Build succeeded"
 if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
   echo "WARNING: no Chromium engine embedded; this release ships the browser as unavailable" >&2
 fi
+# Chromium's license notices must ship with the engine (passes when no CEF is embedded).
+./scripts/cmux-next/check-cef-credits.sh "$APP_PATH"
 
 # The universal cmux-tui client of the pinned commit, as release.yml installs it.
 CMUX_TUI_COMMIT="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"

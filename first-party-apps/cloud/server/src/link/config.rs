@@ -7,6 +7,7 @@ use super::argv::{LinkPaths, link_command};
 use super::ops::LINK_UNAVAILABLE;
 use crate::api::host::{HostError, HostFrame, LINK_CHANGED, LINK_GET};
 use crate::api::{CloudError, ControlPlane};
+use crate::connector::frames::{CONNECTOR_CLOSE, CONNECTOR_OPEN};
 use crate::ops::Server;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -134,14 +135,25 @@ impl<C: ControlPlane> Server<C> {
             }
         };
         match frame {
-            HostFrame::Result { op, value } if op == LINK_GET => self.apply_link_details(&value),
+            HostFrame::Result { op, value, .. } if op == LINK_GET => {
+                self.apply_link_details(&value);
+            }
+            HostFrame::Result { op, id, value } if op == CONNECTOR_OPEN => {
+                self.frame_link_answer(id, Ok(value));
+            }
+            HostFrame::Error { op, id, error } if op == CONNECTOR_OPEN => {
+                self.frame_link_answer(id, Err(error));
+            }
+            HostFrame::Event { op, data } if op == CONNECTOR_CLOSE => {
+                self.attach_mut().frames.host_closed(&data);
+            }
             HostFrame::Event { op, data } if op == LINK_CHANGED => {
                 // The event is newer than any waiting link.get: its late
                 // answer must not bring older details back.
                 self.host_requests().cancel(LINK_GET);
                 self.apply_link_details(&data);
             }
-            HostFrame::Error { op, error } if op == LINK_GET => {
+            HostFrame::Error { op, error, .. } if op == LINK_GET => {
                 let retry = error.retryable;
                 self.attach_mut().link = LinkConfig::HostError { error, retry };
             }
@@ -183,9 +195,9 @@ impl<C: ControlPlane> Server<C> {
         }
         attach.supervisor.pump();
         for machine in attach.supervisor.live_machines() {
-            let Some(endpoint) = attach.endpoints.get(&machine).cloned() else { continue };
+            let Some(host) = attach.hosts.get(&machine).cloned() else { continue };
             let command = match attach.env.child_env() {
-                Ok(env) => link_command(&paths, &machine, &endpoint, &env),
+                Ok(env) => link_command(&paths, &machine, &host, &env),
                 Err(e) => {
                     eprintln!("cmux-cloud: no private home for the link to {machine}: {e}");
                     attach.supervisor.disconnect(&machine);

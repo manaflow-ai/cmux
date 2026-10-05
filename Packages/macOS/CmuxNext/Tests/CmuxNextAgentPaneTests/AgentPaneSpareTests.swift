@@ -7,7 +7,7 @@ import Testing
 /// the real one, so a reload shows the adopted page and the page remounts.
 @Suite struct AgentPaneSpareTests {
     static let spare = AgentPaneNewTab(kind: .agent, layout: .b)
-    static let real = AgentPaneNewTab(kind: .agent, cwd: "/src/app", location: "~/src/app", layout: .b, mode: .search)
+    static let real = AgentPaneNewTab(kind: .agent, cwd: "/src/app", location: "~/src/app", layout: .b, lastAgent: "codex")
 
     @Test func adoptingReplacesTheContextTheHandshakeCarries() async throws {
         let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: Self.spare)
@@ -47,5 +47,31 @@ import Testing
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["harness"] as? String == "codex")
         #expect(value["prompt"] as? String == "fix it")
+    }
+}
+
+/// R81 recycle: only a strictly untouched new tab page goes back to the
+/// pool; boot traffic does not touch it, user input and any other op do.
+@Suite struct AgentPaneTouchedTests {
+    @Test func bootTrafficKeepsThePageUntouched() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .agent))
+        _ = await model.respond(to: .ready)
+        _ = await model.respond(to: .framePacing([16.7]))
+        _ = await model.respond(to: .renderRate(true))
+        _ = await model.respond(to: .checkpointAvailability(false))
+        // A request the host refuses changed nothing.
+        _ = await model.respond(to: .unsupported("page.probe"))
+        #expect(model.userTouched == false)
+        _ = await model.respond(to: .touched)
+        #expect(model.userTouched == true)
+    }
+
+    @Test func anyOtherOpTouchesThePage() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .agent))
+        model.onTypeAhead = { _ in }
+        _ = await model.respond(to: .typeAhead("ls"))
+        #expect(model.userTouched == true)
+        let request = AgentPaneRequest(body: ["method": "newTab.touched", "params": [:]] as [String: Any])
+        #expect(request == .touched)
     }
 }

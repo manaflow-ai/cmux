@@ -34,6 +34,8 @@ nonisolated enum TerminalOutgoing: Sendable {
     case focusGained
     /// The user clicked a disconnected terminal: re-attach.
     case reconnect
+    /// The mirror needs a full snapshot from the owner.
+    case resync
 }
 
 /// Ordered hand-off from Ghostty's IO thread to the async `TerminalIO.write`.
@@ -56,6 +58,10 @@ nonisolated struct TerminalInputSink: Sendable {
 
     func reconnect() {
         continuation.yield(.reconnect)
+    }
+
+    func resync() {
+        continuation.yield(.resync)
     }
 
     func focusGained() {

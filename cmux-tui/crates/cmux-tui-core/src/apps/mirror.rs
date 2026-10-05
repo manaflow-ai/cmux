@@ -112,18 +112,24 @@ impl Facts {
     /// Verified get their requested scopes; unverified starts sandboxed with
     /// its non-restricted read scopes only.
     pub fn install_defaults(&self) -> (BTreeSet<String>, bool) {
+        // No tier gets an elevated scope at install or from the deployment
+        // defaults; it needs an explicit user grant (the validator also keeps
+        // elevated scopes out of `scopes`).
+        let requested = self.requested.iter().filter(|s| !is_elevated(s));
         match self.tier {
-            Tier::FirstParty | Tier::Verified => (self.requested.clone(), false),
+            Tier::FirstParty | Tier::Verified => (requested.cloned().collect(), false),
             Tier::Unverified => (
-                self.requested
-                    .iter()
-                    .filter(|s| is_read_scope(s) && self.tier_may_hold(s))
-                    .cloned()
-                    .collect(),
+                requested.filter(|s| is_read_scope(s) && self.tier_may_hold(s)).cloned().collect(),
                 true,
             ),
         }
     }
+}
+
+/// Elevated scopes (scope-classes.json): never granted at install, for any
+/// tier; only an explicit user grant (origin user) adds one.
+pub fn is_elevated(scope: &str) -> bool {
+    cmux_app_manifest::scope_info(scope).is_some_and(|info| info.class == ScopeClass::Elevated)
 }
 
 /// `<family>:read` and `integration:<provider>:read`.
@@ -200,6 +206,8 @@ pub enum Reject {
     /// The app's tier may not hold the scope (restricted or server-only for
     /// an unverified app).
     ScopeRestricted(String),
+    /// An elevated scope is granted only with origin user.
+    ScopeElevated(String),
     /// The change needs an installed app.
     NotInstalled,
     /// The same key was used for a different op.
@@ -214,6 +222,7 @@ impl Reject {
             Self::Origin(_) => "apps.origin",
             Self::ScopeNotRequested(_) => "apps.scope",
             Self::ScopeRestricted(_) => "apps.scope_restricted",
+            Self::ScopeElevated(_) => "apps.scope_elevated",
             Self::NotInstalled => "apps.notInstalled",
             Self::KeyConflict => "idempotency.conflict",
             Self::BadRequest(_) => "bad-request",
@@ -227,6 +236,9 @@ impl Reject {
             Self::ScopeNotRequested(scope) => format!("the app does not request {scope}"),
             Self::ScopeRestricted(scope) => {
                 format!("{scope} is restricted: an unverified app cannot hold it")
+            }
+            Self::ScopeElevated(scope) => {
+                format!("{scope} is elevated: only you can grant it, in the confirmation sheet")
             }
             Self::NotInstalled => "the app is not installed".into(),
             Self::KeyConflict => "this idempotency key was used for a different change".into(),
@@ -271,8 +283,9 @@ pub fn reduce(mirror: &Mirror, op: &Op, facts: Option<&Facts>) -> Result<Outcome
             }
             let mut next = mirror.clone();
             let mut record = fresh(facts, Source::Default);
-            // Default apps get their required scopes without consent, whatever the tier.
-            record.grants = facts.requested.clone();
+            // Default apps get their required scopes without consent, whatever
+            // the tier; never an elevated one (that needs a user grant).
+            record.grants = facts.requested.iter().filter(|s| !is_elevated(s)).cloned().collect();
             record.sandboxed = false;
             next.apps.insert(app.clone(), record);
             next.revision += 1;
@@ -330,6 +343,12 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
     let user = set.origin == Origin::User;
     if set.installed.is_some_and(|i| i != before.installed) && !user {
         return Err(Reject::Origin("installed"));
+    }
+    if let Some((scope, true)) = &set.grant
+        && !user
+        && is_elevated(scope)
+    {
+        return Err(Reject::ScopeElevated(scope.clone()));
     }
     if set.grant.is_some() && !user {
         return Err(Reject::Origin("grants"));

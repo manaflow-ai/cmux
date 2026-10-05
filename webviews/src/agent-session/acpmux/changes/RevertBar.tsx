@@ -1,11 +1,12 @@
 // The rejected hunks not yet sent, with an optional note, go to the agent as one prompt.
 import React, { useState } from "react";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { rejectionPrompt, type TurnFile } from "../diff";
 import { rejectedHunks, type HunkReview } from "./hunkReview";
 
 /// After a send the bar goes away with the control that had focus; `onSent` places focus again.
 export function RevertBar({ files, review, onSent }: { files: TurnFile[]; review: HunkReview; onSent: () => void }) {
+  const t = useT();
   const [note, setNote] = useState("");
   const rejected = rejectedHunks(files, review.decisions);
   if (rejected.length === 0) return null;

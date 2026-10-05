@@ -1,7 +1,7 @@
 //! One op request as the app supervisor sends it (`apps-run`: op, args,
 //! idempotency key; the origin is stamped by the supervisor).
 
-use crate::rescue::iface::OpenToken;
+use cmux_terminal_iface::OpenToken;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -17,6 +17,21 @@ pub enum Origin {
     Script,
     Remote,
     Agent,
+}
+
+impl Origin {
+    /// The `cmux.wire/1` origin. `Agent` has none: the backend knows an
+    /// agent by its token (`agt`), and the field stays out.
+    pub fn wire_name(self) -> Option<&'static str> {
+        Some(match self {
+            Self::User => "user",
+            Self::Cli => "cli",
+            Self::Mcp => "mcp",
+            Self::Script => "script",
+            Self::Remote => "remote",
+            Self::Agent => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

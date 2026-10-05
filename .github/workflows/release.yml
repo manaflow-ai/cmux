@@ -316,6 +316,8 @@ jobs:
           framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
+            # Chromium's license notices must ship with the engine (not CEF's sample page).
+            ./scripts/cmux-next/check-cef-credits.sh "$app"
           else
             echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this release ships the browser as unavailable."
           fi

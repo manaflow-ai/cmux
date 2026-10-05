@@ -1,23 +1,14 @@
-// Wire names and types of the `cmux.cloud` namespace (plans/cmux-next/cloud-app.md section 2). The
-// catalog fragment `first-party-apps/cloud/catalog/cloud-catalog.json` is the source of truth; this
-// one file mirrors it by hand until the generated client exists, so the lead can swap it for the
-// generated module without touching the page. Fields are camelCase like the catalog and the Cloud
-// API (`web/app/api/vm/**`). Mutations carry `idempotency_key` in their params (the page envelope
-// rule, react-pages.md); the host moves it to the op request's key.
-//
-// The app server does not implement every op the page lists yet (team, sign-in and sign-out,
-// billing, idle policy). It answers those with
-// `cmux.cloud.unsupported` or an unknown-op error; the page then shows "Not available yet"
-// (`isUnsupported`) for that op instead of an error.
+// Wire names and types of the `cmux.cloud` namespace as the Cloud app server `cmux-cloud` answers
+// them in the `cmux.wire/1` era (plans/cmux-next/cloud-client-contract.md 1.2 and 1.3; server:
+// first-party-apps/cloud/server/src/ops/*.rs and src/api/models.rs). Records are the backend's
+// snake_case. The op list is the server's (`ops/mod.rs` OPS) minus what the page does not call;
+// the client-only ops (files, ports, browser) keep the catalog fragment's camelCase fields.
+// Mutations carry `idempotency_key` in their params (the page envelope rule, react-pages.md); the
+// host moves it to the op request's key.
 
 export const CloudOps = {
   authStatus: "cmux.cloud.auth.status",
-  authSignIn: "cmux.cloud.auth.sign_in",
-  authSignOut: "cmux.cloud.auth.sign_out",
-  teamList: "cmux.cloud.team.list",
-  teamSelect: "cmux.cloud.team.select",
   machineList: "cmux.cloud.machine.list",
-  machineGet: "cmux.cloud.machine.get",
   machineWatch: "cmux.cloud.machine.watch",
   machineCreate: "cmux.cloud.machine.create",
   machineRename: "cmux.cloud.machine.rename",
@@ -25,31 +16,17 @@ export const CloudOps = {
   machinePause: "cmux.cloud.machine.pause",
   machineResize: "cmux.cloud.machine.resize",
   machineDelete: "cmux.cloud.machine.delete",
-  machineStats: "cmux.cloud.machine.stats",
   machineIdlePolicySet: "cmux.cloud.machine.idle_policy.set",
+  machineUpgrade: "cmux.cloud.machine.upgrade",
   machineConnect: "cmux.cloud.machine.connect",
   snapshotList: "cmux.cloud.snapshot.list",
   snapshotCreate: "cmux.cloud.snapshot.create",
   snapshotRestore: "cmux.cloud.snapshot.restore",
-  snapshotFork: "cmux.cloud.snapshot.fork",
   snapshotDelete: "cmux.cloud.snapshot.delete",
-  domainList: "cmux.cloud.domain.list",
-  domainVerify: "cmux.cloud.domain.verify",
-  publicationList: "cmux.cloud.publication.list",
-  publicationCreate: "cmux.cloud.publication.create",
-  publicationUpdate: "cmux.cloud.publication.update",
-  publicationDelete: "cmux.cloud.publication.delete",
-  publicationVerify: "cmux.cloud.publication.verify",
-  networkList: "cmux.cloud.network.list",
-  tunnelAttach: "cmux.cloud.tunnel.attach",
-  tunnelRotateKey: "cmux.cloud.tunnel.rotate_key",
-  firewallList: "cmux.cloud.firewall.list",
-  firewallGet: "cmux.cloud.firewall.get",
-  firewallCreate: "cmux.cloud.firewall.create",
-  firewallDelete: "cmux.cloud.firewall.delete",
   planGet: "cmux.cloud.plan.get",
-  usageGet: "cmux.cloud.usage.get",
-  billingOpen: "cmux.cloud.billing.open",
+  billingCheckout: "cmux.cloud.billing.checkout",
+  migrationStatus: "cmux.cloud.migration.status",
+  migrationStart: "cmux.cloud.migration.start",
   fsList: "cmux.cloud.fs.list",
   fsStat: "cmux.cloud.fs.stat",
   fsRead: "cmux.cloud.fs.read",
@@ -58,13 +35,31 @@ export const CloudOps = {
   fsRemove: "cmux.cloud.fs.remove",
   filePush: "cmux.cloud.file.push",
   filePull: "cmux.cloud.file.pull",
-  /** Event stream: one file transfer ended (`done` with `bytes`, or `failed` with a typed error). */
+  /** Event stream: one file transfer ended (`done`, `failed` or `cancelled`). */
   fileTransferChanged: "cmux.cloud.file.transfer.changed",
   portList: "cmux.cloud.port.list",
   portForward: "cmux.cloud.port.forward",
   portClose: "cmux.cloud.port.close",
   browserOpen: "cmux.cloud.browser.open",
 } as const;
+
+/**
+ * Account ops no catalog declares yet (first-party-apps/cloud/README.md "Gaps": the host credential
+ * owner will). No server serves them: each answers an unknown-op error, and the page shows "Not
+ * available yet" for it.
+ */
+export const AccountOps = {
+  signIn: "cmux.cloud.auth.sign_in",
+  signOut: "cmux.cloud.auth.sign_out",
+  teamList: "cmux.cloud.team.list",
+  teamSelect: "cmux.cloud.team.select",
+} as const;
+
+/**
+ * The public plans page. "See plans" links it while billing is not built (`cloud.billing.checkout`
+ * answers owner.unreachable); switch "See plans" back to the checkout when billing lands.
+ */
+export const PLANS_URL = "https://cmux.com/pricing";
 
 /**
  * Host actions that are not Cloud ops. `cloud.browser.open` answers a proxy route and opens no tab;
@@ -83,120 +78,106 @@ export const ACTION_RUN = "cmux.app.action.run";
 export const PAGE_COMMAND = "cmux.page.command";
 
 /**
- * Ops the page never calls itself. They change money or delete data, or they change this client's
- * view, so the page asks the host to run them as a catalog action (`cmux.app.action.run {action:
- * <op>, args}`): the host shows the native confirmation sheet, which stamps origin user
- * (app-platform.md 15 "Confirmation"). Page JavaScript cannot prove a gesture. Snapshot restore is
- * not here: it makes a new machine and changes nothing that exists. Tunnel attach and key rotation
- * give a device a path into a private network; file push and pull reach any file of this Mac (the
- * host's native file panel picks the local path); file remove deletes data. All of them are origin
- * user only at the server.
+ * Ops the page never calls itself. The server runs them only for origin `user` (`ops/mod.rs`
+ * `Kind::UserOnly`: money, destructive, and the one-way migration and upgrade; decision D-MONEY),
+ * or they reach files of this Mac, or they change this client's view. The page asks the host to run
+ * them as a catalog action (`cmux.app.action.run {action: <op>, args}`): the host shows the native
+ * confirmation sheet (or file panel), stamps origin user and runs the op. Page JavaScript cannot
+ * prove a gesture. The host answers the op's result fields at the top level, or `{confirmed: false}`
+ * for a declined sheet.
  */
 export const NATIVE_ACTIONS = new Set<string>([
-  CloudOps.authSignIn,
-  CloudOps.authSignOut,
+  AccountOps.signIn,
+  AccountOps.signOut,
+  CloudOps.machineCreate,
+  CloudOps.machineResize,
   CloudOps.machineDelete,
-  CloudOps.publicationCreate,
-  CloudOps.publicationUpdate,
-  CloudOps.snapshotDelete,
-  CloudOps.publicationDelete,
-  CloudOps.firewallCreate,
-  CloudOps.firewallDelete,
-  CloudOps.billingOpen,
+  CloudOps.machineUpgrade,
   CloudOps.machineConnect,
-  CloudOps.tunnelAttach,
-  CloudOps.tunnelRotateKey,
+  CloudOps.snapshotCreate,
+  CloudOps.snapshotRestore,
+  CloudOps.snapshotDelete,
+  CloudOps.billingCheckout,
+  CloudOps.migrationStart,
   CloudOps.fsRemove,
   CloudOps.filePush,
   CloudOps.filePull,
 ]);
 
+/** Server error codes the page reads (first-party-apps/cloud/server/src/api/error.rs, fs/mod.rs). */
+export const CloudErrors = {
+  notFound: "cmux.cloud.not_found",
+  unsupported: "cmux.cloud.unsupported",
+  planRequired: "cmux.cloud.plan_required",
+  quotaExceeded: "cmux.cloud.quota_exceeded",
+  sizeLocked: "cmux.cloud.size_locked",
+  /** No machine image is configured for this deployment yet (dev until the image lane has one). */
+  noSnapshotConfigured: "cmux.cloud.no_snapshot_configured",
+  fileOpsBusy: "cmux.cloud.file_ops_busy",
+  fileTooLarge: "cmux.cloud.file_too_large",
+  /** More than 4 transfers at once: nothing ran, the same action may run again later. */
+  transferBusy: "cmux.cloud.transfer_busy",
+} as const;
+
 /** Error codes that mean "the owner does not serve this op yet" (not a failure of the request). */
 const UNSUPPORTED_CODES = new Set([
-  "cmux.cloud.unsupported",
+  CloudErrors.unsupported,
   "cmux.cloud.unknown_op",
   "cmux.protocol.unknown_op",
   "cmux.app.unknown_action",
   "operation.unsupported",
 ]);
 
-/**
- * The Cloud API's not-found code of each kind of resource (the `error` field or `x-cmux-vm-error` of
- * its 404; first-party-apps/cloud/server/src/ops/delete_retry.rs `gone_code`). A 404 with this code
- * means the route is there and the resource is not. Keyed by the op's kind (`cmux.cloud.<kind>.`).
- */
-export const NOT_FOUND_CODES: Readonly<Record<string, string>> = {
-  machine: "vm_not_found",
-  snapshot: "vm_snapshot_not_found",
-  firewall: "vm_firewall_rule_not_found",
-  fs: "vm_file_not_found",
-  file: "vm_file_not_found",
-  publication: "vm_publication_not_found",
-};
-
-/** The own not-found code of `op`'s kind, if the kind has one. */
-export function notFoundCode(op: string): string | undefined {
-  const kind = op.startsWith("cmux.cloud.") ? op.slice("cmux.cloud.".length).split(".")[0] : "";
-  return Object.hasOwn(NOT_FOUND_CODES, kind) ? NOT_FOUND_CODES[kind] : undefined;
-}
+const codeOf = (error: unknown) => (error as { code?: unknown } | null)?.code;
 
 export function isUnsupported(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code;
+  const code = codeOf(error);
   return typeof code === "string" && UNSUPPORTED_CODES.has(code);
 }
 
 /**
- * The HTTP status and Cloud API code of a `cmux.cloud.not_found`. The server's error carries them as
- * `status` and `upstream_code` (first-party-apps/cloud/server/src/api/error.rs); the page reads them
- * from the page error's `details`, where the host puts the owner's extra error fields.
+ * The item a delete or remove names is not there (`cloud.machine.not_found`,
+ * `cloud.snapshot.not_found`, a daemon `fs.not_found`): the outcome the person asked for.
  */
-function upstreamOf(error: unknown): { status?: number; code?: string } {
-  const details = (error as { details?: unknown } | null)?.details;
-  if (!details || typeof details !== "object") return {};
-  const { status, upstream_code: code } = details as { status?: unknown; upstream_code?: unknown };
-  return {
-    ...(typeof status === "number" ? { status } : {}),
-    ...(typeof code === "string" && code ? { code } : {}),
-  };
+export function isGone(error: unknown): boolean {
+  return codeOf(error) === CloudErrors.notFound;
 }
 
-function isNotFound(error: unknown): boolean {
-  if ((error as { code?: unknown } | null)?.code !== "cmux.cloud.not_found") return false;
-  const { status } = upstreamOf(error);
-  return status === undefined || status === 404;
+/** A typed plan refusal (contract 1.5). The backend reads the plan; the page never computes one. */
+export interface PlanRefusal {
+  kind: "plan_required" | "quota_exceeded" | "size_locked";
+  limit?: number;
+  used?: number;
+  /**
+   * The plan "See plans" checks out: the error's `details.plan`, else `CloudPlan.upgrade_plan`.
+   * Absent when neither names one (null = no plan lifts the limit): the sentence shows alone.
+   */
+  plan?: string;
 }
+
+const PLAN_KINDS: Record<string, PlanRefusal["kind"]> = {
+  [CloudErrors.planRequired]: "plan_required",
+  [CloudErrors.quotaExceeded]: "quota_exceeded",
+  [CloudErrors.sizeLocked]: "size_locked",
+};
 
 /**
- * The Cloud API has no route for `op` yet: a 404 with no code (Next.js answers a missing route with
- * a bare 404), or with a code that is none of the Cloud API's not-found codes (NOT_FOUND_CODES). Production has no
- * `/api/vm/:id/fs/*`, firewall, network or tunnel routes today. The page shows "Not available yet",
- * never "gone". A `not_found` without details counts as bare: the page cannot tell more.
+ * The plan refusal of `error`, read from its code and `details` (`{limit, used}`, `{plan}`).
+ * `upgradePlan` is `CloudPlan.upgrade_plan`: the plan to offer when the error names none.
  */
-export function isRouteMissing(op: string, error: unknown): boolean {
-  if (!isNotFound(error)) return false;
-  const { code } = upstreamOf(error);
-  // Any of the Cloud API's resource codes (`vm_not_found` for the machine of a sub-resource op, for
-  // example) means the route answered: that is an error to show, not a missing route.
-  return code === undefined || (code !== notFoundCode(op) && !RESOURCE_CODES.has(code));
-}
-
-const RESOURCE_CODES = new Set(Object.values(NOT_FOUND_CODES));
-
-/** The host forwarded none of the server's error details: the page cannot tell gone from missing. */
-export function hasNoDetails(error: unknown): boolean {
-  const details = (error as { details?: unknown } | null)?.details;
-  return !details || typeof details !== "object";
-}
-
-/** The route answered that the item of `op` is not there (its kind's own 404 code): it is gone. */
-export function isGone(op: string, error: unknown): boolean {
-  const own = notFoundCode(op);
-  return own !== undefined && isNotFound(error) && upstreamOf(error).code === own;
-}
-
-/** The owner does not serve `op` yet (an unsupported op, or a missing Cloud API route). */
-export function isNotServed(op: string, error: unknown): boolean {
-  return isUnsupported(error) || isRouteMissing(op, error);
+export function planRefusal(error: unknown, upgradePlan?: string | null): PlanRefusal | undefined {
+  const code = codeOf(error);
+  const kind = typeof code === "string" ? PLAN_KINDS[code] : undefined;
+  if (!kind) return undefined;
+  const details = (error as { details?: unknown }).details;
+  const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
+  const plan = typeof d.plan === "string" && d.plan ? d.plan : upgradePlan || undefined;
+  return {
+    kind,
+    ...(typeof d.limit === "number" ? { limit: d.limit } : {}),
+    ...(typeof d.used === "number" ? { used: d.used } : {}),
+    ...(plan ? { plan } : {}),
+  };
 }
 
 /** The host's answer to a confirmation action. A declined sheet answers `confirmed: false`. */
@@ -206,6 +187,7 @@ export interface ActionRunResult {
 
 /** `cloud.file.push` and `cloud.file.pull` answer at once: the copy runs on after the answer. */
 export interface TransferStarted {
+  ok?: true;
   transfer: string;
   state: "running";
   machine: string;
@@ -223,36 +205,56 @@ export interface TransferChanged {
   direction: "push" | "pull";
   path: string;
   localPath?: string;
-  state: "done" | "failed";
+  state: "done" | "failed" | "cancelled";
   bytes?: number;
   error?: { code: string; message?: string; retryable?: boolean };
 }
 
-/** More than 4 transfers at once: nothing ran, the same action may run again later. */
-export const TRANSFER_BUSY = "cmux.cloud.transfer_busy";
+/** `CloudMachine.status` (contract 1.2); a status the page does not know becomes `unknown`. */
+export type MachineStatus =
+  | "provisioning"
+  | "starting"
+  | "running"
+  | "pausing"
+  | "paused"
+  | "deleting"
+  | "failed"
+  | "unknown";
 
-export type MachineStatus = "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown";
+/** A machine size. Create and resize send at least one field; the plan decides which are allowed. */
+export interface MachineSize {
+  cpu?: number | null;
+  memory_mb?: number | null;
+  disk_mb?: number | null;
+}
 
-/** A Cloud machine record (catalog `cloud.machine.list` items; owner: the cmux Cloud API). */
+/** `CloudMachine` (contract 1.2; server `api/models.rs` `Machine`). Owner: the team's CloudDO. */
 export interface CloudMachine {
   id: string;
-  provider?: string;
+  team?: string | null;
+  creator?: string | null;
+  name?: string | null;
+  size?: MachineSize | null;
   status: MachineStatus;
-  displayName?: string | null;
-  slug?: string | null;
-  kind?: string | null;
-  image?: string | null;
-  imageVersion?: string | null;
+  image?: { id: string; daemon_version?: string | null } | null;
+  /** The overlay host id; null until the machine is bound. */
+  host?: string | null;
+  /** Imported from cmux Cloud classic: read-only here until upgraded (contract 4). */
+  classic?: boolean;
   /** Epoch milliseconds. */
-  createdAt?: number | null;
-  address?: { ipv4?: string | null; ipv6?: string | null } | null;
-  createdBy?: { userId: string; displayName?: string | null } | null;
-  freeAccessExpiresAt?: number | null;
+  created_at?: number | null;
+  last_active_at?: number | null;
+  idle_policy?: { idle_seconds?: number | null } | null;
+  error?: { code: string; message?: string | null; at?: number | null } | null;
+  /** The record's own revision: a decimal string that only grows. */
+  revision: string;
 }
 
 export interface MachineListResult {
   machines: CloudMachine[];
-  /** The projection revision of the list; watch events at or below it are already in the list. */
+  /** More machines follow: list again with this cursor. */
+  next_cursor?: string | null;
+  /** The projection revision; watch events at or below it are already in the page. */
   revision: number;
 }
 
@@ -261,130 +263,105 @@ export type MachineEvent =
   | { type: "upsert"; revision: number; machine: CloudMachine }
   | { type: "removed"; revision: number; id: string };
 
-/** `cloud.machine.stats` (and the resize answer). `state` is `awake`, `asleep` or `unknown`. */
-export interface MachineStats {
-  state: string;
-  cpus?: number | null;
-  cpuPercent?: number | null;
-  loadAverage1m?: number | null;
-  memoryTotalMb?: number | null;
-  memoryUsedMb?: number | null;
-  diskTotalMb?: number | null;
-  diskUsedMb?: number | null;
-  maxVcpus?: number | null;
-  maxMemoryMb?: number | null;
-  maxDiskMb?: number | null;
+/**
+ * A machine mutation's answer (create, rename, start, pause, resize, idle policy, upgrade, snapshot
+ * restore): the record and the projection revision its change reached. When the page's mirror has
+ * that revision, the intent settles without a refetch.
+ */
+export interface MachineResult {
+  machine: CloudMachine;
+  revision: number;
 }
 
+/** A delete's answer; a retry after the delete answers the same. */
+export interface DeletedResult {
+  deleted: true;
+}
+
+/** `CloudSnapshot` (contract 1.2). */
 export interface CloudSnapshot {
   id: string;
+  machine?: string | null;
   name?: string | null;
-  /** Epoch milliseconds or an ISO 8601 string (the Cloud API sends either). */
-  createdAt?: number | string | null;
+  size_mb?: number | null;
+  status?: string | null;
+  /** Epoch milliseconds. */
+  created_at?: number | null;
+  revision: string;
 }
 
 export interface SnapshotListResult {
   snapshots: CloudSnapshot[];
 }
 
-/** One DNS record to add for a custom domain. */
-export interface DnsInstruction {
-  purpose?: string;
-  recordTypes?: string[];
+export interface SnapshotResult {
+  snapshot: CloudSnapshot;
+}
+
+/** `CloudPlan`: limits and usage in one record (`cloud.usage.get` folded in). No plan logic here. */
+export interface CloudPlan {
+  plan_id: string;
+  /** The plan that lifts this plan's limits ("See plans"); null when no plan does. */
+  upgrade_plan?: string | null;
+  limits: {
+    max_active: number;
+    max_saved: number;
+    /** Memory sizes the plan offers, locked ones included. */
+    memory_options_mb: number[];
+    /** Offered sizes that need another plan: shown, not selectable. */
+    locked_memory_options_mb: number[];
+    vm_hours_included?: number | null;
+  };
+  usage: {
+    active: number;
+    saved: number;
+    vm_hours_used?: number | null;
+    /** Epoch milliseconds. */
+    period_end?: number | null;
+  };
+}
+
+/** `cloud.billing.checkout {plan}`: the host opens the https URL in the browser. */
+export interface CheckoutResult {
+  url: string;
+}
+
+export type MigrationState = "none" | "available" | "moving" | "moved";
+
+/** `cloud.migration.status` (contract 4). */
+export interface MigrationStatus {
+  state: MigrationState;
+  classic_count: number;
+  imported: string[];
+}
+
+/** `cloud.migration.start`: one way, per user. */
+export interface MigrationStarted {
+  state: MigrationState;
+}
+
+/** `cloud.machine.create` params (contract 1.3), without the key. */
+export interface CreateMachineArgs {
+  /** 1 to 80 characters; absent = the owner names the machine. */
   name?: string;
-  value?: string;
+  size: MachineSize;
+  image?: string;
+  from_snapshot?: string;
 }
 
-/** `cloud.domain.list` items (`CustomDomainDto`). States are open strings from the Cloud API. */
-export interface CloudDomain {
-  id: string;
-  hostname: string;
-  /** `not_required`, `pending`, `verified` or `failed`. */
-  verificationState: string;
-  /** `missing`, `pending`, `active` or `failed`. */
-  certificateState?: string | null;
-  createdAt?: string | null;
-  dnsInstructions?: DnsInstruction[] | null;
-  publications: Array<{ id: string; hostname: string; state: string }>;
-}
-
-export interface DomainListResult {
-  domains: CloudDomain[];
-}
-
-export type AccessMode = "personal" | "team" | "public";
-
-/** `cloud.publication.list` items (`PublicationDto`). */
-export interface CloudPublication {
-  id: string;
-  hostname: string;
-  url?: string | null;
-  domainKind?: string | null;
-  vmId: string;
-  port: number;
-  accessMode: AccessMode;
-  teamId?: string | null;
-  state: string;
-  routingRevision?: number | null;
-  verification?: Record<string, unknown> | null;
-}
-
-export interface PublicationListResult {
-  publications: CloudPublication[];
-}
-
-export interface CloudNetwork {
-  id: string;
-  cidr?: string | null;
-  cidrV6?: string | null;
-  scope: "user" | "team";
-}
-
-export interface NetworkListResult {
-  networks: CloudNetwork[];
-}
-
-/** One side of a firewall rule: one identity (vmId, vpcId, tunnelId, cidr or public), port needs protocol. */
-export interface FirewallEndpoint {
-  vmId?: string;
-  vpcId?: string;
-  tunnelId?: string;
-  cidr?: string;
-  public?: true;
-  port?: number;
-  protocol?: "tcp" | "udp" | "icmp";
-}
-
-export interface FirewallRule {
-  id: string;
-  action: "allow";
-  source: FirewallEndpoint;
-  destination: FirewallEndpoint;
-  description?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface FirewallListResult {
-  rules: FirewallRule[];
-}
-
-/** `cloud.firewall.create` input (without the idempotency key). */
-export interface NewFirewallRule {
-  source: FirewallEndpoint;
-  destination: FirewallEndpoint;
-  description?: string;
-}
-
-/** `cloud.fs.list` entries and the `cloud.fs.stat` answer. */
+/** `cloud.fs.list` entries and the `cloud.fs.stat` answer (server `fs/files.rs` `Entry`). */
 export interface FsEntry {
+  /** The entry name (list) or absent (stat). */
   name?: string;
+  /** The full path (stat). */
   path?: string;
-  kind: "file" | "directory" | "symlink";
+  kind: "file" | "directory" | "symlink" | "other";
   size?: number | null;
   mode?: number | null;
   /** Epoch milliseconds. */
   modifiedAt?: number | null;
+  /** The daemon's revision, for a `baseRevision` write (stat only). */
+  revision?: string;
 }
 
 export interface FsListResult {
@@ -396,6 +373,13 @@ export interface FsReadResult {
   path: string;
   dataBase64: string;
   size: number;
+}
+
+export interface FsWriteResult {
+  ok: true;
+  path: string;
+  size: number;
+  revision?: string | null;
 }
 
 /** A port forward on this Mac (`cloud.port.list` items, the `cloud.port.forward` answer). */
@@ -438,51 +422,4 @@ export interface CloudTeam {
 export interface AuthStatus {
   signedIn: boolean;
   team?: string | null;
-}
-
-/** `cloud.plan.get`: the `limits` of `GET /api/vm`. No plan logic in the page. */
-export interface CloudPlan {
-  planId?: string | null;
-  maxActiveVms?: number | null;
-  activeVmCount?: number | null;
-  /** Memory sizes the plan allows for a new machine. */
-  memoryOptionsMb: number[];
-  /** Memory sizes shown but locked behind `memoryUpgradePlanId`. */
-  lockedMemoryOptionsMb: number[];
-  memoryUpgradePlanId?: string | null;
-  freeAccessExpiresAt?: number | null;
-  freeAccessWindowDays?: number | null;
-}
-
-/** `cloud.usage.get`. Hours are reported only for plans with an hour allowance. */
-export interface CloudUsage {
-  vmHoursUsed?: number | null;
-  vmHoursIncluded?: number | null;
-  activeVmCount?: number | null;
-  savedVmLimit?: number | null;
-}
-
-/**
- * A machine mutation answers the machine record (or the stats, for a resize) with a top-level
- * `revision`: the projection revision its change reached. When the page's mirror has that revision,
- * the intent settles without a refetch.
- */
-export type MachineMutationResult = CloudMachine & { revision: number };
-export type ResizeResult = MachineStats & { revision: number };
-
-export interface CreateMachineParams {
-  /** 1 to 64 characters; absent = the owner names the machine. */
-  displayName?: string;
-  /** One of the plan's `memoryOptionsMb`; absent = the owner's default. */
-  memoryMb?: number;
-  kind?: string;
-  idempotency_key: string;
-}
-
-export interface ResizeParams {
-  machine: string;
-  cpu?: number;
-  memoryMb?: number;
-  storageMb?: number;
-  idempotency_key: string;
 }

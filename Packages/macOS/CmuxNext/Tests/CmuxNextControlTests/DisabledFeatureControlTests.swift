@@ -13,7 +13,7 @@ import Testing
         var ran = false
         registry.bind("newCloudMachine") { ran = true }
         registry.disabledFeatures = [.cloud]
-        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil, configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
 
         let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "newCloudMachine"]))

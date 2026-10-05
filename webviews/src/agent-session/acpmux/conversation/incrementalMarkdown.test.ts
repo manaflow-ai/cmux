@@ -68,3 +68,51 @@ describe("IncrementalMarkdown", () => {
     expect(incremental.update(source).filter((entry) => entry.block.type === "list")).toHaveLength(1);
   });
 });
+
+/// Half-written Markdown never draws raw and never flips style when its closer arrives
+/// (plans/cmux-next/acp-streaming.md "Streaming-safe tail").
+describe("streaming-safe tail", () => {
+  const streamed = (source: string) => plain(new IncrementalMarkdown().update(source, { streaming: true }));
+
+  test("a fence opener still on its line is held until its newline (no `t`, `ty` labels)", () => {
+    expect(streamed("Intro\n\n```ty")).toEqual(parseMarkdown("Intro"));
+    expect(streamed("Intro\n\n```ts\nconst a")).toEqual(parseMarkdown("Intro\n\n```ts\nconst a"));
+  });
+
+  test("a table waits for its separator row, and each row for its newline", () => {
+    expect(streamed("Text\n\n| a | b |")).toEqual(parseMarkdown("Text"));
+    expect(streamed("Text\n\n| a | b |\n| -")).toEqual(parseMarkdown("Text"));
+    expect(streamed("| a | b |\n| --- | --- |\n| 1 | 2")).toEqual(parseMarkdown("| a | b |\n| --- | --- |"));
+    expect(streamed("| a | b |\n| --- | --- |\n| 1 | 2 |\n")).toEqual(
+      parseMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |"),
+    );
+  });
+
+  test("a link waits for its closing parenthesis", () => {
+    expect(streamed("see [the docs](https://exa")).toEqual(parseMarkdown("see "));
+    expect(streamed("see [the do")).toEqual(parseMarkdown("see "));
+    expect(streamed("see [the docs](https://example.com) now")).toEqual(
+      parseMarkdown("see [the docs](https://example.com) now"),
+    );
+  });
+
+  test("an open bold or code run is closed for now, so it is styled from its first character", () => {
+    expect(streamed("this is **bold te")).toEqual(parseMarkdown("this is **bold te**"));
+    expect(streamed("run `npm te")).toEqual(parseMarkdown("run `npm te`"));
+  });
+
+  test("a marker still being typed at the very end is held back", () => {
+    expect(streamed("plain text **")).toEqual(parseMarkdown("plain text"));
+    expect(streamed("plain text `")).toEqual(parseMarkdown("plain text"));
+  });
+
+  test("inside an open fence nothing is held or closed", () => {
+    expect(streamed("```md\n| a | **b")).toEqual(parseMarkdown("```md\n| a | **b"));
+  });
+
+  test("a finished reply parses as written", () => {
+    expect(plain(new IncrementalMarkdown().update("see [x](http://a", { streaming: false }))).toEqual(
+      parseMarkdown("see [x](http://a"),
+    );
+  });
+});
