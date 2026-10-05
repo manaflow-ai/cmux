@@ -2,19 +2,12 @@ import CmuxNextActions
 
 /// The tab strip's "+" (a click, a double-click on the empty strip): one
 /// registry action on the strip's pane, so it matches every other entry
-/// point of that action. A click opens an agent chat (Leo, 2026-10-04); the
-/// + menu (right-click, press-and-hold) offers the other kinds, and Cmd-T
-/// keeps `tabs.newTabKind`. Option-click keeps Cmd-T's kind with the
-/// one-shot workspace override ("New Terminal Opens a Workspace"). A pane
-/// that cannot hold an agent chat (`AgentTabStore.canHost`) gets Cmd-T's kind.
+/// point of that action.
 enum StripNewTab {
     static let action: ActionID = "newTab.sameKind"
-    static let plusAction: ActionID = "palette.newAgentChat"
 
-    static func request(pane: String, opensWorkspace: Bool = false, hostsChat: Bool = true,
-                        perform: (ActionID, ActionInvocation) -> Void) {
+    static func request(pane: String, opensWorkspace: Bool = false, perform: (ActionID, ActionInvocation) -> Void) {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane))
-        if !opensWorkspace && hostsChat { return perform(plusAction, invocation) }
         if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }
         perform(action, invocation)
     }

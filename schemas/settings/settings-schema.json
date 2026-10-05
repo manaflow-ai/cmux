@@ -307,7 +307,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabKind.help",
-        "text" : "What Cmd-T opens (the + button opens an agent chat). Auto picks the kind you last opened in that folder."
+        "text" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabKind",

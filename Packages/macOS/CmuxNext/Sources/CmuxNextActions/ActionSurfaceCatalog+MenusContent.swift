@@ -117,7 +117,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notificationToggleRead": [p(.notification, .identity, 0)],
         "notificationDismiss": [p(.notification, .close, 0)],
         "notifications.toggleWorkspaceMute": [p(.workspaceRow, .identity, 113, folder: .options)],
-        // First in the + menu: a plain click on + opens one (PaneToolbar).
+        // First in the + menu: Agent Chat, Terminal, Browser, File.
         "palette.newAgentChat": [p(.newTab, .create, -1)],
         "newTab.page": [p(.newTab, .create, 5)],
         "palette.forkAgentConversationRight": [p(.terminalSelection, .create, 200, folder: .agent)],
