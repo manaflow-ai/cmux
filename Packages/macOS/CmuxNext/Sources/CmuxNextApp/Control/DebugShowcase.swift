@@ -70,21 +70,22 @@ enum DebugShowcase {
     /// workspaces, so the sidebar and workspace selection exercise their real
     /// models instead of a showcase-only view.
     private static func seedWorkspaceSet(services: AppServices, windowID: String) {
-        let workspaces: [(String, String)] = [
-            ("cmux-next", "~/code/cmux"),
-            ("docs-site", "~/code/docs-site"),
-            ("infra", "~/code/infra"),
+        let workspaces = [
+            "cmux-next",
+            "docs-site",
+            "infra",
         ]
         Task { @MainActor in
-            for (name, cwd) in workspaces {
+            guard let connection = services.daemon.connection else { return }
+            for name in workspaces {
                 if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
                     continue
                 }
                 services.showcase.workspaces[name] = nil
-                var spawn = WorkspaceSpawn(cwd: cwd, name: name)
-                spawn.onListed = { [weak services] id, _ in services?.showcase.workspaces[name] = id }
                 do {
-                    let id = try await services.windows.createWorkspace(spawn, into: windowID)
+                    let key = WorkspaceKey.generate()
+                    services.windows.claimNew(workspaceID: key.rawValue, window: windowID)
+                    let id = try await connection.createWorkspace(name: name, key: key).key.rawValue
                     services.showcase.workspaces[name] = id
                     if let controller = services.windows.controller(for: windowID) {
                         services.windows.claim(workspaceID: id, in: controller.state, select: false)
