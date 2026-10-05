@@ -23,14 +23,27 @@ extension KeyRouter {
     }
 
     /// Escape with no modifier where a cmux dialog blocks the keyboard: the
-    /// whole window (a window-scope dialog) or the tab that holds the
-    /// window's first responder (a tab-scope dialog). Runs the dialog's
-    /// Escape (its cancel button). Another tab's keys stay that tab's.
+    /// whole window (a window-scope dialog), the tab that holds the window's
+    /// first responder, or, while the keyboard is in the window's chrome
+    /// (the sidebar list after a click), the focused pane's tab (a tab-scope
+    /// dialog). Runs the dialog's Escape (its cancel button). Another tab's
+    /// keys, and a text field's Escape, stay theirs.
     func cancelsBlockingDialog(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard Self.isBareEscape(event), let window, let id = CmuxDialogCenter.shared.dialogBlockingKeys(in: window) else {
-            return false
-        }
+        guard Self.isBareEscape(event), let window,
+              let id = CmuxDialogCenter.shared.dialogBlockingKeys(in: window, focusedArea: chromeFocusedPane(in: window))
+        else { return false }
         return CmuxDialogCenter.shared.key(.escape, in: id)
+    }
+
+    /// The focused pane's view while the window's keyboard is in its chrome
+    /// (no content and no text field has it); nil otherwise.
+    private func chromeFocusedPane(in window: NSWindow) -> NSView? {
+        let (controller, kind) = focus(for: window)
+        guard kind == .content, let controller else { return nil }
+        switch controller.focus.state.resolved {
+        case .sidebar, .none: return controller.content?.focusedPane?.view
+        default: return nil
+        }
     }
 
     private static func isBareEscape(_ event: NSEvent) -> Bool {
