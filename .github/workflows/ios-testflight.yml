@@ -29,13 +29,15 @@ on:
         type: boolean
       variant:
         description: >-
-          Upload variant. internal (default) ships dev.cmux.app.internal /
-          "cmux INTERNAL"; demo ships dev.cmux.app.demo / "cmux DEMO" with the
-          DEMO-badged app icon and assigns to the cmux DEMO TestFlight group.
+          Upload variant. beta ships dev.cmux.app.beta / "cmux BETA";
+          internal (default) ships dev.cmux.app.internal / "cmux INTERNAL";
+          demo ships dev.cmux.app.demo / "cmux DEMO" with the DEMO-badged
+          app icon and assigns to the cmux DEMO TestFlight group.
         required: false
         default: internal
         type: choice
         options:
+          - beta
           - internal
           - demo
 
@@ -91,7 +93,7 @@ jobs:
               variant = 'demo';
             } else if (
               context.eventName === 'workflow_dispatch' &&
-              ['internal', 'demo'].includes(requestedVariant)
+              ['beta', 'internal', 'demo'].includes(requestedVariant)
             ) {
               variant = requestedVariant;
             } else {
@@ -100,7 +102,9 @@ jobs:
             }
             const canonicalArtifactName = variant === 'demo'
               ? 'ios-testflight-build-metadata-demo'
-              : 'ios-testflight-build-metadata';
+              : variant === 'beta'
+                ? 'ios-testflight-build-metadata-beta'
+                : 'ios-testflight-build-metadata';
 
             // Per-SHA workflow concurrency preserves every push, but it also lets
             // several runs reach App Store Connect at once. Build numbers must be

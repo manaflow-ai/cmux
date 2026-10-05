@@ -26,7 +26,7 @@ def resolve_distribution(
     marketing_version_override: str,
 ) -> DistributionDecision:
     override = marketing_version_override.strip()
-    if variant not in {"internal", "demo"}:
+    if variant not in {"beta", "internal", "demo"}:
         raise ValueError(f"unsupported TestFlight variant: {variant}")
     if override and variant == "demo":
         raise ValueError(
@@ -42,6 +42,19 @@ def resolve_distribution(
             assign_internal_group=False,
             metadata_artifact="ios-testflight-build-metadata-override",
             upload_mode="marketing_version_override",
+            audience="external TestFlight testers",
+            review_note="Beta App Review may be required",
+        )
+    if variant == "beta":
+        return DistributionDecision(
+            bundle_id="dev.cmux.app.beta",
+            display_name="cmux BETA",
+            profile_type="beta",
+            expected_app_id="7WLXT3NR37.dev.cmux.app.beta",
+            assign_external_group=True,
+            assign_internal_group=False,
+            metadata_artifact="ios-testflight-build-metadata-beta",
+            upload_mode="checked_in_version",
             audience="external TestFlight testers",
             review_note="Beta App Review may be required",
         )
