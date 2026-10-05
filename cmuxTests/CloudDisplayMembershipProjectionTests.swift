@@ -84,6 +84,29 @@ struct CloudDisplayMembershipProjectionTests {
          CmuxTuiSnapshotParser.resources(from: state).first { $0.kind == .terminal }].compactMap { $0 }
     }
 
+    @Test("A closed display view stays fenced until a fetched graph drops its token")
+    func closedDisplayViewIsNotRebuiltFromAStaleGraph() throws {
+        let catalog = SurfaceCatalog()
+        let coordinator = CloudPlacementCoordinator()
+        let withToken = try state(revision: 1)
+        let token = try #require(withToken.displayMemberships.first)
+        let placement = SurfaceResourcePlacement(
+            resource: SurfaceResourceID(machine: machine, kind: .display, key: displayID),
+            remoteWorkspaceID: workspaceID,
+            cloudDisplayMembershipViewID: token.viewID
+        )
+        #expect(!coordinator.isPendingClose(placement, on: machine))
+        coordinator.closedDisplayViews[machine, default: [:]][token.viewID] = token
+        // The graph that still holds the token (the close's removal has not
+        // landed) must not rebuild the pane.
+        coordinator.settleClosedDisplayViews(withToken, catalog: catalog)
+        #expect(coordinator.isPendingClose(placement, on: machine))
+        let withoutToken = try state(revision: 2, memberships: [])
+        coordinator.settleClosedDisplayViews(withoutToken, catalog: catalog)
+        #expect(!coordinator.isPendingClose(placement, on: machine))
+        #expect(coordinator.closedDisplayViews[machine] == nil)
+    }
+
     @Test("A frontend projection gives every client the same workspace display row")
     func sameAcceptedSnapshotProjectsOnTwoClients() throws {
         let state = try state()
