@@ -62,9 +62,17 @@ public final class HomeStoreBinding {
         controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment)
         // Refusals and unanswered ops nobody awaits (a resumed upload, a
         // resend after backoff) reach the host like any other: the store
-        // tells every live binding of this conversation, once each.
-        hooks.onRefusal = { [weak self] intent, rejection in self?.onRefusal(intent, rejection) }
-        hooks.onUnanswered = { [weak self] intent in self?.onUnanswered(intent) }
+        // tells every live binding of this conversation, once each. The
+        // store snapshots the hooks before a delivery, so a binding stopped
+        // by an earlier handler of the same intent checks `stopped` itself.
+        hooks.onRefusal = { [weak self] intent, rejection in
+            guard let self, !self.stopped else { return }
+            self.onRefusal(intent, rejection)
+        }
+        hooks.onUnanswered = { [weak self] intent in
+            guard let self, !self.stopped else { return }
+            self.onUnanswered(intent)
+        }
         store.register(hooks)
         controller.onIntent = { [weak self] intent in self?.perform(intent) }
         controller.onNeedsOlder = { [weak store] in
@@ -104,17 +112,22 @@ public final class HomeStoreBinding {
     }
 
     /// Freed without `stop()` (a host that went away without a last
-    /// callback): closes the binding's open and drops its freed hooks on
-    /// the main actor, at once when the last reference went on it. An
-    /// `isolated deinit` would need iOS 18.4 and macOS 15.4.
+    /// callback): closes the binding's open and drops its hooks on the
+    /// main actor, at once when the last reference went on it. On the main
+    /// thread `hooks` is still alive here (stored properties go after the
+    /// deinit body), so pruning freed entries would keep it: it is
+    /// unregistered by identity instead. Off the main thread the hop runs
+    /// after `hooks` is freed, so pruning drops it without keeping it alive.
+    /// An `isolated deinit` would need iOS 18.4 and macOS 15.4.
     deinit {
         guard !stopped else { return }
         let store = store
         let id = conversation
         if Thread.isMainThread {
+            let hooks = hooks
             MainActor.assumeIsolated {
                 store.close(id)
-                store.pruneHooks(for: id)
+                store.unregister(hooks)
             }
         } else {
             // task-owner: one hop to the main actor; ends at once
