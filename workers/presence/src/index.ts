@@ -310,6 +310,11 @@ const worker = {
       // fails the beat.
       const mirror = userDevicesStub(env, team.user.id)
         .heartbeat(team.user.id, team.user.id, parsed.beat)
+        .then((mirrored) => {
+          if ("error" in mirrored) {
+            console.warn("user devices heartbeat rejected", mirrored.status, mirrored.error);
+          }
+        })
         .catch((error: unknown) =>
           captureSentryException(env, team.user.id, error, {
             durable_object: "TeamPresence",
