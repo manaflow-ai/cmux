@@ -21378,13 +21378,16 @@ struct CMUXCLI {
     /// Rejects arguments a command doesn't accept, before it contacts the app,
     /// so a typo can't fall through to a different request. A value option
     /// needs a value that isn't another `--` flag (`--name=value` works too);
-    /// everything after `--` counts as a positional.
+    /// everything after `--` counts as a positional. Commands whose
+    /// positionals are free text and that have no single-dash options pass
+    /// `singleDashWordsArePositionals` so `-5C` stays text.
     func rejectUnexpectedArguments(
         _ args: [String],
         commandName: String,
         valueOptions: Set<String>,
         flags: Set<String> = [],
-        maxPositionals: Int
+        maxPositionals: Int,
+        singleDashWordsArePositionals: Bool = false
     ) throws {
         var positionals = 0
         var pastTerminator = false
@@ -21414,7 +21417,7 @@ struct CMUXCLI {
                 if flags.contains(arg) {
                     continue
                 }
-                if arg.hasPrefix("-"), arg.count > 1 {
+                if arg.hasPrefix("--") || (!singleDashWordsArePositionals && arg.hasPrefix("-") && arg.count > 1) {
                     let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.arguments.error.unknownOption", defaultValue: "%1$@: unknown option %2$@"),

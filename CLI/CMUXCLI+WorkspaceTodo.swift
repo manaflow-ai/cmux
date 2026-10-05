@@ -36,14 +36,15 @@ extension CMUXCLI {
     private static let workspaceTodoTargetOptions: Set<String> = ["--workspace", "--window"]
 
     /// The positional arguments left once options are stripped: words that
-    /// don't start with a dash, plus everything after `--` taken literally.
+    /// don't start with `--` (these commands have no single-dash options, so
+    /// `-5C` is text), plus everything after `--` taken literally.
     private func workspaceTodoPositionals(_ rest: [String]) -> [String] {
         var positionals: [String] = []
         var pastTerminator = false
         for argument in rest {
             if !pastTerminator, argument == "--" {
                 pastTerminator = true
-            } else if pastTerminator || argument == "-" || !argument.hasPrefix("-") {
+            } else if pastTerminator || !argument.hasPrefix("--") {
                 positionals.append(argument)
             }
         }
@@ -91,7 +92,9 @@ extension CMUXCLI {
             return
         }
         // Check arguments before resolving the target, which contacts the app.
-        let requested = firstPositionalArgument(commandArgs, valueOptions: Self.workspaceTodoTargetOptions)?.lowercased()
+        let (_, withoutWorkspace) = parseOption(commandArgs, name: "--workspace")
+        let (_, withoutTarget) = parseOption(withoutWorkspace, name: "--window")
+        let requested = workspaceTodoPositionals(withoutTarget).first?.lowercased()
         let maxPositionals: Int? = switch requested {
         case nil: 0
         case "set": 2
@@ -103,7 +106,8 @@ extension CMUXCLI {
                 commandArgs,
                 commandName: requested.map { "workspace status \($0)" } ?? "workspace status",
                 valueOptions: Self.workspaceTodoTargetOptions,
-                maxPositionals: maxPositionals
+                maxPositionals: maxPositionals,
+                singleDashWordsArePositionals: true
             )
         }
         let (params, remaining) = try workspaceTodoTarget(
@@ -176,7 +180,8 @@ extension CMUXCLI {
                 subcommandArgs,
                 commandName: "todo \(sub)",
                 valueOptions: Self.workspaceTodoTargetOptions.union(rules.valueOptions),
-                maxPositionals: rules.maxPositionals
+                maxPositionals: rules.maxPositionals,
+                singleDashWordsArePositionals: true
             )
         }
         let (params, rest) = try workspaceTodoTarget(

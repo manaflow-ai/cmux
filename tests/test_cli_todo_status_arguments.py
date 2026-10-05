@@ -150,6 +150,13 @@ class TodoStatusArgumentTests(unittest.TestCase):
         self.assert_sends(["todo", "set", '[{"text":"a"}]'], "workspace.todo.set", {"items": [{"text": "a"}]})
         self.assert_sends(["todo", "open"], "workspace.todo.open", {"workspace_id": WS})
 
+    def test_single_dash_words_stay_text(self) -> None:
+        # todo has no single-dash options, so these were always item text.
+        self.assert_sends(["todo", "add", "-5C limit"], "workspace.todo.add", {"text": "-5C limit"})
+        self.assert_sends(["todo", "add", "-", "buy", "milk"], "workspace.todo.add", {"text": "- buy milk"})
+        self.assert_sends(["todo", "edit", "1", "-draft"], "workspace.todo.edit", {"index": 0, "text": "-draft"})
+        self.assert_rejected(["todo", "check", "-1"], "Invalid todo item: -1")
+
     def test_text_after_terminator_is_literal(self) -> None:
         self.assert_sends(["todo", "add", "--", "--json"], "workspace.todo.add", {"text": "--json"})
         self.assert_sends(["todo", "add", "--", "fix", "-v", "flag"], "workspace.todo.add", {"text": "fix -v flag"})
