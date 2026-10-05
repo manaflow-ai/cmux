@@ -328,6 +328,12 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         return inputSessionIDs.contains { $0 != first }
     }
 
+    /// Whether a link activated in the tab may go to the user's configured
+    /// external browser.
+    public func handsLinksToExternalBrowser(userIsWorkingInTab: Bool) -> Bool {
+        true
+    }
+
     /// Ends one ``beginInput(sessionID:)``.
     public mutating func endInput(sessionID: String) {
         if let index = inputSessionIDs.lastIndex(of: sessionID) {
