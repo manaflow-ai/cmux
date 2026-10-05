@@ -76,7 +76,10 @@ public struct BrowserReplMethodSpec: Sendable, Equatable {
         case drag
         /// The frame that holds the focus.
         case focus
-        /// The chooser's own frame (a `cancel` answer passes).
+        /// The chooser's own frame, judged at the answer (a `cancel` answer
+        /// passes): it must still show the document that opened the
+        /// chooser, and the authority must allow it, checked right before
+        /// the answer on the turn that sends it.
         case fileChooser
         /// Judged during the capture, which blanks or refuses blocked frames.
         case screenshot

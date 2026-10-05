@@ -501,7 +501,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case .inputInsertText: return try await insertText(params)
         case .inputDrag: return try await drag(params)
         case .inputSetFiles: return try await setFiles(params)
-        case .fileChooserRespond: return try respondToFileChooser(params)
+        case .fileChooserRespond: return try await respondToFileChooser(params)
         case .dialogRespond: return try respondToDialog(params)
         case .downloadPath: return try await downloadPath(params)
         case .tabScreenshot: return try await screenshot(params)
@@ -650,17 +650,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func checkFrames(_ spec: BrowserReplMethodSpec, params: [String: Any]) async throws {
         switch spec.frames {
-        case .pointer, .drag, .focus, .fileChooser, .allFrames:
+        case .pointer, .drag, .focus, .allFrames:
             break
-        case .screenshot, .dialogDocument, .inFrame, .none:
+        case .screenshot, .dialogDocument, .fileChooser, .inFrame, .none:
             // A screenshot is judged during the capture, which blanks blocked
             // frames (BrowserReplFrameGate.coverBlockedFrames); a dialog's
-            // document where it is answered; script where it runs.
+            // document and a file chooser's frame where they are answered;
+            // script where it runs.
             return
         }
         guard let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
               let panel = try? reachablePanel(id), frameGate.isActive(in: panel.webView) else { return }
-        if spec.frames == .fileChooser, params["cancel"] as? Bool == true { return }
         let webView = panel.webView
         let frames = await BrowserReplFrameTree.frames(of: webView)
         switch spec.frames {
@@ -675,18 +675,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             try await frameGate.checkPointer(at: Self.dragTrail(params), in: webView, frames: frames)
         case .focus:
             try await frameGate.checkFocus(in: webView, frames: frames)
-        case .fileChooser:
-            // Files go only to the input of the chooser's own frame.
-            guard let chooserID = params["chooserId"] as? String,
-                  let frame = BrowserReplTabAttachments.shared.attachment(for: id)?.fileChooserFrame(id: chooserID, sessionID: sessionID) else {
-                return
-            }
-            try await frameGate.checkFileChooser(frame: frame, in: webView, frames: frames)
         case .allFrames:
             // A PDF is laid out for print; its frames' boxes cannot be
             // blanked, so any blocked frame refuses it.
             try frameGate.checkCapture(in: webView, frames: frames)
-        case .screenshot, .dialogDocument, .inFrame, .none:
+        case .screenshot, .dialogDocument, .fileChooser, .inFrame, .none:
             return
         }
     }
@@ -2735,31 +2728,48 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
+    /// `filechooser.respond`. A cancel always goes through. Files go only
+    /// to the session the chooser was routed to, and only into the document
+    /// that opened it, judged right before the answer
+    /// (``BrowserReplMethodSpec/Frames/fileChooser``): with child-frame
+    /// loads held, a fresh frame tree must still show that document in the
+    /// chooser's frame (else `stale`) and the authority must allow it (else
+    /// `blocked`); the chooser stays open to be cancelled. The files are
+    /// staged and the answer sent on the main-actor turn of the check's
+    /// last reply, so nothing in this process runs in between; nothing is
+    /// written to disk before the check passes.
     @MainActor
-    private func respondToFileChooser(_ params: [String: Any]) throws -> Any? {
+    private func respondToFileChooser(_ params: [String: Any]) async throws -> Any? {
         let panel = try panel(params)
         guard let id = params["chooserId"] as? String else {
             throw Self.error("invalid", "chooserId is required")
         }
         let attachment = attachment(panel)
         let gone = Self.error("not_found", "File chooser \(id) is gone")
-        var urls: [URL]?
-        if params["cancel"] as? Bool != true {
+        if params["cancel"] as? Bool == true {
+            guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: nil) else { throw gone }
+            return nil
+        }
+        guard let frame = attachment.fileChooserFrame(id: id, sessionID: sessionID) else { throw gone }
+        let webView = panel.webView
+        try await frameGate.loadHold.holding(webView) {
+            let frames = await BrowserReplFrameTree.frames(of: webView)
+            try await frameGate.checkFileChooser(frame: frame, in: webView, frames: frames)
+            guard panel.webView === webView else {
+                throw Self.error("stale", "The tab replaced its web view while the file chooser's frame was checked; it may only be cancelled")
+            }
             // Only the session the chooser was routed to may answer it, and
-            // nothing is written to disk before that is known (nor past the
-            // staging bounds). This runs in one main-actor turn, so the
-            // chooser cannot go between the check and the answer.
+            // nothing is written past the staging bounds. This runs in one
+            // main-actor turn, so the chooser cannot go between the check
+            // and the answer.
             let staged = try BrowserReplUploadStaging(parent: FileManager.default.temporaryDirectory).stage(
                 params["files"] as? [[String: Any]] ?? []
             ) {
-                attachment.fileChooserFrame(id: id, sessionID: sessionID) != nil
+                attachment.fileChooserFrame(id: id, sessionID: sessionID) === frame
             }
             guard let staged else { throw gone }
             fileChooserDirectories.append(staged.directory)
-            urls = staged.urls
-        }
-        guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
-            throw gone
+            guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: staged.urls) else { throw gone }
         }
         return nil
     }

@@ -940,14 +940,6 @@ public final class BrowserReplFrameGate {
     /// Other frames of the tab do not matter; the files go only to that
     /// frame's input.
     public func checkFileChooser(frame info: WKFrameInfo, in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
-        guard isActive(in: webView) else { return }
-        let refusal = { (shown: String, reason: String) in
-            BrowserReplDriverError(code: "blocked", message: "The file chooser opened in a frame showing \(shown), which the domain policy blocks: \(reason); it may only be cancelled")
-        }
-        let recorded = BrowserReplFrameDocument(info: info)
-        if let reason = blockReason(recorded, in: webView) {
-            throw refusal(recorded.origin ?? recorded.place, reason)
-        }
         let frame: BrowserReplFrame?
         if info.isMainFrame {
             frame = frames.first
@@ -958,7 +950,33 @@ public final class BrowserReplFrameGate {
         guard let frame else {
             throw BrowserReplDriverError(code: "stale", message: "The frame the file chooser opened in is gone or cannot be read, so the document it shows cannot be checked against the domain policy; it may only be cancelled")
         }
+        // The chooser belongs to the document that opened it: a frame that
+        // shows another one since gets no files, whatever its verdict.
+        guard let current = frame.info, Self.isSameDocument(info, current) else {
+            throw BrowserReplDriverError(code: "stale", message: "The frame the file chooser opened in shows another document since, so the files would go to a page that did not ask for them; it may only be cancelled")
+        }
+        guard isActive(in: webView) else { return }
+        let recorded = BrowserReplFrameDocument(info: info)
+        if let reason = blockReason(recorded, in: webView) {
+            throw BrowserReplDriverError(code: "blocked", message: "The file chooser opened in a frame showing \(recorded.origin ?? recorded.place), which the domain policy blocks: \(reason); it may only be cancelled")
+        }
         try await authorize(frame, in: webView)
+    }
+
+    /// Whether two of WebKit's records of one frame name the same document:
+    /// by WebKit's document id (`_documentIdentifier`) when both carry one,
+    /// else by URL and origin.
+    static func isSameDocument(_ lhs: WKFrameInfo, _ rhs: WKFrameInfo) -> Bool {
+        if let left = documentID(of: lhs), let right = documentID(of: rhs) { return left == right }
+        return lhs.request.url == rhs.request.url && BrowserReplFrameDocument(info: lhs) == BrowserReplFrameDocument(info: rhs)
+    }
+
+    /// WebKit's id of the document `info` recorded
+    /// (`-[WKFrameInfo _documentIdentifier]`), or nil where WebKit has none.
+    public static func documentID(of info: WKFrameInfo) -> String? {
+        let selector = NSSelectorFromString("_documentIdentifier")
+        guard info.responds(to: selector) else { return nil }
+        return (info.value(forKey: "_documentIdentifier") as? UUID)?.uuidString
     }
 
     /// The frames whose recorded documents the policy blocks.
