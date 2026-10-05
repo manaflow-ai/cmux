@@ -676,6 +676,51 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testInvalidReloadKeepsLastGoodGlobalConfigAndReportsLine() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-last-good-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo first" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path)
+        store.loadAll()
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo broken"
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.sourcePath, configURL.path)
+        XCTAssertGreaterThanOrEqual(issue.line ?? 0, 2)
+
+        try """
+        {
+          "actions": {
+            "second": { "type": "command", "command": "echo second" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "first"))
+        XCTAssertNotNil(store.resolvedAction(id: "second"))
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
     func testSymlinkedConfigReloadsWhenTargetChanges() throws {
         // Regression for the symlinked cmux.json live-reload bug: the parse cache
         // was keyed on attributesOfItem(atPath:) (lstat), which does NOT follow
