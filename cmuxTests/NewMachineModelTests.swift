@@ -93,6 +93,17 @@ struct NewMachineModelTests {
         #expect(baseRecorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
     }
 
+    @Test func selectingAMachineUsesTheForkCommandAsTheCreateSource() {
+        let source = VMSummary(id: "vm-source", provider: "freestyle", status: "running", image: "sh-source", createdAt: 0, displayName: "Build machine")
+        let (model, recorder) = makeModel()
+        model.applySourceMachines([source])
+        model.baseImage = .machine(source)
+        #expect(model.baseImage.label == "Build machine")
+        #expect(model.cliArguments == ["vm", "fork", "vm-source", "--focus", "false"])
+        model.create()
+        #expect(recorder.value.first?.arguments == ["vm", "fork", "vm-source", "--focus", "false"])
+    }
+
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
         let (model, _) = makeModel(plan: Self.maxPlan)
         #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
