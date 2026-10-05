@@ -19352,15 +19352,7 @@ struct CMUXCLI {
             return String(localized: "cli.omp.usage", defaultValue: """
             Usage: cmux omp [omp-args...]
 
-            Launch oh-my-pi (OMP) with native cmux pane integration.
-
-            OMP is a coding agent harness. This command sets up a tmux shim so
-            OMP's tmux-backed panes become native cmux splits.
-
-            This command:
-              - sets a tmux-like environment so OMP uses cmux splits
-              - prepends a private tmux shim to PATH
-              - forwards all remaining arguments to omp
+            Launch oh-my-pi (OMP) in a cmux-managed terminal.
 
             Install: bun install -g @oh-my-pi/pi-coding-agent
 
@@ -26900,7 +26892,10 @@ struct CMUXCLI {
         }
 
         guard let ompExecutablePath = resolveOMPExecutable(searchPath: launcherEnvironment["PATH"]) else {
-            throw CLIError(message: "omp is not installed. Install it first:\n  bun install -g @oh-my-pi/pi-coding-agent\n\nThen run: cmux omp")
+            throw CLIError(message: missingProviderExecutableMessage(
+                displayName: "oh-my-pi (omp)",
+                executableName: "omp"
+            ))
         }
         launcherEnvironment["PATH"] = providerExecutableSearchPath(
             searchPath: launcherEnvironment["PATH"],
@@ -26944,7 +26939,11 @@ struct CMUXCLI {
         let code = cliExecFailureErrno {
             execv(launchPath, &argv)
         }
-        throw CLIError(message: "Failed to launch omp: \(String(cString: strerror(code)))\n\nIs oh-my-pi installed? Install with:\n  bun install -g @oh-my-pi/pi-coding-agent")
+        let message = String(
+            localized: "cli.omp.error.launchFailed",
+            defaultValue: "Failed to launch omp: %@\n\nCheck that oh-my-pi is installed. Install with:\n  bun install -g @oh-my-pi/pi-coding-agent"
+        )
+        throw CLIError(message: String(format: message, String(cString: strerror(code))))
     }
 
     // MARK: - cmux omc (Oh My Claude Code)

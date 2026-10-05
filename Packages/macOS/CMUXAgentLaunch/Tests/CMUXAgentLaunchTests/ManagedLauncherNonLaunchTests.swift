@@ -208,6 +208,10 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.ompLaunchIsNonLaunch(args: ["-h"]))
         #expect(classifier.ompLaunchIsNonLaunch(args: ["--version"]))
         #expect(classifier.ompLaunchIsNonLaunch(args: ["config", "--help"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--model", "opus", "--help"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--model=opus", "config"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--config", "agent.yml", "--version"]))
+        #expect(!classifier.ompLaunchIsNonLaunch(args: ["--model", "--help", "explain this repo"]))
     }
 
     @Test("OMP rejects interactive surfaces, option dispatches, and prompts")

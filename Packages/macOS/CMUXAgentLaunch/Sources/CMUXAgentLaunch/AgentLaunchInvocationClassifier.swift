@@ -332,20 +332,28 @@ public struct AgentLaunchInvocationClassifier {
 
     /// Whether OMP arguments select help, version, or a documented management command.
     public func ompLaunchIsNonLaunch(args: [String]) -> Bool {
-        guard let first = args.first else { return false }
-        if informationalOptions.contains(first) { return true }
-        if !first.hasPrefix("-") || first == "-" {
-            if nestedInformationalInvocation(
-                args: args,
-                startIndex: 1,
-                booleanOptions: [],
-                valueOptions: []
-            ) {
-                return true
-            }
-        }
-        return ompManagementCommands.contains(first)
+        conservativeNonLaunchInvocation(
+            args: args,
+            managementCommands: ompManagementCommands,
+            booleanOptions: ompBooleanOptions,
+            valueOptions: ompValueOptions
+        )
     }
+
+    private let ompBooleanOptions: Set<String> = [
+        "--prewalk", "--no-prewalk", "--plan-yolo", "--allow-home", "--print",
+        "-p", "--from-claude", "--from-codex", "--no-session", "--no-tools",
+        "--no-lsp", "--no-pty", "--no-extensions", "--no-skills", "--no-rules",
+        "--no-title", "--no-ui", "--print-thoughts", "--auto-approve",
+    ]
+    private let ompValueOptions: Set<String> = [
+        "--model", "--smol", "--slow", "--plan", "--goal", "--prewalk-into",
+        "--plan-yolo-into", "--provider", "--api-key", "--system-prompt",
+        "--system-prompt-template", "--append-system-prompt", "--profile", "--alias",
+        "--cwd", "--mode", "--config", "--add-dir", "--resume", "-r", "--session-dir",
+        "--models", "--tools", "--thinking", "--service-tier", "--hook", "--extension",
+        "-e", "--skills", "--export", "--max-time", "--approval-mode",
+    ]
 
     private func conservativeNonLaunchInvocation(
         args: [String],
