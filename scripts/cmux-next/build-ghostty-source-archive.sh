@@ -22,10 +22,10 @@ revision="$(git -C "$ROOT" rev-parse "HEAD:ghostty")"
 export ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-${RUNNER_TEMP:-/tmp}/cmux-ghostty-zig-cache}"
 # zig writes its download temp files below the global cache; it must exist.
 mkdir -p "$ZIG_GLOBAL_CACHE_DIR/tmp"
-# --fetch (mode "needed") fetches what the macOS build graph needs; --fetch=all
-# would add lazy packages that only other platforms use (zig-gobject for GTK).
-# Set CMUX_GHOSTTY_FETCH=all to collect every declared package.
-(cd "$ghostty" && zig build "--fetch=${CMUX_GHOSTTY_FETCH:-needed}")
+# --fetch=all: every declared package, lazy ones included (a superset of what
+# any build of this revision links). Mode "needed" fetched only 1 package in
+# dry run 37263884156, because a build fetches its lazy packages while it runs.
+(cd "$ghostty" && zig build --fetch=all)
 notices="$ROOT/cmux-tui/build-support/notices/ghostty"
 archive_tool="$ROOT/scripts/cmux-next/notices/ghostty_source_archive.py"
 rm -rf "$out/ghostty-licenses"

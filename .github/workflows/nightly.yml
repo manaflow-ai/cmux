@@ -965,14 +965,19 @@ jobs:
       # cmux-next-src-<commit> tag) instead of upstream URLs. Built and verified
       # on every nightly-next build (twice, byte-identical); the publish job
       # attaches it only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1.
+      # continue-on-error until every Ghostty Zig package has a reviewed license
+      # text (zig-gobject and iterm2_themes have none yet): a failure leaves a
+      # red step and no artifact, and the sign and publish steps skip it.
       - name: Build the cmux-next source archive
+        id: source_archive
         if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        continue-on-error: true
         run: |
           ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig" \
             ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive"
 
       - name: Upload the cmux-next source archive
-        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        if: steps.source_archive.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-source-archive
@@ -1539,7 +1544,9 @@ jobs:
           path: nightly-inputs/ghostty
 
       - name: Download the Ghostty dependency licenses (cmux-next)
+        id: ghostty_licenses
         if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-next-source-archive
@@ -1621,7 +1628,7 @@ jobs:
       # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
       # source offer that names this release's cmux-next source archive and tag.
       - name: Inject the Ghostty dependency licenses (cmux-next)
-        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        if: steps.ghostty_licenses.outcome == 'success'
         run: |
           set -euo pipefail
           APP_DIR="build-universal/Build/Products/Release/cmux.app"
