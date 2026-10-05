@@ -187,6 +187,21 @@ public final class MessagesLabHomeView: NSView {
         return true
     }
 
+    /// Automation (DEBUG socket): plays or pauses the newest video bubble
+    /// through the click's path (`ChatIntents.toggleVideo`).
+    public func debugToggleNewestVideo() -> Bool {
+        guard let store = controller.store else { return false }
+        for m in store.state.conversation.messages.reversed() {
+            for (i, part) in m.parts.enumerated() {
+                if case let .attachment(a) = part, a.kind == "video" {
+                    projection.toggleVideo(PartRef(messageId: m.id, partIndex: i), a.id)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points
     /// through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) {

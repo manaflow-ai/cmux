@@ -47,7 +47,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(result == .accepted), "result": .string(result.rawValue), "via": .string(via.rawValue)])
     }
 
-    /// `debug.home.drive` {action: focus | type | send | tapback | scroll,
+    /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll,
     /// text, dy}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
@@ -65,8 +65,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             ok = true
         case "send": view.sendDraft(); ok = true
         case "tapback": ok = view.debugTapbackNewestIncoming()
+        case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback or scroll")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video or scroll")])
         }
         return .object(["ok": .bool(ok)])
     }

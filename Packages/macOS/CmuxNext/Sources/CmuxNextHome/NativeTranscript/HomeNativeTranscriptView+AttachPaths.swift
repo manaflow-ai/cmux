@@ -72,6 +72,8 @@ extension HomeNativeTranscriptView {
     public func sendDraft() { transcript.sendDraft() }
     /// A love tapback on the newest incoming message (the picker's path).
     public func debugTapbackNewestIncoming() -> Bool { transcript.debugTapbackNewestIncoming() }
+    /// Plays or pauses the newest video bubble (the click's path).
+    public func debugToggleNewestVideo() -> Bool { transcript.debugToggleNewestVideo() }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }
