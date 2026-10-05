@@ -1,13 +1,11 @@
 import AppKit
 import WebKit
 
-/// Link clicks and the link context menu of a WebKit tab. Modified clicks
-/// follow the engine's `BrowserLinkClickMapping` (Chrome's defaults:
-/// Cmd-click and middle click open a background tab, Shift-Cmd-click a
-/// foreground tab, Shift-click a new window, Option-click downloads). The
-/// menu's "Open Link in New Tab" opens a background tab and "Open Link in
-/// New Window" a window; both run WebKit's own item, which creates the page
-/// with its opener, after recording where that page goes.
+/// Link clicks of a WebKit tab. Modified clicks follow the engine's
+/// `BrowserLinkClickMapping` (Chrome's defaults: Cmd-click and middle click
+/// open a background tab, Shift-Cmd-click a foreground tab, Shift-click a
+/// new window, Option-click downloads). The link menu is the host's
+/// (`WebKitContextHit`, `BrowserHitMenu` in the App).
 extension WebKitTab {
     typealias LinkClick = WebKitLinkClick
 
@@ -15,54 +13,11 @@ extension WebKitTab {
         WebKitLinkClick(flags: flags, button: button, mapping: mapping)
     }
 
-    /// The disposition the link menu picked, once.
-    func takeContextMenuDisposition() -> BrowserNewTabDisposition? {
-        defer { contextMenuDisposition = nil }
-        return contextMenuDisposition
-    }
-}
-
-/// Runs WebKit's original link menu action after recording where its page
-/// goes. The menu item keeps the route alive (`representedObject`).
-final class LinkMenuRoute: NSObject {
-    private weak var tab: WebKitTab?
-    private let disposition: BrowserNewTabDisposition
-    private weak var target: AnyObject?
-    private let action: Selector
-
-    init(tab: WebKitTab, disposition: BrowserNewTabDisposition, target: AnyObject?, action: Selector) {
-        self.tab = tab
-        self.disposition = disposition
-        self.target = target
-        self.action = action
-    }
-
-    @objc func run(_ sender: Any?) {
-        tab?.contextMenuDisposition = disposition
-        NSApplication.shared.sendAction(action, to: target, from: sender)
-    }
-
-    static let openLinkItem = "WKMenuItemIdentifierOpenLinkInNewWindow"
-
-    /// Retitles WebKit's "Open Link in New Window" to "Open Link in New Tab"
-    /// (a background tab) and adds "Open Link in New Window" after it.
-    static func install(in menu: NSMenu, tab: WebKitTab) {
-        // A pick from an earlier menu that created no page expires here.
-        tab.contextMenuDisposition = nil
-        guard let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == openLinkItem }) else { return }
-        let item = menu.items[index]
-        guard let original = item.action, !(item.target is LinkMenuRoute) else { return }
-        let target = item.target
-        item.title = Strings.openLinkInNewTab
-        let tabRoute = LinkMenuRoute(tab: tab, disposition: .backgroundTab, target: target, action: original)
-        item.target = tabRoute
-        item.action = #selector(run(_:))
-        item.representedObject = tabRoute
-        let window = NSMenuItem(title: Strings.openLinkInNewWindow, action: #selector(run(_:)), keyEquivalent: "")
-        let windowRoute = LinkMenuRoute(tab: tab, disposition: .newWindow, target: target, action: original)
-        window.target = windowRoute
-        window.representedObject = windowRoute
-        menu.insertItem(window, at: index + 1)
+    /// The last right-click's hit when it is fresh, once.
+    func takeContextHit(now: ContinuousClock.Instant = .now) -> BrowserContextMenuTarget? {
+        defer { contextHit = nil }
+        guard let hit = contextHit, now - hit.at <= WebKitContextHit.freshness else { return nil }
+        return hit.target
     }
 }
 

@@ -83,7 +83,7 @@ public struct DaemonLauncher: Sendable {
     private let rememberedSocket: RememberedSocket
     /// Version handoff state (`handOffIfStale`).
     let handoff = DaemonHandoffState()
-    private let clock: any Clock<Duration>
+    let clock: any Clock<Duration>
     private let ensureTimeout: Duration
     private let environmentProvider: @Sendable () async -> [String: String]
 
@@ -221,12 +221,15 @@ public struct DaemonLauncher: Sendable {
                                                     attributes: [.posixPermissions: 0o700])
         }
         if let running = await runningOwner() { return running }
+        // The probe runs while the environment is gathered.
+        async let reapGrace = supportsReapGrace()
         let environment = await ensureEnvironment()
+        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace)
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
-            arguments: Self.ensureArguments(configuration),
+            arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
             timeout: ensureTimeout,
@@ -235,10 +238,12 @@ public struct DaemonLauncher: Sendable {
         return try Self.parseEnsure(result)
     }
 
-    /// The `server ensure` command line for `configuration`.
-    static func ensureArguments(_ configuration: Configuration) -> [String] {
-        ["--session", configuration.session, "--json", "server", "ensure",
-         "--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)]
+    /// The `server ensure` command line for `configuration`. `reapGrace`
+    /// says whether the binary accepts `--terminal-reap-grace-seconds`
+    /// (``supportsReapGrace()``); a client without it refuses the option.
+    static func ensureArguments(_ configuration: Configuration, reapGrace: Bool = true) -> [String] {
+        ["--session", configuration.session, "--json", "server", "ensure"]
+            + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
             + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
     }
 
