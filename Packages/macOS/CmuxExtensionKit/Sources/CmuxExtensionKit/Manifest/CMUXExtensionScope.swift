@@ -78,11 +78,13 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     case analyzeWorkspaceContext
     /// Bind an explicitly supplied session to an exact live process generation.
     case bindAgentSession
+    /// Presents native sidebar menus; only a user's menu choice invokes a command.
+    case presentNativeSidebarMenu
 
     /// The API required to interpret this declared capability.
     var minimumAPIVersion: CmuxExtensionAPIVersion {
         switch self {
-        case .analyzeWorkspaceContext:
+        case .analyzeWorkspaceContext, .presentNativeSidebarMenu:
             return .sidebarV2_3
         case .editWorkspaceContext, .bindAgentSession:
             return .sidebarV2_2

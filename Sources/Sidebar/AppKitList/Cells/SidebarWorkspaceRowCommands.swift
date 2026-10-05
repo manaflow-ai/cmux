@@ -158,6 +158,14 @@ struct SidebarWorkspaceRowCommands {
         setSelectionToTabs()
     }
 
+    /// A menu-open capture may narrow to surviving UUIDs but never recapture by index.
+    func closeCapturedPlan(_ plan: SidebarClassicMenuParity.ClosePlan) {
+        guard let tabManager, tabManager.tabs.contains(where: { $0.id == plan.anchorID }) else { return }
+        let ids = plan.survivingWorkspaceIDs(in: tabManager.tabs.map(\.id))
+        guard !ids.isEmpty else { return }
+        closeTabs(ids, allowPinned: true)
+    }
+
     func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
         tabManager?.closeWorkspacesWithConfirmation(targetIds, allowPinned: allowPinned)
         syncSelectionAfterMutation()
@@ -665,6 +673,10 @@ struct SidebarWorkspaceRowMenuBuilder {
     }
 
     private func addCloseItems(to menu: NSMenu, tabManager: TabManager) {
+        guard let captured = SidebarClassicMenuParity(nativeOrder: tabManager.tabs.map(\.id),
+            anchorID: commands.tab.id, selectedWorkspaceIDs: commands.contextMenuWorkspaceIds) else { return }
+        let selected = captured.closePlan(.selected), others = captured.closePlan(.others)
+        let above = captured.closePlan(.above), below = captured.closePlan(.below)
         let closeLabel = label(
             multi: String(localized: "contextMenu.closeWorkspaces", defaultValue: "Close Workspaces"),
             single: String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace"))
@@ -673,34 +685,25 @@ struct SidebarWorkspaceRowMenuBuilder {
             enabled: !targetIds.isEmpty,
             shortcut: KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
         ) { [commands] in
-            commands.closeTabs(commands.contextMenuWorkspaceIds, allowPinned: true)
+            commands.closeCapturedPlan(selected)
         })
         menu.addItem(item(
             String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces"),
-            enabled: !(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
-        ) { [weak tabManager, commands] in
-            guard let tabManager else { return }
-            let keepIds = Set(commands.contextMenuWorkspaceIds)
-            let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
-            commands.closeTabs(idsToClose, allowPinned: true)
+            enabled: !others.workspaceIDs.isEmpty
+        ) { [commands] in
+            commands.closeCapturedPlan(others)
         })
         menu.addItem(item(
             String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below"),
-            enabled: commands.index < tabManager.tabs.count - 1
-        ) { [weak tabManager, commands] in
-            guard let tabManager,
-                  let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == commands.tab.id }) else { return }
-            let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
-            commands.closeTabs(idsToClose, allowPinned: true)
+            enabled: !below.workspaceIDs.isEmpty
+        ) { [commands] in
+            commands.closeCapturedPlan(below)
         })
         menu.addItem(item(
             String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above"),
-            enabled: commands.index != 0
-        ) { [weak tabManager, commands] in
-            guard let tabManager,
-                  let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == commands.tab.id }) else { return }
-            let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
-            commands.closeTabs(idsToClose, allowPinned: true)
+            enabled: !above.workspaceIDs.isEmpty
+        ) { [commands] in
+            commands.closeCapturedPlan(above)
         })
     }
 

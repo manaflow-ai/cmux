@@ -11,6 +11,8 @@ public enum CmuxSidebarSplitDirection: String, Codable, CaseIterable, Equatable,
 public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     case createWorkspace(title: String?, workingDirectory: String?, select: Bool)
     case selectWorkspace(UUID)
+    /// Applies a user click through the host's native modifier-selection policy.
+    case selectWorkspaceRow(workspaceID: UUID, modifiers: CmuxSidebarSelectionModifiers)
     case closeWorkspace(UUID)
     case selectNextWorkspace
     case selectPreviousWorkspace
@@ -73,11 +75,16 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     /// Binds a user-supplied identity only while the captured process generation still owns the surface.
     case bindAgentSession(workspaceID: UUID, surfaceID: UUID, toolID: String, sessionID: String, expectedProcessGeneration: UInt64)
 
+    /// Presents an existing native menu without choosing a command on the user's behalf.
+    case classicMenu(CmuxSidebarClassicMenuAction)
+
     public var requiredScopes: Set<CmuxExtensionActionScope> {
         switch self {
+        case .classicMenu:
+            return [.presentNativeSidebarMenu]
         case .createWorkspace(_, let workingDirectory, _):
             return workingDirectory == nil ? [.createWorkspace] : [.createWorkspace, .createWorkspaceWithPath]
-        case .selectWorkspace:
+        case .selectWorkspace, .selectWorkspaceRow:
             return [.selectWorkspace]
         case .closeWorkspace:
             return [.closeWorkspace]
