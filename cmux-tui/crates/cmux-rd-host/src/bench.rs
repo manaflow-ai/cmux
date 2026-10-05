@@ -302,6 +302,8 @@ pub fn run(opts: &Opts) -> Res<()> {
                 )),
                 None => None,
             },
+            service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
+            caps: Vec::new(),
         },
     )?;
     write_control(
