@@ -13280,6 +13280,58 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action browser-certificate-warning-proceed",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.certificateWarning.proceed",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Proceed Past Certificate Warning (Unsafe)",
+      "title_key" : "action.certificateWarning.proceed",
+      "title_table" : "PageInfoActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-certificate-warning-go-back",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.certificateWarning.goBack",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Go Back from Certificate Warning",
+      "title_key" : "action.certificateWarning.goBack",
+      "title_table" : "PageInfoActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "extension menu",
       "context_menu" : "offered",
       "context_menus" : [
