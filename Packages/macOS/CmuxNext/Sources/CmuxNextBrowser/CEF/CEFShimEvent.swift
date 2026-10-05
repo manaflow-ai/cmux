@@ -24,7 +24,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case findResult(browser: Int32, count: Int, activeOrdinal: Int, isFinal: Bool)
     case closeRequested(browser: Int32)
     case tab(CEFForkTabEvent, browser: Int32, window: Int32, value: Int)
-    case popup(browser: Int32, url: String, disposition: Int)
+    case popup(browser: Int32, url: String, disposition: Int, userGesture: Bool)
     /// Reply to an async site call (`cmux_shim_visit_cookies`,
     /// `cmux_shim_delete_cookies`): `value` is 1 or the deleted count.
     case reply(browser: Int32, id: Int32, value: Int64, json: String)
@@ -60,6 +60,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsMessage(browser: Int32, json: String)
     /// A watched profile preference changed (`cmux_shim_pref_watch`).
     case preferenceChanged(name: String, profilePath: String)
+    /// A download's start, progress or end (`CEFDownloads`).
+    case download(CEFDownloadEvent)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -88,7 +90,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 16:
             self = .tab(CEFForkTabEvent(rawValue: request) ?? .unknown, browser: browser,
                         window: Int32(truncatingIfNeeded: a), value: Int(b))
-        case 17: self = .popup(browser: browser, url: s1, disposition: Int(a))
+        case 17: self = .popup(browser: browser, url: s1, disposition: Int(a), userGesture: b & 1 != 0)
         case 18: self = .reply(browser: browser, id: request, value: a, json: s1)
         case 19: self = .contextMenu(browser: browser, token: request, x: Int(a), y: Int(b), itemsJSON: s1, paramsJSON: s2)
         case 20: self = .devToolsWillOpen(browser: browser)
@@ -105,6 +107,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 31: self = .takeFocus(browser: browser, forward: a != 0)
         case 32: self = .devToolsMessage(browser: browser, json: s1)
         case 33: self = .preferenceChanged(name: s1, profilePath: s2)
+        case 34...36:
+            let download = CEFDownloadEvent(kind: kind, browser: browser, id: request, a: a, b: b, s1: s1, s2: s2)
+            self = download.map(Self.download) ?? .unknown(kind: kind)
         default: self = .unknown(kind: kind)
         }
     }
@@ -144,20 +149,24 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
 nonisolated struct CEFCreatedBy: Equatable, Sendable {
     var opener: Int32
     var disposition: CEFDisposition
+    /// A user gesture caused the opener's request (OnBeforePopup).
+    var userGesture = false
     /// Popup window features (screen DIPs), when the page gave a size.
     var features: CGRect?
 
     static let none = CEFCreatedBy(opener: 0, disposition: .unknown, features: nil)
 
-    init(opener: Int32, disposition: CEFDisposition, features: CGRect?) {
+    init(opener: Int32, disposition: CEFDisposition, userGesture: Bool = false, features: CGRect?) {
         self.opener = opener
         self.disposition = disposition
+        self.userGesture = userGesture
         self.features = features
     }
 
     init(packed: Int64, features: String) {
         opener = Int32(truncatingIfNeeded: packed >> 32)
-        disposition = CEFDisposition(raw: Int(Int32(truncatingIfNeeded: packed & 0xffff_ffff)))
+        disposition = CEFDisposition(raw: Int(packed & 0xffff))
+        userGesture = (packed >> 16) & 1 != 0
         let parts = features.split(separator: ",").compactMap { Double($0) }
         self.features = parts.count == 4 ? CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]) : nil
     }
