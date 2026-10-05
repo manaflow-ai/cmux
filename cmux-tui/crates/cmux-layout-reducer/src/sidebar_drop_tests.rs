@@ -744,3 +744,36 @@ fn empty_group_machine_is_optional_in_the_wire_shape() {
     let decoded: Section = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, section);
 }
+
+/// Swift `previousExpandedSection` takes the section header right above and
+/// answers nil when it is collapsed; it never skips past a collapsed section
+/// to an expanded one further up.
+#[test]
+fn a_collapsed_previous_section_is_not_skipped_for_the_one_above_it() {
+    let mut rows: Vec<Row> = rows()
+        .into_iter()
+        .filter(|row| row.section != machine("local") || matches!(row.key, RowKey::Section { .. }))
+        .collect();
+    for row in &mut rows {
+        if row.key == (RowKey::Section { id: machine("local") }) {
+            row.is_collapsed = true;
+        }
+    }
+    let mut y = 0.0;
+    for row in &mut rows {
+        row.y = y;
+        y += row.height + 2.0;
+    }
+    let cloud =
+        rows.iter().find(|row| row.key == RowKey::Section { id: machine("cloud") }).unwrap();
+    let request = request_with_rows(
+        cloud.y + cloud.height * 0.1,
+        Payload::Workspaces { ids: vec!["y".into()] },
+        rows,
+        sections(),
+    );
+    assert_eq!(
+        resolve(&request),
+        Some(Target::Position { section: machine("cloud"), group: None, index: 0 })
+    );
+}
