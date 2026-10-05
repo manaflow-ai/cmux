@@ -7,6 +7,7 @@ import { accountRequestSigningInput, requestSigningInput } from "../src/crypto";
 import { AccountStore } from "../src/storage/account-store";
 import type { TeamStore } from "../src/storage/team-store";
 import { sqliteStorage } from "./support/sqlite-storage";
+import { ACCOUNT_RECORD_BYTES } from "../src/contracts/account";
 import { RELAY_URL, deterministicRandom, descriptor, deviceKey, identity, sign, teamHarness, type DeviceKey } from "./support/team-fixture";
 
 const NOW = 1_800_000_000;
@@ -23,16 +24,26 @@ async function world() {
   const x = await teamHarness("team-x", now), y = await teamHarness("team-y", now);
   teams.set("team-x", x.store); teams.set("team-y", y.store);
   const calls: string[] = [];
+  // Runs once, after a team lookup has read its records and before it returns
+  // them: the window in which a revocation and its notice can land.
+  let interleave: { teamId: string; action: () => Promise<void> } | null = null;
   const account = (userId: string, store = new AccountStore(sqliteStorage())) => new AccountBroker({
     store, userId, now, relayURLs: [RELAY_URL],
     teamRecords: async (teamId, identities) => {
       calls.push(teamId);
       const team = teams.get(teamId);
       if (!team) throw new Error("no team");
-      return identities.map(value => team.accountMacRecord(value));
+      const records = identities.map(value => team.accountMacRecord(value));
+      const during = interleave?.teamId === teamId ? interleave : null;
+      if (during) { interleave = null; await during.action(); }
+      return records;
     },
   });
-  return { x, y, now, setClock: (value: number) => { clock = value; }, account, calls, replaceTeam: (teamId: string, store: TeamStore) => { teams.set(teamId, store); } };
+  return {
+    x, y, now, setClock: (value: number) => { clock = value; }, account, calls,
+    replaceTeam: (teamId: string, store: TeamStore) => { teams.set(teamId, store); },
+    duringNextLookup: (teamId: string, action: () => Promise<void>) => { interleave = { teamId, action }; },
+  };
 }
 
 async function accountSetup(key: DeviceKey, device: DeviceDescriptor, requestId: string, issuedAt: number, request?: unknown, nonce = "B".repeat(21) + requestId.length % 10) {
@@ -81,7 +92,7 @@ test("a Mac that switches team X to Y replaces its row; its other Mac sees the Y
   expect(seen.userId).toBe("user-u");
   expect(seen.rules).toEqual(["cmux.mac-account-peer.v1"]);
   expect(seen.macs.map(mac => [mac.descriptor.identity.teamId, mac.descriptor.endpointId])).toEqual([["team-y", aKey!.endpointId]]);
-  expect(seen.inboundMacs.map(peer => [peer.device.descriptor.identity.deviceId, peer.permissionExpiresAt])).toEqual([["mac-a", NOW + 3560]]);
+  expect(seen.inboundMacs.map(peer => [peer.device.descriptor.identity.deviceId, peer.permissionExpiresAt])).toEqual([["mac-a", NOW + 300]]);
   expect(seen.permissionExpiresAt).toBe(NOW + 3590);
   // A's own view never lists A.
   const fromA = directoryOf((await call(broker, aKey!, aInY, "account.directory.v1")).response);
@@ -175,9 +186,9 @@ test("publish requires a Mac record with a Mac capability, matching key, and tea
   const aRecord = w.x.enroll(a, NOW - 100);
   await call(broker, aKey!, a, "account.publish.v1");
   w.x.store.updateMetadata(a.identity, { ...a.metadata, capabilities: [] }, NOW);
-  expect(await broker.teamChanged("team-x", aRecord.deviceRecordId)).not.toBeNull();
+  expect(await broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity)).not.toBeNull();
   expect(directoryOf((await call(broker, bKey!, b, "account.directory.v1")).response).macs).toEqual([]);
-  expect(await broker.teamChanged("team-x", "unrelated-record")).toBeNull();
+  expect(await broker.teamChanged("team-x", "unrelated-record", b.identity)).toBeNull();
 });
 
 test("namespace, build tag and lease gate inbound admission", async () => {
@@ -238,4 +249,133 @@ test("the account object holds at most 16 Macs and evicts only lapsed leases", a
   await expect(call(broker, devices[16]![0], devices[16]![1], "account.publish.v1")).rejects.toMatchObject({ code: "device_limit" });
   w.setClock(NOW + 4000);
   await call(broker, devices[16]![0], devices[16]![1], "account.publish.v1", NOW + 4000);
+});
+
+test("a revocation and its notice landing during a directory read never yield a stale admission", async () => {
+  const w = await world();
+  const [aKey, bKey] = await Promise.all([91, 92].map(deviceKey));
+  const a = descriptor(aKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const b = descriptor(bKey!, identity("team-y", "user-u", "mac-b"), "mac", HOST);
+  w.x.enroll(a, NOW - 100);
+  const bRecord = w.y.enroll(b, NOW - 100);
+  w.x.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  w.y.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  const broker = w.account("user-u");
+  await call(broker, aKey!, a, "account.publish.v1");
+  await call(broker, bKey!, b, "account.publish.v1");
+  // A's read fetches B's still-valid record; then team Y revokes B and notifies.
+  w.duringNextLookup("team-y", async () => {
+    w.y.store.revokeDevice(bRecord.deviceRecordId, NOW, "user-u");
+    await broker.teamChanged("team-y", bRecord.deviceRecordId, b.identity);
+  });
+  const seen = directoryOf((await call(broker, aKey!, a, "account.directory.v1")).response);
+  expect(seen.inboundMacs).toEqual([]);
+  expect(seen.macs).toEqual([]);
+});
+
+test("a revocation landing during publish cannot re-insert the revoked Mac", async () => {
+  const w = await world();
+  const [aKey, bKey] = await Promise.all([93, 94].map(deviceKey));
+  const a = descriptor(aKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const b = descriptor(bKey!, identity("team-x", "user-u", "mac-b"), "mac", HOST);
+  const aRecord = w.x.enroll(a, NOW - 100);
+  w.x.enroll(b, NOW - 100);
+  w.x.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  const broker = w.account("user-u");
+  w.duringNextLookup("team-x", async () => {
+    w.x.store.revokeDevice(aRecord.deviceRecordId, NOW, "user-u");
+    await broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity);
+  });
+  await expect(call(broker, aKey!, a, "account.publish.v1")).rejects.toMatchObject({ code: "device_revoked" });
+  const seen = directoryOf((await call(broker, bKey!, b, "account.directory.v1")).response);
+  expect(seen.macs).toEqual([]);
+  expect(seen.inboundMacs).toEqual([]);
+});
+
+test("a rekey notice carrying the new record id still drops the row holding the old key", async () => {
+  const w = await world();
+  const [oldKey, newKey, bKey] = await Promise.all([95, 96, 97].map(deviceKey));
+  const oldA = descriptor(oldKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const b = descriptor(bKey!, identity("team-y", "user-u", "mac-b"), "mac", HOST);
+  w.x.enroll(oldA, NOW - 100); w.y.enroll(b, NOW - 100);
+  const broker = w.account("user-u");
+  await call(broker, oldKey!, oldA, "account.publish.v1");
+  const rekeyed = await teamHarness("team-x", w.now);
+  const newRecord = rekeyed.enroll(descriptor(newKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST), NOW - 10);
+  w.replaceTeam("team-x", rekeyed.store);
+  expect(await broker.teamChanged("team-x", newRecord.deviceRecordId, oldA.identity)).not.toBeNull();
+  const store = (broker.dependencies.store);
+  expect(store.list()).toEqual([]);
+});
+
+test("a socket's Mac is reported revoked once its team revokes it", async () => {
+  const w = await world();
+  const aKey = await deviceKey(98);
+  const a = descriptor(aKey, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const aRecord = w.x.enroll(a, NOW - 100);
+  const broker = w.account("user-u");
+  const { session } = await call(broker, aKey, a, "account.publish.v1");
+  expect(await broker.socketRevocation(session)).toBeNull();
+  w.x.store.revokeDevice(aRecord.deviceRecordId, NOW, "user-u");
+  expect(await broker.socketRevocation(session)).toMatchObject({ code: "device_revoked" });
+});
+
+test("large team metadata pages within the frame bound; an oversized record is refused, never a stuck directory", async () => {
+  const w = await world();
+  w.x.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  const relayURLs = Array.from({ length: 16 }, (_, index) => `https://relay-${index}.example/${"a".repeat(780)}`);
+  const devices: [DeviceKey, DeviceDescriptor][] = [];
+  for (let index = 0; index < 15; index++) {
+    const key = await deviceKey(140 + index);
+    const device = descriptor(key, identity("team-x", "user-u", `big-${index}`), "mac", HOST);
+    device.metadata.relayURLs = relayURLs;
+    w.x.enroll(device, NOW - 100);
+    devices.push([key, device]);
+  }
+  const broker = w.account("user-u");
+  for (const [key, device] of devices) await call(broker, key, device, "account.publish.v1");
+  const [hostKey, host] = devices[0]!;
+  const seenMacs: string[] = [], seenInbound: string[] = [];
+  let cursor: string | null = null, revision: number | undefined, pages = 0;
+  do {
+    const requestId = `page-${pages}`;
+    const request = { schemaId: "account.directory.v1", requestId, ...(cursor ? { cursor, haveRevision: revision } : {}) };
+    const setup = await accountSetup(hostKey, host, requestId, NOW, request, String(pages).padStart(22, "P"));
+    const { session } = await broker.authorize(setup, request, { environment: host.identity.environment, projectId: host.identity.projectId, teamId: "team-x", userId: "user-u", verifiedAt: NOW }, NOW + 3600);
+    const result = await broker.execute(session, request);
+    expect(new TextEncoder().encode(JSON.stringify(result.response)).byteLength).toBeLessThanOrEqual(64 * 1024);
+    const page = directoryOf(result.response);
+    seenMacs.push(...page.macs.map(mac => mac.descriptor.identity.deviceId));
+    seenInbound.push(...page.inboundMacs.map(peer => peer.device.descriptor.identity.deviceId));
+    cursor = page.nextCursor; revision = page.revision; pages++;
+  } while (cursor !== null && pages < 20);
+  expect(pages).toBeGreaterThan(1);
+  const others = devices.slice(1).map(([, device]) => device.identity.deviceId).sort();
+  expect(seenMacs.sort()).toEqual(others);
+  expect(seenInbound.sort()).toEqual(others);
+  // A stale cursor must restart, not splice two revisions.
+  const stale = { schemaId: "account.directory.v1", requestId: "stale", cursor: "x", haveRevision: 0 };
+  const staleSetup = await accountSetup(hostKey, host, "stale", NOW, stale, "Q".repeat(22));
+  const { session } = await broker.authorize(staleSetup, stale, { environment: host.identity.environment, projectId: host.identity.projectId, teamId: "team-x", userId: "user-u", verifiedAt: NOW }, NOW + 3600);
+  await expect(broker.execute(session, stale)).rejects.toMatchObject({ code: "resync_required" });
+
+  // A record over the per-record bound is refused at publish and dropped on read if it grows.
+  const hugeKey = await deviceKey(170);
+  const huge = descriptor(hugeKey, identity("team-x", "user-u", "huge"), "mac", HOST);
+  huge.metadata.relayURLs = Array.from({ length: 16 }, (_, index) => `https://relay-${index}.example/${"b".repeat(1500)}`);
+  w.x.enroll(huge, NOW - 100);
+  expect(new TextEncoder().encode(JSON.stringify(w.x.store.accountMacRecord(huge.identity)!.device)).byteLength).toBeGreaterThan(ACCOUNT_RECORD_BYTES);
+  await expect(call(broker, hugeKey, huge, "account.publish.v1")).rejects.toMatchObject({ code: "payload_too_large" });
+  const grownKey = devices[1]![0], grown = devices[1]![1];
+  w.x.store.updateMetadata(grown.identity, { ...grown.metadata, relayURLs: huge.metadata.relayURLs }, NOW);
+  const after = directoryOf((await call(broker, hostKey, host, "account.directory.v1")).response);
+  expect(after.macs.map(mac => mac.descriptor.identity.deviceId)).not.toContain(grown.identity.deviceId);
+  void grownKey;
+});
+
+test("account storage is created only by an account request", () => {
+  const store = new AccountStore(sqliteStorage(), { initialize: false });
+  expect(store.exists()).toBe(false);
+  store.initialize();
+  expect(store.exists()).toBe(true);
 });

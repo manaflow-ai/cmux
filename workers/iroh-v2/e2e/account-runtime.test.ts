@@ -153,6 +153,8 @@ async function scenario(withAccount: boolean) {
       return result.body.directory;
     };
     let accountSocket: Awaited<ReturnType<typeof openSocket>> | undefined;
+    let bSocket: Awaited<ReturnType<typeof openSocket>> | undefined;
+    let bClosed: Promise<number> | undefined;
     if (withAccount) {
       accountSocket = await openSocket(mf, "/v2/account/socket", a, "account");
       expect((await accountSocket.until(frame => frame.schemaId === "account.ready.v1", "account ready")).revision).toBe(0);
@@ -161,6 +163,9 @@ async function scenario(withAccount: boolean) {
       expect(published.body.schemaId).toBe("account.published.v1");
       await accountSocket.until(frame => frame.schemaId === "account.changed.v1" && frame.revision === published.body.revision, "A told about B");
 
+      bSocket = await openSocket(mf, "/v2/account/socket", b, "account");
+      await bSocket.until(frame => frame.schemaId === "account.ready.v1", "B account ready");
+      bClosed = new Promise(resolve => bSocket!.socket.once("close", code => resolve(code)));
       const fromA = await directory(a, "directory-a-1");
       expect(fromA.userId).toBe("user-u");
       expect(fromA.macs.map((mac: any) => [mac.descriptor.identity.teamId, mac.descriptor.endpointId])).toEqual([["team-y", b.descriptor.endpointId]]);
@@ -199,6 +204,9 @@ async function scenario(withAccount: boolean) {
     if (withAccount) {
       await accountSocket!.until(frame => frame.schemaId === "account.changed.v1" && frame.revision >= 4, "A told about B's revocation");
       expect((await directory(a, "directory-a-revoked")).macs).toEqual([]);
+      // B's own account socket is told and closed, as the team path closes a revoked team socket.
+      expect((await bSocket!.until(frame => frame.schemaId === "error.v1", "B revocation error")).code).toBe("device_revoked");
+      expect(await bClosed).toBe(1008);
     }
 
     // B moves to team Z with a new endpoint and republishes: only the Z endpoint remains.

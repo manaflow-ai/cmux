@@ -10,6 +10,14 @@ import { ErrorResponseSchema } from "./responses";
  * accepts a team schema and a team socket never sends an account schema.
  */
 export const ACCOUNT_MAC_LIMIT = 16;
+/** One Mac's encoded record. Larger team metadata is refused here so every directory page can always hold a row. */
+export const ACCOUNT_RECORD_BYTES = 16 * 1024;
+/**
+ * Upper bound on an inbound admission from the account directory. A missed
+ * revocation notice can therefore never keep a revoked Mac admitted longer
+ * than this; hosts re-read the directory before it lapses.
+ */
+export const ACCOUNT_INBOUND_GRANT_SECONDS = 5 * 60;
 
 export const AccountPublishRequestSchema = z.strictObject({
   schemaId: z.literal("account.publish.v1"),
@@ -19,6 +27,9 @@ export const AccountPublishRequestSchema = z.strictObject({
 export const AccountDirectoryRequestSchema = z.strictObject({
   schemaId: z.literal("account.directory.v1"),
   requestId: identifier,
+  /** Continue after this deviceRecordId; requires `haveRevision` equal to the current revision. */
+  cursor: identifier.optional(),
+  haveRevision: revision.optional(),
 });
 
 export const AccountWithdrawRequestSchema = z.strictObject({
@@ -38,6 +49,8 @@ export const AccountDirectorySchema = z.strictObject({
   issuedAt: timestamp,
   permissionExpiresAt: timestamp,
   rules: z.array(identifier).max(32),
+  /** Present when another page follows: pass it as `cursor` with `haveRevision` = `revision`. */
+  nextCursor: identifier.nullable(),
 });
 
 export const AccountReadyResponseSchema = z.strictObject({

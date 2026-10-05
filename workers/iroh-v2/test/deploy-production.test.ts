@@ -10,7 +10,9 @@ const GIT_SELECTION_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "
 const cleanEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !GIT_SELECTION_VARIABLES.includes(key)));
 const MOCK_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
-async function probe(scenario: string, options: { missingCurl?: boolean; dirtyTree?: boolean; environment?: "production" | "staging" } = {}) {
+async function probe(scenario: string, options: { missingCurl?: boolean; dirtyTree?: boolean; environment?: "production" | "staging";
+  /** The active version predates the account migration; staging may already have applied it. */
+  preAccount?: boolean; stagingMigrated?: boolean; allowMigration?: string } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "iroh-deploy-test-"));
   const state = join(directory, "state.json");
   const calls = join(directory, "calls.log");
@@ -44,9 +46,9 @@ args = sys.argv[1:]
 with calls_path.open('a') as calls:
     calls.write('wrangler ' + ' '.join(args) + '\\n')
 
-def status(annotations, created='2026-09-15T00:00:00.000Z'):
+def status(annotations, created='2026-09-15T00:00:00.000Z', version='old-version'):
     return {'created_on': created, 'annotations': annotations,
-            'versions': [{'version_id': 'old-version', 'percentage': 100}]}
+            'versions': [{'version_id': version, 'percentage': 100}]}
 
 if args[:2] == ['deployments', 'status']:
     print(state_path.read_text())
@@ -56,6 +58,10 @@ elif args[:2] == ['versions', 'view']:
                 {'name':'USER_USAGE','type':'durable_object_namespace','class_name':'UserUsage','namespace_id':'user-ns'},
                 {'name':'ACCOUNT_CONTROL','type':'durable_object_namespace','class_name':'AccountControl','namespace_id':'account-ns'},
                 {'name':'CMUX_SOURCE_REVISION','type':'plain_text','text':'${MOCK_HEAD}'}]
+    staging_view = 'cmux-v2-staging' in args and os.environ['PROBE_ENVIRONMENT'] == 'production'
+    if os.environ.get('PROBE_PRE_ACCOUNT') == '1' and args[2] == 'old-version' and not (staging_view and os.environ.get('PROBE_STAGING_MIGRATED') == '1'):
+        migration_tag = 'iroh-v2-fresh-storage-1'
+        bindings = [binding for binding in bindings if binding['name'] != 'ACCOUNT_CONTROL']
     if os.environ['PROBE_SCENARIO'] == 'script-migration-resource':
         print(json.dumps({'id': 'old-version', 'resources': {'bindings': bindings, 'script': {'migration_tag': migration_tag}}}))
     else:
@@ -65,7 +71,7 @@ elif args and args[0] == 'deploy':
     annotations = {'workers/message': marker, 'workers/tag': marker}
     if os.environ['PROBE_SCENARIO'] == 'concurrent':
         annotations = {'workers/message': 'someone-else', 'workers/tag': 'someone-else'}
-    state_path.write_text(json.dumps(status(annotations)))
+    state_path.write_text(json.dumps(status(annotations, version='new-version' if os.environ.get('PROBE_PRE_ACCOUNT') == '1' else 'old-version')))
 elif args and args[0] == 'rollback':
     state_path.write_text(json.dumps(status({'workers/message': 'old', 'workers/tag': 'old'})))
 `, { mode: 0o700 });
@@ -139,6 +145,9 @@ print(status, end='')
         MOCK_STATE: state,
         MOCK_CALLS: calls,
         MOCK_CURL_CALLS: join(directory, "curl-calls"),
+        PROBE_PRE_ACCOUNT: options.preAccount ? "1" : "0",
+        PROBE_STAGING_MIGRATED: options.stagingMigrated ? "1" : "0",
+        ...(options.allowMigration ? { IROH_V2_APPLY_MIGRATION: options.allowMigration } : {}),
       },
       stdout: "pipe", stderr: "pipe",
     });
@@ -258,3 +267,34 @@ test("a concurrent replacement during health verification is never rolled back",
   expect(result.exit).not.toBe(0);
   expect(result.calls).not.toContain("wrangler rollback ");
 });
+
+test("the account migration is refused unless named, then applied staging first without rollback", async () => {
+  const unnamed = await probe("valid", { environment: "staging", preAccount: true });
+  expect(unnamed.exit).not.toBe(0);
+  expect(unnamed.calls).not.toContain("wrangler deploy ");
+  expect(unnamed.output).toContain("pending Durable Object migration");
+
+  const wrongName = await probe("valid", { environment: "staging", preAccount: true, allowMigration: "iroh-v2-fresh-storage-1" });
+  expect(wrongName.exit).not.toBe(0);
+  expect(wrongName.calls).not.toContain("wrangler deploy ");
+
+  const staging = await probe("valid", { environment: "staging", preAccount: true, allowMigration: "iroh-v2-account-control-1" });
+  expect(staging.exit).toBe(0);
+  expect(staging.calls).toContain("wrangler deploy --env staging --keep-vars --strict");
+  expect(staging.output).toContain("automatic rollback is disabled");
+
+  const productionFirst = await probe("valid", { preAccount: true, allowMigration: "iroh-v2-account-control-1" });
+  expect(productionFirst.exit).not.toBe(0);
+  expect(productionFirst.calls).not.toContain("wrangler deploy --env production");
+  expect(productionFirst.output).toContain("deploy staging first");
+
+  const production = await probe("valid", { preAccount: true, stagingMigrated: true, allowMigration: "iroh-v2-account-control-1" });
+  expect(production.exit).toBe(0);
+  expect(production.calls).toContain("wrangler deploy --env production --keep-vars --strict");
+
+  const failed = await probe("post-failure", { environment: "staging", preAccount: true, allowMigration: "iroh-v2-account-control-1" });
+  expect(failed.exit).not.toBe(0);
+  expect(failed.calls).toContain("wrangler deploy --env staging");
+  expect(failed.calls).not.toContain("wrangler rollback");
+  expect(failed.output).toContain("rollback is not possible across the Durable Object migration");
+}, 120_000);

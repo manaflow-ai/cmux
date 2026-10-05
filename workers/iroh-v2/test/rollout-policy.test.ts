@@ -75,6 +75,14 @@ test("account storage is additive: absent before its migration, then required an
   preAccount.resources.script_runtime = {migration_tag: "iroh-v2-fresh-storage-1"};
   // The first account rollout is a dedicated migration deploy; the guarded script refuses it.
   expect(() => assertRollout(config, preAccount, health(), 200, "production")).toThrow("Pending Durable Object migration");
+  expect(() => assertRollout(config, preAccount, health(), 200, "production", candidateStorage, "other-tag")).toThrow("Pending Durable Object migration");
+  assertRollout(config, preAccount, health(), 200, "production", candidateStorage, "iroh-v2-account-control-1");
+  const twoBehind = version("two-behind");
+  twoBehind.resources.script_runtime = {migration_tag: "older-tag"};
+  expect(() => assertRollout(config, twoBehind, health(), 200, "production", candidateStorage, "iroh-v2-account-control-1")).toThrow("exactly one");
+  const destructive = structuredClone(config);
+  destructive.migrations.at(-1).deleted_classes = ["TeamControl"];
+  expect(() => assertRollout(destructive, preAccount, health(), 200, "production", candidateStorage, "iroh-v2-account-control-1")).toThrow("not an additive");
   assertPublished(preAccount, version("new"), health(), 200, "production", revision);
   expect(() => assertPublished(version(), preAccount, health(), 200, "production", revision)).toThrow();
   const moved = version("new");

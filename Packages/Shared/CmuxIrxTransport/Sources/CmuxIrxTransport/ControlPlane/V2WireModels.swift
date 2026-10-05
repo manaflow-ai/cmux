@@ -1373,15 +1373,21 @@ public enum V2AccountChangedResponseSchemaID: String, Codable, Equatable, Sendab
 
 // MARK: - V2AccountDirectoryRequest
 public struct V2AccountDirectoryRequest: Codable, Equatable, Sendable {
+    public let cursor: String?
+    public let haveRevision: Int?
     public let requestID: String
     public let schemaID: V2AccountDirectoryRequestSchemaID
 
     public enum CodingKeys: String, CodingKey {
+        case cursor = "cursor"
+        case haveRevision = "haveRevision"
         case requestID = "requestId"
         case schemaID = "schemaId"
     }
 
-    public init(requestID: String, schemaID: V2AccountDirectoryRequestSchemaID) {
+    public init(cursor: String? = nil, haveRevision: Int? = nil, requestID: String, schemaID: V2AccountDirectoryRequestSchemaID) {
+        self.cursor = cursor
+        self.haveRevision = haveRevision
         self.requestID = requestID
         self.schemaID = schemaID
     }
@@ -1427,6 +1433,7 @@ public struct V2AccountDirectory: Codable, Equatable, Sendable {
     public let inboundMacs: [V2InboundPeerPermission]
     public let issuedAt: Int
     public let macs: [V2DeviceRecord]
+    public let nextCursor: String?
     public let permissionExpiresAt: Int
     public let relayURLs: [String]
     public let revision: Int
@@ -1437,6 +1444,7 @@ public struct V2AccountDirectory: Codable, Equatable, Sendable {
         case inboundMacs = "inboundMacs"
         case issuedAt = "issuedAt"
         case macs = "macs"
+        case nextCursor = "nextCursor"
         case permissionExpiresAt = "permissionExpiresAt"
         case relayURLs = "relayURLs"
         case revision = "revision"
@@ -1444,10 +1452,11 @@ public struct V2AccountDirectory: Codable, Equatable, Sendable {
         case userID = "userId"
     }
 
-    public init(inboundMacs: [V2InboundPeerPermission], issuedAt: Int, macs: [V2DeviceRecord], permissionExpiresAt: Int, relayURLs: [String], revision: Int, rules: [String], userID: String) {
+    public init(inboundMacs: [V2InboundPeerPermission], issuedAt: Int, macs: [V2DeviceRecord], nextCursor: String? = nil, permissionExpiresAt: Int, relayURLs: [String], revision: Int, rules: [String], userID: String) {
         self.inboundMacs = inboundMacs
         self.issuedAt = issuedAt
         self.macs = macs
+        self.nextCursor = nextCursor
         self.permissionExpiresAt = permissionExpiresAt
         self.relayURLs = relayURLs
         self.revision = revision

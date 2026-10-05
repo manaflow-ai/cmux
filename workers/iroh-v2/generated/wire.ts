@@ -352,8 +352,10 @@ export interface V2AccountChangedResponse {
 export type V2AccountChangedResponseSchemaID = "account.changed.v1";
 
 export interface V2AccountDirectoryRequest {
-    requestId: string;
-    schemaId:  V2AccountDirectoryRequestSchemaID;
+    cursor?:       string;
+    haveRevision?: number;
+    requestId:     string;
+    schemaId:      V2AccountDirectoryRequestSchemaID;
 }
 
 export type V2AccountDirectoryRequestSchemaID = "account.directory.v1";
@@ -368,6 +370,7 @@ export interface V2AccountDirectory {
     inboundMacs:         V2InboundPeerPermission[];
     issuedAt:            number;
     macs:                V2DeviceRecord[];
+    nextCursor:          null | string;
     permissionExpiresAt: number;
     relayURLs:           string[];
     revision:            number;

@@ -13,7 +13,7 @@ mock.module("cloudflare:workers", () => ({
 }));
 const { TeamControl } = await import("../src/team-control");
 
-type Variant = "notified" | "rejects" | "throws" | "unbound";
+type Variant = "notified" | "rejects" | "throws" | "unbound" | "flaky";
 type FakeSocket = { frames: string[]; attachment: unknown; readyState: number; send(text: string): void; close(): void;
   serializeAttachment(value: unknown): void; deserializeAttachment(): unknown };
 
@@ -38,7 +38,10 @@ async function run(variant: Variant) {
     const account = {
       getByName: () => {
         if (variant === "throws") throw new Error("binding unavailable");
-        return { teamChanged: async (...args: unknown[]) => { notices.push(args); if (variant === "rejects") throw new Error("account object reset"); } };
+        return { teamChanged: async (...args: unknown[]) => {
+          notices.push(args);
+          if (variant === "rejects" || (variant === "flaky" && notices.length === 1)) throw new Error("account object reset");
+        } };
       },
     };
     const env = {
@@ -102,11 +105,20 @@ test("the account notice fires only for Mac rows and never changes a team respon
     JSON.stringify({ schemaId: "operation.completed.v1", requestId: "metadata-iphone", revision: 5 }),
   ]);
   // One notice for the Mac change, none for the iOS change.
-  expect(notified.notices).toEqual([["user-u", "team-x", notified.macRecordId]]);
+  const macIdentity = { environment: ENVIRONMENT, projectId: PROJECT_ID, teamId: "team-x", userId: "user-u", deviceId: "mac-a", appNamespace: "com.cmux.app", buildTag: "release" };
+  expect(notified.notices).toEqual([["user-u", "team-x", notified.macRecordId, macIdentity]]);
   expect(notified.noticesAfter).toEqual([1, 1]);
-  for (const variant of ["rejects", "throws", "unbound"] as const) {
+  for (const variant of ["rejects", "throws", "unbound", "flaky"] as const) {
     const failed = await run(variant);
     expect({ variant, responses: failed.responses, phone: failed.phoneFrames, mac: failed.macFrames })
       .toEqual({ variant, responses: notified.responses, phone: notified.phoneFrames, mac: notified.macFrames });
   }
+});
+
+test("a transiently failing account object still receives the notice; a dead one gets three bounded attempts", async () => {
+  const flaky = await run("flaky");
+  expect(flaky.notices.length).toBe(2);
+  expect(flaky.notices[1]).toEqual(flaky.notices[0]);
+  const dead = await run("rejects");
+  expect(dead.notices.length).toBe(3);
 });

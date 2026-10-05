@@ -54,6 +54,18 @@
         "minLength": 1,
         "maxLength": 128
       }
+    },
+    "nextCursor": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -64,7 +76,8 @@
     "relayURLs",
     "issuedAt",
     "permissionExpiresAt",
-    "rules"
+    "rules",
+    "nextCursor"
   ],
   "additionalProperties": false
 }
