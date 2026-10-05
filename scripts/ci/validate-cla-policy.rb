@@ -79,7 +79,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "06ee4057cd81a198aa0e3d5612bd639dd6f4cddd136764a080470904d7599d53"
+EXPECTED_GUARD_SCRIPT_DIGEST = "38d88ee70d18ede77fbd27158723350514d9a81a6b56cc192cfa2a93c3354e66"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -149,6 +149,9 @@ GUARD_ALLOWED_SECRET_PATHS = [
 GUARD_HOSTED_ALLOWED_SECRET_PATHS = [
   %w[jobs validate steps] + [3] + %w[env GH_TOKEN]
 ].freeze
+GUARD_METADATA_ALLOWED_SECRET_PATHS = [
+  %w[jobs metadata steps] + [1] + %w[env GH_TOKEN]
+].freeze
 
 ADMISSION_ENV = {
   "EVENT_NAME" => "${{ github.event_name }}",
@@ -212,6 +215,7 @@ GITHUB_CONTEXT_EXPRESSION = /\bgithub\b/i
 GITHUB_TOKEN_EXPRESSION_PATTERN = /\bgithub\b.*\btoken\b|\btoJSON\s*\(\s*github\b/i
 ALLOWED_EXPRESSION_PATHS = [
   /\Aenv\.[^.]+\z/,
+  /\Aconcurrency\.group\z/,
   /\Ajobs\.[^.]+\.if\z/,
   /\Ajobs\.[^.]+\.concurrency\.group\z/,
   /\Ajobs\.[^.]+\.outputs\.[^.]+\z/,
@@ -247,7 +251,13 @@ GUARD_TIMEOUT_MINUTES = 10
 # Admit the condition and alternate name only as one exact reviewed contract.
 GUARD_METADATA_ONLY = "github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)".freeze
 GUARD_VALIDATE_IF = "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}".freeze
-GUARD_VALIDATE_NAME = "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'CLA policy guard metadata (ignored)' || 'CLA policy guard' }}".freeze
+GUARD_METADATA_IF = "${{ #{GUARD_METADATA_ONLY} }}".freeze
+GUARD_VALIDATE_NAME = GUARD_WORKFLOW_NAME
+GUARD_METADATA_NAME = GUARD_WORKFLOW_NAME
+GUARD_CONCURRENCY = {
+  "group" => "cla-policy-${{ github.event.pull_request.number }}",
+  "cancel-in-progress" => true
+}.freeze
 GUARD_VERIFY_ENV = {
   "WORKFLOW_SHA" => "${{ github.workflow_sha }}"
 }.freeze
@@ -286,6 +296,19 @@ SH
 # this policy file changes intentionally.
 GUARD_VERIFY_RUN_HASH = "708659eb2df9c50e070dab49190c2c3712a1485a5292eadb86eb4ae3fb01cbb5"
 GUARD_VALIDATE_RUN_HASH = "759f3978ae0a2e0620eb2630cd4c1ec2cbff8f9bcc9a37f76b330b845091bda8"
+GUARD_METADATA_ENV = {
+  "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION,
+  "GH_REPO" => "${{ github.repository }}",
+  "HEAD_SHA" => "${{ github.event.pull_request.head.sha }}"
+}.freeze
+GUARD_METADATA_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+  gh api --paginate --slurp \
+    "repos/$GH_REPO/commits/$HEAD_SHA/check-runs?check_name=CLA%20policy%20guard&per_page=100" |
+    jq -e '[.[].check_runs[]? | select(.name == "CLA policy guard" && .status == "completed" && .conclusion == "success")] | length > 0' >/dev/null
+SH
+GUARD_METADATA_RUN_HASH = "ec5ab961dd685da9d060f90d8711894b0d6bc8ff5f259b768491e83a1767fc51"
 
 # Keep the admission contract in one small, executable specification. The
 # pull-request workflow is still checked as data below, but its shell cannot be
@@ -1482,11 +1505,13 @@ def run_guard_contract_regression_matrix!
       "regression guard validation run"
     )
   end
-  # The guard job's condition is the one place where this workflow can decline
-  # to run, so admission of that key is exercised against whole documents.
-  guard_document = lambda do |condition, name = GUARD_WORKFLOW_NAME|
-    job = {
-      "name" => name,
+  # The guard has mutually exclusive full and metadata jobs. The latter only
+  # succeeds after finding an exact-head successful full validation check.
+  guard_document = lambda do |validate_condition = GUARD_VALIDATE_IF, metadata_condition = GUARD_METADATA_IF,
+                              validate_name = GUARD_VALIDATE_NAME, metadata_name = GUARD_METADATA_NAME|
+    validate_job = {
+      "name" => validate_name,
+      "if" => validate_condition,
       "runs-on" => "ubuntu-24.04",
       "timeout-minutes" => GUARD_TIMEOUT_MINUTES,
       "permissions" => { "contents" => "read", "pull-requests" => "read" },
@@ -1496,6 +1521,7 @@ def run_guard_contract_regression_matrix!
           "uses" => "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
           "with" => Marshal.load(Marshal.dump(GUARD_CHECKOUT_WITH))
         },
+        { "name" => "Require GitHub-hosted runner", "if" => CLA_HOSTED_RUNNER_GUARD_IF, "run" => CLA_HOSTED_RUNNER_GUARD_RUN },
         { "name" => "Verify trusted checkout", "env" => GUARD_VERIFY_ENV.dup, "run" => "#{GUARD_VERIFY_RUN}\n" },
         {
           "name" => "Run trusted CLA regression matrix and validate policy as data",
@@ -1504,36 +1530,48 @@ def run_guard_contract_regression_matrix!
         }
       ]
     }
-    job = { "name" => job["name"], "if" => condition }.merge(job) unless condition.nil?
+    metadata_job = {
+      "name" => metadata_name,
+      "if" => metadata_condition,
+      "runs-on" => "ubuntu-24.04",
+      "timeout-minutes" => GUARD_TIMEOUT_MINUTES,
+      "permissions" => { "contents" => "read", "pull-requests" => "read" },
+      "steps" => [
+        { "name" => "Require GitHub-hosted runner", "if" => CLA_HOSTED_RUNNER_GUARD_IF, "run" => CLA_HOSTED_RUNNER_GUARD_RUN },
+        {
+          "name" => "Confirm exact-head guard success",
+          "if" => CLA_HOSTED_RUNNER_STEP_IF,
+          "env" => GUARD_METADATA_ENV.dup,
+          "run" => "#{GUARD_METADATA_RUN}\n"
+        }
+      ]
+    }
     YAML.dump(
       "name" => GUARD_WORKFLOW_NAME,
-      "on" => { "pull_request_target" => Marshal.load(Marshal.dump(GUARD_TRIGGER)) },
+      "on" => { "pull_request_target" => Marshal.load(Marshal.dump(GUARD_HOSTED_TRIGGER)) },
       "permissions" => {},
-      "jobs" => { "validate" => job }
+      "concurrency" => Marshal.load(Marshal.dump(GUARD_CONCURRENCY)),
+      "jobs" => { "validate" => validate_job, "metadata" => metadata_job }
     )
   end
 
-  safe_if = "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}"
-  safe_name = "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'CLA policy guard metadata (ignored)' || 'CLA policy guard' }}"
-  validate_guard_workflow(guard_document.call(nil), authorize: false)
+  validate_guard_workflow(guard_document.call, authorize: false)
   checks += 1
-  validate_guard_workflow(guard_document.call(safe_if, safe_name), authorize: false)
-  checks += 1
-  validate_guard_workflow(guard_document.call(safe_if.gsub(" && ", "\n  && "), safe_name), authorize: false)
+  validate_guard_workflow(guard_document.call(GUARD_VALIDATE_IF.gsub(" && ", "\n  && ")), authorize: false)
   checks += 1
   [
-    [safe_if, GUARD_WORKFLOW_NAME],
-    [nil, safe_name],
-    ["github.event.action != 'edited' || github.event.changes.base.ref.from != '' || github.event.changes.base.sha.from != ''", GUARD_WORKFLOW_NAME],
-    ["false", safe_name],
-    [safe_if, safe_name.sub("metadata (ignored)", "metadata")],
-    [safe_if, "${{ github.actor }}"],
-    [nil, "Wrong required check"],
-    [safe_if.sub(" && !github.event.changes.base", ""), safe_name],
-    [safe_if, safe_name.sub("!github.event.changes.base", "true")]
-  ].each do |condition, name|
-    expect_failure.call("guard condition/name pair #{condition.inspect}, #{name.inspect}") do
-      validate_guard_workflow(guard_document.call(condition, name), authorize: false)
+    ["false", GUARD_METADATA_IF, GUARD_VALIDATE_NAME, GUARD_METADATA_NAME],
+    [GUARD_VALIDATE_IF, "false", GUARD_VALIDATE_NAME, GUARD_METADATA_NAME],
+    [GUARD_VALIDATE_IF, GUARD_METADATA_IF, "Wrong required check", GUARD_METADATA_NAME],
+    [GUARD_VALIDATE_IF, GUARD_METADATA_IF, GUARD_VALIDATE_NAME, "Wrong required check"],
+    [GUARD_VALIDATE_IF.sub("!github.event.changes.base", "github.event.changes.base"), GUARD_METADATA_IF, GUARD_VALIDATE_NAME, GUARD_METADATA_NAME],
+    [GUARD_VALIDATE_IF, GUARD_METADATA_IF.sub("github.event.action", "github.event.other"), GUARD_VALIDATE_NAME, GUARD_METADATA_NAME]
+  ].each do |validate_condition, metadata_condition, validate_name, metadata_name|
+    expect_failure.call("guard condition/name pair #{validate_condition.inspect}, #{metadata_condition.inspect}") do
+      validate_guard_workflow(
+        guard_document.call(validate_condition, metadata_condition, validate_name, metadata_name),
+        authorize: false
+      )
     end
   end
 
@@ -2471,24 +2509,21 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   fail!("guard workflow must have empty top-level permissions") unless document["permissions"] == {}
   guard_top_level_keys = document.keys.map { |key| key == true ? "on" : key.to_s }
   fail!("guard workflow has unsupported top-level keys") unless
-    guard_top_level_keys.uniq.sort == %w[name on permissions jobs].sort
+    guard_top_level_keys.uniq.sort == %w[name on permissions jobs concurrency].sort
+  assert_exact_keys(document["concurrency"], GUARD_CONCURRENCY.keys, "guard workflow concurrency")
+  fail!("guard workflow concurrency is not the reviewed per-PR group") unless
+    document["concurrency"] == GUARD_CONCURRENCY
   jobs = document["jobs"]
   fail!("guard workflow jobs are malformed") unless jobs.is_a?(Hash)
-  fail!("guard workflow has an unexpected job") unless jobs.keys == ["validate"]
+  fail!("guard workflow has an unexpected job") unless jobs.keys == ["validate", "metadata"]
   guard_job = document.dig("jobs", "validate")
   fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)
-  guard_job_keys = %w[name runs-on timeout-minutes permissions steps]
-  guard_job_keys += ["if"] if guard_job.key?("if")
+  guard_job_keys = %w[name if runs-on timeout-minutes permissions steps]
   assert_exact_keys(guard_job, guard_job_keys, "guard workflow validate job")
   assert_string(guard_job["name"], "guard workflow validate job name")
-  if guard_job.key?("if")
-    fail!("guard workflow validate condition/name is not the reviewed pair") unless
-      guard_job["if"].to_s.gsub(/\s+/, " ").strip == GUARD_VALIDATE_IF &&
-      guard_job["name"] == GUARD_VALIDATE_NAME
-  else
-    fail!("unconditional guard must report the required check name") unless
-      guard_job["name"] == GUARD_WORKFLOW_NAME
-  end
+  fail!("guard workflow validate condition/name is not the reviewed pair") unless
+    guard_job["if"].to_s.gsub(/\s+/, " ").strip == GUARD_VALIDATE_IF &&
+    guard_job["name"] == GUARD_VALIDATE_NAME
   assert_positive_integer(guard_job["timeout-minutes"], "guard workflow validate timeout")
   fail!("guard workflow validate timeout is not the reviewed value") unless
     guard_job["timeout-minutes"] == GUARD_TIMEOUT_MINUTES
@@ -2527,8 +2562,35 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
     GUARD_VALIDATE_RUN_HASH,
     "guard validation step run"
   )
-  assert_exact_secret_paths(document, allowed_paths: layout[:allowed_secret_paths])
-  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: layout[:allowed_secret_paths], reviewed_guard_name: true)
+  metadata_job = document.dig("jobs", "metadata")
+  fail!("guard workflow metadata job is missing") unless metadata_job.is_a?(Hash)
+  assert_exact_keys(metadata_job, %w[name if runs-on timeout-minutes permissions steps], "guard workflow metadata job")
+  fail!("guard workflow metadata condition/name is not the reviewed pair") unless
+    metadata_job["if"].to_s.gsub(/\s+/, " ").strip == GUARD_METADATA_IF &&
+    metadata_job["name"] == GUARD_METADATA_NAME
+  assert_positive_integer(metadata_job["timeout-minutes"], "guard workflow metadata timeout")
+  fail!("guard workflow metadata timeout is not the reviewed value") unless
+    metadata_job["timeout-minutes"] == GUARD_TIMEOUT_MINUTES
+  fail!("guard workflow metadata must use an ephemeral GitHub-hosted runner") unless
+    metadata_job["runs-on"] == CLA_RUNNER
+  fail!("guard workflow metadata must use read-only permissions") unless
+    metadata_job["permissions"] == { "contents" => "read", "pull-requests" => "read" }
+  metadata_steps = metadata_job["steps"]
+  fail!("guard workflow metadata steps are malformed") unless metadata_steps.is_a?(Array) && metadata_steps.length == 2
+  assert_hosted_runner_guard_step(metadata_steps[0], "guard workflow metadata")
+  metadata_step = metadata_steps[1]
+  assert_step_keys(metadata_step, "guard metadata validation step", %w[name if env run])
+  fail!("guard metadata validation step has an unexpected name") unless
+    metadata_step["name"] == "Confirm exact-head guard success"
+  fail!("guard metadata validation step must be restricted to GitHub-hosted") unless
+    metadata_step["if"] == CLA_HOSTED_RUNNER_STEP_IF
+  assert_exact_environment(metadata_step, GUARD_METADATA_ENV, "guard metadata validation step")
+  assert_exact_normalized_run(
+    metadata_step["run"], GUARD_METADATA_RUN, GUARD_METADATA_RUN_HASH, "guard metadata validation step run"
+  )
+  allowed_paths = layout[:allowed_secret_paths] + GUARD_METADATA_ALLOWED_SECRET_PATHS
+  assert_exact_secret_paths(document, allowed_paths: allowed_paths)
+  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: allowed_paths, reviewed_guard_name: true)
   assert_safe_run_values(document)
   uses = []
   walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
