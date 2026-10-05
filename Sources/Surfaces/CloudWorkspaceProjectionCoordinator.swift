@@ -203,6 +203,7 @@ final class CloudWorkspaceProjectionCoordinator {
                     let live = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
                     environment.applyLayout(workspaceID, layout, Array(live))
                 }
+                pruneOrphanedDisplayMemberships(remoteWorkspaceID: remoteID, machine: machine, state: state, catalog: catalog)
                 failures[workspaceID] = nil
             } catch is CancellationError {
                 return
@@ -267,5 +268,29 @@ extension CloudWorkspaceProjectionCoordinator {
               let provider = catalog.provider(for: placement.resource.machine) as? any CloudDisplayMembershipSyncing
         else { return }
         catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
+    }
+
+    /// Keeps this Mac's display memberships for an open Cloud workspace equal
+    /// to its live display panes. A token whose pane is gone (an old close
+    /// whose removal never landed, a crash, a pane rebuilt under a new id)
+    /// otherwise shows as a duplicate display row and resurrects the display
+    /// after it is closed. Runs only once this machine's restore has settled,
+    /// so a pane still being restored keeps its token.
+    fileprivate func pruneOrphanedDisplayMemberships(
+        remoteWorkspaceID: String,
+        machine: SurfaceMachineID,
+        state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) {
+        guard !catalog.pendingRestoredProjections.machineIDs.contains(machine),
+              let provider = catalog.provider(for: machine) as? any CloudDisplayMembershipSyncing else { return }
+        let clientID = CloudTuiClientPaths().notificationClientID()
+        let live = Set(catalog.projections
+            .filter { $0.resource.machine == machine && $0.resource.kind == .display }
+            .map { $0.panelID.uuidString.lowercased() })
+        for token in state.displayMemberships
+        where token.workspaceID == remoteWorkspaceID && token.clientID == clientID && !live.contains(token.viewID) {
+            catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
+        }
     }
 }
