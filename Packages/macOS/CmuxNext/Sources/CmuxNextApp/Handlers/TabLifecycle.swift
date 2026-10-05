@@ -44,17 +44,20 @@ enum TabLifecycle {
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
     /// MCP) always get the same kind, whatever the user's setting.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+        print("DIAG T enter")
         guard let pane = ctx.daemonPane(invocation) else {
             // Cmd-T can arrive while the active workspace is still empty and
             // has no pane controller. Repair that exact workspace through the
             // shared first-terminal owner; callers awaiting tracked work then
             // observe the pane mount without switching workspaces.
+            print("DIAG T noPane path")
             guard invocation.target == nil,
                   let workspace = ctx.scope(invocation).workspace,
                   let key = workspace.key,
                   let daemon = ctx.services.machines.daemon(forWorkspace: workspace.id),
-                  let connection = daemon.connection else { return }
+                  let connection = daemon.connection else { print("DIAG T guard failed"); return }
             let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
+            print("DIAG T repair state", String(describing: repair.states[key]))
             guard repair.states[key] == nil else { return }
             ctx.registry.track(Task { @MainActor in
                 do {

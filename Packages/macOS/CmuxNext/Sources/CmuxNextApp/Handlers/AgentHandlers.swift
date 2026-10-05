@@ -48,9 +48,11 @@ enum AgentHandlers {
             // create the active workspace's first usable pane, then wait for
             // its controller before opening the agent tab. Explicit targets
             // still fail normally instead of silently switching panes.
+            print("DIAG H enter target", String(describing: invocation.target))
             guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
-            guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
-            _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+            guard let workspace = context.scope(invocation).workspace else { print("DIAG H noWS"); return context.refuse(MiscHandlerStrings.noPane) }
+            let r = context.registry.perform("newTab.sameKind", invocation: invocation)
+            print("DIAG H newTab returned", r)
             context.registry.track(Task { @MainActor in
                 let pane = try? await ControlDeadline.shared.run(
                     method: "agent-pane.mount",
