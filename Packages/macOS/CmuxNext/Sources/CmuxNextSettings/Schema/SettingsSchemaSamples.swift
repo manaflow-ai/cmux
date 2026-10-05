@@ -39,6 +39,13 @@ nonisolated enum SettingsSchemaSamples {
             return ([.object(["start": .string("22:00"), "end": .string("07:30")])],
                     [.object(["start": .string("25:00"), "end": .string("07:00")]), .object(["start": .string("22:00")]),
                      .string("22:00-07:00")])
+        case .numberList(let number):
+            let low = number.range.lowerBound, high = number.range.upperBound, span = max(high - low, 1)
+            return ([.array([]), .array([.number(low), .number(high)])],
+                    [.number(low), .array([.number(low - span)]), .array([.number(high + span)]), .array([.string("1")])])
+        case .stringMap:
+            return ([.object([:]), .object(["*": .string("★"), "Work": .string("")])],
+                    [.string("★"), .array([]), .object(["Work": .number(1)])])
         }
     }
 

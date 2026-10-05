@@ -5,7 +5,8 @@ public import Foundation
 /// when the user opens it, shows its own explainer once before the first
 /// such read, and never probes inside one it merely lists (no `.git`
 /// check, no recursive or background listing).
-public nonisolated enum PickerPrivacy {
+public nonisolated struct PickerPrivacy {
+    public nonisolated init() {}
     public enum Area: String, Equatable, Sendable {
         case desktop
         case documents

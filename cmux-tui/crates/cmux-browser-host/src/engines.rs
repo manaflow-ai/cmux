@@ -131,6 +131,16 @@ impl Driver for HeadlessDriver {
     fn capabilities(&self) -> Vec<&'static str> {
         self.driver.capabilities()
     }
+
+    // Without these the trait defaults applied: no request filter (every
+    // call under a domain policy failed closed) and no end of session.
+    fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
+        self.driver.set_request_filter(filter)
+    }
+
+    fn end_session(&self) {
+        self.driver.end_session();
+    }
 }
 
 impl crate::host::Engines for HostEngines {

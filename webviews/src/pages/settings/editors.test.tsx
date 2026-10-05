@@ -44,6 +44,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("[data-add-folder]") ? null : "no Add Folder button";
     case "time_range":
       return has('input[type="time"]', 2) ? null : "no time fields";
+    case "number_list":
+    case "string_map":
+      return "a cmux-browser kind on the cmux-next page";
   }
 }
 

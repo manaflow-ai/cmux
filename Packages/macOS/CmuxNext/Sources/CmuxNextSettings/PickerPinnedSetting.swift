@@ -3,7 +3,8 @@
 /// `~/...` paths (home expanded here). A missing key is no pins; a value
 /// that is not an array of strings is no pins plus a diagnostic, and a
 /// relative entry is dropped with one.
-public enum PickerPinnedSetting {
+public struct PickerPinnedSetting {
+    public init() {}
     public nonisolated static let configPath = ["picker", "pinned"]
 
     nonisolated static func parse(_ root: JSONValue, home: String) -> ([String], [SettingsDiagnostic]) {
