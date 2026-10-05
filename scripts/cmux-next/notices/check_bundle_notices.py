@@ -11,6 +11,8 @@ an entry of the map, and every requirement of each matching entry must hold:
   section:<id>     Contents/Resources/THIRD_PARTY_LICENSES.md has the marker
                    `<!-- notices-section: <id> -->`
   file:<path>      <app>/<path> is a non-empty file
+`resources` entries name non-Mach-O third-party data (a path relative to the
+.app); when the bundle has that path, its notices must hold too.
 Exit 1 lists every unmapped Mach-O and every missing notice. Python 3.11+
 standard library only.
 """
@@ -59,6 +61,24 @@ def check(app: Path, bundle_map: dict, notices: Path | None = None) -> list[str]
     notices = notices or app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
     sections = set(MARKER.findall(notices.read_text(encoding="utf-8"))) if notices.is_file() else set()
     errors = []
+
+    def requirement_holds(need: str, owner: str) -> bool:
+        kind, _, value = need.partition(":")
+        if kind == "first-party":
+            return _non_empty(app / "Contents/Resources/LICENSE")
+        if kind == "section":
+            return value in sections
+        if kind == "file":
+            return _non_empty(app / value)
+        raise SystemExit(f"check_bundle_notices: unknown requirement {need!r} in entry {owner!r}")
+
+    # Third-party data that is not a Mach-O (themes and similar): when the
+    # bundle has the path, its notices must be there too.
+    for entry in bundle_map.get("resources", []):
+        if (app / entry["path"]).exists():
+            for need in entry["notices"]:
+                if not requirement_holds(need, entry["path"]):
+                    errors.append(f"{entry['path']}: missing notice {need}")
     for rel in macho_files(app):
         entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
         if not entries:
@@ -66,16 +86,7 @@ def check(app: Path, bundle_map: dict, notices: Path | None = None) -> list[str]
             continue
         for entry in entries:
             for need in entry["notices"]:
-                kind, _, value = need.partition(":")
-                if kind == "first-party":
-                    ok = _non_empty(app / "Contents/Resources/LICENSE")
-                elif kind == "section":
-                    ok = value in sections
-                elif kind == "file":
-                    ok = _non_empty(app / value)
-                else:
-                    raise SystemExit(f"check_bundle_notices: unknown requirement {need!r} in entry {entry['path']!r}")
-                if not ok:
+                if not requirement_holds(need, entry["path"]):
                     errors.append(f"{rel}: missing notice {need}")
     return errors
 

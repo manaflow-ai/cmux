@@ -66,5 +66,12 @@
       "what": "first-party server helper (Swift, no third-party code)",
       "notices": ["first-party"]
     }
+  ],
+  "resources": [
+    {
+      "path": "Contents/Resources/ghostty/themes",
+      "what": "Ghostty themes from iTerm2-Color-Schemes (Resources/ghostty/themes, or Ghostty's zig-out share)",
+      "notices": ["section:ghostty-themes"]
+    }
   ]
 }

@@ -95,7 +95,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
 
     def test_repository_notices_carry_every_section_that_the_map_names(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
-        needed = {n.split(":", 1)[1] for e in bundle_map["entries"] for n in e["notices"] if n.startswith("section:")}
+        needed = {n.split(":", 1)[1] for e in bundle_map["entries"] + bundle_map.get("resources", []) for n in e["notices"] if n.startswith("section:")}
         present = set(checker.MARKER.findall((ROOT / "THIRD_PARTY_LICENSES.md").read_text()))
         self.assertEqual(sorted(needed - present), [])
 

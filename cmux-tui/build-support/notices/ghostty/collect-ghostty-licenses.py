@@ -40,7 +40,7 @@ MAX_LICENSE_BYTES = 2 * 1024 * 1024
 # also changes this script, which keys the Ghostty helper caches.
 PINNED_LICENSES = Path(__file__).resolve().parent / "pinned-licenses"
 PINNED_MANIFEST_SHA256 = (
-    "fbb8977db15ba7859f8c7cfd41d66d7647bb9f4c5ce27e898af209a84c7a5de7"
+    "e82f07f18c56f64446b4b730fa89bb561d878c70aad5bff9666c26375a6a092e"
 )
 
 
@@ -125,7 +125,23 @@ def known_license_for(root: Path) -> tuple[str, list[Path]] | None:
         value = zon.read_text(encoding="utf-8", errors="replace")
         if ".name = .z2d" in value and "SPDX-License-Identifier: MPL-2.0" in value:
             return "z2d", [zon]
+        if ".name = .gobject" in value and (root / "src").is_dir():
+            return "zig-gobject", []
+        return None
+    if is_theme_archive(root):
+        return "iterm2-themes", []
     return None
+
+
+def is_theme_archive(root: Path) -> bool:
+    """iTerm2-Color-Schemes' Ghostty themes: only flat theme files."""
+    entries = list(root.iterdir())
+    if not entries or any(not entry.is_file() for entry in entries):
+        return False
+    return all(
+        entry.read_text(encoding="utf-8", errors="replace").lstrip().startswith(("palette", "background", "foreground", "#"))
+        for entry in entries
+    )
 
 
 # A Zig package's stable identity is the dependency name that a
