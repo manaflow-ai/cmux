@@ -472,6 +472,15 @@ struct AccountMacAdmissionPolicyTests {
         #expect(!sessions.contains(F.peerKey))
     }
 
+    @Test("The account directory runs only while the flag is on, observed on, and no withdrawal is in flight")
+    func directoryActiveGate() {
+        #expect(AccountMacAdmissionPolicy.directoryActive(flag: true, observed: true, withdrawalsInFlight: 0))
+        #expect(!AccountMacAdmissionPolicy.directoryActive(flag: false, observed: true, withdrawalsInFlight: 0))
+        #expect(!AccountMacAdmissionPolicy.directoryActive(flag: true, observed: false, withdrawalsInFlight: 0))
+        // An off-on flip while the off withdrawal is still running cannot publish yet.
+        #expect(!AccountMacAdmissionPolicy.directoryActive(flag: true, observed: true, withdrawalsInFlight: 1))
+    }
+
     @Test("Account credentials come only from an unrevoked Mac record with a live ticket and a Mac capability")
     func credentials() {
         #expect(AccountMacAdmissionPolicy.credentials(F.cache(), enabled: true, now: F.now) != nil)
@@ -494,18 +503,43 @@ struct AccountMacDiscoveryTests {
         F.record(F.identity(device: "peer", team: "A"), endpoint: F.staleKey)
     }
 
-    @Test("The account row replaces a stale team endpoint for the same Mac and build")
-    func prefersAccountEndpoint() throws {
+    @Test("A valid team row is never hidden; the account row adds a Mac the team cannot reach")
+    func teamRowWinsAccountAdds() throws {
+        // The team still lists peer validly: its row stays, even though the
+        // account directory names another endpoint for the same Mac.
         let cache = F.cache(teamDevices: [staleTeamPeer])
-        let teamOnly = DeviceIrxClient.displayBindings(cache: cache, now: F.now)
-        #expect(teamOnly.map(\.endpointID.endpointID) == [F.staleKey])
-        let merged = DeviceIrxClient.displayBindings(cache: cache, account: F.account(), now: F.now)
+        let kept = DeviceIrxClient.displayBindings(cache: cache, account: F.account(), now: F.now)
+        #expect(kept.map(\.bindingID) == ["A-peer"])
+        #expect(kept.first?.endpointID.endpointID == F.staleKey)
+        // After the team switch withdrew hosting from the old team record, the
+        // team row is no longer valid and the account row supplies the Mac.
+        let withdrawn = F.record(F.identity(device: "peer", team: "A"), endpoint: F.staleKey,
+            capabilities: ["irx-v2", "cmux.mac-devices.v1"])
+        let merged = DeviceIrxClient.displayBindings(cache: F.cache(teamDevices: [withdrawn]),
+            account: F.account(), now: F.now)
         #expect(merged.count == 1)
         let row = try #require(merged.first)
         #expect(row.endpointID.endpointID == F.peerKey)
-        #expect(row.deviceID == "peer")
         #expect(row.bindingID == "B-peer")
         #expect(row.controlPlaneSupportsMacPeers)
+    }
+
+    @Test("Ambiguous account rows for one Mac are refused for display and for an explicit dial")
+    func ambiguousAccountRowsRefused() {
+        let twoRows = F.account(macs: [F.record(F.peerIdentity, endpoint: F.peerKey),
+            F.record(F.identity(device: "peer", team: "C"), endpoint: F.phoneKey)])
+        #expect(DeviceIrxClient.displayBindings(cache: F.cache(), account: twoRows, now: F.now).isEmpty)
+        for endpoint in [F.peerKey, F.phoneKey] {
+            let intent = IrxMacPeerAuthorization(deviceID: "peer", tag: "default", endpointID: endpoint)
+            #expect(throws: IrxMacPeerAuthorization.Failure.identityMismatch) {
+                try DeviceIrxClient.resolveTarget(intent: intent, source: .account, cache: F.cache(),
+                    account: twoRows, localIdentity: F.selfIdentity, now: F.now)
+            }
+            #expect(throws: IrxMacPeerAuthorization.Failure.unavailable) {
+                try DeviceIrxClient.resolveTarget(intent: intent, source: nil, cache: F.cache(),
+                    account: twoRows, localIdentity: F.selfIdentity, now: F.now)
+            }
+        }
     }
 
     @Test("Without a usable account directory, discovery is exactly the team list", arguments: [0, 1, 2])

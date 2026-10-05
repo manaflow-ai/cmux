@@ -529,6 +529,43 @@ struct AccountMacDirectoryClientTests {
         await client.stop()
     }
 
+    @Test("A resync retry hint longer than the read timeout is honored, not cut off")
+    func resyncRetryAfterOutlastsReadTimeout() async throws {
+        let socket = ScriptedAccountSocket()
+        let log = EffectLog()
+        let timeoutReleased = LockedFlag()
+        let retryReleased = LockedFlag()
+        let client = AccountMacDirectoryClient(baseURL: URL(string: "https://iroh.example")!, dependencies: .init(
+            connect: { request in log.request(request); return socket },
+            http: { _ in V2HTTPResponse(status: 200, body: Data(), retryAfter: nil) },
+            sign: { _ in Data(repeating: 7, count: 64) },
+            now: { Date(timeIntervalSince1970: 1500) },
+            sleep: { seconds in
+                log.slept(seconds)
+                if seconds == AccountMacDirectoryClient.readTimeout {
+                    while !timeoutReleased.value { try await Task.sleep(for: .milliseconds(2)) }
+                } else if seconds == 20 {
+                    while !retryReleased.value { try await Task.sleep(for: .milliseconds(2)) }
+                } else {
+                    try await Task.sleep(for: .seconds(3600))
+                }
+            }))
+        await client.update(Self.credentials)
+        await Self.ready(socket)
+        let sent = await socket.sent(atLeast: 2)
+        let pending = try #require(try Self.json(sent[1])["requestId"] as? String)
+        await socket.push(#"{"schemaId":"error.v1","requestId":"\#(pending)","code":"resync_required","retryable":true,"retryAfterMs":20000}"#)
+        try await Self.eventually { log.sleepDurations.contains(20) }
+        // The read timer elapses during the server-requested wait.
+        timeoutReleased.value = true
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await !socket.closed)
+        retryReleased.value = true
+        let after = await socket.sent(atLeast: 3)
+        #expect(try Self.json(after[2])["schemaId"] as? String == "account.directory.v1")
+        await client.stop()
+    }
+
     @Test("Withdrawing a client that never connected sends nothing")
     func withdrawWithoutPublishing() async {
         let log = EffectLog()
