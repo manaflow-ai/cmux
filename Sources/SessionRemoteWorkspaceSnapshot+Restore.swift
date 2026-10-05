@@ -215,7 +215,9 @@ extension SessionRemoteWorkspaceSnapshot {
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: restoredSSHOptions,
-                explicitAgentSocketPath: overrideAgentSocketPath
+                // The agent the connection authenticated with wins over a
+                // `ForwardAgent` path, as it does for cmux-tui carriers.
+                explicitAgentSocketPath: overrideAgentSocketPath ?? self.agentSocketPath
             ),
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession || restoreDefaultFreestyleSSHD,

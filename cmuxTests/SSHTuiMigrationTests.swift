@@ -242,6 +242,20 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection(configuration: restored).id == SSHTuiConnection(configuration: opened).id)
     }
 
+    @Test("A restored Mosh workspace keeps the agent its snapshot saved")
+    func restoredMoshWorkspaceKeepsSavedAgent() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let saved = directory.appendingPathComponent("saved.sock").path
+        #expect(FileManager.default.createFile(atPath: saved, contents: nil))
+        let snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, terminalTransport: .mosh,
+            destination: "alice@example.invalid", agentSocketPath: saved)
+        let restored = try #require(snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
+        #expect(restored.terminalTransport == .mosh)
+        #expect(restored.agentSocketPath == saved)
+    }
+
     @Test("A restore uses the saved agent, then the app's agent once the saved socket is gone")
     func restoredAgentFallsBackToTheAppsAgent() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
