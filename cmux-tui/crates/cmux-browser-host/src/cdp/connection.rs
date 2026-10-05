@@ -5,6 +5,7 @@
 //! for every inbound message and [`CdpConnection::close`] when the stream ends.
 
 use crate::protocol::{DriverError, ErrorCode};
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::io;
@@ -29,7 +30,29 @@ pub struct CdpEvent {
 /// blocking [`CdpConnection::call`] there: the reply would never be read.
 pub type CdpEventHandler = Arc<dyn Fn(CdpEvent) + Send + Sync>;
 
-type Reply = Result<Value, DriverError>;
+/// A reply's `result` as the browser sent it: parsed once, by the caller,
+/// into a `Value` or a typed struct (a script value stays text, a9 raw_value).
+type Reply = Result<Box<RawValue>, DriverError>;
+
+/// One inbound message. A reply's result is kept as text; an event's
+/// params are parsed.
+#[derive(serde::Deserialize)]
+struct Inbound<'a> {
+    id: Option<u64>,
+    #[serde(borrow)]
+    result: Option<&'a RawValue>,
+    error: Option<Value>,
+    method: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    params: Option<Value>,
+}
+
+fn parse<T: serde::de::DeserializeOwned>(method: &str, raw: &RawValue) -> Result<T, DriverError> {
+    serde_json::from_str(raw.get()).map_err(|e| {
+        DriverError::invalid(format!("{method}: the browser sent an unexpected reply: {e}"))
+    })
+}
 
 /// A call's waiter and the session the call went to.
 type Waiter = (Option<String>, mpsc::SyncSender<Reply>);
@@ -108,8 +131,21 @@ impl CdpConnection {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, DriverError> {
+        self.call_typed(session_id, method, params, timeout)
+    }
+
+    /// [`CdpConnection::call`] with the reply parsed straight into `T` (a
+    /// struct that keeps a script value as [`RawValue`] text).
+    pub fn call_typed<T: serde::de::DeserializeOwned>(
+        &self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<T, DriverError> {
         let pending = self.send(session_id, method, params)?;
-        self.wait(pending, timeout)
+        let raw = self.wait(pending, timeout)?;
+        parse(method, &raw)
     }
 
     /// Sends several methods back to back, then waits for every reply.
@@ -130,8 +166,9 @@ impl CdpConnection {
         sent.into_iter()
             .map(|pending| {
                 let pending = pending?;
+                let method = pending.method.clone();
                 let left = deadline.saturating_duration_since(std::time::Instant::now());
-                self.wait(pending, left)
+                parse(&method, &self.wait(pending, left)?)
             })
             .collect()
     }
@@ -184,7 +221,7 @@ impl CdpConnection {
         Ok(Pending { id, method: method.to_owned(), rx })
     }
 
-    fn wait(&self, pending: Pending, timeout: Duration) -> Result<Value, DriverError> {
+    fn wait(&self, pending: Pending, timeout: Duration) -> Reply {
         match pending.rx.recv_timeout(timeout) {
             Ok(reply) => reply,
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -203,37 +240,35 @@ impl CdpConnection {
 
     /// Handles one inbound message from the transport.
     pub fn receive(&self, message: &str) {
-        let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+        let Ok(inbound) = serde_json::from_str::<Inbound<'_>>(message) else {
             return;
         };
-        if let Some(id) = object.get("id").and_then(Value::as_u64) {
+        if let Some(id) = inbound.id {
             let waiter = self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             if let Some((_, waiter)) = waiter {
-                let reply = match object.remove("error") {
-                    Some(error) => Err(protocol_error(&error)),
-                    None => Ok(object.remove("result").unwrap_or_else(|| json!({}))),
+                let reply = match (inbound.error, inbound.result) {
+                    (Some(error), _) => Err(protocol_error(&error)),
+                    (None, Some(result)) => Ok(result.to_owned()),
+                    (None, None) => RawValue::from_string("{}".to_owned())
+                        .map_err(|e| DriverError::invalid(e.to_string())),
                 };
                 let _ = waiter.try_send(reply);
             }
             return;
         }
-        let Some(Value::String(method)) = object.remove("method") else {
+        let Some(method) = inbound.method else {
             return;
         };
         if method == "Target.detachedFromTarget"
             && let Some(session) =
-                object.get("params").and_then(|p| p.get("sessionId")).and_then(Value::as_str)
+                inbound.params.as_ref().and_then(|p| p.get("sessionId")).and_then(Value::as_str)
         {
             self.fail_session(session);
         }
         let event = CdpEvent {
-            session_id: object
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| self.root_alias.clone()),
+            session_id: inbound.session_id.or_else(|| self.root_alias.clone()),
             method,
-            params: object.remove("params").unwrap_or_else(|| json!({})),
+            params: inbound.params.unwrap_or_else(|| json!({})),
         };
         let handler = self.handler.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(handler) = handler {

@@ -103,15 +103,15 @@ impl Driver for FakeDriver {
         method: &str,
         params: &Value,
         announce: &mut dyn FnMut(),
-    ) -> Result<crate::driver::Reply, DriverError> {
+    ) -> Result<Reply, DriverError> {
         if method == "frame.evaluate" && params["source"] == "ordered" {
             announce();
             self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
             let raw = r#"{"z":"token s3cret-value here","a":[{"y":"s3cret\u002dvalue","b":1.50}],"s3cret-value":true}"#;
-            let raw = serde_json::value::RawValue::from_string(raw.to_owned()).unwrap();
-            return Ok(crate::driver::Reply::Json(raw));
+            let raw = RawValue::from_string(raw.to_owned()).unwrap();
+            return Ok(Reply::Json(raw));
         }
-        self.call_announced(method, params, announce).map(crate::driver::Reply::Value)
+        self.call_announced(method, params, announce).map(Reply::Value)
     }
 
     fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {

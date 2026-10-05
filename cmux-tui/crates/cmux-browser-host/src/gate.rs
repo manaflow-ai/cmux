@@ -7,11 +7,12 @@
 //! into the VM is masked, so agent code cannot read a user secret back from
 //! the page either.
 
-use crate::driver::Driver;
+use crate::driver::{Driver, Reply};
 use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
 use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -360,6 +361,12 @@ impl Gate {
 
 impl VmHost for Gate {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
+        self.driver_call_reply(method, params)?.into_value()
+    }
+
+    /// Every VM call: the gate's checks, the engine, then masking. A
+    /// script's value stays JSON text and is masked as text (a9 raw_value).
+    fn driver_call_reply(&self, method: &str, params: Value) -> Result<Reply, DriverError> {
         if !self.filter_enforced.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(DriverError::new(
                 ErrorCode::Forbidden,
@@ -392,12 +399,14 @@ impl VmHost for Gate {
         let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
         let target = target.as_deref();
         let result = match method {
-            "tab.screenshot" | "tab.pdf" => self.capture(method, &params),
-            "net.fetch" => self.fetch(&params),
-            _ => self
-                .driver
-                .call_announced(method, &params, &mut announce)
-                .map(|value| self.filter_cookies(method, value)),
+            "tab.screenshot" | "tab.pdf" => self.capture(method, &params).map(Reply::Value),
+            "net.fetch" => self.fetch(&params).map(Reply::Value),
+            _ => self.driver.call_reply_announced(method, &params, &mut announce).map(|reply| {
+                match reply {
+                    Reply::Value(value) => Reply::Value(self.filter_cookies(method, value)),
+                    json => json,
+                }
+            }),
         };
         if method == "tabs.close"
             && result.is_ok()
@@ -406,7 +415,16 @@ impl VmHost for Gate {
             self.tab_secrets.forget(target);
         }
         match result {
-            Ok(value) => Ok(self.mask_for_target(target, &value)),
+            Ok(Reply::Value(value)) => Ok(Reply::Value(self.mask_for_target(target, &value))),
+            Ok(Reply::Json(raw)) => {
+                let mut masker = self.masker();
+                if let Some(tab) = target.and_then(|target| self.tab_secrets.masker(target)) {
+                    masker.merge(&tab);
+                }
+                RawValue::from_string(masker.mask_json_text(raw.get()))
+                    .map(Reply::Json)
+                    .map_err(|e| DriverError::invalid(format!("{method}: {e}")))
+            }
             Err(mut error) => {
                 error.message = self.mask_text_for_target(target, &error.message);
                 error.error_name =
