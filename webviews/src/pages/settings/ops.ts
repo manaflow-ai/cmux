@@ -69,7 +69,7 @@ export type HostLists = {
   theme?: { levels: string[]; current: Record<string, string | null> };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
-  ghostty_diagnostics?: GhosttyDiagnostic[];
+  ghostty_diagnostics?: GhosttyDiagnostic[] | null;
   settings_file?: string | null;
   /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
   backdrops?: Array<{ id: string; title: string; attribution: string }>;

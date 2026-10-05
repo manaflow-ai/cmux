@@ -10,7 +10,7 @@ import Testing
     /// libghostty needs `ghostty_init` (the shared runtime) before configs.
     init() { _ = GhosttyRuntime.shared }
 
-    @Test func unsupportedKeysFromTheUsersFilesAreReportedWithTheirSource() throws {
+    @Test func unsupportedKeysFromTheUsersFilesAreReportedWithTheirSource() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "ghostty-diagnostics-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -30,7 +30,7 @@ import Testing
         let configPath = config.resolvingSymlinksInPath().path
         let extraPath = extra.resolvingSymlinksInPath().path
 
-        let report = GhosttyRuntime.configDiagnostics(configFile: config.path)
+        let report = await GhosttyRuntime.configDiagnostics(configFile: config.path)
         let keys = report.filter { $0.kind == .key }
         func resolved(_ path: String?) -> String? { path.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } }
         #expect(keys.map(\.name) == ["window-decoration", "quick-terminal-position", "macos-hidden"],
@@ -48,7 +48,7 @@ import Testing
     /// reported with its line, also from an include, split from its trigger
     /// the way Ghostty's binding parser does (an `=` key, flags, sequences);
     /// supported actions, comments and `keybind = clear` are not.
-    @Test func unsupportedKeybindActionsAreReportedWithTheirLine() throws {
+    @Test func unsupportedKeybindActionsAreReportedWithTheirLine() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "ghostty-keybind-diagnostics-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -67,7 +67,7 @@ import Testing
         """.utf8).write(to: config)
         try Data("keybind = ctrl+a>r=redo\n".utf8).write(to: directory.appending(path: "keys"))
 
-        let actions = GhosttyRuntime.configDiagnostics(configFile: config.path).filter { $0.kind == .keybindAction }
+        let actions = await GhosttyRuntime.configDiagnostics(configFile: config.path).filter { $0.kind == .keybindAction }
         #expect(actions.map(\.name) == ["inspector", "toggle_quick_terminal", "toggle_window_decorations", "redo"])
         #expect(actions.map(\.line) == [1, 3, 4, 1])
         #expect(actions[0].support?.reason == .notApplicable)

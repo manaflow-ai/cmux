@@ -3,22 +3,24 @@ import Observation
 import CmuxNextTerminal
 
 /// The R92 diagnostics of the applied Ghostty config, kept current: read
-/// again on every config change (`GhosttyRuntime.configDidChange`). The one
-/// owner the socket report (`ghostty.diagnostics`) and the Settings page's
-/// Ghostty group read, so both always show the same list.
+/// again on every config change (`GhosttyRuntime.configDidChange`). The
+/// Settings page's Ghostty group reads it (host lists, live through
+/// `cmux.settings.host.changed`); the socket's `ghostty.diagnostics`
+/// computes the same list on demand.
 @MainActor @Observable
 final class GhosttyDiagnosticsModel {
     static let shared = GhosttyDiagnosticsModel()
 
-    private(set) var diagnostics: [GhosttyConfigDiagnostic] = []
-    private(set) var files: [String] = []
+    /// Nil until the first read finished (the page then shows nothing,
+    /// never a false "everything applies").
+    private(set) var diagnostics: [GhosttyConfigDiagnostic]?
 
-    @ObservationIgnored private let read: @MainActor () -> ([GhosttyConfigDiagnostic], [String])
+    @ObservationIgnored private let read: @MainActor () -> GhosttyConfigDiagnosticsSnapshot?
     @ObservationIgnored private var observer: (any NSObjectProtocol)?
+    @ObservationIgnored private var generation = 0
 
-    init(read: @escaping @MainActor () -> ([GhosttyConfigDiagnostic], [String]) = {
-        (GhosttyRuntime.shared.configDiagnosticsReport, GhosttyRuntime.shared.loadedConfigFiles)
-    }, notifications: NotificationCenter = .default) {
+    init(read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
+         notifications: NotificationCenter = .default) {
         self.read = read
         refresh()
         observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
@@ -27,10 +29,20 @@ final class GhosttyDiagnosticsModel {
         }
     }
 
-    /// Reads the applied config's diagnostics again.
+    /// Reads the applied config again; the keybind lines are read off the
+    /// main actor, and only the newest read is kept.
     func refresh() {
-        let (diagnostics, files) = read()
-        if diagnostics != self.diagnostics { self.diagnostics = diagnostics }
-        if files != self.files { self.files = files }
+        generation += 1
+        let current = generation
+        guard let snapshot = read() else {
+            diagnostics = []
+            return
+        }
+        // task-owner: one read per config change; a newer read supersedes it (generation).
+        Task { [weak self] in
+            let found = await snapshot.diagnostics()
+            guard let self, self.generation == current, found != self.diagnostics else { return }
+            self.diagnostics = found
+        }
     }
 }

@@ -5,35 +5,35 @@ import CmuxNextTerminal
 /// `ghostty.diagnostics` (R92): the Ghostty config keys and keybind actions
 /// of the user's files that cmux does not apply, each with its file, line,
 /// reason and cmux replacement, and the lines libghostty could not read.
-/// The Settings page's Ghostty config group shows the same report.
-@MainActor
-struct GhosttyDiagnosticsControl {
-    /// The applied config's diagnostics (`GhosttyDiagnosticsModel`).
-    let diagnostics: @MainActor () -> [GhosttyConfigDiagnostic]
-    /// The files behind it, in load order.
-    let files: @MainActor () -> [String]
+/// The Settings page's Ghostty config group shows the same list
+/// (`GhosttyDiagnosticsModel`); this computes it fresh for each request.
+struct GhosttyDiagnosticsControl: Sendable {
+    /// The applied config's snapshot, read on the main actor.
+    let snapshot: @MainActor @Sendable () -> GhosttyConfigDiagnosticsSnapshot?
 
     static let methodName = "ghostty.diagnostics"
 
-    init(diagnostics: @escaping @MainActor () -> [GhosttyConfigDiagnostic] = { GhosttyDiagnosticsModel.shared.diagnostics },
-         files: @escaping @MainActor () -> [String] = { GhosttyDiagnosticsModel.shared.files }) {
-        self.diagnostics = diagnostics
-        self.files = files
+    init(snapshot: @escaping @MainActor @Sendable () -> GhosttyConfigDiagnosticsSnapshot? = {
+        GhosttyRuntime.shared.configDiagnosticsSnapshot
+    }) {
+        self.snapshot = snapshot
     }
 
     var method: ControlMethod {
         let control = self
-        return .mainActor(Self.methodName) { _ in .value(control.report()) }
+        return .async(Self.methodName) { _ in await control.report() }
     }
 
-    func report() -> JSONValue {
-        .object([
-            "files": .array(files().map(JSONValue.string)),
-            "diagnostics": .array(diagnostics().map(Self.json)),
+    func report() async -> JSONValue {
+        guard let snapshot = await snapshot() else { return .object(["files": .array([]), "diagnostics": .array([])]) }
+        let diagnostics = await snapshot.diagnostics()
+        return .object([
+            "files": .array(snapshot.files.map(JSONValue.string)),
+            "diagnostics": .array(diagnostics.map(Self.json)),
         ])
     }
 
-    static func json(_ diagnostic: GhosttyConfigDiagnostic) -> JSONValue {
+    nonisolated static func json(_ diagnostic: GhosttyConfigDiagnostic) -> JSONValue {
         .object([
             "kind": .string(diagnostic.kind.rawValue),
             "name": .string(diagnostic.name),
