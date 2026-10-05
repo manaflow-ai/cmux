@@ -62,6 +62,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     }
 
     private let driver: any BrowserReplDriver
+    private let publicSuffixes: BrowserReplPublicSuffixList
     private let maxBodyBytes: Int
     /// The bytes of the bodies this fetcher's requests hold, received and
     /// not yet released.
@@ -80,14 +81,18 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     ///   - protocolClasses: URL protocols to try first (tests stub the network).
     ///   - ledger: The session's ledger, which then bounds the bodies
     ///     (``BrowserReplResource/fetchBodyBytes``) instead of `maxBufferedBytes`.
+    ///   - publicSuffixes: The list a response's `Set-Cookie` Domain is
+    ///     checked against (no cookie on a public suffix is stored).
     public init(
         driver: any BrowserReplDriver,
         maxBodyBytes: Int = defaultMaxBodyBytes,
         maxBufferedBytes: Int = defaultMaxBufferedBytes,
         protocolClasses: [AnyClass]? = nil,
-        ledger: BrowserReplResourceLedger? = nil
+        ledger: BrowserReplResourceLedger? = nil,
+        publicSuffixes: BrowserReplPublicSuffixList = .system
     ) {
         self.driver = driver
+        self.publicSuffixes = publicSuffixes
         self.maxBodyBytes = ledger?.limits.each(.fetchBodyBytes) ?? maxBodyBytes
         self.bodyBudget = ledger.map(BrowserReplFetchBudget.init(ledger:)) ?? BrowserReplFetchBudget(limit: maxBufferedBytes)
         super.init()
@@ -418,7 +423,10 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         let fields = response.allHeaderFields.reduce(into: [String: String]()) { result, entry in
             if let key = entry.key as? String { result[key] = "\(entry.value)" }
         }
+        // Only the cookies a browser would take from this response
+        // (HTTPCookie.browserReplMaySet): the parser keeps any Domain.
         let cookies = HTTPCookie.cookies(withResponseHeaderFields: fields, for: url)
+            .filter { $0.browserReplMaySet(from: url, publicSuffixes: publicSuffixes) }
         guard !cookies.isEmpty else { return }
         let encoded: [[String: Any]] = cookies.map(\.browserReplJSON)
         var params: [String: Any] = ["cookies": encoded]
