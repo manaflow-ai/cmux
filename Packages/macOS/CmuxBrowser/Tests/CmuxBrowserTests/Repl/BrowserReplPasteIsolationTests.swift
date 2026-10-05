@@ -89,12 +89,10 @@ extension BrowserReplPasteboardRedirectTests {
                     """
                 )
                 _ = try await tabView.evaluateJavaScript("document.getElementById('i').focus(); true")
-                let command = Task { @MainActor in
+                let command = RedirectedCommand {
                     await redirect.perform("Paste", in: tabView, pasteboard: tab, timeout: .seconds(30), systemChangeCount: tab.changeCount + 1)
                 }
-                while redirect.redirectTarget(forLookupOf: NSPasteboard.Name.general.rawValue, fromWebKit: true) !== tab {
-                    await Task.yield()
-                }
+                try await command.waitUntilWebKitGets(tab, redirect: redirect)
                 // The page pastes from script, in a gesture. Its reply may
                 // never come: WebKit then waits for the person to answer a
                 // paste callout.

@@ -806,12 +806,10 @@ struct BrowserReplPasteboardRedirectTests {
                 let tab = NSPasteboard.withUniqueName()
                 defer { tab.releaseGlobally() }
                 tab.clearContents()
-                let command = Task { @MainActor in
+                let command = RedirectedCommand {
                     await BrowserReplPasteboardRedirect.shared.perform("Copy", in: tabView, pasteboard: tab, timeout: .seconds(30))
                 }
-                while BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) !== tab {
-                    await Task.yield()
-                }
+                try await command.waitUntilWebKitGets(tab)
                 // The other web view copies while the tab's copy handler runs.
                 // An evaluated script holds a user gesture, as a click would.
                 let copied = try await otherView.evaluateJavaScript("document.execCommand('copy')") as? Bool
@@ -859,12 +857,10 @@ struct BrowserReplPasteboardRedirectTests {
                 let tab = NSPasteboard.withUniqueName()
                 defer { tab.releaseGlobally() }
                 tab.clearContents()
-                let commandTask = Task { @MainActor in
+                let commandTask = RedirectedCommand {
                     await BrowserReplPasteboardRedirect.shared.perform(command, in: tabView, pasteboard: tab, timeout: .seconds(30))
                 }
-                while BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) !== tab {
-                    await Task.yield()
-                }
+                try await commandTask.waitUntilWebKitGets(tab)
                 let copied = try await otherView.evaluateJavaScript("document.execCommand('copy')") as? Bool
                 try #require(copied == true)
                 outcome = await commandTask.value
@@ -912,7 +908,7 @@ struct BrowserReplPasteboardRedirectTests {
                 let otherProcess = otherView.value(forKey: "_webProcessIdentifier") as? Int
                 try #require(tabProcess != otherProcess, "the two web views share a web content process, so the other paste cannot run during the command")
 
-                let command = Task { @MainActor in
+                let command = RedirectedCommand {
                     await BrowserReplPasteboardRedirect.shared.perform(
                         "Paste",
                         in: tabView,
@@ -921,9 +917,7 @@ struct BrowserReplPasteboardRedirectTests {
                         systemChangeCount: tab.changeCount + 1
                     )
                 }
-                while BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) !== tab {
-                    await Task.yield()
-                }
+                try await command.waitUntilWebKitGets(tab)
                 // The other web view's Paste starts while the tab's paste
                 // handler runs. Its web content process handles the paste
                 // before the script below, so the value read is the result.
@@ -987,6 +981,60 @@ struct BrowserReplPasteboardRedirectTests {
         private struct StandIn: @unchecked Sendable {
             let system: NSPasteboard
             let standIn: NSPasteboard
+        }
+    }
+}
+
+/// A pasteboard command a test runs while it does something else.
+///
+/// A test that acts during the command first waits for the command to
+/// redirect WebKit's lookups of the general pasteboard to the tab's
+/// pasteboard. A command that ends without that (a setup the redirect
+/// refuses, or one that makes it fall back) would leave such a wait
+/// spinning forever; ``waitUntilWebKitGets(_:redirect:sourceLocation:)``
+/// fails the test as soon as the command has ended instead. A command that
+/// neither redirects nor ends is ended by its own timeout.
+@MainActor
+final class RedirectedCommand {
+    @MainActor
+    private final class Ended {
+        var outcome: BrowserReplPasteboardRedirect.Outcome?
+    }
+
+    private let ended: Ended
+    private let task: Task<BrowserReplPasteboardRedirect.Outcome, Never>
+
+    init(_ body: @escaping @MainActor () async -> BrowserReplPasteboardRedirect.Outcome) {
+        let ended = Ended()
+        self.ended = ended
+        task = Task { @MainActor in
+            let outcome = await body()
+            ended.outcome = outcome
+            return outcome
+        }
+    }
+
+    /// The command's outcome, once it ends.
+    var value: BrowserReplPasteboardRedirect.Outcome {
+        get async { await task.value }
+    }
+
+    /// Returns once WebKit's lookups of the general pasteboard get `tab`.
+    /// - Throws: a test failure naming the outcome when the command ended first.
+    func waitUntilWebKitGets(
+        _ tab: NSPasteboard,
+        redirect: BrowserReplPasteboardRedirect = .shared,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        while redirect.redirectTarget(forLookupOf: NSPasteboard.Name.general.rawValue, fromWebKit: true) !== tab {
+            if let outcome = ended.outcome {
+                try #require(
+                    Bool(false),
+                    "the command ended (\(outcome)) before WebKit's lookups of the general pasteboard got the tab's pasteboard, so the test's setup never ran it as a redirected command",
+                    sourceLocation: sourceLocation
+                )
+            }
+            await Task.yield()
         }
     }
 }
