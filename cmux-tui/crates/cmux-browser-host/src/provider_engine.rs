@@ -524,6 +524,17 @@ mod tests {
                                 error: Some(DriverError::invalid("the app failed the call")),
                             })
                         }
+                        // tabs.open answers the tab named by the URL's last
+                        // path segment (tests announce it up front).
+                        Frame::Call { id, method, params } if method == "tabs.open" => {
+                            let url = params["url"].as_str().unwrap_or("");
+                            let target = url.rsplit('/').next().unwrap_or("").to_owned();
+                            Some(Frame::Result {
+                                id,
+                                result: Some(json!({"method": method, "targetId": target})),
+                                error: None,
+                            })
+                        }
                         Frame::Call { id, method, .. } => Some(Frame::Result {
                             id,
                             result: Some(json!({"method": method})),
@@ -972,3 +983,7 @@ mod lease_tests;
 #[cfg(test)]
 #[path = "provider_engine_input_tests.rs"]
 mod input_tests;
+
+#[cfg(test)]
+#[path = "provider_engine_reaper_tests.rs"]
+mod reaper_tests;
