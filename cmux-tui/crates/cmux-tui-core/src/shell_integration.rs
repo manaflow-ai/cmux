@@ -53,6 +53,15 @@ const SCRIPTS: &[Script] = &[
 /// Opt-out: `CMUX_TUI_SHELL_INTEGRATION=none` launches shells unmodified.
 const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";
 
+/// The features the scripts enable (title, cursor shape, path). Ghostty
+/// always exports it (`setupFeatures` in `src/termio/shell_integration.zig`);
+/// without it the title is whatever the user's own hooks set.
+const FEATURES_ENV: &str = "GHOSTTY_SHELL_FEATURES";
+
+/// Ghostty's default `shell-integration-features` (cursor, path, title) with
+/// its default blinking cursor, in its sorted order.
+const DEFAULT_FEATURES: &str = "cursor:blink,path,title";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shell {
     Bash,
@@ -124,6 +133,10 @@ fn apply(
     // The daemon integrates this shell, so it owns the Ghostty integration
     // keys: a caller value for one of them never reaches the shell.
     crate::daemon_env::warn_dropped(&crate::daemon_env::strip_integration_owned(&mut env));
+    // A caller (or daemon) value is the user's resolved feature set.
+    if lookup(FEATURES_ENV).is_none() {
+        env.push((FEATURES_ENV.into(), DEFAULT_FEATURES.into()));
+    }
     let root_str = root.to_string_lossy().into_owned();
     match shell {
         Shell::Zsh => {
