@@ -25,6 +25,8 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case modeNotConfirmed = "transport.mode_not_confirmed"
     /// A page request whose id (JSON value and type) is still waiting for its reply.
     case requestIdInFlight = "transport.request_id_in_flight"
+    /// One object of the frame holds two keys that decode to the same string (ad349, round 7).
+    case duplicateKey = "transport.duplicate_key"
     /// The frame grants (allows a permission, trusts a folder, prompts, sets a mode) without a
     /// fresh user gesture; the socket stays open.
     case gestureRequired = "transport.gesture_required"
