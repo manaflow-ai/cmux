@@ -38,7 +38,11 @@ extension DeviceIrxClient {
         now: Date
     ) throws -> DeviceResolvedMacTarget {
         func fromAccount() throws -> DeviceResolvedMacTarget {
-            guard let account else { throw IrxMacPeerAuthorization.Failure.staleDirectory }
+            // This Mac's own team directory stays authoritative for every path:
+            // a stale one is final even for a fresh cross-team account row.
+            guard let account, teamDirectoryIsFresh(cache: cache, localIdentity: localIdentity, now: now) else {
+                throw IrxMacPeerAuthorization.Failure.staleDirectory
+            }
             let record = try IrxAccountMacPeerAuthorization(intent).resolve(
                 account: account, cache: cache, localIdentity: localIdentity, now: now)
             return DeviceResolvedMacTarget(record: record, source: .account, relayURLs: account.directory.relayURLs)
@@ -50,6 +54,15 @@ extension DeviceIrxClient {
         }
         let record = try intent.resolve(cache: cache, localIdentity: localIdentity, now: now)
         return DeviceResolvedMacTarget(record: record, source: .team, relayURLs: cache.directory?.relayURLs ?? [])
+    }
+
+    /// Whether this Mac's complete team directory is current, with the same
+    /// checks `IrxMacPeerAuthorization` applies before any team dial.
+    static func teamDirectoryIsFresh(cache: V2CachedState, localIdentity: V2Identity, now: Date) -> Bool {
+        guard let directory = cache.directory, directory.nextCursor == nil,
+              directory.teamID == localIdentity.teamID else { return false }
+        let seconds = now.timeIntervalSince1970
+        return seconds >= Double(directory.issuedAt) && seconds < Double(directory.permissionExpiresAt)
     }
 
     /// The account row that owns a device for discovery and dialing, or nil.
@@ -64,7 +77,7 @@ extension DeviceIrxClient {
         localIdentity: V2Identity,
         now: Date
     ) -> V2DeviceRecord? {
-        guard let account else { return nil }
+        guard let account, teamDirectoryIsFresh(cache: cache, localIdentity: localIdentity, now: now) else { return nil }
         let candidates = account.directory.macs.filter {
             $0.descriptor.identity.deviceID.lowercased() == deviceID.lowercased()
                 && $0.descriptor.identity.buildTag == tag
@@ -80,7 +93,7 @@ extension DeviceIrxClient {
     /// device keeps its team row.
     static func displayBindings(cache: V2CachedState, account: AccountMacDirectorySnapshot?, now: Date) -> [DeviceDiscoveredMac] {
         let team = displayBindings(cache: cache, now: now)
-        guard let account else { return team }
+        guard let account, teamDirectoryIsFresh(cache: cache, localIdentity: cache.identity, now: now) else { return team }
         let accountRows: [DeviceDiscoveredMac] = account.directory.macs.compactMap { record in
             let device = record.descriptor
             let intent = IrxAccountMacPeerAuthorization(deviceID: device.identity.deviceID,
