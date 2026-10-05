@@ -107,4 +107,48 @@ private actor StandInHost: AgentPaneHostProviding {
         #expect(!dom.contains(Self.localApp) && !dom.contains(Self.dashboard))
         #expect(!seen.contains("ws.new"), "the page opened no WebSocket of its own")
     }
+    /// The bundled pane makes no direct connection (its CSP has `connect-src 'none'`): a WebSocket
+    /// or a fetch from the page is blocked, and all traffic goes through the host's bridge.
+    @Test func theBundledPaneOpensNoDirectConnection() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-home-\(UUID().uuidString)")
+        let model = AgentPaneModel(host: StandInHost(url: server.url, home: home))
+        let view = try #require(AgentPaneView(model: model))
+        defer { view.close() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView?.addSubview(view)
+        view.frame = window.contentView?.bounds ?? .zero
+        // The pane connects through the host: one socket, the host's.
+        #expect(await server.wait(seconds: 30) { $0.count == 1 && ($0.first?.frames.count ?? 0) >= 1 })
+        // The page tries on its own.
+        let attempt = """
+        (async () => {
+          const violations = [];
+          document.addEventListener("securitypolicyviolation", (e) => violations.push(e.violatedDirective));
+          let socket = "opened";
+          try {
+            const ws = new WebSocket("\(server.url.absoluteString)");
+            socket = await new Promise((done) => { ws.onopen = () => done("opened"); ws.onerror = () => done("blocked"); setTimeout(() => done("blocked"), 3000); });
+          } catch (_) { socket = "blocked"; }
+          let fetched = "loaded";
+          // The stand-in server answers no plain HTTP: when the fetch is allowed, it waits, so it is bounded.
+          const abort = new AbortController();
+          const timer = setTimeout(() => { fetched = "unanswered"; abort.abort(); }, 3000);
+          try { await fetch("http://127.0.0.1:\(server.port)/", { signal: abort.signal }); } catch (_) { if (fetched === "loaded") fetched = "blocked"; }
+          clearTimeout(timer);
+          await new Promise((done) => setTimeout(done, 200));
+          return JSON.stringify({ socket, fetched, violations });
+        })()
+        """
+        let result = try #require(try await view.webView.callAsyncJavaScript("return await " + attempt, arguments: [:], in: nil, contentWorld: .page) as? String)
+        #expect(result.contains(#""socket":"blocked""#), "\(result)")
+        #expect(result.contains(#""fetched":"blocked""#), "\(result)")
+        #expect(result.contains("connect-src"), "\(result)")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(server.peers.count == 1, "the daemon saw only the host's socket")
+    }
 }
