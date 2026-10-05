@@ -11,6 +11,9 @@ final class PageStatusViews {
     let errorView = LoadErrorView()
     let goneView = PageGoneView()
     let unresponsiveView = PageUnresponsiveView()
+    /// Runs a warning page button through the action registry (the App
+    /// installs it); true when it ran there.
+    var certificateWarningRouter: ((CertificateWarningCommand) -> Bool)?
 
     /// The views currently shown (occlusion holes).
     var shown: [NSView] {

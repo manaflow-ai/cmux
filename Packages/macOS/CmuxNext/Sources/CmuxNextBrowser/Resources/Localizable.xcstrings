@@ -15327,6 +15327,268 @@
           }
         }
       }
+    },
+    "browser.certificate.notShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يظهر تحذير شهادة في هذه الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na ovoj stranici nije prikazano upozorenje o certifikatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der vises ingen certifikatadvarsel på denne side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf dieser Seite wird keine Zertifikatswarnung angezeigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No certificate warning is showing on this page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página no muestra ninguna advertencia de certificado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun avertissement de certificat n’est affiché sur cette page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In questa pagina non è visualizzato alcun avviso sul certificato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページには証明書の警告が表示されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានការព្រមានអំពីវិញ្ញាបនបត្របង្ហាញនៅលើទំព័រនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 페이지에 표시된 인증서 경고가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen sertifikatadvarsel vises på denne siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na tej stronie nie jest wyświetlane ostrzeżenie o certyfikacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum aviso de certificado está sendo exibido nesta página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этой странице не показано предупреждение о сертификате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีคำเตือนเกี่ยวกับใบรับรองแสดงอยู่ในหน้านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sayfada sertifika uyarısı gösterilmiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цій сторінці не показано попередження про сертифікат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang này không hiển thị cảnh báo chứng chỉ nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此页面未显示证书警告。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此頁面未顯示憑證警告。"
+          }
+        }
+      }
+    },
+    "browser.certificate.chromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض Chromium صفحة تحذير الشهادة الخاصة به. استخدم أزرارها أو زر الرجوع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium prikazuje vlastitu stranicu upozorenja o certifikatu. Koristite njena dugmad ili Nazad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium viser sin egen side med certifikatadvarsel. Brug dens knapper eller Tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium zeigt eine eigene Zertifikatswarnseite. Verwende deren Tasten oder „Zurück“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium shows its own certificate warning page. Use its buttons, or Back."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium muestra su propia página de advertencia de certificado. Usa sus botones o Atrás."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium affiche sa propre page d’avertissement de certificat. Utilisez ses boutons ou Retour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium mostra la propria pagina di avviso sul certificato. Usa i suoi pulsanti o Indietro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium は独自の証明書警告ページを表示します。そのページのボタンか「戻る」を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium បង្ហាញទំព័រព្រមានវិញ្ញាបនបត្រផ្ទាល់ខ្លួន។ ប្រើប៊ូតុងរបស់វា ឬ ថយក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium은 자체 인증서 경고 페이지를 표시합니다. 해당 페이지의 버튼이나 뒤로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium viser sin egen side med sertifikatadvarsel. Bruk knappene der, eller Tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium wyświetla własną stronę ostrzeżenia o certyfikacie. Użyj jej przycisków lub przycisku Wstecz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chromium mostra sua própria página de aviso de certificado. Use os botões dela ou Voltar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium показывает собственную страницу предупреждения о сертификате. Используйте её кнопки или «Назад»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium แสดงหน้าคำเตือนใบรับรองของตัวเอง ใช้ปุ่มในหน้านั้นหรือย้อนกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kendi sertifika uyarı sayfasını gösterir. O sayfanın düğmelerini veya Geri'yi kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium показує власну сторінку попередження про сертифікат. Скористайтеся її кнопками або «Назад»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium hiển thị trang cảnh báo chứng chỉ riêng. Hãy dùng các nút của trang đó hoặc Quay lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 会显示自己的证书警告页面。请使用其中的按钮或“返回”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 會顯示自己的憑證警告頁面。請使用其中的按鈕或「返回」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
