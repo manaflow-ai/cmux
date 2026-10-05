@@ -88,20 +88,30 @@ private struct BackdropTextureRenderer {
         return NSImage(cgImage: cgImage, size: source.size)
     }
 
+    /// Sets `key` only when `filter` declares it. CIFilter raises an
+    /// Objective-C exception (an app crash) for a key it does not have,
+    /// and the key set differs between filters and macOS releases.
+    static func set(_ value: Any, _ key: String, on filter: CIFilter) {
+        guard filter.inputKeys.contains(key) else { return }
+        filter.setValue(value, forKey: key)
+    }
+
     private func dither(_ input: CIImage, strength: Double, matrixSize: Int) -> CIImage? {
         guard let filter = CIFilter(name: "CIDither") else { return input }
         filter.setValue(input, forKey: kCIInputImageKey)
-        filter.setValue(strength, forKey: "inputIntensity")
-        filter.setValue(matrixSize, forKey: "inputMatrixSize")
+        Self.set(strength, "inputIntensity", on: filter)
+        // CIDither has no matrix size: the key is skipped (both sizes render
+        // alike) until an ordered Bayer pass replaces it.
+        Self.set(matrixSize, "inputMatrixSize", on: filter)
         return filter.outputImage ?? input
     }
 
     private func halftone(_ input: CIImage, strength: Double) -> CIImage? {
         guard let filter = CIFilter(name: "CICMYKHalftone") else { return input }
         filter.setValue(input, forKey: kCIInputImageKey)
-        filter.setValue(2 + CGFloat(10 * (1 - strength)), forKey: "inputWidth")
-        filter.setValue(0, forKey: "inputAngle")
-        filter.setValue(0.7 + CGFloat(strength) * 0.3, forKey: "inputSharpness")
+        Self.set(2 + CGFloat(10 * (1 - strength)), "inputWidth", on: filter)
+        Self.set(0, "inputAngle", on: filter)
+        Self.set(0.7 + CGFloat(strength) * 0.3, "inputSharpness", on: filter)
         return filter.outputImage?.cropped(to: input.extent) ?? input
     }
 
@@ -110,8 +120,8 @@ private struct BackdropTextureRenderer {
               let color = CIFilter(name: "CIColorMatrix") else { return input }
         color.setValue(noise.cropped(to: input.extent), forKey: kCIInputImageKey)
         let amount = CGFloat(strength * 0.16)
-        color.setValue(CIVector(x: 0, y: 0, z: 0, w: amount), forKey: "inputAVector")
-        color.setValue(CIVector(x: 0.5, y: 0.5, z: 0.5, w: 0), forKey: "inputBiasVector")
+        Self.set(CIVector(x: 0, y: 0, z: 0, w: amount), "inputAVector", on: color)
+        Self.set(CIVector(x: 0.5, y: 0.5, z: 0.5, w: 0), "inputBiasVector", on: color)
         guard let grain = color.outputImage,
               let blend = CIFilter(name: "CIScreenBlendMode") else { return input }
         blend.setValue(grain, forKey: kCIInputImageKey)

@@ -7,7 +7,7 @@ import { cloudApiOrigin, cloudConfig, cloudDriver, cloudEnvTag, cloudProviderRea
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit } from "./cloud-connect.ts"
-import { revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
+import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
@@ -300,7 +300,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const times = Object.values(state.pending).map((p) => p.due_at)
     const prune = this.pruneAt(state)
     if (prune !== null) times.push(prune)
-    for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt()]) if (t !== null) times.push(t)
+    for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt(), this.vmRevokes.registerDueAt()]) if (t !== null) times.push(t)
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {
@@ -318,6 +318,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const m of machines) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
+    await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
     for (const d of this.vmStatus.takeDue(now)) this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
     const driver = cloudDriver(this.env, this.sqlStore)
