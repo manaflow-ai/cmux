@@ -37,8 +37,10 @@ describe("Max as a personal plan", () => {
   });
 
   test("legacy memory overrides cannot sell Max sizes to Pro", () => {
-    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toBe(8192);
-    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "65536" })).toBe(8192);
+    // Pro stops at the 32 GB machine; only Max sells the 64 GB one.
+    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toBe(32768);
+    expect(maxMemoryMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "65536" })).toBe(32768);
+    expect(maxMemoryMbForPlan("max", {})).toBe(65536);
   });
   test("max is paid, personal, and outranks pro", () => {
     expect(isPaidPlanId("max")).toBe(true);

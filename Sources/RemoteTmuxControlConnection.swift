@@ -526,7 +526,14 @@ final class RemoteTmuxControlConnection {
         }
         ingestTask = Task { [weak self] in
             for await chunk in stdoutPipeReader.stream {
-                self?.ingest(chunk)
+                // Cancelling this task does not empty the reader's buffer, so a torn-down stream
+                // keeps delivering what it had queued. Those bytes belong to a dead client, and
+                // after the respawn they would land in the next client's parser.
+                guard let self, self.processGeneration == generation else {
+                    stdoutPipeReader.close()
+                    break
+                }
+                self.ingest(chunk)
                 stdoutPipeReader.release(chunk)
             }
             guard !Task.isCancelled else { return }

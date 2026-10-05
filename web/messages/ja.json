@@ -229,6 +229,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Cloud VM のリソースが足りません",
+      "memoryMessage": "VM はすでに {pool} GB の RAM のうち {used} GB を使っています。この VM には {requested} GB が必要です。",
+      "vcpuMessage": "VM はすでに {pool} vCPU のうち {used} vCPU を使っています。この VM には {requested} vCPU が必要です。",
+      "upgradeAction": "VM を一時停止または削除するか、Max にアップグレードしてください。",
+      "action": "VM を一時停止または削除してください。"
     }
   },
   "ios": {
@@ -721,7 +728,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM を使えます。"
+        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有できます。"
       },
       "teamPanel": {
         "notFound": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
@@ -786,16 +793,17 @@
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
-            "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
+            "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有",
             "cmux iOS アプリ"
           ],
           "max": [
-            "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
+            "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有",
             "より大きなマシンサイズ",
             "Pro のすべての機能"
           ],
           "team": [
             "全メンバーに Pro のすべての機能",
+            "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
             "チーム全体で 1 つの請求書",
             "優先サポート"
           ]
@@ -1741,7 +1749,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
+        "最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -1758,7 +1766,7 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
+        "最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有",
         "無制限のワークスペースと iOS アプリ"
       ]
     },
@@ -1767,6 +1775,7 @@
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
+        "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
         "チーム全体の一元請求",
         "優先サポート"
       ]
@@ -1859,25 +1868,25 @@
           "free": "false",
           "pro": "5",
           "max": "5",
-          "team": "ユーザーごとに 5",
+          "team": "有料シートごとに 5",
           "enterprise": "カスタム",
           "go": "1"
         },
         {
-          "label": "Cloud VM あたりのリソース",
+          "label": "Cloud VM リソース",
           "free": "false",
-          "pro": "4 vCPU と 8 GB RAM",
-          "max": "16 vCPU と 32 GB RAM",
-          "team": "4 vCPU と 8 GB RAM",
+          "pro": "20 vCPU と 40 GB RAM（共有）",
+          "max": "80 vCPU と 160 GB RAM（共有）",
+          "team": "有料シートごとに 20 vCPU と 40 GB RAM（チーム全体で共有）",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
         },
         {
           "label": "最大の Cloud VM",
           "free": "false",
-          "pro": "8 GB RAM",
-          "max": "32 GB RAM",
-          "team": "8 GB RAM",
+          "pro": "32 GB RAM",
+          "max": "64 GB RAM",
+          "team": "32 GB RAM",
           "enterprise": "カスタム",
           "go": "4 GiB RAM"
         },
@@ -1975,11 +1984,11 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、VM あたり最大 4 vCPU と 8 GB RAM を使えます。Team ではユーザーごとに同じ枠が適用されます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、20 vCPU と 40 GB RAM を共有します。Team では有料シートごとに同じ枠が加わり、チーム全体で 1 つのプールを共有します。"
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM です。Pro と Team のマシンは最大 4 vCPU と 8 GB RAM です。Free には Cloud VM は含まれません。"
+          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM で 80 vCPU と 160 GB RAM を共有します。Pro と Team では最大 5 台の Cloud VM で 20 vCPU と 40 GB RAM を共有します。VM は 1 つのプールからリソースを使います。大きな VM 1 台でも、小さな VM 5 台でも動かせます。一時停止中の VM はプールを使いません。Free には Cloud VM は含まれません。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -4351,11 +4360,12 @@
       "planMax": "Max",
       "sizesDefault": "サイズを選ばない場合、新しいマシンは8 GBのメモリを使います。プランで使えるサイズを確認するには cmux vm ls --json を実行します。",
       "limitsTitle": "プランの上限",
-      "limitsDesc": "プランの上限はマシンの台数で数えます。CPUやメモリの共有プールではありません。各マシンにはそのサイズ分のリソースが割り当てられます。",
+      "limitsDesc": "アクティブなマシンは、vCPUとメモリの1つのプールを共有します。大きなマシン1台でも、小さなマシン数台でも使えます。一時停止中のマシンはプールを使いません。ディスクはマシンごとに設定され、プールには含まれません。",
       "limitsFree": "無料アカウントではマシンを作成できません。",
-      "limitsPaid": "ProおよびMaxアカウントでは、アクティブなマシンを最大5台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
-      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大5台まで持てます。",
-      "limitsMax": "8 GBを超えるマシンにはcmux Maxが必要です。Maxのマシンは最大32 GB、16 vCPUまで使えます。",
+      "limitsPaid": "ProおよびFounder's Editionアカウントでは、20 vCPUと40 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
+      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大5台まで持てます。有料シート1つごとに、チームのプールに20 vCPUと40 GBのメモリが追加されます。",
+      "limitsMax": "Maxアカウントでは、80 vCPUと160 GBのメモリを共有するアクティブなマシンを最大5台まで持てます。1台のマシンは、ProとTeamでは最大32 GB、16 vCPU、Maxでは最大64 GB、32 vCPUまで使えます。",
+      "limitsPoolFull": "新規作成、再開、サイズ変更、フォークでプールを超える場合、cmuxはリクエストを拒否し、プールの使用量を表示します。マシンを一時停止または削除してリソースを空けるか、Maxにアップグレードしてください。",
       "limitsOversize": "プランの上限より大きいマシンはロックされます。一覧表示と削除はできますが、アップグレードするまで開く、コマンドを実行する、再開する、サイズを変更することはできません。",
       "limitsPricing": "現在の価格は料金ページを参照してください。従量課金や超過料金はありません。",
       "agentUpdatesTitle": "コーディングエージェントを最新に保つ",
@@ -4365,7 +4375,7 @@
       "agentUpdatesToggle": "「新しいマシン」シートではこの設定がデフォルトでオンです。既存のマシンで変更するには、マシンを右クリックして「エージェントを最新に保つ」を選ぶか、cmux vm agent-updates を実行します。cmux vm new は --agent-updates latest を指定しない限りイメージのバージョンを保持します。更新をオフにしても、インストール済みのバージョンはそのまま残ります。",
       "agentUpdatesNetwork": "更新が使うのは github.com, api.github.com, objects.githubusercontent.com、release-assets.githubusercontent.com だけです。cmux は「許可リスト」や「インターネットなし」を含むすべてのネットワークモードでこれらのホストを許可するため、ネットワークポリシーが更新を妨げることはありません。",
       "resizeTitle": "サイズ変更",
-      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で最大256 GB、メモリは最大32 GB、CPUは最大16 vCPUまで拡大できます。実際の上限はプランによって決まります。",
+      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で最大256 GBまで拡大できます。メモリとCPUは、ProとTeamでは最大32 GB、16 vCPU、Maxでは最大64 GB、32 vCPUまで拡大できます。大きなマシンほどプールを多く使います。実際の上限はプランによって決まります。",
       "pauseTitle": "一時停止と再開",
       "pauseDesc": "cmux vm pause はマシンのコンピュートを停止します。ディスク、ワークスペース、ターミナルの履歴は残りますが、実行中のプロセスは停止します。cmux vm resume でマシンを再び起動します。一時停止中のマシンを開いたり、そのマシンでコマンドを実行したりしても起動します。",
       "pauseIdle": "アイドル状態でもマシンは自動では一時停止しません。一時停止するか削除するまで動き続けます。",
@@ -4516,9 +4526,11 @@
       "errPlan": "Cloud VMには有料プランが必要",
       "fixPlan": "無料アカウントではマシンを作成できません。料金ページでアップグレードしてください。",
       "errSize": "サイズに上位プランが必要",
-      "fixSize": "8 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
+      "fixSize": "32 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
       "errLimit": "アクティブなマシンの上限に達した",
       "fixLimit": "マシンを一時停止または削除してから、もう一度試してください。",
+      "errPool": "Cloud VMのリソースが足りない",
+      "fixPool": "アクティブなマシンが共有のvCPUまたはメモリをすでに使い切っています。マシンを一時停止または削除するか、小さいサイズを選ぶか、Maxにアップグレードしてください。",
       "errLocked": "マシンがロックされている",
       "fixLocked": "有料プランが終了し、マシンが作成から7日を超えています。アップグレードすると再接続できます。ファイルは保持されています。",
       "errAgentMissing": "claude または codex: command not found",

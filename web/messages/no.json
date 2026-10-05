@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Ikke nok Cloud VM-ressurser",
+      "memoryMessage": "VM-ene dine bruker allerede {used} av {pool} GB RAM. Denne VM-en trenger {requested} GB.",
+      "vcpuMessage": "VM-ene dine bruker allerede {used} av {pool} vCPU-er. Denne VM-en trenger {requested} vCPU-er.",
+      "upgradeAction": "Sett en VM på pause eller slett den, eller oppgrader til Max.",
+      "action": "Sett en VM på pause eller slett den."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Skyagenter på Cloud VMs",
-            "Opptil 5 Cloud VMs, opptil 4 vCPU-er og 8 GB RAM per VM",
+            "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM",
             "cmux-appen for iOS"
           ],
           "max": [
-            "Opptil 5 Cloud VMs, opptil 16 vCPU-er og 32 GB RAM per VM",
+            "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
           "team": [
             "Alt i Pro for hvert medlem",
+            "Opptil 5 Cloud VMs per betalt plass, som deler 20 vCPU-er og 40 GB RAM per betalt plass på tvers av teamet",
             "Én faktura for hele teamet",
             "Prioritert støtte"
           ]
@@ -2917,11 +2925,12 @@
       "planMax": "Max",
       "sizesDefault": "Nye maskiner bruker 8 GB minne når du ikke velger en størrelse. Kjør cmux vm ls --json for å se hvilke størrelser abonnementet ditt tillater.",
       "limitsTitle": "Abonnementsgrenser",
-      "limitsDesc": "Abonnementsgrenser teller maskiner, ikke en felles pott med CPU eller minne. Hver maskin får ressursene til sin størrelse.",
+      "limitsDesc": "De aktive maskinene dine deler én pott med vCPU-er og minne. Kjør én stor maskin eller flere små. Maskiner på pause bruker ikke av potten. Disken settes per maskin og er ikke en del av potten.",
       "limitsFree": "Gratiskontoer kan ikke opprette maskiner.",
-      "limitsPaid": "Pro- og Max-kontoer kan ha opptil 5 aktive maskiner. En maskin er aktiv mens den kjører eller starter.",
-      "limitsTeam": "Teamkontoer kan ha opptil 5 aktive maskiner per betalt lisens.",
-      "limitsMax": "Maskiner større enn 8 GB krever cmux Max. Max-maskiner går opptil 32 GB og 16 vCPU-er.",
+      "limitsPaid": "Pro- og Founder's Edition-kontoer kan ha opptil 5 aktive maskiner som deler 20 vCPU-er og 40 GB minne. En maskin er aktiv mens den kjører eller starter.",
+      "limitsTeam": "Teamkontoer kan ha opptil 5 aktive maskiner per betalt lisens. Hver betalt lisens legger 20 vCPU-er og 40 GB minne til teamets pott.",
+      "limitsMax": "Max-kontoer kan ha opptil 5 aktive maskiner som deler 80 vCPU-er og 160 GB minne. Én maskin kan ha opptil 32 GB og 16 vCPU-er med Pro og Team, eller opptil 64 GB og 32 vCPU-er med Max.",
+      "limitsPoolFull": "Hvis en ny, gjenopptatt, forstørret eller forket maskin ville gått over potten, avviser cmux forespørselen og viser hvor mye av potten som er i bruk. Sett en maskin på pause eller slett den for å frigjøre ressurser, eller oppgrader til Max.",
       "limitsPricing": "Se prissiden for gjeldende priser. Det er ingen forbruksmåling og ingen fakturering for overforbruk.",
       "agentUpdatesTitle": "Hold kodeagenter oppdatert",
       "agentUpdatesDesc": "Når denne innstillingen er på, oppdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den sjekker etter at maskinen er opprettet og hver gang du kobler til, høyst én gang hver 24. time. Oppdateringen kjører frakoblet, så den blokkerer aldri tilkoblingen.",
@@ -2930,7 +2939,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette på som standard. For å endre det på en eksisterende maskin høyreklikker du maskinen og velger Keep Agents Up to Date, eller kjører cmux vm agent-updates. cmux vm new beholder versjonene fra bildet med mindre du sender --agent-updates latest. Når du slår av oppdateringer, beholdes versjonene som allerede er installert.",
       "agentUpdatesNetwork": "Oppdateringer bruker bare github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillater disse vertene i alle nettverksmoduser, også Allowlist og No internet, så en nettverkspolicy blokkerer aldri oppdateringer.",
       "resizeTitle": "Endre størrelse",
-      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 256 GB, minnet opptil 32 GB og CPU opptil 16 vCPU. Abonnementet ditt bestemmer det reelle maksimumet.",
+      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 256 GB. Minnet vokser opptil 32 GB og CPU opptil 16 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
       "pauseTitle": "Pause og gjenoppta",
       "pauseDesc": "cmux vm pause stopper maskinens beregningsressurser. Disken, arbeidsområdene og terminalhistorikken beholdes. Kjørende prosesser stopper. cmux vm resume starter maskinen igjen. Å åpne en maskin på pause eller kjøre en kommando på den starter den også.",
       "pauseIdle": "Maskiner settes ikke på pause av seg selv når de er inaktive. En maskin kjører til du setter den på pause eller sletter den.",
@@ -3081,9 +3090,11 @@
       "errPlan": "Cloud-VM-er krever et betalt abonnement",
       "fixPlan": "Gratiskontoer kan ikke opprette maskiner. Oppgrader på prissiden.",
       "errSize": "En størrelse krever et større abonnement",
-      "fixSize": "Maskiner større enn 8 GB krever cmux Max. Velg en mindre størrelse eller oppgrader.",
+      "fixSize": "Maskiner større enn 32 GB krever cmux Max. Velg en mindre størrelse eller oppgrader.",
       "errLimit": "Grensen for aktive maskiner er nådd",
       "fixLimit": "Sett en maskin på pause eller slett den, og prøv igjen.",
+      "errPool": "Ikke nok Cloud VM-ressurser",
+      "fixPool": "De aktive maskinene dine bruker allerede de delte vCPU-ene eller minnet. Sett en maskin på pause eller slett den, velg en mindre størrelse, eller oppgrader til Max.",
       "errLocked": "Maskinen er låst",
       "fixLocked": "Det betalte abonnementet ditt er avsluttet, og maskinen er eldre enn 7 dager. Oppgrader for å koble til på nytt. Filene dine beholdes.",
       "errAgentMissing": "claude eller codex: command not found",
