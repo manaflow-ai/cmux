@@ -27,6 +27,8 @@ export interface RawCloudDriver {
   /** Pause (memory kept) or start a VM (Freestyle `POST /v5/vms/{id}/pause` and `/start`). */
   pause(id: string): Promise<void>
   start(id: string): Promise<void>
+  /** The VM's provider state (Freestyle VmState: starting, running, pausing, paused, stopped), or null when it is gone. */
+  state(id: string): Promise<string | null>
   /** Writes one small file into the VM (atomic, verified by sha256; Freestyle `PUT /v5/vms/{id}/fs/write`). */
   writeFile(id: string, path: string, content: string, mode: number): Promise<void>
   /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
@@ -153,7 +155,16 @@ export class GuardedCloudDriver {
     const found = await this.raw.find(name)
     if (!found) throw new DriverError("cloud.provider.vm_missing", `${action} VM: no VM under the recorded name`, true)
     if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
-    await (action === "pause" ? this.raw.pause(found.id) : this.raw.start(found.id))
+    // Settle from the VM's real state (review P2): a VM already there (or on its way) is success, before
+    // the call (a retry after a lost answer) and after a failed one (Freestyle answers 409 when already there).
+    const reached = (st: string | null) => (action === "pause" ? st === "paused" || st === "pausing" : st === "running" || st === "starting")
+    if (reached(await this.raw.state(found.id))) return
+    try {
+      await (action === "pause" ? this.raw.pause(found.id) : this.raw.start(found.id))
+    } catch (e) {
+      if (reached(await this.raw.state(found.id).catch(() => null))) return
+      throw e
+    }
   }
 
   /** Deletes the VM under `name`; no VM there is success. */
@@ -294,6 +305,13 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     if (r.status >= 200 && r.status < 300) return
     this.fail(r.status, r.json, "start VM")
   }
+
+  async state(id: string) {
+    const r = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (r.status === 404) return null
+    if (r.status !== 200) this.fail(r.status, r.json, "read VM state")
+    return typeof r.json.state === "string" ? r.json.state : null
+  }
 }
 
 /**
@@ -302,8 +320,8 @@ export class FreestyleCloudDriver implements RawCloudDriver {
  */
 export class FakeCloudDriver implements RawCloudDriver {
   constructor(private readonly sql: SqlStore) {
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running')`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
   }
@@ -350,14 +368,31 @@ export class FakeCloudDriver implements RawCloudDriver {
     if (gone.length) this.sql.exec(`UPDATE cloud_fake_ctl SET deletes = deletes + 1 WHERE id = 1`)
   }
 
-  async pause(_id: string) {
-    this.maybeFail()
-    this.sql.exec(`UPDATE cloud_fake_ctl SET pauses = pauses + 1 WHERE id = 1`)
+  async pause(id: string) {
+    this.power(id, "paused", "pauses")
   }
 
-  async start(_id: string) {
+  async start(id: string) {
+    this.power(id, "running", "starts")
+  }
+
+  /** Like Freestyle: 409 when the VM is already in that state; `power_then_fail` changes the VM, then answers 409 (a lost answer, then a retry). */
+  private power(id: string, target: string, counter: "pauses" | "starts") {
     this.maybeFail()
-    this.sql.exec(`UPDATE cloud_fake_ctl SET starts = starts + 1 WHERE id = 1`)
+    const vm = this.sql.exec<{ state: string }>(`SELECT state FROM cloud_fake_vm WHERE id = ?`, id)[0]
+    if (!vm) throw new DriverError("cloud.provider.vm_missing", "fake provider: 404", true)
+    if (vm.state === target) throw new DriverError("cloud.provider.conflict", "fake provider: 409 already in that state", true)
+    this.sql.exec(`UPDATE cloud_fake_vm SET state = ? WHERE id = ?`, target, id)
+    this.sql.exec(`UPDATE cloud_fake_ctl SET ${counter} = ${counter} + 1 WHERE id = 1`)
+    const lost = Number(this.sql.exec<{ n: number }>(`SELECT power_then_fail AS n FROM cloud_fake_ctl WHERE id = 1`)[0]!.n)
+    if (lost > 0) {
+      this.sql.exec(`UPDATE cloud_fake_ctl SET power_then_fail = power_then_fail - 1 WHERE id = 1`)
+      throw new DriverError("cloud.provider.conflict", "fake provider: 409 already in that state (after a lost answer)", true)
+    }
+  }
+
+  async state(id: string) {
+    return this.sql.exec<{ state: string }>(`SELECT state FROM cloud_fake_vm WHERE id = ?`, id)[0]?.state ?? null
   }
 }
 

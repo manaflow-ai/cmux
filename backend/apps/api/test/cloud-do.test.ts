@@ -314,7 +314,8 @@ describe("cloud driver prefix guard", () => {
       list: async () => ({ vms: [], total: 0 }),
       writeFile: async () => {},
       pause: async (id) => void calls.push(`pause:${id}`),
-      start: async (id) => void calls.push(`start:${id}`)
+      start: async (id) => void calls.push(`start:${id}`),
+      state: async () => null
     }
     return { calls, raw }
   }
@@ -375,7 +376,8 @@ describe("cloud driver prefix guard", () => {
       },
       start: async () => {
         throw new Error("must not start")
-      }
+      },
+      state: async () => null
     }
     const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }

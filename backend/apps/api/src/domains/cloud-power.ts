@@ -65,7 +65,8 @@ export const powerResult = (state: CloudState, stored: StoredRow<LedgerRow>, mac
   // The machine moved on meanwhile (a delete): the call is settled, the machine stays as it is.
   const expected = l.op === "pause" ? "pausing" : "starting"
   if (!machine || machine.row.status !== expected) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes }
-  const status = r.ok ? (l.op === "pause" ? "paused" : "running") : l.op === "pause" ? "running" : "paused"
+  // The VM is gone (review P3): the machine is failed (its VM install is revoked), never paused forever.
+  const status = r.ok ? (l.op === "pause" ? "paused" : "running") : error?.code === "cloud.provider.vm_missing" ? "failed" : l.op === "pause" ? "running" : "paused"
   const rev = state.rev + 1
   const row: MachineRow = { ...machine.row, status, error: error ? { ...error, at: ctx.now } : null, revision: String(rev) }
   writes.push(upsertMachine(row, machine.n))
