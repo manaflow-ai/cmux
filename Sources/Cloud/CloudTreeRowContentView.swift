@@ -215,7 +215,7 @@ struct CloudTreeRowContentView: View {
             return state.replacingOccurrences(of: "_", with: " ").capitalized
         }
         guard let remaining = account.remainingPercent else { return nil }
-        return String(format: String(localized: "coderouter.account.remaining", defaultValue: "%d%% left"), remaining)
+        return String(format: String(localized: "coderouter.account.remaining", defaultValue: "%lld%% left"), remaining)
     }
 
     /// Formats terminal totals for group and machine summaries.

@@ -27,6 +27,8 @@ struct MachinesPanelView: View {
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
     @State private var coderouter = CloudTreeCoderouterSection()
+    /// Bumped by the section's refresh icon; restarting the refresh loop keeps one owner of the CLI reads.
+    @State private var coderouterRefreshRequest = 0
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The owning window's selection stream lets the Cloud tree update before
     /// the next machine/catalog refresh arrives.
@@ -140,9 +142,10 @@ struct MachinesPanelView: View {
             viewModel.stopPolling()
             viewModel.cancelCloudAgentTask()
         }
-        .task(id: accountFlow?.confirmedTeamID) {
+        .task(id: CoderouterRefreshKey(teamID: accountFlow?.confirmedTeamID, request: coderouterRefreshRequest)) {
             while !Task.isCancelled {
                 await refreshCoderouterAccounts()
+                coderouter.isRefreshing = false
                 do {
                     try await ContinuousClock().sleep(for: .seconds(5))
                 } catch {
@@ -469,11 +472,8 @@ struct MachinesPanelView: View {
         nodeActions.addCoderouterAccount = { [self] provider in addCoderouterAccount(provider) }
         nodeActions.refreshCoderouter = { [self] in
             guard !coderouter.isRefreshing else { return }
-            Task { @MainActor in
-                coderouter.isRefreshing = true
-                await refreshCoderouterAccounts()
-                coderouter.isRefreshing = false
-            }
+            coderouter.isRefreshing = true
+            coderouterRefreshRequest += 1
         }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
@@ -514,7 +514,10 @@ struct MachinesPanelView: View {
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
-            coderouter.accounts = try await CoderouterCLIAccountReader.accounts(for: teamID, name: teamName)
+            let accounts = try await CoderouterCLIAccountReader.accounts(for: teamID, name: teamName)
+            // A team switch or manual refresh cancelled this read; its result is stale.
+            guard !Task.isCancelled else { return }
+            coderouter.accounts = accounts
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
             // Keep the last successful snapshot during a transient refresh failure.
@@ -675,4 +678,10 @@ struct MachinesPanelView: View {
             maxActiveVms
         )
     }
+}
+
+/// Restarts the CodeRouter refresh loop when the team changes or a refresh is requested.
+private struct CoderouterRefreshKey: Equatable {
+    let teamID: String?
+    let request: Int
 }

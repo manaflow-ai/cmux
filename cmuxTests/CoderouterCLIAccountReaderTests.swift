@@ -156,13 +156,20 @@ struct CoderouterSidebarSectionTests {
 
     @Test("New Account rows run the CLI add flow for their type")
     func createRowAddsItsType() {
-        var added: [CoderouterProvider] = []
-        var actions = CloudTreeNodeActions()
-        actions.addCoderouterAccount = { added.append($0) }
+        final class Added { var providers: [CoderouterProvider] = [] }
+        let added = Added()
+        var actions = CloudTreeNodeActions(
+            project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
+            projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
+            newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
+            newWorkspace: { _ in }, closeTerminal: { _ in }, closeWorkspace: { _, _ in }, renameWorkspace: { _, _ in },
+            renameTerminal: { _, _ in }, selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {}
+        )
+        actions.addCoderouterAccount = { added.providers.append($0) }
 
         CloudTreeCreateAction.newCoderouterAccount(.claude).perform(actions)
 
-        #expect(added == [.claude])
+        #expect(added.providers == [.claude])
         #expect(CoderouterProvider.claude.addCommand == "cmux cr add claude")
     }
 
