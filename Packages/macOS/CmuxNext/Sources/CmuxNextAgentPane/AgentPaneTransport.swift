@@ -419,6 +419,13 @@ public extension AgentPaneTransportPacer {
             if let ticket = meta?["cmuxGesture"] as? String { _ = gestures.redeem(ticket, connection: current, method: nil, params: [:]) }
             return .refuse(.intentInvalid, method: frame.method, requestID: frame.id)
         }
+        // A prompt block's own _meta never reaches the harness.
+        if case .send = decision, let cleaned = AcpmuxPaneMethods.strippingPromptMeta(frame.object) {
+            guard let data = try? JSONSerialization.data(withJSONObject: cleaned, options: [.withoutEscapingSlashes]) else {
+                return .refuse(.invalidFrame, method: frame.method, requestID: frame.id)
+            }
+            return .send(String(decoding: data, as: UTF8.self))
+        }
         return decision
     }
 

@@ -63,6 +63,8 @@ The check runs in the remote guard and again where the action happens: when a qu
 
 Accepted residuals (2026-10-05): (1) the drift flag lives in memory only, so after a daemon restart only the stateless current-mode rule applies; (2) a harness mode change that arrives after the dispatch check, while the prompt is being sent, is not caught; the harness itself is the boundary there.
 
+Residual (2026-10-05, prompt block `_meta`): a prompt content block's own `_meta` (and a nested resource's) reaches the harness from unix and LocalApp connections, which the guard does not check. Today's adapters (claude-agent-acp 0.74.0, codex-acp 1.10.0) read none of it, and the agent pane's relay strips it at any depth inside `session/prompt` blocks. A future adapter version must be checked for block `_meta` it reads before it is allowed.
+
 ### Peer origin
 
 A peer daemon connects to `ws://127.0.0.1:<port>` through `ssh -W` (`peer.rs`), or straight to a `ws://`/`wss://` URL. Before, it sent only the dashboard token, read over ssh from the remote `~/.acpmux/config.json`. Every Web client has that token, so the token alone cannot prove a peer.

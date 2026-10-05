@@ -200,6 +200,30 @@ public nonisolated enum AcpmuxPaneMethods {
         return (String(decoding: data, as: UTF8.self), value as? String ?? "", otherMeta)
     }
 
+    /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
+    /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
+    /// The request's own `params._meta` stays. Adapters read no block `_meta` today; a future one
+    /// could, and the relay cannot check what it would do with it.
+    static func strippingPromptMeta(_ object: [String: Any]?) -> [String: Any]? {
+        guard var object, object["method"] as? String == "session/prompt", var params = object["params"] as? [String: Any],
+              let prompt = params["prompt"] as? [Any] else { return nil }
+        var stripped = false
+        func strip(_ value: Any) -> Any {
+            if var dictionary = value as? [String: Any] {
+                if dictionary.removeValue(forKey: "_meta") != nil { stripped = true }
+                for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
+                return dictionary
+            }
+            if let list = value as? [Any] { return list.map(strip) }
+            return value
+        }
+        let blocks = prompt.map(strip)
+        guard stripped else { return nil }
+        params["prompt"] = blocks
+        object["params"] = params
+        return object
+    }
+
     /// The two methods that set a mode or an option; every other method may carry no mode field (P1).
     static let settingMethods: Set<String> = ["session/set_mode", "session/set_config_option"]
 
