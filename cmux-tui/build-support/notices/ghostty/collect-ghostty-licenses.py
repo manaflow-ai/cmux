@@ -24,6 +24,9 @@ import re
 import shutil
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ghostty_vendored  # noqa: E402  (beside this file; cmux-browser vendors both)
+
 LICENSE_NAME = re.compile(
     r"^(license|licence|copying|copyright|notice|authors|ofl|unlicense)"
     r"([._-].*)?$",
@@ -40,7 +43,7 @@ MAX_LICENSE_BYTES = 2 * 1024 * 1024
 # also changes this script, which keys the Ghostty helper caches.
 PINNED_LICENSES = Path(__file__).resolve().parent / "pinned-licenses"
 PINNED_MANIFEST_SHA256 = (
-    "e82f07f18c56f64446b4b730fa89bb561d878c70aad5bff9666c26375a6a092e"
+    "451507a87ce2255c8734f1f3787520c56e9a8a40dbea5f2cd153f95ab998b5d7"
 )
 
 
@@ -56,11 +59,16 @@ def load_known_licenses() -> dict[str, dict]:
     manifest = json.loads(content)
     if manifest.get("schema") != 1:
         raise ValueError("unsupported pinned license manifest schema")
+    ghostty_vendored.validate_entries(manifest.get("vendored", {}), manifest["packages"])
+    VENDORED.clear()
+    VENDORED.update(manifest.get("vendored", {}))
     return manifest["packages"]
 
 
 # Loaded by main() from the pinned manifest.
 KNOWN_LICENSES: dict[str, dict] = {}
+# The reviewed Ghostty pkg/ and vendor/ directories (ghostty_vendored.py).
+VENDORED: dict[str, dict] = {}
 
 
 def digest(path: Path) -> str:
@@ -418,6 +426,22 @@ def main() -> int:
                             resolve_unlicensed(label, root, package, kind)
             elif not files:
                 resolve_unlicensed(label, root, root, kind)
+        # Third-party code that Ghostty vendors in its own tree (pkg/<name>,
+        # vendor/<name>) without a license file: reviewed, or unresolved.
+        problems, pinned_dirs = ghostty_vendored.check_tree(
+            ghostty_vendored.Tree.from_directory(source), VENDORED
+        )
+        unresolved.extend(problems)
+        shipped: set[str] = set()
+        for directory, known_name in pinned_dirs:
+            if known_name in shipped:
+                continue
+            shipped.add(known_name)
+            for content, filename, url in pinned_license_texts(known_name):
+                record(
+                    "ghostty-source", directory, url, filename, content,
+                    "verified-upstream-license",
+                )
     except (OSError, ValueError) as error:
         print(f"could not collect Ghostty licenses: {error}", file=sys.stderr)
         return 1
@@ -435,7 +459,7 @@ def main() -> int:
     )
     if unresolved:
         print(
-            "Ghostty dependency packages without discoverable license files:\n  "
+            "Ghostty dependency packages or vendored directories without discoverable license files:\n  "
             + "\n  ".join(unresolved)
             + "\nReview each package's upstream license, pin the text in "
             "cmux-tui/build-support/notices/ghostty/pinned-licenses/MANIFEST.json "

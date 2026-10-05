@@ -29,19 +29,15 @@ extension BrowserHitHandlers {
     // MARK: Save
 
     /// Save Link As… and Save Image As…: a save panel, then the page's own
-    /// download into the chosen file (WebKit). A Chromium page hands the
-    /// row back to Chromium's own Save … As while its menu is open.
+    /// download into the chosen file, on both engines (WebKit's
+    /// `WKDownload`, Chromium's shim downloads), from the menu, the palette
+    /// or `action.run` alike.
     static func bindSave(_ registry: ActionRegistry, _ context: AppActionContext) {
-        let rows: [(ActionID, BrowserEngineMenuCommand)] = [("browser.link.saveAs", .saveLinkAs), ("browser.image.saveAs", .saveImageAs)]
-        for (id, command) in rows {
+        for id: ActionID in ["browser.link.saveAs", "browser.image.saveAs"] {
             registry.bind(id, run: { invocation in
                 let url = try Self.url(invocation)
-                guard let page = Self.page(invocation, context) else { throw ActionFailure(message: BrowserHitStrings.noPage) }
-                guard let saving = page as? any BrowserURLSaving else {
-                    // TODO(R123, browser lead): Chromium saves through the shim's
-                    // download API with this save panel once it exists.
-                    if context.services.cache.pageRequests.runEngineCommand(command, for: page) { return }
-                    throw ActionFailure(message: BrowserHitStrings.chromiumSave)
+                guard let page = Self.page(invocation, context), let saving = page as? any BrowserURLSaving else {
+                    throw ActionFailure(message: BrowserHitStrings.noPage)
                 }
                 let panel = NSSavePanel()
                 panel.nameFieldStringValue = DownloadDestination.sanitizedFilename(url.lastPathComponent)

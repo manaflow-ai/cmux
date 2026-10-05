@@ -65,11 +65,12 @@ final class CEFOrphanTabs {
     }
 
     /// How a tab Chromium created for a page opens (`CEFLinkClicks`); nil
-    /// when a modified click was mapped to the current tab: the new browser
-    /// closes and its opener loads the link.
+    /// when a modified click was mapped to the current tab or a download:
+    /// the new browser closes and its opener loads or downloads the link.
     private func linkDisposition(browser: Int32, created: CEFCreatedBy) -> BrowserNewTabDisposition? {
         let url = created.opener != 0 ? runtime.windowRequests.linkClicks.takePopupURL(opener: created.opener, disposition: created.disposition) : nil
-        switch runtime.windowRequests.linkClicks.context().placement(for: created.disposition, source: created.opener) {
+        let links = runtime.windowRequests.linkClicks.context()
+        switch links.placement(for: created.disposition, source: created.opener, userGesture: created.userGesture) {
         case .tab(let disposition):
             return disposition
         case .opener:
@@ -79,6 +80,14 @@ final class CEFOrphanTabs {
             Task { @MainActor [weak runtime = self.runtime, weak opener] in
                 runtime?.shim?.close(browser)
                 opener?.load(link)
+            }
+            return nil
+        case .download:
+            guard let url, runtime.tabsByBrowser[created.opener] != nil else { return .foregroundTab }
+            // As for `.opener`: never inside Chromium's tab insertion.
+            Task { @MainActor [weak runtime = self.runtime] in
+                runtime?.shim?.close(browser)
+                _ = runtime?.downloads.download(url, browser: created.opener)
             }
             return nil
         case .chromium:

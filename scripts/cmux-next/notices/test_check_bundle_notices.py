@@ -144,6 +144,15 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertIn(f"ghostty-license-tree:{TREE}", entries[0]["notices"])
         self.assertIn("section:manual-ghostty", entries[0]["notices"])
 
+    def test_bin_cmux_needs_the_ghostty_notice(self) -> None:
+        # bin/cmux links libghostty-vt (Ghostty MIT, vendored simdutf); its
+        # Zig packages are checked by check_ghostty_vt_notices.py.
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        [entry] = [e for e in bundle_map["entries"] if e["path"] == "Contents/Resources/bin/cmux"]
+        self.assertIn("section:manual-ghostty", entry["notices"])
+        [ssh] = [e for e in bundle_map["entries"] if e["path"] == "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*"]
+        self.assertIn("section:manual-ghostty", ssh["notices"])
+
     def test_the_map_covers_bundled_ghostty_themes(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         paths = {entry["path"] for entry in bundle_map.get("resources", [])}

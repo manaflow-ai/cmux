@@ -767,6 +767,31 @@ fn a_session_runs_at_most_16_fetches_at_once() {
     fetch_x(&gate, 2_000).expect("the slots free when the fetches end");
 }
 
+/// a9 (lazy item b): a fetch's timeout covers its wait for a slot too. One
+/// deadline starts with the call; the engine gets what is left of it.
+#[test]
+fn a_fetch_timeout_covers_its_wait_for_a_slot() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..16).map(|_| scope.spawn(|| fetch_x(&gate, 30_000))).collect();
+        wait_for_in_flight(&driver, 16);
+        let queued = scope.spawn(|| fetch_x(&gate, 2_000));
+        driver.release_fetches();
+        for fetch in running {
+            fetch.join().unwrap().expect("a running fetch completes");
+        }
+        queued.join().unwrap().expect("the queued fetch runs");
+    });
+    let calls = driver.calls.lock().unwrap();
+    let left = calls
+        .iter()
+        .filter(|(m, p)| m == "net.fetch" && p["timeoutMs"].as_u64().is_some_and(|t| t <= 2_000))
+        .map(|(_, p)| p["timeoutMs"].as_u64().unwrap_or(0))
+        .collect::<Vec<_>>();
+    assert_eq!(left.len(), 1, "{calls:?}");
+    assert!(left[0] < 2_000 && left[0] > 0, "the engine got the whole timeout again: {left:?}");
+}
+
 /// a9 shell-tab condition (d): a session that ended starts no fetch, also
 /// not one that waited for a slot.
 #[test]
