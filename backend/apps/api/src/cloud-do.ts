@@ -6,7 +6,7 @@ import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
-import { CloudCore } from "./cloud-do-core.ts"
+import { CloudCore, statusApplied } from "./cloud-do-core.ts"
 
 /**
  * CloudDO, one per team (plans/cmux-next/state-placement.md 5): the machine registry, the
@@ -82,7 +82,14 @@ export class CloudDO extends CloudCore {
   async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
     const now = Date.now() + this.skewMs
-    if (op === "cloud.vm.status.report") return vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`), now)
+    if (op === "cloud.vm.status.report") {
+      let applied: { machine: string; report: unknown } | undefined
+      const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {
+        if (statusApplied(this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`).frames)) applied = { machine, report }
+      }, now)
+      if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
+      return r
+    }
     return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
   }
   private readonly vmEvents = new VmEventBuckets()
@@ -102,8 +109,7 @@ export class CloudDO extends CloudCore {
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
   private teamConnectServices(entity: string): Promise<ReadonlyArray<string>> {
-    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudConnectServices(e: string): Promise<ReadonlyArray<string>> }
-    return stub.cloudConnectServices(entity)
+    return this.teamCloudPolicy(entity).then((p) => p.connect_services)
   }
 
   /**

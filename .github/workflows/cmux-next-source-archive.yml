@@ -16,6 +16,10 @@ on:
       - "scripts/cmux-next/notices/ghostty_source_archive.py"
       - "scripts/cmux-next/notices/test_ghostty_source_archive.py"
       - "scripts/cmux-next/build-ghostty-source-archive.sh"
+      - "ghostty-next"
+      - "cmux-tui/crates/ghostty-vt-sys/build.rs"
+      - "scripts/cmux-next/notices/check_ghostty_vt_notices.py"
+      - "scripts/cmux-next/notices/test_check_ghostty_vt_notices.py"
       - "scripts/install-zig-ci.sh"
       - ".github/workflows/cmux-next-source-archive.yml"
   workflow_dispatch:
@@ -59,9 +63,26 @@ jobs:
         run: |
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
+          python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
 
       - name: Build and verify the source archive (twice, byte-identical)
         run: ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive" "dryrun-${{ github.run_number }}"
+
+      # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's
+      # build.rs names (ghostty-next today). Its declared Zig packages must be in
+      # the collected license tree. Not blocking yet: ghostty-next declares 7
+      # packages (uucode, z2d 0.12.1, translate_c, ...) that the tree collected
+      # from the ghostty submodule does not cover, until a ghostty-next license
+      # collection ships (coordinator decision pending).
+      - name: libghostty-vt Zig packages are covered by the notices
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source
+          source="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | awk '{print $3}')"
+          git submodule update --init --depth 1 "$source"
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py \
+            --license-manifest "$RUNNER_TEMP/source-archive/ghostty-licenses/SOURCE-MANIFEST.json"
 
       - name: Upload the archive and the license tree (workflow artifact only)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

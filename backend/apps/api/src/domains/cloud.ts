@@ -69,6 +69,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly keyset_version?: string
   /** The VM install registered at bind; only it may call the cloud.vm.* ops for this machine. */
   readonly vm_install?: string
+  /** When the machine last became running by a start or a bind (private): idle counts from no earlier (review P2). */
+  readonly last_power_at?: number
   /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
   readonly creator_sso_team?: string
   /** The VM's last applied status report (private; activity feeds the idle pause). */
@@ -114,7 +116,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, ...machine } = row
+  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, ...machine } = row
   return machine
 }
 
@@ -178,6 +180,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
       case "cloud.machine.pause":
       case "cloud.machine.start":
         return powerIntent(config, state, op, params, ctx)
+      case "cloud.machine.idle_pause":
+        return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true) : reject("auth.forbidden", "internal op")
       case "cloud.machine.vm_status":
         return applyVmStatus(state, params, ctx, next)
       case "cloud.prune":
