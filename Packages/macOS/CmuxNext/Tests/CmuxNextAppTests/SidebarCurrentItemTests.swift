@@ -24,7 +24,7 @@ struct SidebarCurrentItemTests {
                         cursor: (LayoutItemID, String?)? = nil) -> String? {
         var info: [LayoutItemID: SidebarItemInfo] = [:]
         if homeActive { info[LayoutItemID("home")] = SidebarItemInfo(title: "Home", symbol: "house", isActive: true) }
-        return SidebarBridge.currentLayoutItem(in: layout, itemInfo: info, shownWorkspace: workspace, shownPage: page, cursor: cursor)?.rawValue
+        return SidebarItemStepper.currentLayoutItem(in: layout, itemInfo: info, shownWorkspace: workspace, shownPage: page, cursor: cursor)?.rawValue
     }
 
     @Test func aShownPageMakesItsItemCurrent() {

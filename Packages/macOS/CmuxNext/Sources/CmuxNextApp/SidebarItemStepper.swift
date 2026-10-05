@@ -2,8 +2,10 @@ import CmuxNextSidebar
 
 // Cmd-Ctrl-] / Cmd-Ctrl-[ (R119): next / previous item in the sidebar section
 // that holds the current item; in the workspaces list (or with no current
-// item) the caller steps workspaces as before.
-extension SidebarBridge {
+// item) the caller steps workspaces as before. Its own type, not a
+// SidebarBridge extension: the bridge type stays under the god-type budget.
+@MainActor
+enum SidebarItemStepper {
     /// The sidebar refs a page tab stands for: an app's page is its app item,
     /// the App Store and Settings pages their app or built-in items.
     static func refs(forPage page: InternalPageID) -> [LayoutItemRef] {
@@ -37,15 +39,16 @@ extension SidebarBridge {
     /// Steps `offset` items in the current item's section and runs that item
     /// as a click does. Returns false when there is no item step (the
     /// caller then steps workspaces).
-    func stepSectionItem(by offset: Int, shownWorkspace: () -> String?, shownPage: InternalPageID?) -> Bool {
-        guard let current = Self.currentLayoutItem(in: model.layout, itemInfo: model.itemInfo, shownWorkspace: shownWorkspace(),
-                                                   shownPage: shownPage, cursor: sectionStepCursor),
+    static func step(_ bridge: SidebarBridge, by offset: Int, shownWorkspace: () -> String?, shownPage: InternalPageID?) -> Bool {
+        let model = bridge.model
+        guard let current = currentLayoutItem(in: model.layout, itemInfo: model.itemInfo, shownWorkspace: shownWorkspace(),
+                                              shownPage: shownPage, cursor: bridge.sectionStepCursor),
               let target = SidebarSectionStepping.step(from: current, by: offset, in: model.layout, skip: { item in
                   let info = model.itemInfo[item.id]
                   return info?.isHidden == true || info?.isMissing == true || model.suppressedApps.contains(item.owningAppID ?? "")
               }) else { return false }
-        activateLayoutItem(target)
-        sectionStepCursor = (target, shownWorkspace())
+        bridge.activateLayoutItem(target)
+        bridge.sectionStepCursor = (target, shownWorkspace())
         return true
     }
 }
