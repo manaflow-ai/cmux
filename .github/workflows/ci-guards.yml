@@ -427,9 +427,13 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_cleanup_receipt_ref.sh
 
+      - name: Validate Testbox setup identity marker
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_setup_identity.sh
+
       - name: Lint the Testbox lane helpers
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
