@@ -366,7 +366,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc.url, pc.token.clone());
+                hub.start_peer(&name, &pc);
             }
         }
         hub

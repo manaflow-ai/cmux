@@ -149,7 +149,7 @@ async fn dispatch_request(
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
-                "origin": if conn.origin == Origin::Web { "remote" } else { "local" },
+                "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
@@ -217,10 +217,10 @@ async fn dispatch_request(
                 effort: pick("effort"),
                 adopt,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin == Origin::Web,
+                remote: conn.origin.web_class(),
             };
             let s = hub.new_session(req).await?;
-            if conn.origin == Origin::Web {
+            if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
             }
             attach(hub, conn, &s.id);
@@ -401,7 +401,7 @@ async fn dispatch_request(
                 cwd: s("cwd").map(PathBuf::from),
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin == Origin::Web,
+                remote: conn.origin.web_class(),
             })
             .await
         }
@@ -462,8 +462,9 @@ async fn dispatch_request(
             let url = str_param(&params, "url")
                 .ok_or_else(|| RpcError::invalid_params("url is required"))?;
             let token = str_param(&params, "token").map(str::to_owned);
+            let peer_token = str_param(&params, "peerToken").map(str::to_owned);
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-            hub.add_peer(name, url, token, wait).await?;
+            hub.add_peer(name, url, token, peer_token, wait).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_reconnect" => {

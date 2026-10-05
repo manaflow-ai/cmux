@@ -52,7 +52,7 @@ pub(super) async fn check(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
-    let web = origin == super::Origin::Web;
+    let web = origin.web_class();
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
@@ -163,7 +163,7 @@ pub(super) fn after(
         && reply.is_ok()
         && let Some(s) = key.and_then(|k| hub.resolve(k).ok())
     {
-        hub.note_mode(&s, origin != super::Origin::Web);
+        hub.note_mode(&s, !origin.web_class());
     }
     if origin != super::Origin::Local
         && let Ok(v) = reply

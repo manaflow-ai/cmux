@@ -4,7 +4,8 @@
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
-use acpmux::server::{listen_ws, serve_connection};
+use acpmux::server::peer_auth::PeerAuth;
+use acpmux::server::{WsAuth, bind_ws, listen_ws, serve_connection, serve_ws_with};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -93,6 +94,20 @@ async fn client(h: Arc<Hub>) -> C {
     c
 }
 
+/// B's WebSocket listener with a peer token (`server/peer_auth.rs`);
+/// returns its port and the token, which A gets as `peerToken`.
+async fn listen_with_peer_token(b: Arc<Hub>, tag: &str) -> (u16, String) {
+    let home = std::env::temp_dir().join(format!("api-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let auth = PeerAuth::create(&home).unwrap();
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let l = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b, l, "tok".into(), auth));
+    (port, token)
+}
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
@@ -101,8 +116,7 @@ fn free_port() -> u16 {
 async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     // B: serves WebSocket with a token, owns the agent.
     let b = hub(config(PermissionPolicy::Ask)).await;
-    let port = free_port();
-    tokio::spawn(listen_ws(b.clone(), format!("127.0.0.1:{port}"), "tok".into()));
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "routed").await;
     let mut cb = client(b.clone()).await;
     let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "remote-one"}}})).await.unwrap();
     let remote_id = s["sessionId"].as_str().unwrap().to_owned();
@@ -111,7 +125,11 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     let a = hub(config(PermissionPolicy::Ask)).await;
     // `wait`: add_peer answers once the first connect settled, with B's
     // sessions already listed on A.
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), true).await.unwrap();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    // B serves A as a peer, not as a Web client.
+    assert_eq!(a.peers()[0]["servedAs"], "peer", "{:?}", a.peers());
     let mut ca = client(a.clone()).await;
     let v = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
     assert!(
@@ -211,7 +229,9 @@ async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
     ca.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
     let v = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
     assert!(v["sessions"].as_array().unwrap().is_empty());
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), false).await.unwrap();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, false)
+        .await
+        .unwrap();
     let changed =
         ca.wait(method::MUX_SESSION_CHANGED, |p| p["session"]["sessionId"] == remote_id).await;
     assert_eq!(changed["peer"], "b");
@@ -231,7 +251,7 @@ async fn waiting_peer_add_answers_after_a_failed_first_attempt() {
     // Nothing listens on this port: the first attempt fails at once.
     let port = free_port();
     let started = std::time::Instant::now();
-    a.add_peer("gone", &format!("ws://127.0.0.1:{port}"), None, true).await.unwrap();
+    a.add_peer("gone", &format!("ws://127.0.0.1:{port}"), None, None, true).await.unwrap();
     assert!(started.elapsed() < Duration::from_secs(15), "{:?}", started.elapsed());
     let peers = a.peers();
     assert_eq!(peers[0]["connected"], false);
