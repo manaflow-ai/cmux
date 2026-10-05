@@ -93,16 +93,43 @@ struct DiffSidecarProcessTests {
 /// queue fails `busy`.
 struct DiffSidecarPoolTests {
     /// A runner whose requests wait until the test releases them.
+    /// A runner whose requests wait until `releaseAll`. `started(atLeast:)` is the explicit start
+    /// event the tests wait on: it resumes when the runner itself counts the start, so no test
+    /// polls or waits on wall time.
     nonisolated final class GatedRunner: DiffSidecarRunning {
-        private let gates = Mutex<[CheckedContinuation<Void, Never>]>([])
-        private let started = Mutex(0)
+        private struct Starts {
+            var count = 0
+            var watchers: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        }
 
-        var startedCount: Int { started.withLock { $0 } }
+        private let gates = Mutex<[CheckedContinuation<Void, Never>]>([])
+        private let starts = Mutex(Starts())
+
+        var startedCount: Int { starts.withLock { $0.count } }
 
         func run(_ request: Data) async throws -> Data {
-            started.withLock { $0 += 1 }
+            let ready = starts.withLock { starts -> [CheckedContinuation<Void, Never>] in
+                starts.count += 1
+                let count = starts.count
+                let ready = starts.watchers.filter { $0.target <= count }.map(\.continuation)
+                starts.watchers.removeAll { $0.target <= count }
+                return ready
+            }
+            ready.forEach { $0.resume() }
             await withCheckedContinuation { continuation in gates.withLock { $0.append(continuation) } }
             return request
+        }
+
+        /// Returns once at least `target` requests have started.
+        func started(atLeast target: Int) async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let now = starts.withLock { starts -> Bool in
+                    if starts.count >= target { return true }
+                    starts.watchers.append((target, continuation))
+                    return false
+                }
+                if now { continuation.resume() }
+            }
         }
 
         func releaseAll() {
@@ -118,10 +145,12 @@ struct DiffSidecarPoolTests {
         let runner = GatedRunner()
         let pool = DiffSidecarPool(runner: runner, limit: 2, queueLimit: 4)
         let tasks = (0..<3).map { index in Task { try await pool.run(Data([UInt8(index)])) } }
-        #expect(await DiffSidecarProcessTests.becomesTrue { runner.startedCount == 2 })
+        await runner.started(atLeast: 2)
+        #expect(runner.startedCount == 2)
         #expect(await pool.running == 2)
         runner.releaseAll()
-        #expect(await DiffSidecarProcessTests.becomesTrue { runner.startedCount == 3 })
+        await runner.started(atLeast: 3)
+        #expect(runner.startedCount == 3)
         runner.releaseAll()
         for (index, task) in tasks.enumerated() { #expect(try await task.value == Data([UInt8(index)])) }
         #expect(await pool.running == 0)
@@ -131,7 +160,7 @@ struct DiffSidecarPoolTests {
         let runner = GatedRunner()
         let pool = DiffSidecarPool(runner: runner, limit: 1, queueLimit: 0)
         let first = Task { try await pool.run(Data()) }
-        #expect(await DiffSidecarProcessTests.becomesTrue { runner.startedCount == 1 })
+        await runner.started(atLeast: 1)
         await #expect(throws: DiffSidecarError.busy) { try await pool.run(Data()) }
         runner.releaseAll()
         _ = try await first.value
