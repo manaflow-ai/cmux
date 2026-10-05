@@ -220,13 +220,13 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// Locks the mirror to the grid the PTY owner announced. The lock runs
-    /// on the output lane (`ghostty_surface_set_grid` is an output
-    /// function), so it lands after every chunk queued before it: the reflow
-    /// happens at the same point in the byte stream as the owner's.
-    func applyAnnouncedGrid(_ grid: TerminalGridSize) {
+    /// Locks the mirror to the owner's grid on the output lane, behind every
+    /// earlier chunk (`ghostty_surface_set_grid`), at the owner's point in the
+    /// byte stream. `restored`: a local-history restore resizes the terminal
+    /// itself, so only the lock's record follows (no set_grid).
+    func applyAnnouncedGrid(_ grid: TerminalGridSize, restored: Bool = false) {
         geometry.announce(grid)
-        lockAnnouncedGrid()
+        if restored { gridLock.adopt(grid) } else { lockAnnouncedGrid() }
         updateSurfaceSize()
     }
 

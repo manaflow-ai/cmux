@@ -18,6 +18,20 @@
 //!   harness (`requests.rs` catch-all), so no harness extension method can
 //!   take caller params that spawn or read.
 //!
+//! - Web only (ACP-REMOTE-GUARD), allow lists: only the `ask` and `deny-all`
+//!   policies, rules that cannot auto-approve, the cited asking modes
+//!   (`ASKING_MODES`) and the listed config options; every other value,
+//!   unknown ones included, is refused. Paths: `session/new`,
+//!   `session/set_mode`, `session/set_config_option`, `_acpmux/set_policy`,
+//!   `_acpmux/set_default_policy`, `_acpmux/set_rules`, or a defaults or
+//!   preset write; and no `_acpmux/directories` listing (answered "Method not found", so
+//!   the dashboard falls back to typed paths, which `session/new` checks).
+//!   LocalApp keeps both: the daemon cannot see user gestures, and the
+//!   native relay enforces a fresh gesture for LocalApp before it sends one.
+//! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
+//!   change which machines this daemon reaches with the user's ssh keys and
+//!   tokens); `peer_reconnect` only retries a configured peer.
+//!
 //! The unix socket keeps today's behavior.
 
 use crate::rpc::{RpcError, method};
@@ -32,7 +46,19 @@ fn refused(what: &str) -> RpcError {
 
 /// Check (and canonicalize the folder fields of) a request from a
 /// connection that is not the unix socket.
-pub(super) async fn check(m: &str, params: &mut Value) -> Result<(), RpcError> {
+pub(super) async fn check(
+    origin: super::Origin,
+    m: &str,
+    params: &mut Value,
+) -> Result<(), RpcError> {
+    if origin == super::Origin::Web {
+        web_only(m, params)?;
+    }
+    // Which machines this daemon reaches with the user's ssh keys and
+    // tokens changes over the unix socket only (LocalApp included).
+    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
+        return Err(refused("changing peers"));
+    }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
         return Err(refused("mcpServers"));
@@ -84,6 +110,107 @@ pub(super) async fn check(m: &str, params: &mut Value) -> Result<(), RpcError> {
         }
     }
     Ok(())
+}
+
+/// The only harness modes a Web connection may pick: modes shown to ask
+/// before they act. Everything else, unknown names included, is refused.
+const ASKING_MODES: &[&str] = &[
+    // Claude Code "default": "Standard behavior - prompts for permission on
+    // first use of each tool" (https://docs.anthropic.com/en/docs/claude-code/iam#permission-modes).
+    // acpmux's own Claude backend offers it as "Normal" and answers each
+    // permission prompt through its policy (claude_stdio/mod.rs `MODES`,
+    // claude_stdio/outbound.rs `supportedDialogKinds: ["permission"]`).
+    "default",
+    // Claude Code "plan": "Claude can analyze but not modify files or execute
+    // commands" (same page); opencode's plan agent sets file edits and bash to
+    // "ask" (https://opencode.ai/docs/agents/#plan).
+    "plan",
+];
+
+/// Config options a Web connection may set to any value: they choose a model
+/// or how hard it thinks, never what runs without asking.
+const FREE_CONFIG_OPTIONS: &[&str] =
+    &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
+
+/// The only permission policies a Web connection may set: `ask` (every
+/// tool call asks) and `deny-all` (nothing runs, nothing is approved). The
+/// exact names only; aliases, other policies and unknown values are refused.
+const ASKING_POLICIES: &[&str] = &["ask", "deny-all"];
+
+/// What a Web (remote-origin) connection may never do; LocalApp and the
+/// unix socket may. The daemon cannot see user gestures: for LocalApp the
+/// native relay enforces a fresh gesture before it sends a policy that
+/// skips asking.
+fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
+    let refused = |what: &str| {
+        RpcError::invalid_params(format!(
+            "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
+        ))
+    };
+    // Absent: nothing is set. Present: one of the asking policies, exactly.
+    let policy_ok = |v: Option<&Value>| match v {
+        None | Some(Value::Null) => true,
+        Some(Value::String(p)) => ASKING_POLICIES.contains(&p.as_str()),
+        Some(_) => false,
+    };
+    let policy_refused = || refused("a permission policy other than ask or deny-all");
+    match m {
+        method::SESSION_NEW
+            if !policy_ok(params.get("policy"))
+                || !policy_ok(params.pointer("/_meta/acpmux/policy")) =>
+        {
+            Err(policy_refused())
+        }
+        method::MUX_SET_POLICY | "_acpmux/set_default_policy"
+            if !policy_ok(params.get("policy")) =>
+        {
+            Err(policy_refused())
+        }
+        method::MUX_DEFAULTS | method::MUX_PRESETS if !policy_ok(params.pointer("/set/policy")) => {
+            Err(policy_refused())
+        }
+        method::MUX_SET_RULES if !rules_cannot_auto_approve(params.get("rules")) => {
+            Err(refused("a permission rule that could auto-approve"))
+        }
+        method::SESSION_SET_MODE => {
+            let mode = params.get("modeId").and_then(Value::as_str);
+            if mode.is_some_and(|m| ASKING_MODES.contains(&m)) {
+                Ok(())
+            } else {
+                Err(refused("a mode other than default or plan"))
+            }
+        }
+        method::SESSION_SET_CONFIG_OPTION => {
+            let id = params.get("configId").and_then(Value::as_str).unwrap_or_default();
+            if FREE_CONFIG_OPTIONS.contains(&id) {
+                return Ok(());
+            }
+            let value = params.get("value").and_then(Value::as_str);
+            if id == "mode" && value.is_some_and(|v| ASKING_MODES.contains(&v)) {
+                Ok(())
+            } else {
+                Err(refused("this config option or value"))
+            }
+        }
+        "_acpmux/directories" => Err(RpcError::method_not_found(
+            "_acpmux/directories (not served to a remote WebSocket connection)",
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Rules a Web connection may set: none (a clear), or only `autoDeny` and
+/// `ask` lists with a `default` of `ask` or `deny`. No `autoApprove` entry,
+/// no `default: "approve"`, and no field this check does not know.
+fn rules_cannot_auto_approve(rules: Option<&Value>) -> bool {
+    let Some(rules) = rules.filter(|r| !r.is_null()) else { return true };
+    let Some(obj) = rules.as_object() else { return false };
+    obj.iter().all(|(k, v)| match k.as_str() {
+        "autoApprove" => !non_empty(Some(v)),
+        "autoDeny" | "ask" => v.is_null() || v.is_array(),
+        "default" => v.is_null() || matches!(v.as_str(), Some("ask" | "deny")),
+        _ => false,
+    })
 }
 
 fn non_empty(v: Option<&Value>) -> bool {

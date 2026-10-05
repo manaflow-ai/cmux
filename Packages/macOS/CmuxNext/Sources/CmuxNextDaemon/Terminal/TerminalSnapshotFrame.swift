@@ -25,10 +25,15 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
     public var cols: Int?
     public var rows: Int?
     public var colors: TerminalColors?
+    /// A READY cut exactly at a host resize (`history: "local"`,
+    /// `terminal-snapshot-local-history-v1`): the view reflows its own
+    /// history and checks it against this. nil: history follows as chunks.
+    public var localHistory: TerminalLocalHistoryCheck?
     public var data: Data
 
     public init(phase: Phase, generation: UInt64, offset: UInt64, version: UInt16,
-                cols: Int? = nil, rows: Int? = nil, colors: TerminalColors? = nil, data: Data) {
+                cols: Int? = nil, rows: Int? = nil, colors: TerminalColors? = nil,
+                localHistory: TerminalLocalHistoryCheck? = nil, data: Data) {
         self.phase = phase
         self.generation = generation
         self.offset = offset
@@ -36,6 +41,7 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
         self.cols = cols
         self.rows = rows
         self.colors = colors
+        self.localHistory = localHistory
         self.data = data
     }
 }

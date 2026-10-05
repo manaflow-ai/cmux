@@ -26,7 +26,7 @@ export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
-import { handleCloudBind } from "./cloud-link.ts"
+import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -107,6 +107,7 @@ export default {
     const url = new URL(request.url)
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
+    if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
