@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the user's Ghostty shell-integration-features and cursor-style-blink as libghostty resolves them from a config file and its config-file includes (decision DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES). Each case's files are written to one directory; \"config\" is loaded, the others only through config-file. features lists the enabled features of Ghostty's ShellIntegrationFeatures (cursor, sudo, title, ssh-env, ssh-terminfo, path); cursor_blink is null when unset. The oracle is libghostty (CmuxNextTerminalTests GhosttyShellFeaturesVectorTests); the cmux-tui daemon's reader (cmux-tui-core shell_integration/ghostty_files.rs) replays the same file. Change both together.",
+  "description": "Shared test vectors for the user's Ghostty shell-integration, shell-integration-features and cursor-style-blink as libghostty resolves them from a config file and its config-file includes (decision DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES). Each case's files are written to one directory; \"config\" is loaded, the others only through config-file. features lists the enabled features of Ghostty's ShellIntegrationFeatures (cursor, sudo, title, ssh-env, ssh-terminfo, path); cursor_blink is null when unset; shell_integration is the mode name. The oracle is libghostty (CmuxNextTerminalTests GhosttyShellFeaturesVectorTests); the cmux-tui daemon's reader (cmux-tui-core shell_integration/ghostty_files.rs) replays the same file. Change both together.",
   "cases": [
     {
       "name": "no config: Ghostty's defaults",
@@ -11,7 +11,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "a name turns its feature on over the defaults",
@@ -24,7 +25,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "no- turns a feature off",
@@ -34,7 +36,8 @@
       "features": [
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "parts are trimmed",
@@ -47,7 +50,8 @@
         "ssh-terminfo",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "true turns every feature on",
@@ -62,7 +66,8 @@
         "ssh-terminfo",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "false turns every feature off",
@@ -70,7 +75,8 @@
         "config": "shell-integration-features = false\n"
       },
       "features": [],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "1 is true",
@@ -85,7 +91,8 @@
         "ssh-terminfo",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "f is false",
@@ -93,7 +100,8 @@
         "config": "shell-integration-features = f\n"
       },
       "features": [],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "a later line starts again from the defaults",
@@ -104,7 +112,8 @@
         "cursor",
         "title"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "an empty value resets to the defaults",
@@ -116,7 +125,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "an invalid value keeps the previous one",
@@ -127,7 +137,8 @@
         "cursor",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "an empty part is invalid",
@@ -138,7 +149,8 @@
         "cursor",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "a quoted value",
@@ -149,7 +161,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "comments, indentation and CRLF",
@@ -160,7 +173,8 @@
         "cursor",
         "title"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "no spaces around = and the last part wins",
@@ -173,7 +187,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "a key with no value is ignored",
@@ -184,7 +199,8 @@
         "cursor",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "cursor-style-blink false",
@@ -196,7 +212,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": false
+      "cursor_blink": false,
+      "shell_integration": "detect"
     },
     {
       "name": "cursor-style-blink true",
@@ -208,7 +225,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": true
+      "cursor_blink": true,
+      "shell_integration": "detect"
     },
     {
       "name": "an empty cursor-style-blink resets to unset",
@@ -220,7 +238,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "an include loads after the file, whatever its position",
@@ -232,7 +251,8 @@
         "cursor",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "a missing optional include is skipped",
@@ -243,7 +263,8 @@
         "cursor",
         "title"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "nested includes load in order and a cycle stops",
@@ -256,7 +277,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "an empty config-file clears the includes",
@@ -270,7 +292,8 @@
         "title",
         "path"
       ],
-      "cursor_blink": null
+      "cursor_blink": null,
+      "shell_integration": "detect"
     },
     {
       "name": "an include in a subdirectory resolves against its own file",
@@ -283,7 +306,113 @@
         "cursor",
         "title"
       ],
-      "cursor_blink": false
+      "cursor_blink": false,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "shell-integration none",
+      "files": {
+        "config": "shell-integration = none\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "a forced shell",
+      "files": {
+        "config": "shell-integration = zsh\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "zsh"
+    },
+    {
+      "name": "every forced shell name",
+      "files": {
+        "config": "shell-integration = fish\nshell-integration = nushell\nshell-integration = elvish\nshell-integration = bash\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "bash"
+    },
+    {
+      "name": "an empty shell-integration resets to detect",
+      "files": {
+        "config": "shell-integration = none\nshell-integration =\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an unknown shell keeps the previous value",
+      "files": {
+        "config": "shell-integration = none\nshell-integration = tcsh\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "a quoted shell-integration",
+      "files": {
+        "config": "shell-integration = \"none\"\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "shell-integration with no value is ignored",
+      "files": {
+        "config": "shell-integration = none\nshell-integration\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "an include sets shell-integration",
+      "files": {
+        "config": "config-file = extra\nshell-integration = none\n",
+        "extra": "shell-integration = fish\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "fish"
     }
   ]
 }
