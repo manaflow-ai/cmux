@@ -32,6 +32,7 @@ import Testing
     @Test func tilesSitOnACardAndLeaveAGapBeforeTheList() throws {
         let layout = SidebarRegionLayout.make(sections: [top], width: 240, look: .quiet, collapsed: [], metrics: m)
         let card = try #require(layout.cards.first, "the tonal step")
+        #expect(layout.tiledCards == [0], "a tiles card takes the stronger step")
         for row in layout.rows { #expect(card.insetBy(dx: -0.5, dy: -0.5).contains(row.frame)) }
         #expect(card.minX == m.inset && card.maxX == 240 - m.inset)
         // Below the card: the section gap, then the region's padding.
@@ -45,6 +46,14 @@ import Testing
         let layout = SidebarRegionLayout.make(sections: [grid], width: 240, look: .quiet, collapsed: [], metrics: m)
         #expect(layout.cards.isEmpty)
         #expect(layout.rows.allSatisfy { $0.frame.height == m.tileHeight })
+    }
+
+    @Test func aCardLookSectionIsNotATilesCard() {
+        var rows = top
+        rows.arrangement = .list
+        let layout = SidebarRegionLayout.make(sections: [rows], width: 240, look: .card, collapsed: [], metrics: m)
+        #expect(layout.cards.count == 1)
+        #expect(layout.tiledCards.isEmpty)
     }
 
     @Test func moreTilesThanColumnsWrapWithTheSameColumnWidth() {
@@ -121,6 +130,25 @@ import Testing
         #expect(abs(view.glyphFrame.midX - 26) < 0.5, "the glyph is centered")
         #expect(abs(view.titleFrame.midX - 26) < 0.5, "the caption is centered")
         #expect(view.toolTip == "Import and Sync", "a truncated caption keeps its full title")
+    }
+
+    @Test func aTileDrawsItsShortCaptionAndKeepsTheFullTitle() {
+        let view = SidebarItemRowView()
+        view.frame = NSRect(x: 0, y: 0, width: 52, height: 64)
+        let info = SidebarBuiltIn.importSync.defaultInfo
+        #expect(info.caption == "Import")
+        view.configure(info, style: .favorite)
+        #expect(view.titleText == "Import")
+        #expect(view.toolTip == "Import and Sync")
+        view.configure(info, style: .list)
+        #expect(view.titleText == "Import and Sync", "a row keeps the full title")
+    }
+
+    @Test func theDefaultTilesHaveShortCaptions() {
+        #expect(SidebarBuiltIn.newWorkspace.caption == "New")
+        #expect(SidebarBuiltIn.appStore.caption == "Apps")
+        #expect(SidebarBuiltIn.home.caption == nil, "Home is already short")
+        #expect(SidebarItemInfo.fallback(for: .app("cmux/app-store")).caption == "Apps")
     }
 
     @Test func anUnreadTileShowsADotNotACount() {

@@ -25,10 +25,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The trailing control (`SidebarIntent.activateItemAccessory`).
     public var accessory: SidebarItemAccessory?
+    /// The shorter caption a tile draws under its glyph; nil uses `title`.
+    public var caption: String?
 
     public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false,
-                isHidden: Bool = false) {
+                isHidden: Bool = false, caption: String? = nil) {
         self.isHidden = isHidden
+        self.caption = caption
         self.title = title
         self.symbol = symbol
         self.color = color
@@ -77,7 +80,17 @@ extension SidebarBuiltIn {
         }
     }
 
-    public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol) }
+    /// The short tile caption, where the title is too long for a tile.
+    public var caption: String? {
+        switch self {
+        case .appStore: SectionStrings.appStoreCaption
+        case .newWorkspace: SectionStrings.newWorkspaceCaption
+        case .importSync: SectionStrings.importSyncCaption
+        default: nil
+        }
+    }
+
+    public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, caption: caption) }
 }
 
 extension SidebarItemInfo {

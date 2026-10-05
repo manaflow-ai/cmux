@@ -62,6 +62,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     public var rows: [SidebarRegionRow]
     /// Card backgrounds (card look only), one per section.
     public var cards: [CGRect]
+    /// Indices into `cards` of tiles sections, which take a stronger step.
+    public var tiledCards: Set<Int> = []
     /// Lines between sections (lines looks).
     public var separators: [CGRect]
     /// Each shown section's full-width frame, in order (the tonal step
@@ -138,6 +140,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
             }
             if carded {
                 y += m.cardPadding
+                if tiled { result.tiledCards.insert(result.cards.count) }
                 result.cards.append(CGRect(x: x, y: top, width: innerWidth, height: y - top))
             }
             result.sectionFrames.append(CGRect(x: 0, y: top, width: width, height: y - top))

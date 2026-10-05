@@ -123,7 +123,7 @@ final class SidebarItemRowView: NSView {
         guard info != self.info || style != self.style else { return }
         self.info = info
         self.style = style
-        title.stringValue = info.title
+        title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
         title.alignment = style == .favorite ? .center : .natural
         // Icons and tiles have no room for a count: unread items show a dot
@@ -154,7 +154,10 @@ final class SidebarItemRowView: NSView {
             ChromeHover.paint(pill, fill, animated: fadesNextFill)
             fadesNextFill = false
             let wells = style == .list || style == .favorite
-            chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
+            // A tile's well is the raised surface on the tiles card (Safari's
+            // favorites); a list row's well is the quieter hover step.
+            let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
+            chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
@@ -255,6 +258,8 @@ final class SidebarItemRowView: NSView {
 
     /// The caption's frame (tests).
     var titleFrame: CGRect { title.isHidden ? .zero : title.frame }
+    /// The drawn title or caption (tests).
+    var titleText: String { title.stringValue }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

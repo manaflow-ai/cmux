@@ -231,7 +231,12 @@ final class SidebarRegionView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            for card in cardLayers { card.backgroundColor = Palette.hoverFill.cgColor }
+            // A tiles card takes the next tonal step so it reads as its own
+            // shelf above the session list, not one more card.
+            for (index, card) in cardLayers.enumerated() {
+                let fill = layoutResult.tiledCards.contains(index) ? Palette.selectionFill : Palette.hoverFill
+                card.backgroundColor = fill.cgColor
+            }
             let lineColor = drawsLines ? Palette.separator : Palette.hoverFill.withAlphaComponent(Palette.hoverFill.alphaComponent * 0.6)
             for line in lineLayers { line.backgroundColor = lineColor.cgColor }
         }
