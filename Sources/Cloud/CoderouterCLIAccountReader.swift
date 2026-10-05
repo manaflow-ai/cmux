@@ -1,13 +1,17 @@
 import Foundation
+import OSLog
 
 /// Reads the same CodeRouter Cloud account view shown by `cmux cr accounts`.
 /// CodeRouter organizations have their own IDs, so the cmux team UUID is never
 /// passed to CodeRouter directly.
 enum CoderouterCLIAccountReader {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
+
     static func accounts(for cmuxTeamName: String?) async throws -> [CloudTreeNode.CoderouterAccount] {
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty,
               let organizationID = try await matchingOrganizationID(for: cmuxTeamName) else {
+            logger.error("No CodeRouter organization matched cmux team name: \(cmuxTeamName ?? "<nil>", privacy: .public)")
             throw accountError("The selected cmux team is not mapped to a CodeRouter organization.")
         }
 
@@ -15,12 +19,13 @@ enum CoderouterCLIAccountReader {
         // immediately before reading so a stale CLI org can never leak into the sidebar.
         _ = try await run(["org", "switch", organizationID])
         guard try await currentOrganizationID() == organizationID else {
+            logger.error("CodeRouter organization verification failed for org ID: \(organizationID, privacy: .public)")
             throw accountError("CodeRouter organization did not switch to the selected team.")
         }
         let output = try await run(["accounts", "--json"])
         let object = try JSONSerialization.jsonObject(with: output) as? [String: Any]
         let accounts = object?["accounts"] as? [[String: Any]] ?? []
-        return accounts.compactMap { account in
+        let result = accounts.compactMap { account in
             guard let id = account["id"] as? String,
                   let provider = (account["provider"] as? String) ?? (account["kind"] as? String) else {
                 return nil
@@ -32,6 +37,8 @@ enum CoderouterCLIAccountReader {
                 state: account["state"] as? String
             )
         }
+        logger.info("Loaded \(result.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
+        return result
     }
 
     private static func matchingOrganizationID(for cmuxTeamName: String) async throws -> String? {
@@ -91,6 +98,7 @@ enum CoderouterCLIAccountReader {
                 guard process.terminationStatus == 0 else {
                     let message = String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                         .trimmingCharacters(in: .whitespacesAndNewlines)
+                    logger.error("coderouter \(arguments.joined(separator: " "), privacy: .public) failed: \(message, privacy: .public)")
                     continuation.resume(throwing: NSError(domain: "CoderouterCLI", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message]))
                     return
                 }

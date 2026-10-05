@@ -4,6 +4,7 @@ import AppKit
 import CmuxCloudMachines
 import CmuxSettings
 import CmuxSurfaceCatalogModel
+import OSLog
 import SwiftUI
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
@@ -13,6 +14,7 @@ import SwiftUI
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
+    private static let coderouterLogger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
     @StateObject var viewModel: MachinesPanelViewModel
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
@@ -507,8 +509,10 @@ struct MachinesPanelView: View {
         }
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
+            Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
             coderouterAccounts = try await CoderouterCLIAccountReader.accounts(for: teamName)
         } catch {
+            Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
             // Keep the last successful snapshot during a transient refresh failure.
         }
     }
