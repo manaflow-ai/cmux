@@ -26,6 +26,12 @@ extension BonsplitConfiguration {
             default:
                 return false
             }
+        }.map { button in
+            // The mirror's delegate builds no menus; keep only the click and
+            // Option-click split behavior.
+            var button = button
+            button.menuBehavior = .none
+            return button
         }
         return configuration
     }
