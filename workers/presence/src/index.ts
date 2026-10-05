@@ -87,6 +87,15 @@ function connectivityStub(env: Env, userId: string): DurableObjectStub<TeamPrese
   return env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(`connectivity:user:${userId}`));
 }
 
+/** The account-scoped device presence room behind My Devices: one instance per
+ * Stack user, fed by every heartbeat that user sends (whatever team it names)
+ * and read by `/v1/presence/subscribe?scope=account`. Only the verified user's
+ * own heartbeats reach it, so it can never list another account's device, and
+ * a device stays visible whichever team each client has selected. */
+function userDevicesStub(env: Env, userId: string): DurableObjectStub<TeamPresence> {
+  return env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(`devices:user:${userId}`));
+}
+
 async function resolveTeamOr403(
   request: Request,
   env: Env,
@@ -296,7 +305,18 @@ const worker = {
       if (!parsed.ok) return json({ error: parsed.error }, 400);
       // The verified user id rides along so the DO can pin and enforce device
       // ownership (a co-member must not be able to spoof this device).
+      // Mirror into the user's device room, in parallel. Best-effort: the team
+      // room's answer stays the response, and a mirror failure never fails the beat.
+      const mirror = userDevicesStub(env, team.user.id)
+        .heartbeat(team.user.id, team.user.id, parsed.beat)
+        .catch((error: unknown) =>
+          captureSentryException(env, team.user.id, error, {
+            durable_object: "TeamPresence",
+            operation: "user_devices_heartbeat",
+          }),
+        );
       const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
+      await mirror;
       if ("error" in result) {
         return result.status === 429
           ? rateLimitedJson({ error: result.error })
@@ -356,8 +376,18 @@ const worker = {
 
     if (url.pathname === "/v1/presence/subscribe") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
-      const team = await resolveTeamOr403(request, env);
-      if (!team.ok) return team.response;
+      // `scope=account` reads the signed-in user's own devices (My Devices),
+      // independent of team. Any other value keeps the team-scoped stream.
+      let target: { scopeId: string; userId: string; stub: DurableObjectStub<TeamPresence> };
+      if (url.searchParams.get("scope") === "account") {
+        const user = await verifyRequest(request, env);
+        if (!user) return unauthorized();
+        target = { scopeId: user.id, userId: user.id, stub: userDevicesStub(env, user.id) };
+      } else {
+        const team = await resolveTeamOr403(request, env);
+        if (!team.ok) return team.response;
+        target = { scopeId: team.teamId, userId: team.user.id, stub: team.stub };
+      }
       // Forward to the DO with the verified team id and a stream deadline
       // (token expiry capped at MAX_SUBSCRIBE_AGE_MS) so a revoked token or
       // removed member cannot keep an old stream alive indefinitely. Both
@@ -369,13 +399,13 @@ const worker = {
         MAX_SUBSCRIBE_AGE_MS,
       );
       const headers = new Headers(request.headers);
-      headers.set("x-presence-team-id", team.teamId);
+      headers.set("x-presence-team-id", target.scopeId);
       headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
       // Forward the verified user id so the DO can scope the per-user
       // `pairedMacs` backup collection to its owner. Set from the verified value
       // only, never passed through from the client.
-      headers.set("x-presence-user-id", team.user.id);
-      return team.stub.fetch(new Request(request.url, { method: "GET", headers }));
+      headers.set("x-presence-user-id", target.userId);
+      return target.stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
     return json({ error: "not_found" }, 404);
