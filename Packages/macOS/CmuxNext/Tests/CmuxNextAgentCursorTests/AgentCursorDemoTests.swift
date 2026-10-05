@@ -48,4 +48,13 @@ import Testing
         host.apply(.place(session: "a", point: .zero))
         #expect(host.sessions == ["a", "b"])
     }
+
+    @Test func kindAndPointAreAliasesForActionAndXY() {
+        let live = AgentCursorDemo.Request(action: nil, kind: "click", x: nil, y: nil, pointX: 280, pointY: 180)
+        #expect(live == AgentCursorDemo.Request(action: "click", kind: nil, x: 280, y: 180, pointX: nil, pointY: nil))
+        #expect(live.action == "click" && live.x == 280 && live.y == 180)
+        let both = AgentCursorDemo.Request(action: "move", kind: "click", x: 1, y: 2, pointX: 9, pointY: 9)
+        #expect(both.action == "move" && both.x == 1 && both.y == 2, "explicit action and x/y win")
+        #expect(AgentCursorDemo.Request(action: nil, kind: nil, x: nil, y: nil, pointX: nil, pointY: nil).action == "report")
+    }
 }

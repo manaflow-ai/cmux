@@ -92,7 +92,7 @@ final class SettingsWindowService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     var page: InternalPageID { .settings }
-    var title: String { SettingsPaneTitle.text }
+    var title: String { SettingsDeepLink.pageTitle }
     var symbol: String { "gearshape" }
 
     /// The kept page when no other tab shows it, else a new one (a second window's tab).

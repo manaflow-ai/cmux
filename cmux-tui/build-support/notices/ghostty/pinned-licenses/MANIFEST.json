@@ -16,6 +16,20 @@
         "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr"
       ]
     },
+    "iterm2-themes": {
+      "files": [
+        {
+          "filename": "iTerm2-Color-Schemes-LICENSE.txt",
+          "path": "iterm2-color-schemes-c3968b3/LICENSE",
+          "sha256": "2373168614b527494dff99eb393024608216db79f687d58bad420f6c1e0ad192",
+          "upstream": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/c3968b385e8072d61651eb8e32f498703058c2fd/LICENSE"
+        }
+      ],
+      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes).",
+      "packages": [
+        "N-V-__8AALZGBAAS5NLVH-c8eC-6VtCdcH-9nUvVfUSkWS__"
+      ]
+    },
     "unicode-16": {
       "files": [
         {
@@ -52,6 +66,20 @@
         "upstream": "https://github.com/vancluever/z2d/tree/5184a79622dce6b885c45ef6666f8c92385bed10",
         "upstream_tag": "v0.11.0"
       }
+    },
+    "zig-gobject": {
+      "files": [
+        {
+          "filename": "zig-gobject-LICENSE.txt",
+          "path": "zig-gobject-0.8.0-2026-04-23-26-1/LICENSE",
+          "sha256": "16559f97a5753e9329a712b11b8e3ecff233273acffd1ebfb1d747567a8f020d",
+          "upstream": "https://raw.githubusercontent.com/ghostty-org/zig-gobject/6971b412dc77003c52f5e8d16e7d0a828fc95539/LICENSE"
+        }
+      ],
+      "note": "ghostty-org/zig-gobject release 0.8.0-2026-04-23-26-1 (commit 6971b412), the generated GTK bindings Ghostty's gobject dependency fetches: https://deps.files.ghostty.org/gobject-2026-04-23-26-1.tar.zst is byte-equal to that release's ghostty-gobject-0.8.0-2026-04-23-26-1.tar.zst (sha256 642e324b3644c00464a2161e4af497f73cbbe8ce02a4c0edb92aacb365748047); its build.zig.zon .paths drops the LICENSE.",
+      "packages": [
+        "gobject-0.3.1-Skun7E1KnwBGMX5nslHYG1yWHaSevywxQO8oM7tTOgIp"
+      ]
     }
   }
 }
