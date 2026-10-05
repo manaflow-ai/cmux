@@ -10,6 +10,10 @@ pub const FRAME_CONTROL: u8 = 1;
 pub const FRAME_DATAGRAM: u8 = 2;
 const MAX_FRAME: usize = 1 << 20;
 
+fn default_service() -> String {
+    cmux_rd_core::service::SERVICE_DESKTOP.to_owned()
+}
+
 /// Control messages (JSON) on the stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -26,6 +30,12 @@ pub enum Control {
         /// The per-launch session token (64 hex characters); see `token.rs`.
         #[serde(default)]
         token: Option<SecretHex>,
+        /// The service this session is for (C1): `desktop` unless named.
+        #[serde(default = "default_service")]
+        service: String,
+        /// Optional rd features the viewer supports (C1).
+        #[serde(default)]
+        caps: Vec<String>,
     },
     Start {
         key: String,
@@ -38,6 +48,10 @@ pub enum Control {
         height: u32,
         max_datagram: usize,
         carrier: String,
+        /// The service the host routed this session to.
+        service: String,
+        /// The offered caps the host also supports.
+        caps: Vec<String>,
     },
     Started {
         session: u64,
@@ -248,6 +262,33 @@ mod tests {
         let client = TcpStream::connect(listener.local_addr().expect("addr")).expect("connect");
         let (server, _) = listener.accept().expect("accept");
         (client, server)
+    }
+
+    #[test]
+    fn a_hello_without_service_or_caps_is_a_desktop_hello() {
+        let json = br#"{"t":"hello","user":"u","install":"i","class":"user","interactive":true,"udp_port":null,"max_datagram":1152}"#;
+        let Control::Hello { service, caps, .. } = serde_json::from_slice(json).expect("hello")
+        else {
+            panic!("not a hello");
+        };
+        assert_eq!(service, "desktop");
+        assert!(caps.is_empty());
+    }
+
+    #[test]
+    fn welcome_echoes_the_service_and_the_accepted_caps() {
+        let welcome = Control::Welcome {
+            encoder: "x264".into(),
+            width: 1,
+            height: 1,
+            max_datagram: 1152,
+            carrier: "stream".into(),
+            service: "desktop".into(),
+            caps: vec!["stream.open".into()],
+        };
+        let json = serde_json::to_value(&welcome).expect("json");
+        assert_eq!(json["service"], "desktop");
+        assert_eq!(json["caps"][0], "stream.open");
     }
 
     #[test]

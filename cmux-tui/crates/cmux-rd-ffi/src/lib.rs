@@ -10,6 +10,8 @@
 mod input;
 mod input_ffi;
 mod receiver;
+mod session;
+mod session_ffi;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -19,6 +21,8 @@ use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 pub use input::InputChannel;
 pub use input_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
+pub use session::{MAX_STREAMS, Session, SessionError};
+pub use session_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
 pub const ABI_VERSION: u32 = 1;
@@ -342,6 +346,9 @@ pub unsafe extern "C" fn cmux_rd_receiver_feedback(
     if out_len.is_null() {
         return CMUX_RD_ERR_NULL;
     }
+    // SAFETY: checked non-NULL; writable by contract. Every path, including a
+    // NULL or unusable receiver, leaves a defined length.
+    unsafe { *out_len = 0 };
     with_receiver(receiver, |h| {
         let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us)) else {
             // SAFETY: checked non-NULL; writable by contract.
@@ -436,5 +443,7 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
 
 #[cfg(test)]
 mod input_tests;
+#[cfg(test)]
+mod session_tests;
 #[cfg(test)]
 mod tests;

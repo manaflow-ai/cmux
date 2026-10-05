@@ -81,6 +81,35 @@ struct WindowTrafficLightsTests {
         withExtendedLifetime(services) {}
     }
 
+    /// Lawrence (nxdog41): with the sidebar hidden, the window's controls (traffic lights and the
+    /// titlebar band) collapse at rest so the top-left strip's tabs start at the left edge, and come
+    /// back while the pointer is over the top-left corner or the band has keyboard focus. With the
+    /// sidebar shown they never collapse.
+    @Test func hiddenSidebarCollapsesTheWindowControlsUntilTheCornerIsHovered() {
+        let services = ActionBindingCoverageTests.boundServices()
+        let controller = makeWindow(services)
+        let root = controller.root
+        root.layoutSubtreeIfNeeded()
+        #expect(!root.windowControlsCollapsed, "sidebar shown: never collapsed")
+        root.sidebarHidden = true
+        #expect(root.windowControlsCollapsed, "sidebar hidden, pointer elsewhere: collapsed")
+        #expect((controller.window as? TitlebarAccessoryHosting)?.windowControlsCollapsed == true)
+        // The corner region covers the traffic lights, so a move straight to Close reveals first.
+        if let window = controller.window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
+            let corner = root.cornerRegionFrameInWindow
+            #expect(corner.contains(lights), "corner \(corner) covers the traffic lights \(lights)")
+        }
+        root.cornerReveal.setPointerInside(true)
+        #expect(!root.windowControlsCollapsed, "pointer on the top-left corner: shown")
+        root.cornerReveal.setPointerInside(false)
+        #expect(root.windowControlsCollapsed)
+        root.sidebarHidden = false
+        #expect(!root.windowControlsCollapsed)
+        controller.teardown()
+        controller.window?.close()
+        withExtendedLifetime(services) {}
+    }
+
     @Test func themedAndTranslucentWindowsShowTheTrafficLights() {
         let services = ActionBindingCoverageTests.boundServices()
         let controller = makeWindow(services)

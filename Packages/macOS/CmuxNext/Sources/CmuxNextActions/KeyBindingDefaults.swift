@@ -57,6 +57,18 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut(down, modifiers: [.control, .command])], command: "resizePaneDown"),
     ]
 
+    /// Actions whose default key Monaco also uses for editing (R127,
+    /// webviews/src/pages/editor/README.md): while the code editor has the
+    /// keyboard (`codeEditorFocused`) their default binding steps aside and
+    /// the key reaches the editor. A user binding keeps its own `when`.
+    /// App-global chords (Cmd-T, Cmd-W, Cmd-N, Cmd-1…9, Ctrl-1…9,
+    /// Shift-Cmd-P, Cmd-Q, Cmd-comma, Shift-Cmd-T) are not here.
+    public static let yieldsToCodeEditor: Set<ActionID> = [
+        "splitRight", "openBrowser", "focusUp", "focusDown",
+        "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
+        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
+    ]
+
     /// List navigation (R85): Ctrl-N / Ctrl-J move down and Ctrl-P /
     /// Ctrl-K move up wherever a list-like control has the keyboard
     /// (`listFocus`: comboboxes, menus, pickers, the sidebar list). Never in

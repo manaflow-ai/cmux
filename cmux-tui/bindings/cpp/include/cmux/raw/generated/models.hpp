@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0";
+inline constexpr std::string_view kProtocolIrSha256 = "b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -27,6 +27,7 @@ struct AttachedViewOutcomeResult;
 struct AttachedViewResizeResult;
 struct Base64;
 struct BrowserFrame;
+struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
 struct BrowserProviderSnapshot;
 struct BrowserProviderTarget;
@@ -156,6 +157,11 @@ struct SplitRespawn;
 struct SurfaceResult;
 struct Tab;
 struct TabRef;
+struct TerminalClipboardHost;
+enum class TerminalClipboardHostKind;
+enum class TerminalClipboardLocation;
+struct TerminalClipboardReplyResult;
+struct TerminalClipboardSubscribeResult;
 struct TerminalColorOverrides;
 struct TerminalColors;
 struct TerminalCommandHistoryResult;
@@ -195,6 +201,7 @@ struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
 struct BrowserFramePresentedRequest;
+struct BrowserHostProviderRequest;
 struct BrowserInsertTextRequest;
 struct BrowserKeyRequest;
 struct BrowserKeyPressRequest;
@@ -387,6 +394,8 @@ struct SnapshotRequestRequest;
 struct SplitRequest;
 struct SubscribeRequest;
 struct SwapPaneRequest;
+struct TerminalClipboardReplyRequest;
+struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalReadRangeRequest;
@@ -459,6 +468,8 @@ struct TabAddedEvent;
 struct TabChangedEvent;
 struct TabClosedEvent;
 struct TabRenamedEvent;
+struct TerminalClipboardReadEvent;
+struct TerminalClipboardReadCancelledEvent;
 struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
@@ -641,6 +652,7 @@ struct AttachSurfaceRequest {
     Field<AttachSurfaceRequestMode> mode{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
+    std::optional<bool> snapshot_images{};
     std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
     Field<Id> surface{};
@@ -731,6 +743,17 @@ struct BrowserFramePresentedRequest {
     std::uint64_t frame_seq{};
     Id surface{};
     friend bool operator==(const BrowserFramePresentedRequest&, const BrowserFramePresentedRequest&) = default;
+};
+
+struct BrowserHostProviderRequest {
+    friend bool operator==(const BrowserHostProviderRequest&, const BrowserHostProviderRequest&) = default;
+};
+
+struct BrowserHostProviderResult {
+    std::uint32_t host_pid{};
+    std::string secret{};
+    std::string socket{};
+    friend bool operator==(const BrowserHostProviderResult&, const BrowserHostProviderResult&) = default;
 };
 
 struct BrowserInsertTextRequest {
@@ -3877,6 +3900,59 @@ struct TabRenamedEvent {
     friend bool operator==(const TabRenamedEvent&, const TabRenamedEvent&) = default;
 };
 
+enum class TerminalClipboardHostKind {
+    local,
+    remote,
+    cloud,
+};
+
+struct TerminalClipboardHost {
+    TerminalClipboardHostKind kind{};
+    std::optional<std::string> name{};
+    friend bool operator==(const TerminalClipboardHost&, const TerminalClipboardHost&) = default;
+};
+
+enum class TerminalClipboardLocation {
+    standard,
+    selection,
+    primary,
+};
+
+struct TerminalClipboardReadCancelledEvent {
+    std::string request_id{};
+    friend bool operator==(const TerminalClipboardReadCancelledEvent&, const TerminalClipboardReadCancelledEvent&) = default;
+};
+
+struct TerminalClipboardReadEvent {
+    TerminalClipboardHost host{};
+    TerminalClipboardLocation location{};
+    std::string request_id{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalClipboardReadEvent&, const TerminalClipboardReadEvent&) = default;
+};
+
+struct TerminalClipboardReplyRequest {
+    std::string request_id{};
+    Field<std::string> text{};
+    friend bool operator==(const TerminalClipboardReplyRequest&, const TerminalClipboardReplyRequest&) = default;
+};
+
+struct TerminalClipboardReplyResult {
+    bool accepted{};
+    bool granted{};
+    friend bool operator==(const TerminalClipboardReplyResult&, const TerminalClipboardReplyResult&) = default;
+};
+
+struct TerminalClipboardSubscribeRequest {
+    std::vector<std::string> terminal_ids{};
+    friend bool operator==(const TerminalClipboardSubscribeRequest&, const TerminalClipboardSubscribeRequest&) = default;
+};
+
+struct TerminalClipboardSubscribeResult {
+    bool clipboard_read_ready{};
+    friend bool operator==(const TerminalClipboardSubscribeResult&, const TerminalClipboardSubscribeResult&) = default;
+};
+
 struct TerminalCommandHistoryResult {
     bool enabled{};
     friend bool operator==(const TerminalCommandHistoryResult&, const TerminalCommandHistoryResult&) = default;
@@ -4384,6 +4460,12 @@ template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserHostProviderResult> {
+    static Result<Json> encode(const BrowserHostProviderResult& value);
+    static Result<BrowserHostProviderResult> decode(const Json& value);
 };
 
 template <>
@@ -5161,6 +5243,36 @@ struct Codec<TabRef> {
 };
 
 template <>
+struct Codec<TerminalClipboardHost> {
+    static Result<Json> encode(const TerminalClipboardHost& value);
+    static Result<TerminalClipboardHost> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardHostKind> {
+    static Result<Json> encode(const TerminalClipboardHostKind& value);
+    static Result<TerminalClipboardHostKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardLocation> {
+    static Result<Json> encode(const TerminalClipboardLocation& value);
+    static Result<TerminalClipboardLocation> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardReplyResult> {
+    static Result<Json> encode(const TerminalClipboardReplyResult& value);
+    static Result<TerminalClipboardReplyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardSubscribeResult> {
+    static Result<Json> encode(const TerminalClipboardSubscribeResult& value);
+    static Result<TerminalClipboardSubscribeResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalColorOverrides> {
     static Result<Json> encode(const TerminalColorOverrides& value);
     static Result<TerminalColorOverrides> decode(const Json& value);
@@ -5392,6 +5504,12 @@ template <>
 struct Codec<BrowserFramePresentedRequest> {
     static Result<Json> encode(const BrowserFramePresentedRequest& value);
     static Result<BrowserFramePresentedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserHostProviderRequest> {
+    static Result<Json> encode(const BrowserHostProviderRequest& value);
+    static Result<BrowserHostProviderRequest> decode(const Json& value);
 };
 
 template <>
@@ -6547,6 +6665,18 @@ struct Codec<SwapPaneRequest> {
 };
 
 template <>
+struct Codec<TerminalClipboardReplyRequest> {
+    static Result<Json> encode(const TerminalClipboardReplyRequest& value);
+    static Result<TerminalClipboardReplyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardSubscribeRequest> {
+    static Result<Json> encode(const TerminalClipboardSubscribeRequest& value);
+    static Result<TerminalClipboardSubscribeRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
@@ -6976,6 +7106,18 @@ template <>
 struct Codec<TabRenamedEvent> {
     static Result<Json> encode(const TabRenamedEvent& value);
     static Result<TabRenamedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardReadEvent> {
+    static Result<Json> encode(const TerminalClipboardReadEvent& value);
+    static Result<TerminalClipboardReadEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardReadCancelledEvent> {
+    static Result<Json> encode(const TerminalClipboardReadCancelledEvent& value);
+    static Result<TerminalClipboardReadCancelledEvent> decode(const Json& value);
 };
 
 template <>

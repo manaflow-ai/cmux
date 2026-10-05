@@ -7,7 +7,8 @@ import Synchronization
 /// `create-workspace`, `create-terminal`, `move-tab-to-new-workspace`,
 /// `rename-workspace`).
 /// `list-workspaces` reports the current tree, so `DaemonService.reconcile`
-/// mirrors what a command made. It starts with one workspace whose one pane
+/// mirrors what a command made; a command that changes the tree also sends
+/// `tree-changed`, as cmux-tui does. It starts with one workspace whose one pane
 /// holds two tabs.
 nonisolated final class TopologyDaemon: Sendable {
     static let firstKey = "2a4f6c1e-8b3d-4e5f-9a7b-1c2d3e4f5a01"
@@ -119,7 +120,7 @@ nonisolated final class TopologyDaemon: Sendable {
     init(extraCapabilities: [String] = [], emptyWorkspace: Bool = false) throws {
         state = State(emptyWorkspace: emptyWorkspace)
         let state = state, commands = commands
-        socket = try ScriptedDaemonSocket(handler: { request in
+        let handle: @Sendable ([String: JSONValue]) -> [String] = { request in
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
             func ok(_ data: String) -> [String] { [#"{"id":\#(id),"ok":true,"data":\#(data)}"#] }
             func int(_ name: String) -> Int { request[name]?.doubleValue.map { Int($0) } ?? 0 }
@@ -203,6 +204,15 @@ nonisolated final class TopologyDaemon: Sendable {
             default:
                 return ok("{}")
             }
+        }
+        // Like cmux-tui, a command that changes the tree tells the
+        // subscribed client (a coarse `tree-changed`; the store resyncs), so
+        // the App learns of a new pane the way it does in production.
+        socket = try ScriptedDaemonSocket(handler: { request in
+            let before = state.tree.withLock { $0.revision }
+            let lines = handle(request)
+            guard state.tree.withLock({ $0.revision }) != before else { return lines }
+            return lines + [#"{"event":"tree-changed"}"#]
         })
     }
 

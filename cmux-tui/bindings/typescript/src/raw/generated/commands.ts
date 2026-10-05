@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0. */
+/* cmux-tui mux protocol 12, IR b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e. */
 
 
 import type * as T from "./types.js";
@@ -67,6 +67,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
+  "snapshot_images"?: boolean;
   "snapshot_local_history"?: boolean;
   "snapshot_version"?: (number) | null;
   "surface"?: (T.Id) | null;
@@ -116,6 +117,11 @@ export interface BrowserFramePresentedRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type BrowserFramePresentedResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface BrowserHostProviderRequest extends CmuxRequestBase {
+  cmd: "browser-host-provider";
+}
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserInsertTextRequest extends CmuxRequestBase {
@@ -1833,6 +1839,19 @@ export interface SwapPaneRequest extends CmuxRequestBase {
 }
 export type SwapPaneResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface TerminalClipboardReplyRequest extends CmuxRequestBase {
+  cmd: "terminal-clipboard-reply";
+  "request_id": string;
+  "text"?: (string) | null;
+}
+
+/** Protocol v12; authority: frontend. */
+export interface TerminalClipboardSubscribeRequest extends CmuxRequestBase {
+  cmd: "terminal-clipboard-subscribe";
+  "terminal_ids": Array<string>;
+}
+
 /** Protocol v9; authority: control. */
 export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
@@ -2070,6 +2089,7 @@ export type CmuxRequest =
   | BrowserBackRequest
   | BrowserForwardRequest
   | BrowserFramePresentedRequest
+  | BrowserHostProviderRequest
   | BrowserInsertTextRequest
   | BrowserKeyRequest
   | BrowserKeyPressRequest
@@ -2248,6 +2268,8 @@ export type CmuxRequest =
   | SplitRequest
   | SubscribeRequest
   | SwapPaneRequest
+  | TerminalClipboardReplyRequest
+  | TerminalClipboardSubscribeRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
   | TerminalReadRangeRequest
@@ -2355,6 +2377,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "browser-host-provider": {
+    request: BrowserHostProviderRequest;
+    result: T.BrowserHostProviderResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "browser-host-provider-v1";
     stream: null;
   };
   "browser-insert-text": {
@@ -3780,6 +3810,22 @@ export interface CmuxCommandDefinitionMap {
     since: 6;
     capability: null;
     stream: null;
+  };
+  "terminal-clipboard-reply": {
+    request: TerminalClipboardReplyRequest;
+    result: T.TerminalClipboardReplyResult;
+    authority: "frontend";
+    since: 12;
+    capability: "terminal-clipboard-read-v1";
+    stream: null;
+  };
+  "terminal-clipboard-subscribe": {
+    request: TerminalClipboardSubscribeRequest;
+    result: T.TerminalClipboardSubscribeResult;
+    authority: "frontend";
+    since: 12;
+    capability: "terminal-clipboard-read-v1";
+    stream: "subscribe";
   };
   "terminal-events": {
     request: TerminalEventsRequest;

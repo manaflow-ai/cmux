@@ -41,7 +41,19 @@ fi
 if ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   echo "error: the app FFI sources changed since the pinned source $sha:" >&2
   git diff --stat "$sha" HEAD -- "${paths[@]}" >&2
-  echo "Publish a new release (app-ffi-release.yml runs on the push) and pin its URL and checksum in Package.swift." >&2
+  # Who owns the drift: the lane of each changed crate, and the commits.
+  owners=""
+  for path in $(git diff --name-only "$sha" HEAD -- "${paths[@]}"); do
+    case "$path" in
+      cmux-tui/crates/cmux-rd-*) owners+=$'\n  remote desktop lane (cmux-rd-core/proto/ffi)' ;;
+      cmux-tui/crates/cmux-layout-reducer*) owners+=$'\n  sidebar lane (cmux-layout-reducer, -ffi)' ;;
+      *) owners+=$'\n  app FFI packaging (test triage lane: cmux-app-ffi, build-app-ffi.sh, toolchain)' ;;
+    esac
+  done
+  echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
+  echo "Commits since the pin:" >&2
+  git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
+  echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
   exit 1
 fi
 echo "app FFI pin: sources match $sha"

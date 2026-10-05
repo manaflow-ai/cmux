@@ -112,7 +112,9 @@ mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
+mod browser_host_command;
 mod browser_profiles;
+pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod conversation_tabs_wire;
 mod conversations;
@@ -159,7 +161,9 @@ mod terminal_history;
 mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
+mod capabilities;
 mod url_open;
+use capabilities::advertised_capabilities;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -439,105 +443,6 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         };
         anyhow::bail!("machine listening TCP inventory failed: {detail}");
     }
-}
-
-fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
-    let mut capabilities = vec![
-        ATTACH_INITIAL_SIZE_CAPABILITY,
-        "attach-identity-v1",
-        WORKSPACE_REGISTRY_CAPABILITY,
-        DAEMON_HANDOFF_FORCE_CAPABILITY,
-        GUARDED_BROWSER_POINTER_CAPABILITY,
-        VIEWPORT_SPLITS_CAPABILITY,
-        VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-        DOCK_COLUMNS_CAPABILITY,
-        EDGE_DOCKS_CAPABILITY,
-        ROWS_CAPABILITY,
-        PANE_BROWSER_KIND_CAPABILITY,
-        LAYOUT_UNDO_CAPABILITY,
-        TAB_WORKSPACE_MOVE_CAPABILITY,
-        CLEAR_HISTORY_CAPABILITY,
-        TERMINAL_COMMAND_JOURNAL_CAPABILITY,
-        SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
-        SESSION_JOURNAL_CAPABILITY,
-        FRONTEND_JOURNAL_CAPABILITY,
-        VIEW_ATTACHMENT_LEASE_CAPABILITY,
-        VIEW_ATTACHMENT_DETACH_CAPABILITY,
-        SHARED_SIZING_CAPABILITY,
-        SIZING_VIEW_DETACH_CAPABILITY,
-        TERMINAL_COLOR_OVERRIDES_CAPABILITY,
-        TERMINAL_PENDING_SEQUENCE_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-        CREATION_RECEIPTS_CAPABILITY,
-        CREATION_ATTEMPT_KEYS_CAPABILITY,
-        CREATION_SELECTOR_FALLBACKS_CAPABILITY,
-        PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-        BROWSER_PROVIDER_CAPABILITY,
-        CLIENT_FOCUS_CAPABILITY,
-        MACHINE_USAGE_CAPABILITY,
-        MACHINE_LISTENING_TCP_CAPABILITY,
-        SERVER_STATS_CAPABILITY,
-        TERMINAL_IDLE_CLOSE_CAPABILITY,
-        TERMINAL_REAP_CAPABILITY,
-        END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
-        BATCH_CLOSE_CAPABILITY,
-        TERMINAL_RESOURCES_CAPABILITY,
-        TERMINAL_PLACEMENT_ENV_CAPABILITY,
-        WORKSPACE_GROUPS_CAPABILITY,
-        WORKSPACE_METADATA_CAPABILITY,
-        WORKSPACE_PIN_CAPABILITY,
-        NOTIFICATION_MARK_UNREAD_CAPABILITY,
-        TAB_METADATA_CAPABILITY,
-        FRONTEND_BROWSER_TABS_CAPABILITY,
-        FRONTEND_BROWSER_HISTORY_CAPABILITY,
-        TAB_DRAG_CAPABILITY,
-        TAB_WORKSPACE_NAME_CAPABILITY,
-        TAB_SPLIT_RESPAWN_CAPABILITY,
-        TAB_COLUMN_RESPAWN_CAPABILITY,
-        NOTIFICATION_ACK_CAPABILITY,
-        TAB_GROUPS_CAPABILITY,
-        SAVED_TAB_GROUPS_CAPABILITY,
-        TERMINAL_ENV_CAPABILITY,
-        LOOPBACK_FORWARD_CAPABILITY,
-        SESSION_IDENTITY_CAPABILITY,
-        PROFILES_CAPABILITY,
-        PERSONAL_TERMINALS_CAPABILITY,
-        BROWSER_PROFILES_CAPABILITY,
-        BOOKMARKS_CAPABILITY,
-        conversations::LOCAL_CONVERSATIONS_CAPABILITY,
-        conversations::CONVERSATION_SEARCH_CAPABILITY,
-        SCREEN_METADATA_CAPABILITY,
-        SCREEN_GROUPS_CAPABILITY,
-        NOTIFICATION_SOURCE_CAPABILITY,
-        TERMINAL_SHELL_ARGS_CAPABILITY,
-        TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
-        SCREEN_TERMINAL_ENV_CAPABILITY,
-        LAUNCH_SNAPSHOT_CAPABILITY,
-        STATE_RESOURCES_CAPABILITY,
-        WINDOW_RECORDS_CAPABILITY,
-        TERMINAL_STATE_CAPABILITY,
-        FRONTEND_BROWSER_OWNER_CAPABILITY,
-        crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
-        crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
-        crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
-        crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
-        close_tabs_command::CLOSE_REASON_CAPABILITY,
-        conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
-        crate::git_ops::CHECKPOINTS_CAPABILITY,
-        crate::git_ops::FILES_SEARCH_CAPABILITY,
-        crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
-    ];
-    if bounded_clear_history_fallback_writes {
-        capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
-    }
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.push(crate::image_paste::CAPABILITY);
-    capabilities.extend(crate::apps::advertised());
-    #[cfg(unix)]
-    capabilities.extend(crate::fs_ops::advertised());
-    capabilities
 }
 
 macro_rules! protocol_keys {
@@ -937,7 +842,7 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
 }
 
 #[cfg(unix)]
-fn unix_socket_path_fits(path: &Path) -> bool {
+pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     cmux_unix_socket::fits(path)
 }
 
@@ -1121,6 +1026,7 @@ fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> T
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    BrowserHostProvider,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
         terminal_ids: Vec<String>,
@@ -1135,6 +1041,13 @@ enum Command {
     UrlOpenResult {
         request_id: String,
         opened: bool,
+    },
+    TerminalClipboardSubscribe {
+        terminal_ids: Vec<String>,
+    },
+    TerminalClipboardReply {
+        request_id: String,
+        text: Option<String>,
     },
     PasteImage {
         surface: SurfaceId,
@@ -3723,12 +3636,6 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
-    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
-        self.send_control(&json!({
-            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
-        }))
-    }
-
     #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
         Self::new_with_render_service(sink, Arc::new(RenderService::new()))
@@ -5277,11 +5184,13 @@ pub(crate) struct ClientRegistry {
     /// reaper starts that terminal's unattached period).
     detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
+    pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
     origin_clock: crate::request_origin::OriginClock,
+    pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     app_trust: app_trust::AppTrust,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
@@ -5295,10 +5204,12 @@ impl ClientRegistry {
             detach_waker: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
+            clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             origin_clock: Default::default(),
+            browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
@@ -6342,6 +6253,7 @@ impl ClientRegistry {
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
+        self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
         self.apps.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
@@ -12769,15 +12681,12 @@ fn handle_command_with_cancellation(
         return remote;
     }
     match cmd {
-        Command::UrlOpenSubscribe { terminal_ids } => {
-            mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
-            Ok(json!({"url_open_ready": true}))
-        }
-        Command::UrlOpenClaim { request_id } => {
-            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
-        }
-        Command::UrlOpenResult { request_id, opened } => {
-            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
+        cmd @ (Command::UrlOpenSubscribe { .. }
+        | Command::UrlOpenClaim { .. }
+        | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
+        cmd @ (Command::TerminalClipboardSubscribe { .. }
+        | Command::TerminalClipboardReply { .. }) => {
+            clipboard_read::handle(mux, client, cmd, writer)
         }
         Command::UrlOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
@@ -12817,6 +12726,7 @@ fn handle_command_with_cancellation(
             }
             Ok(serde_json::to_value(server_stats(mux))?)
         }
+        Command::BrowserHostProvider => browser_host_command::run(mux, client),
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({

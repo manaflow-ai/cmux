@@ -392,6 +392,30 @@ async function installVmAgent(ctx: Ctx): Promise<void> {
   ].join(" && "));
 }
 
+/**
+ * The VM agent's daemon facts, recorded while the baked daemon runs: its control socket path
+ * (found by `ss`, so no path rule is duplicated here) and its identify answer as the fallback
+ * daemon.json. Bind queries the live daemon first (cloud-automation.md 17).
+ */
+async function recordDaemonInfo(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  const out = await L.step(vm, "daemon-identify-record", [
+    `sock="$(ss -Hxlp | awk '/"cmux-tui"/ {for (i = 1; i <= NF; i++) if ($i ~ /\\/cloud\\.sock$/) print $i}' | head -1)"`,
+    'test -n "$sock"',
+    "printf '%s\\n' \"$sock\" > /etc/cmux/daemon-socket",
+    `/usr/local/bin/bun ${VM_AGENT_PATH} --print-daemon-info > /etc/cmux/daemon.json.tmp`,
+    "mv /etc/cmux/daemon.json.tmp /etc/cmux/daemon.json && chmod 0644 /etc/cmux/daemon.json /etc/cmux/daemon-socket",
+    "cat /etc/cmux/daemon-socket /etc/cmux/daemon.json",
+  ].join(" && "));
+  const info = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { version?: string; capabilities?: string[] };
+  // The pinned cmux-tui must advertise loopback-forward-v1 (Cloud ports); fs-v1 appears only on a
+  // bound Cloud host, so it is not required at bake time.
+  if (!info.version || info.version.startsWith("unknown") || !info.capabilities?.includes("vm-agent-v1") || !info.capabilities.includes("loopback-forward-v1")) {
+    throw new Error(`daemon.json is not a real identify answer: ${out.trim().slice(0, 300)}`);
+  }
+  ctx.result.daemonInfo = info;
+}
+
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, "/usr/local/bin/cmux-devbox-boot", devboxFileBytes("cmux-devbox-boot"), 0o755);
@@ -399,6 +423,7 @@ async function startDaemon(ctx: Ctx): Promise<void> {
   await L.step(vm, "daemon-unit", `sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
   await L.step(vm, "daemon-ready", devboxWaitForDaemonCommand(120));
   await L.step(vm, "daemon-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
+  await recordDaemonInfo(ctx);
   await L.step(vm, "daemon-park", parkCommand());
 }
 

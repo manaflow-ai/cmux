@@ -105,13 +105,14 @@ struct KeyInterceptionTests {
     @Test func ghosttyKeybindBecomesTheRoutedRegistryAction() throws {
         let services = ActionBindingCoverageTests.boundServices()
         let router = services.keyRouter!
-        let bind = GhosttyHostKeybind(key: .unicode(UInt32(("h" as Unicode.Scalar).value)), modifiers: [.command, .control],
+        // A chord no cmux default binds (Ctrl-Cmd-H/J/K/L resize panes since #17281).
+        let bind = GhosttyHostKeybind(key: .unicode(UInt32(("b" as Unicode.Scalar).value)), modifiers: [.command, .control],
                                       action: .gotoSplit(.left))
         router.ghosttyHostAction = { bind.matches($0) ? bind.action : nil }
-        let chord = try Self.key("h", keyCode: 4, [.command, .control])
+        let chord = try Self.key("b", keyCode: 11, [.command, .control])
         let candidate = try #require(router.candidate(for: chord, focus: Self.page))
         #expect(candidate == Self.ghosttyFocusLeft)
-        #expect(router.candidate(for: try Self.key("h", keyCode: 4, [.command]), focus: Self.page)?.source != .ghostty(arguments: [:]))
+        #expect(router.candidate(for: try Self.key("b", keyCode: 11, [.command]), focus: Self.page)?.source != .ghostty(arguments: [:]))
     }
 
     /// The window and Chromium hooks run tier 2 only, so a tier 1 chord the

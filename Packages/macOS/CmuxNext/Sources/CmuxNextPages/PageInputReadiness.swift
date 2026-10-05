@@ -17,6 +17,9 @@ public final class PageInputReadiness {
     /// grid or an input that drives one (`aria-activedescendant`,
     /// `aria-autocomplete`). Ctrl-N/P/J/K move its selection (R85).
     public private(set) var isListFocused = false
+    /// An editable element has focus now (a text field, a code editor, a
+    /// content-editable): bare keys are typing, not bindings.
+    public private(set) var isEditableFocused = false
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
     private weak var webView: WKWebView?
@@ -38,10 +41,17 @@ public final class PageInputReadiness {
         isListFocused = focused
     }
 
+    func reportEditing(_ focused: Bool) {
+        isEditableFocused = focused
+    }
+
     func report(_ ready: Bool) {
         let turnedReady = ready && !isReady
         isReady = ready
-        if !ready { isListFocused = false }
+        if !ready {
+            isListFocused = false
+            isEditableFocused = false
+        }
         if turnedReady { onReady?() }
     }
 
@@ -65,6 +75,7 @@ public final class PageInputReadiness {
           const post = (ready) => { try { window.webkit.messageHandlers.\(handlerName).postMessage(ready); } catch (_) {} };
           let sent = false;
           let list = false;
+          let editing = false;
           post(false);
           const isList = (el) => !!el && el !== document.body && (!!el.closest('[role=listbox],[role=menu],[role=menubar],[role=tree],[role=grid]')
             || el.getAttribute('role') === 'combobox' || el.hasAttribute('aria-activedescendant') || el.hasAttribute('aria-autocomplete'));
@@ -72,6 +83,8 @@ public final class PageInputReadiness {
             if (!sent && editable(document.activeElement)) { sent = true; post(true); }
             const now = isList(document.activeElement);
             if (now !== list) { list = now; post({ list: now }); }
+            const typing = editable(document.activeElement);
+            if (typing !== editing) { editing = typing; post({ editing: typing }); }
           };
           document.addEventListener('focusin', report, true);
           document.addEventListener('focusout', () => setTimeout(report, 0), true);
@@ -96,8 +109,9 @@ public final class PageInputReadiness {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            if let body = message.body as? [String: Any], let list = body["list"] as? Bool {
-                owner?.reportList(list)
+            if let body = message.body as? [String: Any] {
+                if let list = body["list"] as? Bool { owner?.reportList(list) }
+                if let editing = body["editing"] as? Bool { owner?.reportEditing(editing) }
                 return
             }
             let ready = message.body as? Bool == true

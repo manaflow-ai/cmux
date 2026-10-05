@@ -267,3 +267,60 @@ describe("bind, token, status report and events against a fake server (cloud-vec
     expect(ops[1].body).toEqual({ op: "cloud.vm.event.emit", params: { machine: bound.machine, kind: "agent.finished", at, data: { title: "Done", outcome: "success" } } });
   });
 });
+
+describe("per-clone machine-id and the daemon block of bind (coordinator 2026-10-05)", () => {
+  test("machine-id is regenerated when the MMDS instance id changes, kept otherwise, written to both machine-id files 0444", async () => {
+    const { ensureMachineId } = await import("../../images/cmux-vm/guest/vm-agent");
+    const store = new MemoryStore();
+    store.write("/etc/machine-id", "0123456789abcdef0123456789abcdef\n", 0o444);
+    let n = 0;
+    const random = () => (++n).toString(16).padStart(32, "a");
+    expect(ensureMachineId(store, "i-aaa", random)).toBe(true);
+    const first = store.read("/etc/machine-id")!;
+    expect(first).toMatch(/^[0-9a-f]{32}\n$/);
+    expect(first).not.toBe("0123456789abcdef0123456789abcdef\n");
+    expect(store.read("/var/lib/dbus/machine-id")).toBe(first);
+    expect(store.modeOf("/etc/machine-id")).toBe(0o444);
+    expect(ensureMachineId(store, "i-aaa", random)).toBe(false);
+    expect(store.read("/etc/machine-id")).toBe(first);
+    expect(ensureMachineId(store, "i-bbb", random)).toBe(true);
+    expect(store.read("/etc/machine-id")).not.toBe(first);
+  });
+
+  test("bind's daemon block comes from the live daemon identify: version + build, Cloud-gated capabilities, never empty, at most 32", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { createServer: createUnixServer } = await import("node:net");
+    const { resolveDaemonInfo } = await import("../../images/cmux-vm/guest/vm-agent");
+    const sock = `${mkdtempSync(path.join(tmpdir(), "d-"))}/cloud.sock`;
+    const caps = ["attach-identity-v1", "fs-v1", "loopback-forward-v1", ...Array.from({ length: 70 }, (_, i) => `cap-${i}-v1`)];
+    const daemonServer = createUnixServer((s) => {
+      s.on("data", (d) => {
+        const req = JSON.parse(String(d).trim()) as { id: number; cmd: string };
+        expect(req.cmd).toBe("identify");
+        s.end(`${JSON.stringify({ id: req.id, ok: true, data: { app: "cmux-tui", version: "0.41.0", build_commit: "0123456789abcdef0123", capabilities: caps } })}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => daemonServer.listen(sock, resolve));
+    const store = new MemoryStore();
+    store.write("/etc/cmux/daemon-socket", `${sock}\n`, 0o644);
+    const live = await resolveDaemonInfo(store, { activitySender: false });
+    expect(live.version).toBe("0.41.0+0123456789ab");
+    expect(live.capabilities).toEqual(["fs-v1", "loopback-forward-v1", "vm-agent-v1"]);
+    expect(live.capabilities).not.toContain("activity");
+    const withActivity = await resolveDaemonInfo(store, { activitySender: true });
+    expect(withActivity.capabilities).toContain("activity");
+    expect(withActivity.capabilities.length).toBeLessThanOrEqual(32);
+    await new Promise<void>((resolve) => daemonServer.close(() => resolve()));
+  });
+
+  test("no reachable daemon: the bake-recorded /etc/cmux/daemon.json, never an empty list", async () => {
+    const { resolveDaemonInfo } = await import("../../images/cmux-vm/guest/vm-agent");
+    const store = new MemoryStore();
+    store.write("/etc/cmux/daemon-socket", "/nonexistent/cloud.sock\n", 0o644);
+    store.write("/etc/cmux/daemon.json", JSON.stringify({ version: "0.40.0+aaaaaaaaaaaa", capabilities: ["loopback-forward-v1", "vm-agent-v1"] }), 0o644);
+    expect(await resolveDaemonInfo(store, { activitySender: false })).toEqual({ version: "0.40.0+aaaaaaaaaaaa", capabilities: ["loopback-forward-v1", "vm-agent-v1"] });
+    store.remove("/etc/cmux/daemon.json");
+    await expect(resolveDaemonInfo(store, { activitySender: false })).rejects.toThrow(/daemon/);
+  });
+});

@@ -76,6 +76,8 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let listFocus = "listFocus"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
     public static let pageID = "pageId"
+    /// The code editor page has the keyboard (``ActionContext/codeEditorFocused``).
+    public static let codeEditorFocusedKey = "codeEditorFocused"
     /// The kind of window the key goes to (``WindowKindValue``).
     public static let windowKind = "windowKind"
 
@@ -99,9 +101,11 @@ extension ActionContext {
         (.textBoxFocused, "textBoxFocused"), (.paletteOpen, "paletteOpen"), (.signedIn, "signedIn"),
         (.signedOut, "signedOut"), (.cloudWorkspace, "cloudWorkspace"), (.agentPaneFocused, "agentPaneFocused"),
         (.checkpointCaptureAvailable, "checkpointCaptureAvailable"), (.recordingShortcut, "recordingShortcut"),
-        (.omnibarFocused, "omnibarFocused"),
+        (.omnibarFocused, "omnibarFocused"), (.codeEditorFocused, "codeEditorFocused"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.
-    public nonisolated static let focusBits: ActionContext = [.terminalFocused, .browserFocused, .agentPaneFocused, .omnibarFocused]
+    public nonisolated static let focusBits: ActionContext = [
+        .terminalFocused, .browserFocused, .agentPaneFocused, .omnibarFocused, .diffViewerFocused, .codeEditorFocused,
+    ]
 }

@@ -7,6 +7,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : ",",
@@ -33,6 +36,9 @@
       "cli_name" : "app new-window",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -64,6 +70,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "newIncognitoWindow",
@@ -85,6 +94,9 @@
       "cli_name" : "app close-window",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -116,6 +128,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "minimizeWindow",
@@ -137,6 +152,9 @@
       "cli_name" : "app toggle-full-screen",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -168,6 +186,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "q",
@@ -196,6 +217,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "quitKeepSessions",
@@ -217,6 +241,9 @@
       "cli_name" : "app quit-end-sessions",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -242,6 +269,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "quitEndEverything",
@@ -263,6 +293,9 @@
       "cli_name" : "app show-hide-all-windows",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -295,6 +328,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "f",
@@ -324,6 +360,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.open",
@@ -345,6 +384,9 @@
       "cli_name" : "app command-palette",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -376,6 +418,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "n",
@@ -402,6 +447,9 @@
       "cli_name" : "app palette-select-previous-item",
       "context_menu" : "paletteInternal",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -432,6 +480,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "p",
@@ -460,6 +511,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openTaskManager",
@@ -481,6 +535,9 @@
       "cli_name" : "app sleepy-mode",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -506,6 +563,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "keepMacAwake",
@@ -527,6 +587,9 @@
       "cli_name" : "app show",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -552,6 +615,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "about",
@@ -573,6 +639,9 @@
       "cli_name" : "app kill-process",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -597,6 +666,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -625,6 +697,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -655,6 +730,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "o",
@@ -683,6 +761,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openFolderInVSCodeInline",
@@ -705,6 +786,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -735,6 +819,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "reopenClosedWorkspace",
@@ -756,6 +843,9 @@
       "cli_name" : "workspace next",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -787,6 +877,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "[",
@@ -816,6 +909,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "nextSidebarTabInGroup",
@@ -837,6 +933,9 @@
       "cli_name" : "workspace previous-in-group",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -861,6 +960,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -892,6 +994,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "]",
@@ -922,6 +1027,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.moveWorkspaceToTop",
@@ -943,6 +1051,9 @@
       "cli_name" : "workspace select-1-9",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -974,6 +1085,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "moveWorkspaceToWindow",
@@ -997,6 +1111,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "moveWorkspaceToNewWindow",
@@ -1019,6 +1136,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -1049,6 +1169,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.clearWorkspaceName",
@@ -1071,6 +1194,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -1101,6 +1227,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.clearWorkspaceDescription",
@@ -1123,6 +1252,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -1150,6 +1282,9 @@
       "cli_name" : "workspace cycle-status",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -1181,6 +1316,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.workspaceStatus",
@@ -1204,6 +1342,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.addWorkspaceChecklistItem",
@@ -1225,6 +1366,9 @@
       "cli_name" : "workspace toggle-checklist-item-complete",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -1255,6 +1399,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openWorkspaceTodoPane",
@@ -1277,6 +1424,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -1307,6 +1457,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.closeOtherWorkspaces",
@@ -1329,6 +1482,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1353,6 +1509,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.closeWorkspacesAbove",
@@ -1375,6 +1534,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1399,6 +1561,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.markWorkspaceRead",
@@ -1421,6 +1586,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1445,6 +1613,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.workspaceColor",
@@ -1467,6 +1638,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1491,6 +1665,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.resetWorkspaceColor",
@@ -1513,6 +1690,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1537,6 +1717,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "disconnectWorkspace",
@@ -1559,6 +1742,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1583,6 +1769,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "clearWorkspaceNotifications",
@@ -1605,6 +1794,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1629,6 +1821,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.copyWorkspaceID",
@@ -1651,6 +1846,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1675,6 +1873,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.copyWorkspaceLink",
@@ -1697,6 +1898,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1721,6 +1925,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.rename",
@@ -1743,6 +1950,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1767,6 +1977,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.markRead",
@@ -1789,6 +2002,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1813,6 +2029,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.clearNotifications",
@@ -1835,6 +2054,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -1859,6 +2081,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.delete",
@@ -1882,6 +2107,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.editConfig",
@@ -1904,6 +2132,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -1934,6 +2165,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.layout.open",
@@ -1955,6 +2189,9 @@
       "cli_name" : "workspace manage-layout-templates",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -1980,6 +2217,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openWorkspacePullRequests",
@@ -2001,6 +2241,9 @@
       "cli_name" : "workspace find-work",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -2026,6 +2269,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.newAbove",
@@ -2048,6 +2294,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2072,6 +2321,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.newAtTop",
@@ -2094,6 +2346,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2118,6 +2373,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.newInGroup",
@@ -2140,6 +2398,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2164,6 +2425,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.newOnMachine",
@@ -2186,6 +2450,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2210,6 +2477,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.duplicate",
@@ -2232,6 +2502,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2256,6 +2529,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.setIcon",
@@ -2278,6 +2554,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2302,6 +2581,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.moveToBottom",
@@ -2324,6 +2606,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2348,6 +2633,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.closeOthersInGroup",
@@ -2369,6 +2657,9 @@
       "cli_name" : "workspace first",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -2394,6 +2685,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.selectLast",
@@ -2415,6 +2709,9 @@
       "cli_name" : "workspace last-used",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -2446,6 +2743,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.sortByName",
@@ -2469,6 +2769,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.sortByLastUsed",
@@ -2491,6 +2794,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2516,6 +2822,9 @@
         "workspaceGroup",
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.collapseAll",
@@ -2540,6 +2849,9 @@
         "workspaceGroup",
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.expandAll",
@@ -2562,6 +2874,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2586,6 +2901,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.mergeInto",
@@ -2609,6 +2927,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "pane.moveToNewWorkspace",
@@ -2631,6 +2952,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -2661,6 +2985,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "g",
@@ -2690,6 +3017,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : ".",
@@ -2717,6 +3047,9 @@
       "cli_name" : "workspace-group next",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -2750,6 +3083,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "[",
@@ -2781,6 +3117,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "moveWorkspaceToGroup",
@@ -2803,6 +3142,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2827,6 +3169,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.setColor",
@@ -2848,6 +3193,9 @@
       "cli_name" : "workspace-group collapse",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -2873,6 +3221,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.expand",
@@ -2895,6 +3246,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2919,6 +3273,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.moveDown",
@@ -2941,6 +3298,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -2965,6 +3325,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.closeWorkspaces",
@@ -2987,6 +3350,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3011,6 +3377,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.color.grey",
@@ -3033,6 +3402,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3057,6 +3429,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.color.red",
@@ -3079,6 +3454,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3103,6 +3481,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.color.green",
@@ -3125,6 +3506,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3149,6 +3533,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.color.purple",
@@ -3172,6 +3559,9 @@
       "context_menus" : [
         "workspaceGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspaceGroup.color.cyan",
@@ -3194,6 +3584,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3219,6 +3612,9 @@
         "sidebarBackground",
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.new",
@@ -3241,6 +3637,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3265,6 +3664,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.newWorkspace",
@@ -3287,6 +3689,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3311,6 +3716,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.setColor",
@@ -3333,6 +3741,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3357,6 +3768,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.color.blue",
@@ -3379,6 +3793,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3403,6 +3820,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.color.yellow",
@@ -3425,6 +3845,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3449,6 +3872,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.color.pink",
@@ -3471,6 +3897,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3495,6 +3924,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.color.cyan",
@@ -3517,6 +3949,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3541,6 +3976,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.clearColor",
@@ -3563,6 +4001,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3587,6 +4028,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.clearIcon",
@@ -3609,6 +4053,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3633,6 +4080,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.delete",
@@ -3655,6 +4105,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3679,6 +4132,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.moveRight",
@@ -3702,6 +4158,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.move",
@@ -3723,6 +4182,9 @@
       "cli_name" : "space next",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -3754,6 +4216,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "[",
@@ -3781,6 +4246,9 @@
       "cli_name" : "space select-1-9",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -3813,6 +4281,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.switch",
@@ -3835,6 +4306,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3859,6 +4333,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.duplicateToSpace",
@@ -3881,6 +4358,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3905,6 +4385,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "space.setTheme",
@@ -3927,6 +4410,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3951,6 +4437,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.setTheme",
@@ -3973,6 +4462,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -3997,6 +4489,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.setTheme",
@@ -4019,6 +4514,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -4043,6 +4541,9 @@
       "context_menus" : [
         "pane",
         "terminalSelection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -4072,6 +4573,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "d",
@@ -4100,6 +4604,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -4132,6 +4639,9 @@
         "pane",
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "d",
@@ -4160,6 +4670,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -4191,6 +4704,9 @@
         "pane",
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "\r",
@@ -4219,6 +4735,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -4250,6 +4769,20 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "h",
@@ -4278,6 +4811,20 @@
       "context_menu" : "stepAdjust",
       "context_menus" : [
 
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -4308,6 +4855,20 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "k",
@@ -4337,6 +4898,20 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "j",
@@ -4364,6 +4939,9 @@
       "cli_name" : "pane focus-left",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4395,6 +4973,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "",
@@ -4422,6 +5003,9 @@
       "cli_name" : "pane focus-above",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4453,6 +5037,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "",
@@ -4482,6 +5069,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "focusPreviousPane",
@@ -4503,6 +5093,9 @@
       "cli_name" : "pane focus-next",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4527,6 +5120,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -4557,6 +5153,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.swapWithSession",
@@ -4578,6 +5177,9 @@
       "cli_name" : "pane increase-workspace-font-size",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4609,6 +5211,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "-",
@@ -4636,6 +5241,9 @@
       "cli_name" : "pane reset-workspace-font-size",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4667,6 +5275,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "c",
@@ -4694,6 +5305,9 @@
       "cli_name" : "pane canvas-overview",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4725,6 +5339,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "t",
@@ -4752,6 +5369,9 @@
       "cli_name" : "pane reveal-focused-on-canvas",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4783,6 +5403,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "=",
@@ -4810,6 +5433,9 @@
       "cli_name" : "pane canvas-zoom-out",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4841,6 +5467,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "0",
@@ -4869,6 +5498,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "canvasAlignLeft",
@@ -4890,6 +5522,9 @@
       "cli_name" : "pane align-right",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4915,6 +5550,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "canvasAlignTop",
@@ -4936,6 +5574,9 @@
       "cli_name" : "pane align-bottom",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -4961,6 +5602,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "canvasEqualizeWidths",
@@ -4982,6 +5626,9 @@
       "cli_name" : "pane equalize-heights",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5007,6 +5654,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "canvasDistributeHorizontally",
@@ -5028,6 +5678,9 @@
       "cli_name" : "pane distribute-vertically",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5053,6 +5706,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.newSimulatorPane",
@@ -5074,6 +5730,9 @@
       "cli_name" : "pane simulator-home",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5105,6 +5764,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "",
@@ -5133,6 +5795,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "",
@@ -5159,6 +5824,9 @@
       "cli_name" : "pane simulator-toggle-appearance",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5190,6 +5858,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "k",
@@ -5218,6 +5889,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openFilesPane",
@@ -5239,6 +5913,9 @@
       "cli_name" : "pane open-find-as",
       "context_menu" : "unimplemented",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5264,6 +5941,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openVaultPane",
@@ -5285,6 +5965,9 @@
       "cli_name" : "pane open-cloud-as",
       "context_menu" : "unimplemented",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5310,6 +5993,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "file.open",
@@ -5332,6 +6018,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5361,6 +6050,9 @@
       "context_menus" : [
         "newTab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "newTab.page",
@@ -5384,6 +6076,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "newTab.submit",
@@ -5405,6 +6100,9 @@
       "cli_name" : "tab focus-location",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5436,6 +6134,9 @@
         "tab",
         "newTab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "t",
@@ -5464,6 +6165,9 @@
       "cli_name" : "tab new-browser",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -5495,6 +6199,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "openBrowser.webkit",
@@ -5519,6 +6226,9 @@
         "tab",
         "newTab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "openBrowser.chromium",
@@ -5541,6 +6251,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5569,6 +6282,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5599,6 +6315,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "closeTabsToLeft",
@@ -5622,6 +6341,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "closeTabsToRight",
@@ -5644,6 +6366,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5673,6 +6398,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tab.focus",
@@ -5696,6 +6424,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.clearTabName",
@@ -5718,6 +6449,54 @@
       "context_menu" : "focusMove",
       "context_menus" : [
 
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind == page"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind == page"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5748,6 +6527,55 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind == page"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind == page"
+        }
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "[",
@@ -5776,6 +6604,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5807,6 +6638,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "]",
@@ -5836,6 +6670,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5867,6 +6704,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "]",
@@ -5896,6 +6736,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5927,6 +6770,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "",
@@ -5956,6 +6802,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5987,6 +6836,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "",
@@ -6015,6 +6867,9 @@
       "cli_name" : "tab select-1-9",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -6046,6 +6901,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "a",
@@ -6075,6 +6933,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.moveTabToNewWorkspace",
@@ -6097,6 +6958,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6121,6 +6985,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.toggleTabUnread",
@@ -6143,6 +7010,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6167,6 +7037,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "duplicateTab",
@@ -6189,6 +7062,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6213,6 +7089,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "toggleTabAudioMute",
@@ -6236,6 +7115,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "disconnectRemoteTab",
@@ -6258,6 +7140,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6283,6 +7168,9 @@
         "pane",
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.copyPaneID",
@@ -6307,6 +7195,9 @@
         "pane",
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.copyPaneLink",
@@ -6329,6 +7220,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6353,6 +7247,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.copySurfaceLink",
@@ -6374,6 +7271,9 @@
       "cli_name" : "tab reopen-last-closed",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -6405,6 +7305,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tab.showResources",
@@ -6428,6 +7331,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.showResources",
@@ -6449,6 +7355,9 @@
       "cli_name" : "home show",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -6474,6 +7383,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.attachFiles",
@@ -6496,6 +7408,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6520,6 +7435,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.addTab",
@@ -6542,6 +7460,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6566,6 +7487,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.rename",
@@ -6588,6 +7512,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6612,6 +7539,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.toggleCollapsed",
@@ -6633,6 +7563,9 @@
       "cli_name" : "tab-group collapse",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -6658,6 +7591,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.expand",
@@ -6680,6 +7616,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6704,6 +7643,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.close",
@@ -6726,6 +7668,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6750,6 +7695,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.moveToNewColumn",
@@ -6772,6 +7720,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6796,6 +7747,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.moveToWorkspace",
@@ -6818,6 +7772,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6842,6 +7799,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.newTab",
@@ -6864,6 +7824,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6888,6 +7851,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.unsave",
@@ -6909,6 +7875,9 @@
       "cli_name" : "tab-group delete-saved",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -6934,6 +7903,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.reopenSaved",
@@ -6956,6 +7928,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -6980,6 +7955,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.color.blue",
@@ -7002,6 +7980,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7026,6 +8007,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.color.yellow",
@@ -7048,6 +8032,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7072,6 +8059,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.color.pink",
@@ -7094,6 +8084,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7118,6 +8111,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.color.cyan",
@@ -7140,6 +8136,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7165,6 +8164,9 @@
         "screen",
         "screenBar"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.new",
@@ -7189,6 +8191,9 @@
         "screenBar",
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.newWith",
@@ -7211,6 +8216,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7235,6 +8243,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.close",
@@ -7257,6 +8268,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7281,6 +8295,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.closeToRight",
@@ -7303,6 +8320,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7327,6 +8347,9 @@
       "context_menus" : [
         "screenBar"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.reopenClosed",
@@ -7348,6 +8371,9 @@
       "cli_name" : "screen next",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -7373,6 +8399,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.previous",
@@ -7394,6 +8423,9 @@
       "cli_name" : "screen select",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -7419,6 +8451,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.selectLast",
@@ -7441,6 +8476,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7465,6 +8503,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.clearName",
@@ -7487,6 +8528,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7511,6 +8555,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.clearColor",
@@ -7533,6 +8580,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7557,6 +8607,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.clearIcon",
@@ -7579,6 +8632,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7603,6 +8659,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.color.grey",
@@ -7625,6 +8684,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7649,6 +8711,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.color.red",
@@ -7671,6 +8736,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7695,6 +8763,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.color.green",
@@ -7717,6 +8788,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7741,6 +8815,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.color.purple",
@@ -7763,6 +8840,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7787,6 +8867,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.color.orange",
@@ -7809,6 +8892,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7833,6 +8919,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.moveRight",
@@ -7855,6 +8944,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7879,6 +8971,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screen.moveToNewWorkspace",
@@ -7901,6 +8996,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7925,6 +9023,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.create",
@@ -7947,6 +9048,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -7971,6 +9075,9 @@
       "context_menus" : [
         "screen"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.removeScreen",
@@ -7993,6 +9100,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8017,6 +9127,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.rename",
@@ -8039,6 +9152,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8063,6 +9179,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.toggleCollapsed",
@@ -8084,6 +9203,9 @@
       "cli_name" : "screen-group collapse",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8109,6 +9231,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.expand",
@@ -8131,6 +9256,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8155,6 +9283,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.close",
@@ -8177,6 +9308,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8201,6 +9335,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.moveRight",
@@ -8223,6 +9360,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8247,6 +9387,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.moveToNewWorkspace",
@@ -8269,6 +9412,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8293,6 +9439,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.save",
@@ -8316,6 +9465,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.unsave",
@@ -8337,6 +9489,9 @@
       "cli_name" : "screen-group reopen-saved",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8362,6 +9517,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.deleteSaved",
@@ -8384,6 +9542,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8408,6 +9569,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.color.blue",
@@ -8430,6 +9594,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8454,6 +9621,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.color.yellow",
@@ -8476,6 +9646,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8500,6 +9673,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.color.pink",
@@ -8522,6 +9698,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "screenGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -8546,6 +9725,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.color.cyan",
@@ -8569,6 +9751,9 @@
       "context_menus" : [
         "screenGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "screenGroup.color.orange",
@@ -8590,6 +9775,9 @@
       "cli_name" : "terminal toggle-copy-mode",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8621,6 +9809,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "a",
@@ -8650,6 +9841,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.terminalToggleTextBoxInput",
@@ -8671,6 +9865,9 @@
       "cli_name" : "terminal cycle-textbox-submit-action",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8699,6 +9896,9 @@
       "cli_name" : "terminal attach-file-to-textbox",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8731,6 +9931,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sendCtrlFToTerminal",
@@ -8752,6 +9955,9 @@
       "cli_name" : "terminal paste-last-screenshot",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8777,6 +9983,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.keep",
@@ -8799,6 +10008,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "terminalSelection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -8829,6 +10041,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "f",
@@ -8855,6 +10070,9 @@
       "cli_name" : "terminal find-in-directory",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8886,6 +10104,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "g",
@@ -8912,6 +10133,9 @@
       "cli_name" : "terminal find-previous",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8941,6 +10165,9 @@
       "cli_name" : "terminal hide-find-bar",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -8973,6 +10200,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "e",
@@ -9000,6 +10230,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "terminalSelection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9029,6 +10262,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "v",
@@ -9057,6 +10293,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "resetTerminal",
@@ -9080,6 +10319,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "reconnectPane",
@@ -9101,6 +10343,9 @@
       "cli_name" : "terminal set-resume-command",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9126,6 +10371,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "resumeCommandEdit",
@@ -9147,6 +10395,9 @@
       "cli_name" : "terminal clear-resume-command",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9172,6 +10423,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.terminalOpenDirectory",
@@ -9194,6 +10448,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9223,6 +10480,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "]",
@@ -9251,6 +10511,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "r",
@@ -9278,6 +10541,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9308,6 +10574,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.openInChromium",
@@ -9329,6 +10598,9 @@
       "cli_name" : "browser open-in-webkit",
       "context_menu" : "secondaryEngine",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9354,6 +10626,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "focusBrowserAddressBar",
@@ -9375,6 +10650,9 @@
       "cli_name" : "browser zoom-in",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9405,6 +10683,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "-",
@@ -9431,6 +10712,9 @@
       "cli_name" : "browser actual-size",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9461,6 +10745,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "=",
@@ -9487,6 +10774,9 @@
       "cli_name" : "browser markdown-zoom-out",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9517,6 +10807,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "0",
@@ -9544,6 +10837,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9574,6 +10870,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "j",
@@ -9602,6 +10901,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9632,6 +10934,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "\r",
@@ -9660,6 +10965,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9691,6 +10999,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "toggleReactGrab",
@@ -9712,6 +11023,9 @@
       "cli_name" : "browser link-hints",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9742,6 +11056,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "f",
@@ -9769,6 +11086,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9798,6 +11118,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -9829,6 +11152,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.browserOpenDefault",
@@ -9850,6 +11176,9 @@
       "cli_name" : "browser toggle-omnibar",
       "context_menu" : "unimplemented",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9875,6 +11204,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.browserClearHistory",
@@ -9896,6 +11228,9 @@
       "cli_name" : "browser import-data",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9921,6 +11256,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "password.importCSV",
@@ -9942,6 +11280,9 @@
       "cli_name" : "action passwords-open",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -9967,6 +11308,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.enableBrowser",
@@ -9988,6 +11332,9 @@
       "cli_name" : "browser disable",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10013,6 +11360,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "openLinkInDefaultBrowser",
@@ -10035,6 +11385,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -10059,6 +11412,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserScreenshotSection",
@@ -10082,6 +11438,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserTheme",
@@ -10103,6 +11462,9 @@
       "cli_name" : "browser save-file",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10133,6 +11495,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "z",
@@ -10161,6 +11526,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "filePreviewOpenWith",
@@ -10182,6 +11550,9 @@
       "cli_name" : "browser open-file-externally",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10207,6 +11578,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "filePreviewRevealInFinder",
@@ -10228,6 +11602,9 @@
       "cli_name" : "browser diff-next-line",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10258,6 +11635,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "k",
@@ -10284,6 +11664,9 @@
       "cli_name" : "browser diff-half-page-down",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10314,6 +11697,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "u",
@@ -10340,6 +11726,9 @@
       "cli_name" : "browser diff-next-hunk",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10370,6 +11759,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "p",
@@ -10396,6 +11788,9 @@
       "cli_name" : "browser diff-go-to-bottom",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10426,6 +11821,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "diffViewerGoToTop",
@@ -10447,6 +11845,9 @@
       "cli_name" : "browser diff-search",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10477,6 +11878,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "diffViewerNextFile",
@@ -10498,6 +11902,9 @@
       "cli_name" : "browser diff-previous-file",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10523,6 +11930,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.vscodeServeWebStop",
@@ -10544,6 +11954,9 @@
       "cli_name" : "browser restart-vs-code-inline-server",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10569,6 +11982,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.allowAgentWithExtensions",
@@ -10590,6 +12006,9 @@
       "cli_name" : "browser choose-profile",
       "context_menu" : "guiOnly",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10615,6 +12034,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.overflow.menu",
@@ -10636,6 +12058,9 @@
       "cli_name" : "action omnibar-open-in-background-tab",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10664,6 +12089,9 @@
       "cli_name" : "action omnibar-open-in-foreground-tab",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -10695,6 +12123,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : ".",
@@ -10722,6 +12153,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -10752,6 +12186,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "g",
@@ -10775,11 +12212,92 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-download-open-blocked-site-settings",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.download.openBlockedSiteSettings",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Site Settings of Blocked Download",
+      "title_key" : "action.browser.download.openBlockedSiteSettings",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action browser-prompt-allow",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.prompt.allow",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Allow Site Request",
+      "title_key" : "action.browser.prompt.allow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action browser-prompt-block",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.prompt.block",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Block Site Request",
+      "title_key" : "action.browser.prompt.block",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "browser open-link-in-new-tab",
       "context_menu" : "offered",
       "context_menus" : [
         "browserLink"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -10804,6 +12322,9 @@
       "context_menus" : [
         "browserLink"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.link.openInNewWindow",
@@ -10826,6 +12347,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserLink"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -10850,6 +12374,9 @@
       "context_menus" : [
         "browserLink"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.link.openInNewWorkspace",
@@ -10872,6 +12399,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserLink"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -10896,6 +12426,9 @@
       "context_menus" : [
         "browserLink"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.link.openInIncognitoWindow",
@@ -10918,6 +12451,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserLink"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -10942,6 +12478,9 @@
       "context_menus" : [
         "browserLink"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.link.copy",
@@ -10964,6 +12503,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserLink"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -10988,6 +12530,9 @@
       "context_menus" : [
         "browserImage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.image.openInNewTab",
@@ -11010,6 +12555,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserImage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11034,6 +12582,9 @@
       "context_menus" : [
         "browserImage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.image.copy",
@@ -11056,6 +12607,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserImage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11080,6 +12634,9 @@
       "context_menus" : [
         "browserSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.selection.copy",
@@ -11102,6 +12659,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserSelection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11126,6 +12686,9 @@
       "context_menus" : [
         "browserSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.selection.lookUp",
@@ -11147,6 +12710,9 @@
       "cli_name" : "browser open-diff-viewer",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -11179,6 +12745,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openDirectoryDiffViewer",
@@ -11200,6 +12769,9 @@
       "cli_name" : "browser open-markdown-file",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -11224,6 +12796,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -11254,6 +12829,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.pageInfo.connection",
@@ -11276,6 +12854,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11300,6 +12881,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.pageInfo.cookies",
@@ -11322,6 +12906,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11346,6 +12933,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.pageInfo.deleteSiteData",
@@ -11368,6 +12958,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11392,6 +12985,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.pageInfo.resetPermissions",
@@ -11414,6 +13010,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11438,6 +13037,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.pageInfo.aboutThisPage",
@@ -11460,6 +13062,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11484,6 +13089,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.extensions.manage",
@@ -11506,6 +13114,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11530,6 +13141,9 @@
       "context_menus" : [
         "browserPage"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.extensions.loadUnpacked",
@@ -11551,6 +13165,9 @@
       "cli_name" : "extension run",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -11576,6 +13193,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.extension.options",
@@ -11597,6 +13217,9 @@
       "cli_name" : "extension pin",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -11622,6 +13245,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.extension.unpin",
@@ -11643,6 +13269,9 @@
       "cli_name" : "extension enable",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -11668,6 +13297,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.extension.disable",
@@ -11689,6 +13321,9 @@
       "cli_name" : "extension move",
       "context_menu" : "dragGesture",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -11714,6 +13349,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.extension.reload",
@@ -11735,6 +13373,9 @@
       "cli_name" : "extension remove",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -11760,6 +13401,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.extension.command",
@@ -11782,6 +13426,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserProfile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11806,6 +13453,9 @@
       "context_menus" : [
         "browserProfile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.rename",
@@ -11828,6 +13478,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserProfile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11852,6 +13505,9 @@
       "context_menus" : [
         "browserProfile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.clearColor",
@@ -11874,6 +13530,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserProfile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11898,6 +13557,9 @@
       "context_menus" : [
         "browserProfile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.clearIcon",
@@ -11920,6 +13582,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserProfile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11945,6 +13610,9 @@
         "newTab",
         "browserProfile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.newTab",
@@ -11967,6 +13635,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "browserProfile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -11991,6 +13662,9 @@
       "context_menus" : [
         "browserProfile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.newWorkspace",
@@ -12012,6 +13686,9 @@
       "cli_name" : "browser-profile open-link",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12037,6 +13714,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.setWorkspaceDefault",
@@ -12059,6 +13739,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -12083,6 +13766,9 @@
       "context_menus" : [
         "profile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.setSpaceDefault",
@@ -12105,6 +13791,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -12129,6 +13818,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.moveTab",
@@ -12151,6 +13843,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -12175,6 +13870,9 @@
       "context_menus" : [
         "browserProfile"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browserProfile.manageExtensions",
@@ -12197,6 +13895,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -12224,6 +13925,9 @@
       "cli_name" : "sidebar toggle-right",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12255,6 +13959,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "e",
@@ -12284,6 +13991,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "switchRightSidebarToFiles",
@@ -12305,6 +14015,9 @@
       "cli_name" : "sidebar show-find",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12330,6 +14043,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "switchRightSidebarToSessions",
@@ -12351,6 +14067,9 @@
       "cli_name" : "sidebar show-feed",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12376,6 +14095,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "switchRightSidebarToDock",
@@ -12399,6 +14121,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "switchRightSidebarToMachines",
@@ -12420,6 +14145,9 @@
       "cli_name" : "sidebar open-selection",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12450,6 +14178,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "",
@@ -12478,6 +14209,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "fileExplorerOpenInCmux",
@@ -12499,6 +14233,9 @@
       "cli_name" : "sidebar reveal-in-finder",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12524,6 +14261,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "fileExplorerCopyPath",
@@ -12545,6 +14285,9 @@
       "cli_name" : "sidebar copy-relative-path",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12570,6 +14313,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "fileExplorerOpenWith",
@@ -12591,6 +14337,9 @@
       "cli_name" : "sidebar focus-session",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12616,6 +14365,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "vaultOpenSession",
@@ -12637,6 +14389,9 @@
       "cli_name" : "sidebar resume-session-in-new-workspace",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12662,6 +14417,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "vaultCopyResumeCommand",
@@ -12683,6 +14441,9 @@
       "cli_name" : "sidebar open-session-pull-request",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12708,6 +14469,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "checklistEditItem",
@@ -12729,6 +14493,9 @@
       "cli_name" : "sidebar mark-checklist-item-in-progress",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12754,6 +14521,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "checklistCompleteItem",
@@ -12775,6 +14545,9 @@
       "cli_name" : "sidebar remove-checklist-item",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12800,6 +14573,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "checklistOpenAsPane",
@@ -12821,6 +14597,9 @@
       "cli_name" : "sidebar attach-images-to-checklist-item",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12846,6 +14625,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.toggleMatchTerminalBackground",
@@ -12867,6 +14649,9 @@
       "cli_name" : "sidebar enable-minimal-mode",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12892,6 +14677,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.disableMinimalMode",
@@ -12913,6 +14701,9 @@
       "cli_name" : "feed show",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12944,6 +14735,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "showNotifications",
@@ -12965,6 +14759,9 @@
       "cli_name" : "notification jump-to-latest-unread",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -12996,6 +14793,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "u",
@@ -13023,6 +14823,9 @@
       "cli_name" : "notification mark-oldest-unread-and-jump-next",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13054,6 +14857,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "markAllNotificationsRead",
@@ -13075,6 +14881,9 @@
       "cli_name" : "notification clear-all",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13100,6 +14909,9 @@
       "context_menus" : [
         "notification"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "notificationOpen",
@@ -13122,6 +14934,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "notification"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -13146,6 +14961,9 @@
       "context_menus" : [
         "notification"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "notificationToggleRead",
@@ -13168,6 +14986,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "notification"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -13192,6 +15013,9 @@
       "context_menus" : [
         "workspaceRow"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "notifications.toggleWorkspaceMute",
@@ -13213,6 +15037,9 @@
       "cli_name" : "notification toggle-banners",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13238,6 +15065,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "notifications.dismissal.keystroke",
@@ -13259,6 +15089,9 @@
       "cli_name" : "notification clear-on-focus",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13284,6 +15117,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "notifications.dismissal.click",
@@ -13305,6 +15141,9 @@
       "cli_name" : "notification clear-when-opened",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13330,6 +15169,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "notifications.dismissal.timeout",
@@ -13351,6 +15193,9 @@
       "cli_name" : "notification never-clear-automatically",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13375,6 +15220,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "newTab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : [
         {
@@ -13417,6 +15265,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : " ",
@@ -13445,6 +15296,9 @@
       "cli_name" : "agent toggle-dictation",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13476,6 +15330,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "agentPane.continueIn",
@@ -13499,6 +15356,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "agentPane.createCheckpoint",
@@ -13520,6 +15380,9 @@
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13548,6 +15411,9 @@
       "cli_name" : "action agent-pane-permission-allow-once",
       "context_menu" : "guiOnly",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13579,6 +15445,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "2",
@@ -13606,6 +15475,9 @@
       "cli_name" : "action agent-pane-permission-deny",
       "context_menu" : "guiOnly",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13637,6 +15509,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "4",
@@ -13666,6 +15541,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "agentPane.permission.retry",
@@ -13687,6 +15565,9 @@
       "cli_name" : "action agent-pane-permission-revoke",
       "context_menu" : "guiOnly",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13712,6 +15593,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "agentPane.permission.refresh",
@@ -13733,6 +15617,9 @@
       "cli_name" : "agent open-terminal-as-chat",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13758,6 +15645,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.launchClaudeTeams",
@@ -13779,6 +15669,9 @@
       "cli_name" : "agent launch-codex-teams",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13804,6 +15697,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.forkAgentConversationRight",
@@ -13826,6 +15722,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "terminalSelection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -13850,6 +15749,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.forkAgentConversationTop",
@@ -13872,6 +15774,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "terminalSelection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -13896,6 +15801,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.forkAgentConversationNewTab",
@@ -13919,6 +15827,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.forkAgentConversationNewWorkspace",
@@ -13940,6 +15851,9 @@
       "cli_name" : "agent computer-use-setup",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -13965,6 +15879,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.computerUse.accessibility",
@@ -13986,6 +15903,9 @@
       "cli_name" : "agent grant-screen-recording-access",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -14011,6 +15931,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "agentActivity.open",
@@ -14032,6 +15955,9 @@
       "cli_name" : "agent focus-computer-use",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -14057,6 +15983,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "computerUseFocusCallingTerminal",
@@ -14078,6 +16007,9 @@
       "cli_name" : "agent stop-computer-use",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -14102,6 +16034,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -14132,6 +16067,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "newCloudMachine",
@@ -14154,6 +16092,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14178,6 +16119,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.cloud.snapshot",
@@ -14200,6 +16144,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14224,6 +16171,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.cloud.promoteTemplate",
@@ -14246,6 +16196,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14270,6 +16223,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.cloud.ports",
@@ -14292,6 +16248,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14316,6 +16275,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.cloud.handoff",
@@ -14339,6 +16301,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudSSH",
@@ -14360,6 +16325,9 @@
       "cli_name" : "cloud exec",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -14385,6 +16353,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudFilesList",
@@ -14407,6 +16378,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14431,6 +16405,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudFileWrite",
@@ -14453,6 +16430,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14477,6 +16457,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudFileRemove",
@@ -14499,6 +16482,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14523,6 +16509,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudPrepareSCP",
@@ -14545,6 +16534,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14569,6 +16561,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudTunnelDetach",
@@ -14591,6 +16586,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14615,6 +16613,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudNetworkList",
@@ -14637,6 +16638,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14661,6 +16665,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudFirewallGet",
@@ -14683,6 +16690,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14707,6 +16717,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudFirewallDelete",
@@ -14729,6 +16742,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14753,6 +16769,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudOpenMachine",
@@ -14775,6 +16794,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14799,6 +16821,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudKillMachine",
@@ -14821,6 +16846,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14845,6 +16873,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudResumeMachine",
@@ -14867,6 +16898,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14891,6 +16925,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudCopyPort",
@@ -14913,6 +16950,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14937,6 +16977,9 @@
       "context_menus" : [
         "cloudMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudResizeMachine",
@@ -14959,6 +17002,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "cloudMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -14983,6 +17029,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "cloudDiagnostics",
@@ -15004,6 +17053,9 @@
       "cli_name" : "cloud team-picker",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15036,6 +17088,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.auth.signIn",
@@ -15057,6 +17112,9 @@
       "cli_name" : "cloud sign-out",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15082,6 +17140,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.mobileConnect",
@@ -15103,6 +17164,9 @@
       "cli_name" : "accounts show",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15128,6 +17192,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "accounts.refresh",
@@ -15149,6 +17216,9 @@
       "cli_name" : "accounts reauth",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15174,6 +17244,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "accounts.connect",
@@ -15195,6 +17268,9 @@
       "cli_name" : "accounts remove",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15220,6 +17296,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "remote.connect",
@@ -15242,6 +17321,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sshMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -15266,6 +17348,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "remote.openTerminalHere",
@@ -15288,6 +17373,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sshMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -15312,6 +17400,9 @@
       "context_menus" : [
         "sshMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "remote.disconnect",
@@ -15334,6 +17425,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sshMachine"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -15358,6 +17452,9 @@
       "context_menus" : [
         "sshMachine"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "remote.forget",
@@ -15379,6 +17476,9 @@
       "cli_name" : "settings reload-configuration",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15410,6 +17510,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openCmuxSettingsFile",
@@ -15431,6 +17534,9 @@
       "cli_name" : "settings open-ghostty-config",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15456,6 +17562,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.makeDefaultBrowser",
@@ -15477,6 +17586,9 @@
       "cli_name" : "settings make-default-terminal",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15502,6 +17614,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.toggleSetting",
@@ -15525,6 +17640,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.shortcutKeymap",
@@ -15546,6 +17664,9 @@
       "cli_name" : "settings search-keyboard-shortcuts",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : [
@@ -15584,6 +17705,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "keybindings.open",
@@ -15605,6 +17729,9 @@
       "cli_name" : "debug open-settings",
       "context_menu" : "devOnly",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15630,6 +17757,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.installCLI",
@@ -15651,6 +17781,9 @@
       "cli_name" : "settings uninstall-cli-from-path",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15676,6 +17809,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.restartSocketListener",
@@ -15697,6 +17833,9 @@
       "cli_name" : "settings check-for-updates",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15722,6 +17861,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "updates.whatsNew",
@@ -15743,6 +17885,9 @@
       "cli_name" : "settings show-announcements",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15768,6 +17913,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "announcements.hide",
@@ -15789,6 +17937,9 @@
       "cli_name" : "settings install-available-update",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15814,6 +17965,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.attemptUpdate",
@@ -15835,6 +17989,9 @@
       "cli_name" : "settings switch-update-channel",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15860,6 +18017,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.pro.upgrade",
@@ -15881,6 +18041,9 @@
       "cli_name" : "settings onboarding",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15906,6 +18069,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.importClassicSessions",
@@ -15927,6 +18093,9 @@
       "cli_name" : "settings onboarding-gallery",
       "context_menu" : "devOnly",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15952,6 +18121,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sendFeedback",
@@ -15973,6 +18145,9 @@
       "cli_name" : "settings show-crash-logs",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -15998,6 +18173,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "help.featureFlags",
@@ -16019,6 +18197,9 @@
       "cli_name" : "settings documentation",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16044,6 +18225,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.density.compact",
@@ -16065,6 +18249,9 @@
       "cli_name" : "settings use-comfortable-density",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16090,6 +18277,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.animationSpeed.fast",
@@ -16111,6 +18301,9 @@
       "cli_name" : "settings use-normal-animations",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16136,6 +18329,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.animationSpeed.off",
@@ -16157,6 +18353,9 @@
       "cli_name" : "settings use-chromium-by-default",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16182,6 +18381,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.defaultEngine.webkit",
@@ -16203,6 +18405,9 @@
       "cli_name" : "settings toggle-pane-border",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16228,6 +18433,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.panePadding.toggle",
@@ -16249,6 +18457,9 @@
       "cli_name" : "settings toggle-pane-corners",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16274,6 +18485,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "layout.centerFocusedColumn.never",
@@ -16295,6 +18509,9 @@
       "cli_name" : "settings always-center-focused-column",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16320,6 +18537,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "layout.centerFocusedColumn.onOverflow",
@@ -16341,6 +18561,9 @@
       "cli_name" : "settings toggle-focus-ring",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16366,6 +18589,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "focusRing.style.ring",
@@ -16387,6 +18613,9 @@
       "cli_name" : "settings use-glow-focus-style",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16412,6 +18641,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "focusRing.singlePane.toggle",
@@ -16433,6 +18665,9 @@
       "cli_name" : "settings toggle-thick-pane-borders",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16458,6 +18693,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.paneBorderColor.reset",
@@ -16479,6 +18717,9 @@
       "cli_name" : "settings use-minimal-titlebar",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16504,6 +18745,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.titlebar.standard",
@@ -16525,6 +18769,9 @@
       "cli_name" : "settings customize-appearance",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16550,6 +18797,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.interfaceSize.increase",
@@ -16571,6 +18821,9 @@
       "cli_name" : "settings decrease-interface-size",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16596,6 +18849,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appearance.interfaceSize.reset",
@@ -16617,6 +18873,9 @@
       "cli_name" : "settings turn-off-tab-hibernation",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16642,6 +18901,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.hibernation.moderate",
@@ -16663,6 +18925,9 @@
       "cli_name" : "settings use-aggressive-tab-hibernation",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -16688,6 +18953,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "hibernateTab",
@@ -16710,6 +18978,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -16734,6 +19005,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tab.moveToNewSplit",
@@ -16756,6 +19030,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -16780,6 +19057,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tab.moveToWorkspace",
@@ -16802,6 +19082,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -16826,6 +19109,9 @@
       "context_menus" : [
         "tabGroup"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tabGroup.moveLeft",
@@ -16848,6 +19134,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "tabGroup"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -16873,6 +19162,9 @@
         "pane",
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "splitLeft",
@@ -16897,6 +19189,9 @@
         "pane",
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "splitUp",
@@ -16919,6 +19214,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -16943,6 +19241,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "swapPaneRight",
@@ -16965,6 +19266,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -16989,6 +19293,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "swapPaneDown",
@@ -17011,6 +19318,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -17035,6 +19345,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "renamePane",
@@ -17056,6 +19369,9 @@
       "cli_name" : "column focus-left",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17081,6 +19397,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.focusRight",
@@ -17103,6 +19422,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -17127,6 +19449,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.moveRight",
@@ -17149,6 +19474,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -17173,6 +19501,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.widthOneThird",
@@ -17195,6 +19526,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -17219,6 +19553,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.widthTwoThirds",
@@ -17242,6 +19579,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.widthFull",
@@ -17263,6 +19603,9 @@
       "cli_name" : "column cycle-width",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17288,6 +19631,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.cycleWidthBack",
@@ -17310,6 +19656,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -17340,6 +19689,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.dockLeft",
@@ -17362,6 +19714,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -17386,6 +19741,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.dockTop",
@@ -17408,6 +19766,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -17432,6 +19793,9 @@
       "context_menus" : [
         "pane"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "column.float",
@@ -17454,6 +19818,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -17478,6 +19845,9 @@
       "context_menus" : [
         "tab"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tab.moveToNewDockColumn",
@@ -17499,6 +19869,9 @@
       "cli_name" : "settings toggle-column-scrollbar",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17524,6 +19897,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.selectAll",
@@ -17547,6 +19923,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.clear",
@@ -17568,6 +19947,9 @@
       "cli_name" : "terminal increase-font-size",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17593,6 +19975,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.decreaseFontSize",
@@ -17614,6 +19999,9 @@
       "cli_name" : "terminal reset-font-size",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17639,6 +20027,9 @@
       "context_menus" : [
         "terminalSelection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.sendText",
@@ -17660,6 +20051,9 @@
       "cli_name" : "terminal scroll-page-up",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17685,6 +20079,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.scrollPageDown",
@@ -17706,6 +20103,9 @@
       "cli_name" : "terminal scroll-to-top",
       "context_menu" : "stepAdjust",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17731,6 +20131,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "terminal.scrollToBottom",
@@ -17752,6 +20155,9 @@
       "cli_name" : "terminal scroll-to-selection",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : [
@@ -17790,6 +20196,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "-",
@@ -17816,6 +20225,9 @@
       "cli_name" : "history forward",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17847,6 +20259,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "focusHistoryLast",
@@ -17868,6 +20283,9 @@
       "cli_name" : "history locations",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17893,6 +20311,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "recentlyClosed",
@@ -17914,6 +20335,9 @@
       "cli_name" : "history commands",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17939,6 +20363,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "history.show",
@@ -17960,6 +20387,9 @@
       "cli_name" : "browser show-history",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -17990,6 +20420,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "history.search",
@@ -18011,6 +20444,9 @@
       "cli_name" : "history resume",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -18036,6 +20472,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "history.reopen",
@@ -18057,6 +20496,9 @@
       "cli_name" : "action history-go-to",
       "context_menu" : "focusMove",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -18082,6 +20524,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "history.open",
@@ -18105,6 +20550,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "history.clear",
@@ -18126,6 +20574,9 @@
       "cli_name" : "layout undo",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -18153,6 +20604,9 @@
         "bookmark",
         "bookmarksBar"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.addPage",
@@ -18177,6 +20631,9 @@
         "bookmarksBar",
         "bookmark"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.addAllTabs",
@@ -18198,6 +20655,9 @@
       "cli_name" : "bookmark add",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -18224,6 +20684,9 @@
         "bookmark",
         "bookmarksBar"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.newFolder",
@@ -18246,6 +20709,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "bookmark"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18270,6 +20736,9 @@
       "context_menus" : [
         "bookmark"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.openInNewTab",
@@ -18292,6 +20761,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "bookmark"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18316,6 +20788,9 @@
       "context_menus" : [
         "bookmark"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.openAll",
@@ -18339,6 +20814,9 @@
       "context_menus" : [
         "bookmark"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.edit",
@@ -18360,6 +20838,9 @@
       "cli_name" : "bookmark move",
       "context_menu" : "dragGesture",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -18385,6 +20866,9 @@
       "context_menus" : [
         "bookmark"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.remove",
@@ -18408,6 +20892,9 @@
       "context_menus" : [
         "bookmark",
         "bookmarksBar"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -18439,6 +20926,9 @@
         "bookmark",
         "bookmarksBar"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.manager",
@@ -18460,6 +20950,9 @@
       "cli_name" : "bookmark import",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -18485,6 +20978,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "bookmark.export",
@@ -18508,6 +21004,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.home.add",
@@ -18529,6 +21028,9 @@
       "cli_name" : "sidebar remove-home",
       "context_menu" : "familyMember",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -18555,6 +21057,9 @@
         "sidebarBackground",
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.item.add",
@@ -18578,6 +21083,9 @@
       "context_menus" : [
         "sidebarItem"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.item.removeEverywhere",
@@ -18600,6 +21108,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarItem"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18625,6 +21136,9 @@
         "sidebarItem",
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.item.hideApp",
@@ -18647,6 +21161,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarItem"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18672,6 +21189,9 @@
         "sidebarBackground",
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.add",
@@ -18694,6 +21214,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18718,6 +21241,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.moveToTop",
@@ -18740,6 +21266,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18764,6 +21293,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.moveToBottom",
@@ -18786,6 +21318,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18810,6 +21345,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.useListLook",
@@ -18832,6 +21370,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18856,6 +21397,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.layoutInline",
@@ -18878,6 +21422,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18902,6 +21449,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.setAlignment",
@@ -18924,6 +21474,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18948,6 +21501,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.setColumns",
@@ -18970,6 +21526,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -18994,6 +21553,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.toggleSpaceScope",
@@ -19016,6 +21578,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -19040,6 +21605,9 @@
       "context_menus" : [
         "sidebarSection"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.section.toggleCollapsed",
@@ -19062,6 +21630,9 @@
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
+      ],
+      "default_aliases" : [
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -19086,6 +21657,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "sidebar.layout.reset",
@@ -19109,6 +21683,9 @@
       "context_menus" : [
         "sidebarBackground"
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appStore.show",
@@ -19130,6 +21707,9 @@
       "cli_name" : "action app-store-show-installed",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19155,6 +21735,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "app.hide",
@@ -19176,6 +21759,9 @@
       "cli_name" : "apps unhide",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19201,6 +21787,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "app.open",
@@ -19222,6 +21811,9 @@
       "cli_name" : "app run-command",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19247,6 +21839,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tasks.show",
@@ -19268,6 +21863,9 @@
       "cli_name" : "action tasks-new",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19293,6 +21891,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "tasks.showMine",
@@ -19314,6 +21915,9 @@
       "cli_name" : "link open",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19339,6 +21943,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "server.makeThisMacAServer",
@@ -19360,6 +21967,9 @@
       "cli_name" : "action server-stop-serving",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19385,6 +21995,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "server.showPanel",
@@ -19406,6 +22019,9 @@
       "cli_name" : "action server-show-health",
       "context_menu" : "noObject",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19431,6 +22047,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "server.addServer",
@@ -19452,6 +22071,9 @@
       "cli_name" : "browser markdown-save",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19482,6 +22104,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "k",
@@ -19508,6 +22133,9 @@
       "cli_name" : "browser markdown-back",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
@@ -19538,6 +22166,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : {
         "key" : "]",
@@ -19566,6 +22197,30 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "n",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "listFocus"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "j",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "listFocus"
+        }
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "list.next",
@@ -19588,6 +22243,30 @@
       "context_menu" : "liveInput",
       "context_menus" : [
 
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "p",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "listFocus"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "k",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "listFocus"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : null,

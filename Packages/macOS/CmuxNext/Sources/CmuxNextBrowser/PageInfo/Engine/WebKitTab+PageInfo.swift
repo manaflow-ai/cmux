@@ -84,7 +84,9 @@ extension WebKitTab: PageInfoProviding {
         case .camera: [.camera]
         case .microphone: [.microphone]
         case .cameraAndMicrophone: [.camera, .microphone]
+        case .automaticDownloads: []
         }
+        guard !kinds.isEmpty else { return decisionHandler(.deny) }
         pageInfoActivity.recordRequest(kinds)
         let store = sitePermissions
         Task { [weak self] in
