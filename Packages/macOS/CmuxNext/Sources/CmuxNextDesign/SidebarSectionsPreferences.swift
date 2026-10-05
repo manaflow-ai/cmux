@@ -15,6 +15,16 @@ public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIter
     public var hidesBottom: Bool { self == .bottom || self == .both }
 }
 
+/// How the optional window dock presents sidebar destinations.
+public nonisolated enum SidebarDockMode: String, Hashable, Sendable, CaseIterable {
+    /// The dock is absent and content uses the full window height.
+    case off
+    /// The dock keeps an icon-height strip reserved at the bottom.
+    case reserved
+    /// The dock floats over the bottom edge while the pointer is over it.
+    case overlay
+}
+
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
@@ -31,14 +41,18 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom
+    /// The bottom dock exploration. Off is intentionally the default.
+    public var dockMode: SidebarDockMode
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
-                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
+                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false,
+                dockMode: SidebarDockMode = .off) {
         self.look = look
         self.topBandMaxShare = topBandMaxShare
         self.bottomBandMaxShare = bottomBandMaxShare
         self.pinnedBandsScroll = pinnedBandsScroll
         self.showWorkspaceTabs = showWorkspaceTabs
+        self.dockMode = dockMode
     }
 
     public static let defaults = SidebarSectionsPreferences()

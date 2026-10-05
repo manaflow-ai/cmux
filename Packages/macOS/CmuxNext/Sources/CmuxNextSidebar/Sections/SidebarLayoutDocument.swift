@@ -93,6 +93,8 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let topSectionID = LayoutSectionID("sec_top")
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
+    /// The opt-in bottom dock's stable section id.
+    public static let dockSectionID = LayoutSectionID("sec_dock")
 
     /// The default layout (plans/cmux-next/sidebar-sections.md): four large
     /// tiles on top (the first-party apps Home and the App Store as app

@@ -1,16 +1,18 @@
 import Foundation
 
 // The sidebar's section layout (plans/cmux-next/sidebar-sections.md 4):
-// an ordered list of sections in three regions. The workspace store owns
+// an ordered list of sections in four regions. The workspace store owns
 // the document (`sidebar-layout-v1`); clients render it and send
 // `SidebarLayoutOp`s. Field names match the wire (snake_case).
 
-/// Where a section sits: pinned at the top, in the scrolling middle, or
-/// pinned at the bottom.
+/// Where a section sits: pinned at the top, in the scrolling middle, pinned
+/// at the bottom, or in the window dock.
 public nonisolated enum SidebarRegion: String, Hashable, Sendable, Codable, CaseIterable {
     case top
     case middle
     case bottom
+    /// An icon-height destination strip at the window's bottom edge.
+    case dock
 }
 
 /// How a section's rows look: `builtIn` rows read as app chrome (Home);

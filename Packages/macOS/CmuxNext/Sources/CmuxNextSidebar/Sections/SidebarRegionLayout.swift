@@ -175,7 +175,7 @@ extension SidebarLayoutDocument {
     /// (plans/cmux-next/sidebar-sections.md 8). Pure, so the rail's
     /// nonisolated layout reads it too.
     public nonisolated func bands(room: String?) -> (above: [LayoutSection], below: [LayoutSection]) {
-        let ordered = SidebarRegion.allCases.flatMap { sections(in: $0, room: room) }
+        let ordered = [SidebarRegion.top, .middle, .bottom].flatMap { sections(in: $0, room: room) }
         guard let split = ordered.firstIndex(where: { $0.content == .workspaces }) else { return (ordered, []) }
         return (Array(ordered[..<split]), Array(ordered[(split + 1)...]))
     }

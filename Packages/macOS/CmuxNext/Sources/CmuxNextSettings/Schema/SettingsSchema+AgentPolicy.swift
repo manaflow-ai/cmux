@@ -99,6 +99,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
+        "sidebar.dockMode",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",

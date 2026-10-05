@@ -44,9 +44,10 @@ extension WindowRootView {
     /// first values; the first emission repeats them and changes nothing).
     func observePlacement() -> Task<Void, Never> {
         Task { [weak self] in
-            for await (side, spaces) in Observations({ (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition) }) {
+            for await (side, spaces, dock) in Observations({ (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.sidebarSections.dockMode) }) {
                 self?.sidebarSide = side
                 self?.sidebar.sidebarView.spacesPosition = spaces
+                self?.applyDockMode(dock)
             }
         }
     }

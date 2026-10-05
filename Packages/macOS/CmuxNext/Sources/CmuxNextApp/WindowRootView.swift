@@ -30,6 +30,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
     let contentHost = NSView()
     let sidebar: SidebarContainerView
+    /// The optional window-wide destination dock, above the composer/content edge.
+    let dock: SidebarDockView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
         didSet { if sidebarSide != oldValue { applySidebarSide() } }
@@ -38,6 +40,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
+    private var dockHeight: NSLayoutConstraint!
+    private var reservedContentBottom: NSLayoutConstraint!
     private var tokenObservation: Task<Void, Never>?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
@@ -66,6 +70,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) }) {
         self.sidebar = sidebar
+        dock = SidebarDockView(model: sidebar.model)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
@@ -73,16 +78,19 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         backdropView.frame = bounds
         backdropView.autoresizingMask = [.width, .height]
         addSubview(backdropView)
-        for view in [contentHost, titlebar] as [NSView] {
+        for view in [contentHost, titlebar, dock] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         addSubview(sidebar)
+        addSubview(dock)
         addSubview(titlebarBandBlocker)
         addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
+        dockHeight = dock.heightAnchor.constraint(equalToConstant: 0)
+        reservedContentBottom = contentHost.bottomAnchor.constraint(equalTo: dock.topAnchor)
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -93,6 +101,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
+            dock.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dock.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dock.bottomAnchor.constraint(equalTo: bottomAnchor),
+            dockHeight,
         ])
         // The first window opens on the configured side (no move after).
         sidebarSide = DesignSettings.shared.sidebarSide
@@ -126,6 +138,20 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     isolated deinit {
         tokenObservation?.cancel()
         placementObservation?.cancel()
+    }
+
+    /// Applies the selected dock mode and reserves content height only for
+    /// the reserved-strip variant.
+    func applyDockMode(_ mode: SidebarDockMode) {
+        dock.mode = mode
+        if mode == .reserved {
+            dockHeight.constant = 34
+            if !reservedContentBottom.isActive { reservedContentBottom.isActive = true }
+        } else {
+            dockHeight.constant = mode == .overlay ? 34 : 0
+            reservedContentBottom.isActive = false
+        }
+        needsLayout = true
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }

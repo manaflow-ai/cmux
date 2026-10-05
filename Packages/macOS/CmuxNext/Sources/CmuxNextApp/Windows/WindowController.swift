@@ -47,6 +47,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
         root = WindowRootView(sidebar: sidebar.container)
+        root.dock.onActivate = { [weak sidebar] ref in sidebar?.activate(ref) }
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))

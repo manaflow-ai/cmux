@@ -12,6 +12,20 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
+    public static let dockModePath = ["sidebar", "dockMode"]
+
+    static func dockModeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(dockModePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.dockMode", "Sidebar Dock"),
+                          help: SettingsText.keyed("settings.sidebar.dockMode.help", "Shows destinations, agent state and pinned workspaces at the bottom of the window."),
+                          kind: .choice([
+                              SettingChoice(SidebarDockMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                              SettingChoice(SidebarDockMode.reserved.rawValue, SettingsText.keyed("settings.choice.dockReserved", "Reserved Strip")),
+                              SettingChoice(SidebarDockMode.overlay.rawValue, SettingsText.keyed("settings.choice.dockOverlay", "Hover Overlay")),
+                          ]),
+                          default: .string(SidebarDockMode.off.rawValue),
+                          keywords: ["sidebar", "dock", "destinations", "agents", "workspaces", "bottom", "hover"])
+    }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -81,6 +95,14 @@ public nonisolated enum SidebarSectionsSetting {
                 result.showWorkspaceTabs = flag
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
+            }
+        }
+        if let value = root.value(at: dockModePath) {
+            if let text = value.stringValue, let mode = SidebarDockMode(rawValue: text) {
+                result.dockMode = mode
+            } else {
+                let choices = SidebarDockMode.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.dockMode", message: "expected one of " + choices))
             }
         }
         return result

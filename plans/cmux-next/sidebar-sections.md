@@ -14,13 +14,14 @@ the old Home row prototype (https://github.com/manaflow-ai/cmux/pull/16279).
 
 ## 1. What the user gets
 
-The left sidebar is an ordered list of **sections** in three **regions**:
+The left sidebar is an ordered list of **sections** in four **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
 | Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `tiles` arrangement, 4 columns): Home, the App Store, New Workspace, Import and Sync as large labeled tiles on a tonal card, with a section gap before the list. A stored top section still equal to the earlier plain-row default (Home and the App Store, CodeRouter after them or not) migrates to the tiles |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
 | Bottom | pinned above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
+| Dock | pinned to the window bottom when enabled | optional icon-height `dock` placement. `sidebar.dockMode` is `off` by default; `reserved` keeps the strip out of content and `overlay` reveals it on hover or keyboard focus. Items use the same per-space refs as tiles, including destinations, agent state dots and pinned workspaces |
 
 Every section has: an optional title (hidden titles draw no header), a region, an ordered item list, a
 **look** (`builtIn`: compact rows that read as app chrome, like Home; `list`: rows that look like
@@ -86,12 +87,17 @@ screenshots two spaces under A, and a B mock (every section space-scoped) for co
 
 ```
 SidebarLayoutDocument { revision: u64, sections: [Section] }       // per user
-Section { id: "sec_<base32>", title: String?, shows_title: Bool, region: top|middle|bottom,
+Section { id: "sec_<base32>", title: String?, shows_title: Bool, region: top|middle|bottom|dock,
           look: built_in|list, arrangement: Arrangement, room: String?, max_rows: Int?,
           content: items|workspaces, items: [Item] }
 Arrangement { layout: list|inline|grid|tiles, align: leading|center|trailing|fill, gap: 0...32?, columns: 1...12? }
 Item { id: "itm_<base32>", ref: {kind, value}, shows_label: Bool }  // id stable across moves
 ```
+
+The `dock` region is a shared placement in the same layout document as the
+other regions. Its icon strip avoids capsule pills and may show more than the
+compact sidebar symbol budget. The window root owns the strip so it remains
+available when the sidebar is collapsed.
 
 `section.update` patches each arrangement field alone (`layout`, `align`, `gap`, `columns`; null
 clears `gap` or `columns`), so concurrent edits of different fields both apply. Unknown `layout`,

@@ -25,9 +25,11 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The trailing control (`SidebarIntent.activateItemAccessory`).
     public var accessory: SidebarItemAccessory?
+    /// A compact agent/workspace state dot used by the bottom dock.
+    public var dockStatus: StatusIndicatorState?
 
     public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false,
-                isHidden: Bool = false) {
+                isHidden: Bool = false, dockStatus: StatusIndicatorState? = nil) {
         self.isHidden = isHidden
         self.title = title
         self.symbol = symbol
@@ -35,6 +37,7 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
         self.badge = badge
         self.isActive = isActive
         self.isMissing = isMissing
+        self.dockStatus = dockStatus
     }
 }
 
