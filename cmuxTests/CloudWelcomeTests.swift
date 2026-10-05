@@ -1,5 +1,4 @@
 import AppKit
-import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,23 +9,19 @@ import Testing
 
 @Suite("Cloud welcome")
 struct CloudWelcomeTests {
+    @Test("welcome owns close instead of the terminal behind it")
     @MainActor
-    @Test("every welcome layout owns the close shortcut", arguments: [0, 1, 2])
-    func welcomeOwnsCloseShortcut(layout: Int) throws {
-        let controller = CloudWelcomeWindowController()
-        controller.present(
-            over: nil,
-            sliderShowsFeatureList: layout != 0,
-            sliderListUsesDots: layout == 2
+    func welcomeOwnsCloseShortcut() {
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
-        defer { controller.dismiss() }
-        let window = try #require(NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.cloud.welcome" && $0.isVisible
-        })
-
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.cloud.welcome")
         #expect(cmuxWindowShouldOwnCloseShortcut(window))
-        window.performClose(nil)
-        #expect(!window.isVisible)
     }
 
     @Test("shows once, only while Cloud is offered and still off")

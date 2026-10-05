@@ -1716,6 +1716,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.newMachine",
     "cmux.settings",
     "cmux.about",
+    "cmux.cloud.welcome",
     "cmux.licenses",
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
