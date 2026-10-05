@@ -2,7 +2,7 @@
 //! `frame.observe` never act, and a closed session's late drop leaves a new
 //! session of the same name alone.
 
-use super::tests::{FakeApp, calls, leases, session, tab};
+use super::tests::{FakeApp, calls, leases, session, tab, wait_for_lease};
 use super::*;
 use crate::provider::{Frame, LeaseState};
 
@@ -104,7 +104,8 @@ fn a_gone_tab_drops_its_lease() {
     first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
     app.send(Frame::Event { name: "tab.gone".into(), payload: json!({"targetId": "W"}) });
     provider.call("tab.info", &json!({"targetId": "X"})).unwrap();
-    assert_eq!(leases(&app, "W").last().unwrap(), &None);
+    // The host's reader writes this lease frame (see wait_for_lease).
+    wait_for_lease(&app, "W", "dropped with the tab", Option::is_none);
 }
 
 /// lease v2: allow lifts a stop for the stopped principal (actor), so the
