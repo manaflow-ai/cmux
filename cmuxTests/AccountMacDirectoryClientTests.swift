@@ -71,6 +71,20 @@ private actor ScriptedAccountSocket: V2ControlSocket {
     }
 }
 
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = false
+    var value: Bool {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}
+
+private actor SocketQueue {
+    private(set) var sockets: [ScriptedAccountSocket] = []
+    func append(_ socket: ScriptedAccountSocket) { sockets.append(socket) }
+}
+
 /// Records effects in order, shared between the test and the client's closures.
 private final class EffectLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -424,6 +438,95 @@ struct AccountMacDirectoryClientTests {
         #expect(AccountMacDirectoryClient.refreshDelay(for: directory(issuedAt: 1000, expiresAt: 1030, grants: []), now: now) == 20)
         #expect(AccountMacDirectoryClient.refreshDelay(for: directory(issuedAt: 1000, expiresAt: 1030, grants: []),
             now: Date(timeIntervalSince1970: 1100)) == 1)
+    }
+
+    @Test("Withdrawal after a team switch still signs with the old key although the scope moved")
+    func withdrawAfterScopeMoved() async throws {
+        let socket = ScriptedAccountSocket()
+        let log = EffectLog()
+        let scopeMoved = LockedFlag()
+        let client = AccountMacDirectoryClient(baseURL: URL(string: "https://iroh.example")!, dependencies: .init(
+            connect: { request in log.request(request); return socket },
+            http: { request in
+                log.request(request)
+                log.append("account-withdraw")
+                return V2HTTPResponse(status: 200, body: Data(), retryAfter: nil)
+            },
+            sign: { data in
+                // Like the runtime: socket proofs need the current account scope.
+                if scopeMoved.value { throw V2ControlFailure.scopeMismatch }
+                log.signed(data)
+                return Data(repeating: 7, count: 64)
+            },
+            signWithdrawal: { data in
+                log.signed(data)
+                return Data(repeating: 9, count: 64)
+            },
+            now: { Date(timeIntervalSince1970: 1500) },
+            sleep: { _ in try await Task.sleep(for: .seconds(3600)) }))
+        await client.update(Self.credentials)
+        await Self.ready(socket)
+        _ = await socket.sent(atLeast: 2)
+        scopeMoved.value = true
+        await client.withdraw()
+        #expect(log.all == ["account-withdraw"])
+        let request = try #require(log.httpRequests.last)
+        #expect(request.url?.path == "/v2/account/requests")
+    }
+
+    @Test("A socket that reaches ready and then fails keeps climbing the backoff ladder")
+    func backoffClimbsAfterReady() async throws {
+        let log = EffectLog()
+        let sockets = SocketQueue()
+        let client = AccountMacDirectoryClient(baseURL: URL(string: "https://iroh.example")!, dependencies: .init(
+            connect: { request in
+                log.request(request)
+                let socket = ScriptedAccountSocket()
+                await socket.push(#"{"schemaId":"account.ready.v1","requestId":"r","sessionId":"s","revision":1}"#)
+                await socket.push(#"{"schemaId":"error.v1","requestId":"unsolicited","code":"upstream_unavailable","retryable":true}"#)
+                await sockets.append(socket)
+                return socket
+            },
+            http: { _ in V2HTTPResponse(status: 200, body: Data(), retryAfter: nil) },
+            sign: { _ in Data(repeating: 7, count: 64) },
+            now: { Date(timeIntervalSince1970: 1500) },
+            sleep: { seconds in
+                log.slept(seconds)
+                // Reconnect backoff returns at once; ping and the read timeout wait.
+                if seconds == AccountMacDirectoryClient.pingInterval
+                    || seconds == AccountMacDirectoryClient.readTimeout {
+                    try await Task.sleep(for: .seconds(3600))
+                }
+            }))
+        await client.update(Self.credentials)
+        try await Self.eventually { log.httpRequests.count >= 4 }
+        await client.stop()
+        let backoff = log.sleepDurations.filter {
+            $0 != AccountMacDirectoryClient.pingInterval && $0 != AccountMacDirectoryClient.readTimeout
+        }
+        #expect(Array(backoff.prefix(3)) == [5, 10, 20])
+    }
+
+    @Test("A directory request with no answer fails the socket instead of blocking later reads")
+    func readTimeoutReconnects() async throws {
+        let socket = ScriptedAccountSocket()
+        let log = EffectLog()
+        let client = AccountMacDirectoryClient(baseURL: URL(string: "https://iroh.example")!, dependencies: .init(
+            connect: { request in log.request(request); return socket },
+            http: { _ in V2HTTPResponse(status: 200, body: Data(), retryAfter: nil) },
+            sign: { _ in Data(repeating: 7, count: 64) },
+            now: { Date(timeIntervalSince1970: 1500) },
+            sleep: { seconds in
+                log.slept(seconds)
+                if seconds == AccountMacDirectoryClient.readTimeout { return }
+                try await Task.sleep(for: .seconds(3600))
+            }))
+        await client.update(Self.credentials)
+        await Self.ready(socket)
+        _ = await socket.sent(atLeast: 2)
+        try await Self.eventually { await socket.closed }
+        try await Self.eventually { await client.phase == .backingOff }
+        await client.stop()
     }
 
     @Test("Withdrawing a client that never connected sends nothing")

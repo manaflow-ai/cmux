@@ -115,7 +115,7 @@ struct AccountMacPeerAuthorizationTests {
     enum Rejection: String, CaseIterable, Sendable {
         case otherUser, otherNamespace, otherEnvironment, otherTag, expired, notYetIssued, missingRule,
              missingHost, selfDevice, phone, revokedPeer, revokedLocal, localAuthorityRevoked,
-             otherRequester, directoryOfOtherUser, missingDirectory, unknownEndpoint
+             otherRequester, directoryOfOtherUser, missingDirectory, unknownEndpoint, sameTeam
     }
 
     @Test("Rejects every Mac outside the same-user, same-build scope", arguments: Rejection.allCases)
@@ -169,6 +169,9 @@ struct AccountMacPeerAuthorizationTests {
             expected = .staleDirectory
         case .unknownEndpoint:
             endpoint = F.staleKey; expected = .unavailable
+        case .sameTeam:
+            // Same-team Macs are the team directory's alone.
+            account = peer(F.identity(device: "peer", team: "A")); expected = .identityMismatch
         }
         let snapshot: AccountMacDirectorySnapshot? = rejection == .missingDirectory ? nil : account
         #expect(throws: expected) {
@@ -210,7 +213,8 @@ struct AccountMacAdmissionTests {
 
     enum Rejection: String, CaseIterable, Sendable {
         case hostWithoutMacHost, hostRevoked, otherUser, otherNamespace, otherTag, otherEnvironment,
-             peerWithoutMacDevices, revokedPeer, selfDevice, missingRule, otherRequester, expiredLease, duplicateEndpoint
+             peerWithoutMacDevices, revokedPeer, selfDevice, missingRule, otherRequester, expiredLease, duplicateEndpoint,
+             sameTeam
     }
 
     @Test("Refuses every row outside the host opt-in and same-user, same-build scope", arguments: Rejection.allCases)
@@ -234,6 +238,7 @@ struct AccountMacAdmissionTests {
         case .missingRule: rules = []
         case .otherRequester: requester = F.record(F.identity(device: "self", team: "Z"), endpoint: F.selfKey).descriptor
         case .expiredLease: expiresAt = 1500
+        case .sameTeam: peers = [F.record(F.identity(device: "peer", team: "A"), endpoint: F.peerKey)]
         case .duplicateEndpoint:
             peers = [F.record(F.peerIdentity, endpoint: F.peerKey),
                      F.record(F.identity(device: "peer2", team: "C"), endpoint: F.peerKey)]
@@ -396,25 +401,24 @@ struct AccountMacAdmissionPolicyTests {
         } else {
             #expect(try withAccount(nil, F.phoneKey).endpointIDHex == F.phoneKey)
         }
-        // Session enforcement defers to the existing rules for every team-known or phone session.
-        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.phoneKey, team: team,
+        // Session enforcement keeps the existing rules for every session the
+        // account authority did not admit, phones included.
+        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.phoneKey, accountAdmitted: false,
             account: account, allowsMacAccess: false) == nil)
-        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.phoneKey, team: team,
+        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.phoneKey, accountAdmitted: false,
             account: nil, allowsMacAccess: false) == nil)
     }
 
     @Test("Account-admitted Mac sessions close when incoming Mac access turns off")
     func incomingAccessClosesAccountSessions() throws {
-        let team = try team()
         let account = try account()
-        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, team: team,
+        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, accountAdmitted: true,
             account: account, allowsMacAccess: false) == true)
-        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, team: team,
+        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, accountAdmitted: true,
             account: account, allowsMacAccess: true) == false)
-        // The route disabled: the existing rule closes a key the team does not authorize.
-        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, team: team,
-            account: nil, allowsMacAccess: true) == nil)
-        #expect(team.authorizedPeer(endpointID: F.peerKey) == nil)
+        // The route disabled (flag off): account-admitted sessions close.
+        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, accountAdmitted: true,
+            account: nil, allowsMacAccess: true) == true)
         #expect(!AccountMacAdmissionPolicy.sessionStillAuthorized(allowsIncomingAccess: false, enabled: true) { true })
         #expect(!AccountMacAdmissionPolicy.sessionStillAuthorized(allowsIncomingAccess: true, enabled: false) { true })
         #expect(!AccountMacAdmissionPolicy.sessionStillAuthorized(allowsIncomingAccess: true, enabled: true) { false })
@@ -433,16 +437,39 @@ struct AccountMacAdmissionPolicyTests {
         let admitted = try #require(account.authorizedPeer(endpointID: F.peerKey))
         let recheck = account.recheck(admitted)
         #expect(account.nextExpiration == clock.start.advanced(by: .seconds(300)))
-        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, team: team,
+        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, accountAdmitted: true,
             account: account, allowsMacAccess: true) == false)
         clock.advance(300)
         #expect(!recheck(F.peerKey))
         #expect(throws: IrxAdmissionDenied(code: .grantExpired)) { try account.judgment()(nil, F.peerKey) }
-        // No longer account-authorized, so enforcement falls to the team rule,
-        // which closes a key the team does not authorize.
-        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, team: team,
-            account: account, allowsMacAccess: true) == nil)
+        #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, accountAdmitted: true,
+            account: account, allowsMacAccess: true) == true)
         #expect(team.authorizedPeer(endpointID: F.peerKey) == nil)
+    }
+
+    @Test("A team-admitted session keeps the exact team rule even when the account authority knows its key")
+    func teamSessionsKeepTeamRule() throws {
+        let clock = TestClock()
+        let teamPeer = F.record(F.identity(device: "peer", team: "A"), endpoint: F.peerKey)
+        let team = try team(clock: clock, peerRecord: teamPeer, peerExpiresAt: 1510)
+        let account = try account(clock: clock)
+        #expect(team.authorizedPeer(endpointID: F.peerKey) != nil)
+        clock.advance(20)
+        // The team permission lapsed; the account entry must not keep the team session.
+        #expect(team.authorizedPeer(endpointID: F.peerKey) == nil)
+        #expect(account.authorizedPeer(endpointID: F.peerKey) != nil)
+        for allowsMacAccess in [false, true] {
+            #expect(AccountMacAdmissionPolicy.sessionCloses(endpoint: F.peerKey, accountAdmitted: false,
+                account: account, allowsMacAccess: allowsMacAccess) == nil)
+        }
+        let sessions = AccountAdmittedSessions()
+        #expect(!sessions.contains(F.peerKey))
+        sessions.insert(endpoint: F.peerKey, session: "s1")
+        sessions.insert(endpoint: F.peerKey, session: "s2")
+        sessions.remove(endpoint: F.peerKey, session: "s1")
+        #expect(sessions.contains(F.peerKey))
+        sessions.remove(endpoint: F.peerKey, session: "s2")
+        #expect(!sessions.contains(F.peerKey))
     }
 
     @Test("Account credentials come only from an unrevoked Mac record with a live ticket and a Mac capability")
@@ -495,7 +522,7 @@ struct AccountMacDiscoveryTests {
         #expect(merged.map(\.endpointID) == team.map(\.endpointID))
     }
 
-    @Test("A dial prefers the account row and every recheck stays on the source that selected it")
+    @Test("A dial uses the team row for any key the team lists, the account row only otherwise, and rechecks on its source")
     func recheckUsesSameSource() throws {
         let cache = F.cache(teamDevices: [staleTeamPeer])
         let account = F.account()
@@ -515,6 +542,10 @@ struct AccountMacDiscoveryTests {
             account: account, localIdentity: F.selfIdentity, now: F.now)
         #expect(teamSelected.source == .team)
         let accountNamingStaleKey = F.account(macs: [F.record(F.peerIdentity, endpoint: F.staleKey)])
+        // A key the team lists resolves on the team even when the account lists it too.
+        let teamSourced = try DeviceIrxClient.resolveTarget(intent: teamIntent, source: nil, cache: cache,
+            account: accountNamingStaleKey, localIdentity: F.selfIdentity, now: F.now)
+        #expect(teamSourced.source == .team)
         let teamOnlyCache = F.cache()
         #expect(throws: IrxMacPeerAuthorization.Failure.unavailable) {
             try DeviceIrxClient.resolveTarget(intent: teamIntent, source: .team, cache: teamOnlyCache,
@@ -524,6 +555,50 @@ struct AccountMacDiscoveryTests {
             try DeviceIrxClient.resolveTarget(intent: accountIntent, source: .team, cache: cache,
                 account: account, localIdentity: F.selfIdentity, now: F.now)
         }
+    }
+
+    @Test("A stale or revoked team directory is final: the account never stands in for it")
+    func teamFailureIsFinal() {
+        var stale = F.cache(teamDevices: [staleTeamPeer])
+        stale.directory = V2Directory(devices: [staleTeamPeer], inboundPeers: [], issuedAt: 1000,
+            permissionExpiresAt: 1400, relayURLs: [], revision: 1, teamID: "A")
+        let intent = IrxMacPeerAuthorization(deviceID: "peer", tag: "default", endpointID: F.peerKey)
+        #expect(throws: IrxMacPeerAuthorization.Failure.staleDirectory) {
+            try DeviceIrxClient.resolveTarget(intent: intent, source: nil, cache: stale,
+                account: F.account(), localIdentity: F.selfIdentity, now: F.now)
+        }
+        #expect(throws: IrxMacPeerAuthorization.Failure.revoked) {
+            try DeviceIrxClient.resolveTarget(intent: intent, source: nil, cache: F.cache(revoked: true),
+                account: F.account(), localIdentity: F.selfIdentity, now: F.now)
+        }
+    }
+
+    @Test("Ambiguous account rows and same-endpoint rows never replace the team row")
+    func ambiguousAccountRowsKeepTeam() throws {
+        let cache = F.cache(teamDevices: [staleTeamPeer])
+        let twoRows = F.account(macs: [F.record(F.peerIdentity, endpoint: F.peerKey),
+            F.record(F.identity(device: "peer", team: "C"), endpoint: F.phoneKey)])
+        let merged = DeviceIrxClient.displayBindings(cache: cache, account: twoRows, now: F.now)
+        #expect(merged.map(\.bindingID) == ["A-peer"])
+        let sameEndpoint = F.account(macs: [F.record(F.peerIdentity, endpoint: F.staleKey)])
+        let kept = DeviceIrxClient.displayBindings(cache: cache, account: sameEndpoint, now: F.now)
+        #expect(kept.map(\.bindingID) == ["A-peer"])
+    }
+
+    @Test("An older account directory never replaces a newer one in the outgoing client")
+    func enforceAccountIsMonotonic() async {
+        let client = DeviceIrxClient(context: { throw DeviceLinkError.notConnected },
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "account-monotonic"))
+        await client.enforce(F.cache())
+        var iterator = await client.directoryChanges().makeAsyncIterator()
+        _ = await iterator.next()
+        await client.enforceAccount(F.account(revision: 5))
+        #expect(await iterator.next() != nil)
+        await client.enforceAccount(F.account(macs: [], revision: 4))
+        await client.stop()
+        var updates = 0
+        while await iterator.next() != nil { updates += 1 }
+        #expect(updates == 0)
     }
 
     @Test("An account directory change refreshes My Devices once; a repeat does not")
