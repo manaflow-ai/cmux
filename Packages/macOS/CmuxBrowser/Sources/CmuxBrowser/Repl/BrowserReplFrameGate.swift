@@ -426,7 +426,7 @@ public final class BrowserReplFrameGate {
             bound[Self.placeArgument] = expected.place
             bound[Self.localArgument] = expected.local ?? NSNull()
             let value = try await webView.browserReplCallAsyncJavaScript(
-                Self.documentCheck + body,
+                Self.documentCheck + Self.scoped(body),
                 arguments: bound,
                 in: frame.info,
                 contentWorld: contentWorld,
@@ -952,6 +952,14 @@ public final class BrowserReplFrameGate {
         !== (\(localArgument) === null ? null : \(localArgument) + location.hash)) return "\(movedMarker)";
 
     """
+
+    /// `body` in a scope of its own, after the document check: what it
+    /// declares (a hoisted `function location() {}`, a `var` or `let` of an
+    /// argument's name) shadows only its own names, never the `location`
+    /// and arguments the check reads.
+    static func scoped(_ body: String) -> String {
+        "return await (async () => {\n\(body)\n})();\n"
+    }
 
     private static let readSource = """
     const local = location.origin === "file://" || location.protocol === "file:";
