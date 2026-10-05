@@ -311,6 +311,7 @@ final class CloudTreeCellView: NSTableCellView {
         switch kind {
         // The panel's one refresh: the fleet and the account's other devices.
         case .cloudMachinesSection, .devicesSection: return { actions.refresh() }
+        case .coderouterSection: return { actions.refreshCoderouter() }
         default: return nil
         }
     }

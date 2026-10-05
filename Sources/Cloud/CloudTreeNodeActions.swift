@@ -79,6 +79,12 @@ struct CloudTreeNodeActions {
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Presents an inline Cloud action explanation without starting a remote operation.
     var showHint: @MainActor (_ message: String) -> Void = { _ in }
+    /// Runs CodeRouter's add flow for one account type in a terminal.
+    var addCoderouterAccount: @MainActor (_ provider: CoderouterProvider) -> Void = { _ in }
+    /// Confirms, then removes one account from the selected team's CodeRouter organization.
+    var removeCoderouterAccount: @MainActor (_ account: CloudTreeNode.CoderouterAccount) -> Void = { _ in }
+    /// Re-reads the selected team's CodeRouter accounts now.
+    var refreshCoderouter: @MainActor () -> Void = {}
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Y.
@@ -88,6 +94,8 @@ struct CloudTreeNodeActions {
     /// Pops up a row's context menu from its trailing "⋯" button. Bound per
     /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a header row's guide (the Coderouter "?"), anchored like `showRowMenu`.
+    var showRowGuide: @MainActor (_ nodeID: String) -> Void = { _ in }
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }

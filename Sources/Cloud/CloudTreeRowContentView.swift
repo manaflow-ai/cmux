@@ -50,6 +50,29 @@ struct CloudTreeRowContentView: View {
             CloudTreeDeviceRowContent(row: row, style: style)
         case .devicesSection:
             groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
+        case .coderouterSection:
+            groupRow(title: String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter"))
+        case .coderouterProviderGroup(let provider, _):
+            groupRow(title: provider.title)
+        case .coderouterAccount(let account):
+            // Accounts carry no icon: the email starts under the group's "+",
+            // and usage never truncates, the email does.
+            CloudTreeLeafRow(
+                style: style,
+                icon: "",
+                tint: .clear,
+                title: account.title,
+                reservesIconSlot: false,
+                accessories: {
+                    if let usage = Self.usageDetail(for: account) {
+                        Text(usage)
+                            .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+            )
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
         case .createAction(let action):
@@ -173,6 +196,7 @@ struct CloudTreeRowContentView: View {
         switch kind {
         case .cloudMachinesSection(_, _, let refresh): refresh
         case .devicesSection(let section): CloudTreeSectionRefresh(isRefreshing: section.isRefreshing)
+        case .coderouterSection(_, let refresh): refresh
         default: nil
         }
     }
@@ -188,10 +212,21 @@ struct CloudTreeRowContentView: View {
     static func groupCount(for kind: CloudTreeNode.Kind) -> CloudTreeGroupCount? {
         switch kind {
         case .devicesSection(let section): CloudTreeGroupCount(section.count)
+        case .coderouterSection(let count, _), .coderouterProviderGroup(_, let count): CloudTreeGroupCount(count)
         case .cloudMachinesSection(_, let usage?, _): CloudTreeGroupCount(usage: usage)
         case .terminalsPool(_, let count), .displaysPool(_, let count, _): CloudTreeGroupCount(count)
         default: nil
         }
+    }
+
+    /// An account row's trailing usage, as `cr accounts` shows it ("93% left").
+    /// A state other than active (cooldown, expired, rejected) replaces it.
+    static func usageDetail(for account: CloudTreeNode.CoderouterAccount) -> String? {
+        if let state = account.state, !state.isEmpty, state != "active" {
+            return state.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+        guard let remaining = account.remainingPercent else { return nil }
+        return String(format: String(localized: "coderouter.account.remaining", defaultValue: "%lld%% left"), remaining)
     }
 
     /// Formats terminal totals for group and machine summaries.
@@ -235,6 +270,8 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
     var detail: String?
+    /// False starts the title in the icon column, under a sibling create row's "+".
+    var reservesIconSlot = true
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @ViewBuilder var accessories: () -> Accessories
 
@@ -247,6 +284,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
         detail: String? = nil,
+        reservesIconSlot: Bool = true,
         @ViewBuilder accessories: @escaping () -> Accessories
     ) {
         self.style = style
@@ -257,12 +295,13 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
         self.detail = detail
+        self.reservesIconSlot = reservesIconSlot
         self.accessories = accessories
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
-            if style.iconSlot > 0 {
+            if reservesIconSlot, style.iconSlot > 0 {
                 CloudTreeRowIcon(
                     style: style,
                     systemName: icon,
