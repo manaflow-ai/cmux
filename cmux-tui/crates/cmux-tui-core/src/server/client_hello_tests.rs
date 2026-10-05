@@ -298,9 +298,10 @@ fn origin_claim_capability_is_advertised() {
     assert!(capabilities.iter().any(|value| value == "origin-claim-v1"), "{identify}");
 }
 
-/// A page relay is served `cmux.protocol/2` without a subscribe; its legacy
-/// lines (`subscribe` and `ping` included) are refused
-/// (server/untrusted_mint_tests.rs covers the default deny).
+/// A page relay needs no subscribe; its legacy lines (`subscribe` and
+/// `ping` included) are refused (server/untrusted_mint_tests.rs), and its
+/// catalog requests reach page_access.rs, which refuses every catalog
+/// operation for a page (the allow list is empty).
 #[test]
 fn page_relay_without_subscribe_is_served_and_subscribe_is_refused() {
     let mux = mux("relay-subscribe");
@@ -314,7 +315,8 @@ fn page_relay_without_subscribe_is_served_and_subscribe_is_refused() {
         "operation": "session.ping",
         "params": {"machine": "current", "session": "current"},
     }));
-    assert_eq!(ping["ok"], true, "{ping}");
+    assert_eq!(ping["error"]["code"], "origin.forbidden", "{ping}");
+    assert_eq!(ping["error"]["details"]["derived"], "page", "{ping}");
     let refused = client.request(json!({"cmd": "subscribe"}));
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(refused["error_code"], "origin.forbidden", "{refused}");

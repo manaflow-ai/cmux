@@ -460,7 +460,7 @@ event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revisi
 event("snapshot.upsert", "cloud.snapshot.upsert", { snapshot: { ...S3, status: "ready", revision: "2" } })
 event("snapshot.removed", "cloud.snapshot.removed", { snapshot: snap(1), revision: "4" })
 event("plan.changed", "cloud.plan.changed", { plan: PLAN })
-vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1 })
+vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1, seq })
 
 const doc = {
   $comment:
