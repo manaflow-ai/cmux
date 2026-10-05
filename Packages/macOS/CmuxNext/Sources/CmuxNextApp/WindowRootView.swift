@@ -41,6 +41,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var dockHeight: NSLayoutConstraint!
+    private var contentBottom: NSLayoutConstraint!
     private var reservedContentBottom: NSLayoutConstraint!
     private var tokenObservation: Task<Void, Never>?
     private(set) weak var content: NSView?
@@ -83,13 +84,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             addSubview(view)
         }
         addSubview(sidebar)
-        addSubview(dock)
         addSubview(titlebarBandBlocker)
         addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         dockHeight = dock.heightAnchor.constraint(equalToConstant: 0)
+        contentBottom = contentHost.bottomAnchor.constraint(equalTo: bottomAnchor)
         reservedContentBottom = contentHost.bottomAnchor.constraint(equalTo: dock.topAnchor)
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
@@ -100,7 +101,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             // lights while the content below reaches the window edge.
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
-            contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentBottom,
             dock.leadingAnchor.constraint(equalTo: leadingAnchor),
             dock.trailingAnchor.constraint(equalTo: trailingAnchor),
             dock.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -146,10 +147,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         dock.mode = mode
         if mode == .reserved {
             dockHeight.constant = 34
+            contentBottom.isActive = false
             if !reservedContentBottom.isActive { reservedContentBottom.isActive = true }
         } else {
             dockHeight.constant = mode == .overlay ? 34 : 0
             reservedContentBottom.isActive = false
+            contentBottom.isActive = true
         }
         needsLayout = true
     }
