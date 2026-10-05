@@ -6,8 +6,8 @@
 //! cannot tell a prompt from output, so each SIGWINCH redraw lands on reflowed
 //! cells and leaves prompt fragments behind. Ghostty emits those marks by
 //! injecting its shell integration scripts when it spawns a shell; this module
-//! does the same for cmux-tui, using the scripts from the Ghostty submodule
-//! that builds ghostty-vt so both halves always match.
+//! does the same for cmux-tui, using the scripts from ghostty-next, the Ghostty
+//! submodule that builds ghostty-vt, so both halves always match.
 //!
 //! The injection mirrors Ghostty's `src/termio/shell_integration.zig`: zsh via
 //! `ZDOTDIR`, bash via `--posix` plus `ENV`, and fish via `XDG_DATA_DIRS`.
@@ -28,24 +28,28 @@ struct Script {
 const SCRIPTS: &[Script] = &[
     Script {
         path: "zsh/.zshenv",
-        contents: include_str!("../../../../ghostty/src/shell-integration/zsh/.zshenv"),
+        contents: include_str!("../../../../ghostty-next/src/shell-integration/zsh/.zshenv"),
     },
     Script {
         path: "zsh/ghostty-integration",
-        contents: include_str!("../../../../ghostty/src/shell-integration/zsh/ghostty-integration"),
+        contents: include_str!(
+            "../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"
+        ),
     },
     Script {
         path: "bash/ghostty.bash",
-        contents: include_str!("../../../../ghostty/src/shell-integration/bash/ghostty.bash"),
+        contents: include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
     },
     Script {
         path: "bash/bash-preexec.sh",
-        contents: include_str!("../../../../ghostty/src/shell-integration/bash/bash-preexec.sh"),
+        contents: include_str!(
+            "../../../../ghostty-next/src/shell-integration/bash/bash-preexec.sh"
+        ),
     },
     Script {
         path: "fish/vendor_conf.d/ghostty-shell-integration.fish",
         contents: include_str!(
-            "../../../../ghostty/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
+            "../../../../ghostty-next/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
         ),
     },
 ];
@@ -61,6 +65,43 @@ const FEATURES_ENV: &str = "GHOSTTY_SHELL_FEATURES";
 /// Ghostty's default `shell-integration-features` (cursor, path, title) with
 /// its default blinking cursor, in its sorted order.
 const DEFAULT_FEATURES: &str = "cursor:blink,path,title";
+
+/// The scripts' ssh wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`.
+const GHOSTTY_BIN_DIR_ENV: &str = "GHOSTTY_BIN_DIR";
+
+/// The features whose scripts run the Ghostty CLI.
+const CLI_FEATURES: [&str; 2] = ["ssh-env", "ssh-terminfo"];
+
+/// Where the shell finds the Ghostty CLI: its `GHOSTTY_BIN_DIR` as given, or
+/// the directory of `GHOSTTY_BIN`, which the shell then needs exported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GhosttyCliDir {
+    Given,
+    FromBinary(String),
+}
+
+fn ghostty_cli_dir(lookup: &dyn Fn(&str) -> Option<String>) -> Option<GhosttyCliDir> {
+    if lookup(GHOSTTY_BIN_DIR_ENV).is_some_and(|dir| !dir.is_empty()) {
+        return Some(GhosttyCliDir::Given);
+    }
+    let binary = lookup("GHOSTTY_BIN").filter(|binary| !binary.is_empty())?;
+    let dir = Path::new(&binary).parent()?.to_str()?.to_string();
+    (!dir.is_empty()).then_some(GhosttyCliDir::FromBinary(dir))
+}
+
+/// `features` without the ones the shell cannot serve: with no Ghostty CLI,
+/// the ssh wrappers would make `ssh` run a missing program, so they go and
+/// plain `ssh` runs (Ghostty itself always has its CLI).
+fn usable_features(features: &str, has_cli: bool) -> String {
+    if has_cli {
+        return features.to_string();
+    }
+    features
+        .split(',')
+        .filter(|feature| !CLI_FEATURES.contains(feature))
+        .collect::<Vec<_>>()
+        .join(",")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shell {
@@ -134,8 +175,18 @@ fn apply(
     // keys: a caller value for one of them never reaches the shell.
     crate::daemon_env::warn_dropped(&crate::daemon_env::strip_integration_owned(&mut env));
     // A caller (or daemon) value is the user's resolved feature set.
-    if lookup(FEATURES_ENV).is_none() {
-        env.push((FEATURES_ENV.into(), DEFAULT_FEATURES.into()));
+    let cli_dir = ghostty_cli_dir(lookup);
+    match lookup(FEATURES_ENV) {
+        None => env.push((FEATURES_ENV.into(), DEFAULT_FEATURES.into())),
+        Some(features) => {
+            let usable = usable_features(&features, cli_dir.is_some());
+            if usable != features {
+                env.push((FEATURES_ENV.into(), usable));
+            }
+        }
+    }
+    if let Some(GhosttyCliDir::FromBinary(dir)) = cli_dir {
+        env.push((GHOSTTY_BIN_DIR_ENV.into(), dir));
     }
     let root_str = root.to_string_lossy().into_owned();
     match shell {
@@ -675,25 +726,35 @@ mod tests {
     /// ghostty-next adds, removes or changes cannot be missed.
     #[test]
     fn the_embedded_scripts_are_ghostty_nexts_injection_files() {
-        let tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../ghostty-next/src/shell-integration");
+        let tree = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../ghostty-next/src/shell-integration");
         let mut files = Vec::new();
-        let mut pending: Vec<PathBuf> = ["zsh", "bash", "fish"].iter().map(|d| tree.join(d)).collect();
+        let mut pending: Vec<PathBuf> =
+            ["zsh", "bash", "fish"].iter().map(|d| tree.join(d)).collect();
         while let Some(dir) = pending.pop() {
             for entry in fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
                     pending.push(path);
                 } else {
-                    files.push(path.strip_prefix(&tree).unwrap().to_string_lossy().replace('\\', "/"));
+                    files.push(
+                        path.strip_prefix(&tree).unwrap().to_string_lossy().replace('\\', "/"),
+                    );
                 }
             }
         }
         files.sort();
-        let mut embedded: Vec<String> = SCRIPTS.iter().map(|script| script.path.to_string()).collect();
+        let mut embedded: Vec<String> =
+            SCRIPTS.iter().map(|script| script.path.to_string()).collect();
         embedded.sort();
         assert_eq!(files, embedded);
         for script in SCRIPTS {
-            assert_eq!(fs::read_to_string(tree.join(script.path)).unwrap(), script.contents, "{}", script.path);
+            assert_eq!(
+                fs::read_to_string(tree.join(script.path)).unwrap(),
+                script.contents,
+                "{}",
+                script.path
+            );
         }
     }
 
@@ -760,8 +821,13 @@ mod tests {
             move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
         };
         let launched = apply(shell, &root, vec![exe.into()], env, &lookup);
-        let pty = cmux_pty::open(cmux_pty::PtySize { rows: 24, cols: 200, pixel_width: 0, pixel_height: 0 })
-            .unwrap();
+        let pty = cmux_pty::open(cmux_pty::PtySize {
+            rows: 24,
+            cols: 200,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
         let mut command = cmux_pty::PtyCommand::new(&launched.command[0]);
         command.args(launched.command[1..].iter().cloned());
         command.env("TERM", "xterm-256color");
