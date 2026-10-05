@@ -236,7 +236,8 @@ class PushPreflightBehavior(unittest.TestCase):
     """Execute the workflow shell with bounded fake network and git responses."""
 
     def run_preflight(self, *, artifacts=False, event="push", ref="refs/heads/feat-cmux-next",
-                      remote="a" * 40, published=False, missing="", malformed=False, fork=False):
+                      remote="a" * 40, remote_tree_key="0" * 39 + "2", published=False,
+                      missing="", malformed=False, fork=False):
         filename = "cmux-tui-artifacts.yml" if artifacts else "cmux-next.yml"
         workflow = yaml.safe_load((WORKFLOW.parent / filename).read_text())
         job_id = "tree-preflight" if artifacts else "push-head-preflight"
@@ -247,8 +248,10 @@ class PushPreflightBehavior(unittest.TestCase):
             git.write_text('''#!/bin/bash
 case "$*" in
   *ls-remote*) [[ -z "$REMOTE_SHA" ]] && exit 1; printf '%s\\trefs/heads/feat-cmux-next\\n' "$REMOTE_SHA" ;;
+  *fetch*) touch "$REMOTE_FETCH_MARKER" ;;
+  *diff*) exit 0 ;;
   *rev-parse*) printf '%040d\\n' 1 ;;
-  *mktree*) cat >/dev/null; printf '%040d\\n' 2 ;;
+  *mktree*) cat >/dev/null; if [[ -e "$REMOTE_FETCH_MARKER" ]]; then printf '%s\\n' "$REMOTE_TREE_KEY"; else printf '%040d\\n' 2; fi ;;
   *) exit 1 ;;
 esac
 ''')
@@ -285,6 +288,7 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
                    "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(root), "EVENT_NAME": event, "REF": ref,
                    "SHA": "a" * 40, "SOURCE_COMMIT": "a" * 40,
                    "REMOTE_SHA": remote, "PUBLISHED": str(published).lower(),
+                   "REMOTE_TREE_KEY": remote_tree_key, "REMOTE_FETCH_MARKER": str(root / "remote-fetched"),
                    "MISSING": missing, "MALFORMED": str(malformed).lower(),
                    "HEAD_REPOSITORY": "outside/fork" if fork else "manaflow-ai/cmux",
                    "REPOSITORY": "manaflow-ai/cmux", "SERVER_URL": "https://github.com",
@@ -328,10 +332,15 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
     def test_new_tree_schedules_mac_build_and_daemon_tests(self):
         self.assertEqual(self.run_preflight(artifacts=True)["run_macos"], "true")
 
-    def test_superseded_push_does_not_build_even_a_missing_tree(self):
+    def test_same_tree_superseded_push_skips_missing_tree_build(self):
         output = self.run_preflight(artifacts=True, remote="b" * 40)
         self.assertEqual(output["run_macos"], "false")
         self.assertEqual(output["superseded"], "true")
+
+    def test_distinct_tree_superseded_push_keeps_missing_tree_build(self):
+        output = self.run_preflight(artifacts=True, remote="b" * 40, remote_tree_key="3" * 40)
+        self.assertEqual(output["run_macos"], "true")
+        self.assertEqual(output["superseded"], "false")
 
     def test_main_keeps_commit_and_latest_publication(self):
         self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/main",
