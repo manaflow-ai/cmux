@@ -11,6 +11,16 @@ cat > "$TMP/bin/cargo" <<STUB
 echo "\$(umask) \${CARGO_TARGET_DIR:-unset} \$*" >> "$TMP/calls"
 STUB
 chmod +x "$TMP/bin/cargo"
+cat > "$TMP/bin/rustup" <<STUB
+#!/bin/bash
+case "\$1 \$2" in
+  "component add") exit 0 ;;
+  "show active-toolchain") echo pinned-toolchain ;;
+  "component list") echo clippy ; echo rustfmt ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$TMP/bin/rustup"
 run() { (cd "$TMP/work" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" "$@" /bin/bash "$ROOT/scripts/ci/cmux-tui-rust-check.sh" "${ARGS[@]}") 2>&1; }
 fail() { echo "FAIL: $*"; exit 1; }
 ARGS=(fmt)
