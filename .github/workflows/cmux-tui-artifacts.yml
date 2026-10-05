@@ -237,12 +237,14 @@ jobs:
       ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: tree-preflight
-    # Once preflight has computed the immutable key, duplicate feat-cmux-next
-    # pushes may cancel one another safely. Distinct keys use distinct groups,
-    # so an older base tree cannot be dropped by a newer tree publication.
+    # Once preflight has computed the immutable key, duplicate pushes share a
+    # group for cache efficiency, but they must never cancel one another. A
+    # publisher takes about 24 minutes and cancellation can strand a tree key
+    # that base CI is already waiting to fetch. The complete-key preflight
+    # makes later duplicates cheap after one run finishes.
     concurrency:
       group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}
-      cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+      cancel-in-progress: false
     permissions:
       contents: read
       # The reusable package workflow declares an optional attestation job.
@@ -279,7 +281,9 @@ jobs:
     needs: tree-preflight
     concurrency:
       group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}
-      cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+      # Keep at least one publisher alive for every missing tree key. The
+      # artifact preflight skips duplicate work after the first complete run.
+      cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
     runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
     timeout-minutes: 60
