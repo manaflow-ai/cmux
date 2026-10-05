@@ -35,6 +35,7 @@ public final class PaletteRanker {
     /// Ranks a prepared palette index through the shared TypeScript engine.
     public func rank(
         index: inout PaletteSearchIndex,
+        version: Int? = nil,
         query: String,
         sectionOrders: [Int],
         frecency: FrecencyStore,
@@ -49,6 +50,7 @@ public final class PaletteRanker {
         do {
             return try bridge.rank(
                 index: index,
+                version: version,
                 query: query,
                 sectionOrders: sectionOrders,
                 frecency: frecency,

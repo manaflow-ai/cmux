@@ -72,8 +72,8 @@ import Testing
         let queries = ["sp", "tab", "new", "move", "close"]
         let median = Self.medianMilliseconds(iterations: 40) {
             for query in queries {
-                _ = ranker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
-                _ = ranker.rank(index: &index, query: "q", sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
+                _ = ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
+                _ = ranker.rank(index: &index, version: 1, query: "q", sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
             }
         } / Double(queries.count * 2)
         print("palette benchmark: rank of 2000 items, median \(String(format: "%.3f", median)) ms per query")

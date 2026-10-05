@@ -19,12 +19,12 @@ import Testing
         }
 
         mutating func rank(_ query: String, frecency: FrecencyStore, now: Date, showsRecent: Bool = false) -> [(section: Int?, ids: [String])] {
-            ranker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: showsRecent)
+            ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: showsRecent)
                 .map { section in (section.sectionIndex, section.rows.map { items[$0.index].id }) }
         }
 
         mutating func topID(_ query: String, frecency: FrecencyStore, now: Date) -> String? {
-            ranker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: false)
+            ranker.rank(index: &index, version: 1, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: false)
                 .flatMap(\.rows)
                 .max { $0.score < $1.score }
                 .map { items[$0.index].id }
