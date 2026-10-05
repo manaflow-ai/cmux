@@ -43,6 +43,20 @@ extension AgentPaneView {
         String(localized: "agentPane.addRoot.message", defaultValue: "The agent asked to work in %@, which is outside this workspace's folders.", bundle: .module)
     }
 
+    /// The sheet that confirms a mode in which the agent acts without asking first.
+    static var confirmModeTitle: String {
+        String(localized: "agentPane.confirmMode.title", defaultValue: "Let the agent act without asking?", bundle: .module)
+    }
+
+    /// `%@` is the mode's id.
+    static var confirmModeMessage: String {
+        String(localized: "agentPane.confirmMode.message", defaultValue: "This chat would switch to %@, a mode in which the agent does not ask before it acts.", bundle: .module)
+    }
+
+    static var confirmModeButton: String {
+        String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .module)
+    }
+
     static var addRootButton: String {
         String(localized: "agentPane.addRoot.add", defaultValue: "Add Folder", bundle: .module)
     }

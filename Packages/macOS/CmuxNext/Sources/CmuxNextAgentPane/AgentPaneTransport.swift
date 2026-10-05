@@ -354,6 +354,16 @@ public extension AgentPaneTransportPacer {
             }
         }
         decision = gate(connection: id, frame: frame, decision: decision)
+        // R2: a mode the daemon's table does not list as asking needs the user's native confirmation.
+        if case .send = decision, let requested = AcpmuxPaneMethods.requestedMode(frame.object) {
+            let asks = await modeAsks(requested.sessionId, requested.mode)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            if asks != true {
+                let confirmed = await confirm(mode: requested.mode)
+                guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+                if !confirmed { decision = .refuse(.modeNotConfirmed, method: frame.method, requestID: frame.id) }
+            }
+        }
         return deliverToSocket(frame: frame, decision: decision, rootRequested: rootRequested)
     }
 
@@ -388,7 +398,11 @@ public extension AgentPaneTransportPacer {
         if case .send(let raw) = decision, sentFirst {
             let (text, ticket, otherMeta) = AcpmuxPaneMethods.takeGestureTicket(raw)
             decision = .send(text)
-            _ = otherMeta
+            if ticket != nil, otherMeta {
+                // R1: a redeeming frame carries no other _meta. The ticket is spent.
+                if let ticket { _ = gestures.redeem(ticket, connection: id, method: nil, params: [:]) }
+                return .refuse(.intentInvalid, method: frame.method, requestID: frame.id)
+            }
             let granted: Bool
             if let ticket {
                 // B2: only set_mode and set_config_option redeem a ticket, for their exact pick, into

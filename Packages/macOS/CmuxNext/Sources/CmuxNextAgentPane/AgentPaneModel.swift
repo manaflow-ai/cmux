@@ -103,6 +103,10 @@ public final class AgentPaneModel {
             onRequestRoot(folder, answer)
         }
         if let sessionId { transport.sessions.add(sessionId) }
+        transport.requestModeConfirmation = { [weak self] mode, answer in
+            guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
+            onConfirmMode(mode, answer)
+        }
     }
 
     /// Asks the user to confirm a mode that does not ask before it acts (the view's native sheet).
