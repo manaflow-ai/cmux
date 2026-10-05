@@ -25,9 +25,13 @@ const isMock = (href) => {
 
 // Options: signedIn (default true) adds the site session cookies;
 // authResponder(params, page) answers the native "auth.request" driver call
-// the way the app's credential sheet would.
-export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
+// the way the app's credential sheet would; gmailReplies (default false)
+// turns on confirmed Gmail replies, which are off in source until their
+// live check passes (sites/gmail.js), for tests of the reply path.
+export async function createSitesEnv({ signedIn = true, authResponder, gmailReplies = false } = {}) {
   const ns = loadRuntime();
+  const setGmailReplies = (on) => (ns.sites.shared.gmailReplies = { verified: !!on });
+  setGmailReplies(gmailReplies);
   const state = createState();
   let context;
   const browser = await createDevBrowser({
@@ -137,6 +141,7 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
   return {
     state,
     session,
+    setGmailReplies,
     workDir,
     context: () => context,
     async close() {

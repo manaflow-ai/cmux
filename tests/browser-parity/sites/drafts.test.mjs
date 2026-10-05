@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
 import { GOOGLE_ACCOUNT_ROWS, SLACK_SEED } from "./mock-sites.mjs";
 
-const env = await createSitesEnv();
+const env = await createSitesEnv({ gmailReplies: true });
 test.after(() => env.close());
 const s = env.session("drafts");
 const SHEET = "https://docs.google.com/spreadsheets/d/1sheetSHARED00000000000000000000x/edit#gid=0";

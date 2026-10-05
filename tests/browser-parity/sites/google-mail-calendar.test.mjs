@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createSitesEnv } from "./harness.mjs";
 
-const env = await createSitesEnv();
+const env = await createSitesEnv({ gmailReplies: true });
 test.after(() => env.close());
 const s = env.session("mail");
 
@@ -82,6 +82,24 @@ test("gmail.send reply: the draft names who the reply goes to, and sends only to
     assert.deepEqual(replyTo.preview.to, ["eve@reply-to.example"], "a sender's Reply-To is shown");
   } finally {
     env.state.gmailReplyRecipients = null;
+  }
+});
+
+// decisions.md, "Gmail replies": until a live check (drafts only, never
+// confirmed) shows that the To, Cc and Bcc a reply draft previews are the
+// ones Gmail's own reply composer addresses, replies are off in source: a
+// reply draft shows the recipients, and its confirmation sends nothing.
+test("gmail.send reply: confirmed replies are off until the live reply check passes; the draft still shows Gmail's recipients", async () => {
+  env.setGmailReplies(false);
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Not yet." })');
+    assert.equal(d.status, "draft");
+    assert.deepEqual([d.preview.to, d.preview.cc, d.preview.bcc], [["bob@example.com"], [], []]);
+    const sent = env.state.gmailSent.length;
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /reply_unverified|replies are off/);
+    assert.equal(env.state.gmailSent.length, sent, "a reply was sent before its live check passed");
+  } finally {
+    env.setGmailReplies(true);
   }
 });
 
