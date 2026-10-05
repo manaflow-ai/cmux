@@ -22,6 +22,8 @@ enum SidebarStyle {
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
     static var railGlyphSize: CGFloat { Metrics.iconSize + 1 }
     static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
+    /// The glyph well of a large sidebar-top tile (the tiles arrangement).
+    static var favoriteWell: CGFloat { Metrics.sidebarRowHeight + Metrics.space1 }
     static var badgeHeight: CGFloat { Metrics.iconSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
