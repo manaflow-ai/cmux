@@ -380,6 +380,7 @@ enum CmuxExtensionSidebarSelection {
 
     /// Changes only the sidebar provider; workspace, surface and terminal state
     /// remain owned by their existing native models.
+    @MainActor
     @discardableResult
     static func toggleCortexSidebar(
         enabledBundleIDs: Set<String>,
@@ -400,6 +401,7 @@ enum CmuxExtensionSidebarSelection {
 
     /// Explicit, idempotent selection for the permanent sidebar mode header.
     /// Discovery only supplies candidates and never writes this preference.
+    @MainActor
     @discardableResult
     static func selectCortexSidebar(
         enabledBundleIDs: Set<String>,
