@@ -342,6 +342,9 @@ pub unsafe extern "C" fn cmux_rd_receiver_feedback(
     if out_len.is_null() {
         return CMUX_RD_ERR_NULL;
     }
+    // SAFETY: checked non-NULL; writable by contract. Every path, including a
+    // NULL or unusable receiver, leaves a defined length.
+    unsafe { *out_len = 0 };
     with_receiver(receiver, |h| {
         let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us)) else {
             // SAFETY: checked non-NULL; writable by contract.
