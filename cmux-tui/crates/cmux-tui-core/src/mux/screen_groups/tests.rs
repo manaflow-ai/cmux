@@ -52,7 +52,14 @@ fn tree(mux: &Mux) -> Value {
 }
 
 fn new_screen(mux: &Arc<Mux>, workspace: WorkspaceId) -> ScreenId {
-    mux.new_screen_with_spec(Some(workspace), None, None, ScreenSpec::default()).unwrap().1
+    mux.new_screen_with_spec(
+        Some(workspace),
+        TerminalSpawnOptions::new(None, Vec::new()),
+        None,
+        ScreenSpec::default(),
+    )
+    .unwrap()
+    .1
 }
 
 #[test]
@@ -261,7 +268,12 @@ fn cmux_next_new_screen_with_spec_applies_name_metadata_position_and_directory()
         group: Some(group.clone()),
     };
     let (_, screen) = mux
-        .new_screen_with_spec(Some(workspace), Some(dir.display().to_string()), None, spec)
+        .new_screen_with_spec(
+            Some(workspace),
+            TerminalSpawnOptions::new(Some(dir.display().to_string()), Vec::new()),
+            None,
+            spec,
+        )
         .unwrap();
     let json = tree(&mux);
     let screens = json["workspaces"][0]["screens"].as_array().unwrap();

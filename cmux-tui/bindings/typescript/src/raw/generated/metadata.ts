@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe. */
+/* cmux-tui mux protocol 12, IR ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe" as const;
+export const SDK_IR_SHA256 = "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -423,7 +423,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "batch-close-v1",
-    "fields": {},
+    "fields": {
+      "reason": {
+        "since": null,
+        "capability": "close-reason-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -1437,10 +1442,24 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "env": {
+        "since": 12,
+        "capability": "screen-terminal-env-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "screen-terminal-env-v1"
+      },
+      "terminal_id": {
+        "since": 12,
+        "capability": "screen-terminal-env-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen."
+      "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen.",
+      "env, terminal_id, and shell_args need capability screen-terminal-env-v1: the new screen's terminal takes them as on new-pane, and the result then also carries terminal_id."
     ]
   },
   "new-tab": {
@@ -11484,6 +11503,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "reason": {
+          "capability": "close-reason-v1",
+          "default": null,
+          "description": "session_end only: the close is not recorded in the closed history.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "surfaces": {
           "nullable": false,
           "presence": "required",
@@ -15713,6 +15743,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "env": {
+          "capability": "screen-terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
         "group": {
           "default": null,
           "nullable": true,
@@ -15762,6 +15806,37 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "default": null,
           "nullable": true,
           "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "shell_args": {
+          "capability": "screen-terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "terminal_id": {
+          "capability": "screen-terminal-env-v1",
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes)",
+              "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "string"

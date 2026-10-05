@@ -112,11 +112,13 @@ mod pending_handoff;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
+mod close_tabs_command;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
+mod new_screen;
 mod personal;
 mod raw_tab;
 #[cfg(unix)]
@@ -326,6 +328,9 @@ pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
 /// adds no integration of its own.
 pub const TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY: &str =
     "terminal-frontend-shell-integration-v1";
+/// `env`, `terminal_id` and `shell_args` on `new-screen`, and `terminal_id`
+/// in its result.
+pub const SCREEN_TERMINAL_ENV_CAPABILITY: &str = "screen-terminal-env-v1";
 /// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`, `daemon`) on
 /// `notify`, the `notification` event, the tab marker and `list-notifications`; the daemon
 /// posts OSC 9, OSC 777 and OSC 99 from every terminal's output as `terminal`.
@@ -507,6 +512,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         NOTIFICATION_SOURCE_CAPABILITY,
         TERMINAL_SHELL_ARGS_CAPABILITY,
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
+        SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
@@ -516,6 +522,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
+        close_tabs_command::CLOSE_REASON_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
@@ -1664,29 +1671,7 @@ enum Command {
         mutation: MutationRequest,
     },
     /// New screen in a workspace (default: the active one).
-    NewScreen {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// The new screen's name (`name` would name its terminal).
-        #[serde(default)]
-        screen_name: Option<String>,
-        #[serde(default)]
-        color: Option<String>,
-        #[serde(default)]
-        icon: Option<String>,
-        #[serde(default)]
-        pinned: Option<bool>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        group: Option<String>,
-    },
+    NewScreen(new_screen::NewScreenParams),
     /// Set or clear a screen's color and icon (JSON null clears).
     SetScreenMetadata {
         screen: ScreenId,
@@ -2304,6 +2289,9 @@ enum Command {
         end_terminals: bool,
         #[serde(default)]
         transaction: Option<String>,
+        /// `close-reason-v1`: `session_end` keeps the close out of closed history.
+        #[serde(default)]
+        reason: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -13976,23 +13964,7 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen {
-            workspace,
-            cols,
-            rows,
-            cwd,
-            screen_name,
-            color,
-            icon,
-            pinned,
-            index,
-            group,
-        } => {
-            let spec = crate::ScreenSpec { name: screen_name, color, icon, pinned, index, group };
-            let (surface, screen) =
-                mux.new_screen_with_spec(workspace, cwd, optional_surface_size(cols, rows), spec)?;
-            Ok(json!({ "surface": surface.id, "screen": screen }))
-        }
+        Command::NewScreen(params) => new_screen::new_screen(mux, client, params),
         Command::SetScreenMetadata { screen, color, icon } => {
             let changed = mux.set_screen_metadata(screen, color, icon)?;
             let presentation = mux.presentation_snapshot();
@@ -14820,29 +14792,8 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::CloseTabs { surfaces, end_terminals, transaction, mutation } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let workspace_mutation = workspace_mutation(&mutation)?;
-            anyhow::ensure!(
-                mutation.expected_generation.is_none() && mutation.expected_revision.is_none(),
-                "close-tabs does not take expected_generation or expected_revision"
-            );
-            anyhow::ensure!(
-                surfaces.len() <= MAX_CLOSE_TABS_SURFACES,
-                "close-tabs takes at most {MAX_CLOSE_TABS_SURFACES} surfaces"
-            );
-            let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome = mux.close_tabs(surfaces, end_terminals, &workspace_mutation)?;
-            let mut reply = json!({
-                "closed": outcome.closed(),
-                "terminals": batch_close_terminals_json(&outcome),
-                "resource_revision": outcome.resource_revision,
-                "replayed": outcome.replayed,
-            });
-            if let Some(transaction) = transaction {
-                reply["transaction"] = json!(transaction);
-            }
-            Ok(reply)
+        Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
+            close_tabs_command::run(mux, &surfaces, end_terminals, transaction, reason, &mutation)
         }
         // With `end_terminals` the result shapes stay those of the plain
         // closes; the ended terminals show in the terminal and resource streams.

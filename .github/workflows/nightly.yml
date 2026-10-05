@@ -959,6 +959,32 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # cmux-next release source archive: Ghostty at its submodule revision and
+      # every Zig package of the build, so the MPL-2.0 source offer for Ghostty's
+      # Zig packages names an archive this release publishes (and the public
+      # cmux-next-src-<commit> tag) instead of upstream URLs. Built and verified
+      # on every nightly-next build (twice, byte-identical); the publish job
+      # attaches it only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1.
+      # continue-on-error until every Ghostty Zig package has a reviewed license
+      # text (zig-gobject and iterm2_themes have none yet): a failure leaves a
+      # red step and no artifact, and the sign and publish steps skip it.
+      - name: Build the cmux-next source archive
+        id: source_archive
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        continue-on-error: true
+        run: |
+          ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig" \
+            ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive"
+
+      - name: Upload the cmux-next source archive
+        if: steps.source_archive.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-source-archive
+          path: ${{ runner.temp }}/source-archive
+          if-no-files-found: error
+          retention-days: 3
+
   build-nightly-app:
     needs: decide
     outputs:
@@ -1149,6 +1175,21 @@ jobs:
         run: |
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+
+      # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
+      # bundles: the daemon, app host and Cloud server come from this tree
+      # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
+      # from `cargo tree` (this runner has cargo). The Release build copies the
+      # regenerated file; the sign job verifies the bundle against
+      # scripts/cmux-next/notices/bundle-map.json.
+      - name: Generate third-party notices (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
+        run: |
+          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
       - name: Build nightly app (Release)
         run: |
@@ -1502,6 +1543,15 @@ jobs:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-inputs/ghostty
 
+      - name: Download the Ghostty dependency licenses (cmux-next)
+        id: ghostty_licenses
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-source-archive
+          path: nightly-inputs/source-archive
+
       - name: Restore unsigned nightly products
         run: |
           set -euo pipefail
@@ -1573,6 +1623,20 @@ jobs:
           mkdir -p "$(dirname "$DEST")"
           install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
+
+      # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
+      # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
+      # source offer that names this release's cmux-next source archive and tag.
+      - name: Inject the Ghostty dependency licenses (cmux-next)
+        if: steps.ghostty_licenses.outcome == 'success'
+        run: |
+          set -euo pipefail
+          APP_DIR="build-universal/Build/Products/Release/cmux.app"
+          tree="nightly-inputs/source-archive/ghostty-licenses"
+          python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
+            --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
+          rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
+          cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
 
       # Every variant installs the one commit resolve-nightly-cmux-tui-client
       # chose, from its attested immutable manifest, before thinning.
@@ -1844,6 +1908,12 @@ jobs:
       - name: Verify bundled Mach-O load commands
         run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
 
+      # Every Mach-O must map to its notices (bundle-map.json): fail here,
+      # before the notarization wait. notarize-nightly-dmg.sh checks the app
+      # and the mounted DMG again.
+      - name: Verify third-party notices cover every bundled binary
+        run: ./scripts/verify-app-bundle-licenses.sh "$CHANNEL_APP_PATH"
+
       - name: Verify signed app SSH daemon contract
         run: |
           bundle_args=()
@@ -2110,6 +2180,41 @@ jobs:
             --feed nightly-out/appcast-x86_64.xml \
             --feed nightly-out/appcast-universal.xml \
             --feed nightly-out/appcast.xml
+
+      - name: Download the cmux-next source archive
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-source-archive
+          path: source-archive
+
+      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it).
+      # Tags the build commit cmux-next-src-<11 characters> and attaches
+      # cmux-next-source-<build>.tar.gz to the nightly-next release; the
+      # dmg-prefix prune never removes it.
+      - name: Publish the cmux-next source archive
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          short="${HEAD_SHA:0:11}"
+          src=(source-archive/cmux-next-source-*.tar.gz)
+          [[ ${#src[@]} -eq 1 && -f "${src[0]}" ]] || { echo "expected one source archive, found: ${src[*]}" >&2; exit 1; }
+          python3 scripts/cmux-next/notices/ghostty_source_archive.py verify --archive "${src[0]}" \
+            --license-manifest source-archive/ghostty-licenses/SOURCE-MANIFEST.json \
+            --revision "$(git rev-parse "$HEAD_SHA:ghostty")"
+          mkdir -p source-out
+          cp "${src[0]}" "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
+          if existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/cmux-next-src-$short" --jq .object.sha 2>/dev/null)"; then
+            [[ "$existing" == "$HEAD_SHA" ]] || { echo "tag cmux-next-src-$short points at $existing, not $HEAD_SHA" >&2; exit 1; }
+          else
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/cmux-next-src-$short" -f "sha=$HEAD_SHA" >/dev/null
+          fi
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
 
       - name: Mint release tag app token
         id: release-tag-token

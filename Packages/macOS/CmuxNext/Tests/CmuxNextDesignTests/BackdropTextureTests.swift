@@ -45,6 +45,16 @@ struct BackdropTextureTests {
         #expect(cache.renderCount == 2)
     }
 
+    /// Every filter renders through the cache without raising (CIFilter
+    /// raises for a key it does not declare, which ends the process).
+    @Test(arguments: BackdropTextureFilter.allCases)
+    func everyFilterRendersTheSourceSize(_ filter: BackdropTextureFilter) throws {
+        let source = try #require(Self.image())
+        let rendered = try #require(BackdropTextureCache().image(for: "fixture", source: source,
+                                                                  texture: BackdropTexture(filter: filter, strength: 0.5)))
+        #expect(rendered.size == source.size)
+    }
+
     private static func image() -> NSImage? {
         let image = NSImage(size: NSSize(width: 32, height: 20))
         image.lockFocus()

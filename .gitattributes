@@ -50,3 +50,7 @@ Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
 # xcstrings catalogs. Only generated output; the page sources merge normally.
 Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-generated-v1
 webviews/src/pages/*/generated/strings.json merge=cmux-generated-v1
+# Upstream license texts the shared Ghostty license collector ships, pinned by
+# SHA-256 in pinned-licenses/MANIFEST.json. Never rewrite their bytes.
+cmux-tui/build-support/notices/ghostty/pinned-licenses/** -text -whitespace
+cmux-tui/build-support/notices/texts/** -text -whitespace

@@ -20,9 +20,13 @@ enum DebugAgentCursorDemo {
     private static var demo = AgentCursorDemo()
 
     static func handle(_ params: [String: CmuxNextSettings.JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
-        // `kind` + `point {x, y}` is the form agent-cursor-visibility-live.py sends.
-        let action = params["action"]?.stringValue ?? params["kind"]?.stringValue ?? "report"
         let point = params["point"]?.objectValue
+        let request = AgentCursorDemo.Request(
+            action: params["action"]?.stringValue, kind: params["kind"]?.stringValue,
+            x: params["x"]?.doubleValue, y: params["y"]?.doubleValue,
+            pointX: point?["x"]?.doubleValue, pointY: point?["y"]?.doubleValue
+        )
+        let action = request.action
         var result: [String: CmuxNextSettings.JSONValue] = ["action": .string(action)]
         if action != "report" {
             guard let target = params["target"]?.stringValue, !target.isEmpty else {
@@ -32,8 +36,7 @@ enum DebugAgentCursorDemo {
             do {
                 let step = try demo.step(
                     action: action, session: session, target: target,
-                    x: params["x"]?.doubleValue ?? point?["x"]?.doubleValue,
-                    y: params["y"]?.doubleValue ?? point?["y"]?.doubleValue, zoom: params["zoom"]?.doubleValue,
+                    x: request.x, y: request.y, zoom: params["zoom"]?.doubleValue,
                     tMs: Date().timeIntervalSince1970 * 1000
                 )
                 apply(step, services: services)

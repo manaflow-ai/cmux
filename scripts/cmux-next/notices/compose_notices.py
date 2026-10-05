@@ -9,7 +9,11 @@ generated sections.
 The hand-written input is copied byte for byte; the tool only adds a line
 `<!-- notices-section: manual-<slug of the heading> -->` before each `## `
 heading, so bundle-map.json can name it. Generated sections (rust_notices.py
-markdown, which carries its own marker) follow in the order given.
+markdown, which carries its own marker) follow in the order given, each with
+its crate list only. Their license texts move to one shared section,
+`rust-license-texts`, which prints every distinct text once, sorted by its
+id (the first 12 hex digits of its sha256, which each crate line names).
+Two different texts with one id fail the run.
 """
 
 from __future__ import annotations
@@ -29,6 +33,32 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+TEXT_BLOCK = re.compile(r"#### Text ([0-9a-f]{12})\n\n(`{3,})text\n(.*?)\n\2\n", re.S)
+SHARED = (
+    "<!-- notices-section: rust-license-texts -->\n"
+    "## License texts (Rust crates)\n\n"
+    "Every license text that a Rust section above names, printed once; `text <id>` in a crate line refers to `Text <id>` here.\n\n"
+)
+
+
+def split_section(section: str, texts: dict[str, str]) -> str:
+    """The section without its texts; the texts go into TEXTS by id."""
+    head, marker, tail = section.partition("\n### License texts (")
+    if not marker:
+        return section
+    body = tail.split("\n", 1)[1] if "\n" in tail else ""
+    for match in TEXT_BLOCK.finditer(body):
+        text_id, text = match.group(1), match.group(3)
+        if texts.setdefault(text_id, text) != text:
+            raise SystemExit(f"compose_notices: two different license texts have the id {text_id}")
+    return head.rstrip("\n") + "\n"
+
+
+def fence(text: str) -> str:
+    longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
 def compose(hand_written: str, sections: list[str]) -> str:
     out = [HEADER]
     seen: set[str] = set()
@@ -42,8 +72,14 @@ def compose(hand_written: str, sections: list[str]) -> str:
         out.append(line)
     if not hand_written.endswith("\n"):
         out.append("\n")
+    texts: dict[str, str] = {}
     for section in sections:
-        out += ["\n---\n\n", section]
+        out += ["\n---\n\n", split_section(section, texts)]
+    if texts:
+        out += ["\n---\n\n", SHARED]
+        for text_id, text in sorted(texts.items()):
+            f = fence(text)
+            out.append(f"#### Text {text_id}\n\n{f}text\n{text}\n{f}\n\n")
     return "".join(out)
 
 

@@ -9479,6 +9479,51 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "env": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-terminal-env-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-terminal-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-terminal-env-v1"
      }
     },
     "additional_properties": false,
@@ -9492,7 +9537,8 @@
    },
    "stream": null,
    "constraints": [
-    "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen."
+    "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen.",
+    "env, terminal_id, and shell_args need capability screen-terminal-env-v1: the new screen's terminal takes them as on new-pane, and the result then also carries terminal_id."
    ]
   },
   "set-screen-metadata": {
@@ -15244,6 +15290,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "close-reason-v1",
+      "description": "session_end only: the close is not recorded in the closed history."
      },
      "origin": {
       "type": {

@@ -26469,127 +26469,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Next Workspace"
+            "value": "Next Sidebar Item"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次のワークスペース"
+            "value": "次のサイドバー項目"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "مساحة العمل التالية"
+            "state": "needs_review",
+            "value": "عنصر الشريط الجانبي التالي"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sljedeći radni prostor"
+            "state": "needs_review",
+            "value": "Sljedeća stavka bočne trake"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Næste arbejdsområde"
+            "state": "needs_review",
+            "value": "Næste element i sidepanelet"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nächster Arbeitsbereich"
+            "state": "needs_review",
+            "value": "Nächstes Seitenleistenelement"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Siguiente espacio de trabajo"
+            "state": "needs_review",
+            "value": "Siguiente elemento de la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Espace de travail suivant"
+            "state": "needs_review",
+            "value": "Élément suivant de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Area di lavoro successiva"
+            "state": "needs_review",
+            "value": "Elemento successivo della barra laterale"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងធ្វើការបន្ទាប់"
+            "value": "ធាតុរបារចំហៀងបន្ទាប់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "다음 작업 공간"
+            "state": "needs_review",
+            "value": "다음 사이드바 항목"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Neste arbeidsområde"
+            "state": "needs_review",
+            "value": "Neste element i sidepanelet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Następna przestrzeń robocza"
+            "state": "needs_review",
+            "value": "Następny element paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Próxima Área de Trabalho"
+            "state": "needs_review",
+            "value": "Próximo Item da Barra Lateral"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Следующее рабочее пространство"
+            "state": "needs_review",
+            "value": "Следующий элемент боковой панели"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เวิร์กสเปซถัดไป"
+            "state": "needs_review",
+            "value": "รายการแถบด้านข้างถัดไป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sonraki Çalışma Alanı"
+            "state": "needs_review",
+            "value": "Sonraki Kenar Çubuğu Öğesi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Наступна робоча область"
+            "state": "needs_review",
+            "value": "Наступний елемент бічної панелі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không gian làm việc tiếp theo"
+            "value": "Mục thanh bên tiếp theo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "下一个工作区"
+            "state": "needs_review",
+            "value": "下一个侧边栏项目"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "下一個工作區"
+            "state": "needs_review",
+            "value": "下一個側邊欄項目"
           }
         }
       }
@@ -42844,127 +42844,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Previous Workspace"
+            "value": "Previous Sidebar Item"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前のワークスペース"
+            "value": "前のサイドバー項目"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "مساحة العمل السابقة"
+            "state": "needs_review",
+            "value": "عنصر الشريط الجانبي السابق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prethodni radni prostor"
+            "state": "needs_review",
+            "value": "Prethodna stavka bočne trake"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forrige arbejdsområde"
+            "state": "needs_review",
+            "value": "Forrige element i sidepanelet"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vorheriger Arbeitsbereich"
+            "state": "needs_review",
+            "value": "Vorheriges Seitenleistenelement"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Espacio de trabajo anterior"
+            "state": "needs_review",
+            "value": "Elemento anterior de la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Espace de travail précédent"
+            "state": "needs_review",
+            "value": "Élément précédent de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Area di lavoro precedente"
+            "state": "needs_review",
+            "value": "Elemento precedente della barra laterale"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងធ្វើការមុន"
+            "value": "ធាតុរបារចំហៀងមុន"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "이전 작업 공간"
+            "state": "needs_review",
+            "value": "이전 사이드바 항목"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forrige arbeidsområde"
+            "state": "needs_review",
+            "value": "Forrige element i sidepanelet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Poprzednia przestrzeń robocza"
+            "state": "needs_review",
+            "value": "Poprzedni element paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Área de Trabalho Anterior"
+            "state": "needs_review",
+            "value": "Item Anterior da Barra Lateral"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Предыдущее рабочее пространство"
+            "state": "needs_review",
+            "value": "Предыдущий элемент боковой панели"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เวิร์กสเปซก่อนหน้า"
+            "state": "needs_review",
+            "value": "รายการแถบด้านข้างก่อนหน้า"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Önceki Çalışma Alanı"
+            "state": "needs_review",
+            "value": "Önceki Kenar Çubuğu Öğesi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Попередня робоча область"
+            "state": "needs_review",
+            "value": "Попередній елемент бічної панелі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không gian làm việc trước"
+            "value": "Mục thanh bên trước"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "上一个工作区"
+            "state": "needs_review",
+            "value": "上一个侧边栏项目"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "上一個工作區"
+            "state": "needs_review",
+            "value": "上一個側邊欄項目"
           }
         }
       }

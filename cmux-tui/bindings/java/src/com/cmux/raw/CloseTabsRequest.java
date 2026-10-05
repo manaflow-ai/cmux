@@ -17,6 +17,8 @@ public final class CloseTabsRequest implements WireValue {
     private final Field<UInt64> expectedRevision;
     private final Field<String> mutationId;
     private final Field<String> origin;
+    /** session_end only: the close is not recorded in the closed history. */
+    private final Field<String> reason;
     private final List<Object> surfaces;
     private final Field<String> transaction;
 
@@ -26,6 +28,7 @@ public final class CloseTabsRequest implements WireValue {
         this.expectedRevision = builder.expectedRevision;
         this.mutationId = builder.mutationId;
         this.origin = builder.origin;
+        this.reason = builder.reason;
         if (!builder.surfacesSet) throw new IllegalArgumentException("surfaces is required");
         this.surfaces = List.copyOf(Wire.nonNull(builder.surfaces, "surfaces"));
         this.transaction = builder.transaction;
@@ -38,6 +41,7 @@ public final class CloseTabsRequest implements WireValue {
     public Field<UInt64> expectedRevision() { return expectedRevision; }
     public Field<String> mutationId() { return mutationId; }
     public Field<String> origin() { return origin; }
+    public Field<String> reason() { return reason; }
     public List<Object> surfaces() { return surfaces; }
     public Field<String> transaction() { return transaction; }
 
@@ -64,6 +68,10 @@ public final class CloseTabsRequest implements WireValue {
         if (!Wire.isMissing(rawOrigin)) {
             builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "CloseTabsRequest.origin"));
         }
+        Object rawReason = Wire.optional(object, "reason");
+        if (!Wire.isMissing(rawReason)) {
+            builder.reason(rawReason == null ? null : Wire.string(rawReason, "CloseTabsRequest.reason"));
+        }
         Object rawSurfaces = Wire.required(object, "surfaces");
         builder.surfaces(Wire.array(rawSurfaces, "CloseTabsRequest.surfaces", item -> Wire.immutableJson(item)));
         Object rawTransaction = Wire.optional(object, "transaction");
@@ -81,6 +89,7 @@ public final class CloseTabsRequest implements WireValue {
         Wire.put(object, "expected_revision", expectedRevision);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "origin", origin);
+        Wire.put(object, "reason", reason);
         Wire.put(object, "surfaces", surfaces);
         Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
@@ -89,11 +98,11 @@ public final class CloseTabsRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloseTabsRequest that)) return false;
-        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(surfaces, that.surfaces) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(reason, that.reason) && Objects.equals(surfaces, that.surfaces) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endTerminals, expectedGeneration, expectedRevision, mutationId, origin, surfaces, transaction); }
+    public int hashCode() { return Objects.hash(endTerminals, expectedGeneration, expectedRevision, mutationId, origin, reason, surfaces, transaction); }
 
     @Override
     public String toString() { return "CloseTabsRequest" + toWire(); }
@@ -104,6 +113,7 @@ public final class CloseTabsRequest implements WireValue {
         private Field<UInt64> expectedRevision = Field.omitted();
         private Field<String> mutationId = Field.omitted();
         private Field<String> origin = Field.omitted();
+        private Field<String> reason = Field.omitted();
         private List<Object> surfaces;
         private boolean surfacesSet;
         private Field<String> transaction = Field.omitted();
@@ -126,6 +136,10 @@ public final class CloseTabsRequest implements WireValue {
         }
         public Builder origin(String value) {
             this.origin = Field.ofNullable(value);
+            return this;
+        }
+        public Builder reason(String value) {
+            this.reason = Field.ofNullable(value);
             return this;
         }
         public Builder surfaces(List<Object> value) {

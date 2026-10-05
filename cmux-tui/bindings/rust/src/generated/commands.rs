@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe.
+// cmux-tui mux protocol 12, IR ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -409,6 +409,9 @@ pub struct CloseTabsRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// session_end only: the close is not recorded in the closed history.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
     pub surfaces: Vec<T::TabRef>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -1658,6 +1661,8 @@ pub struct NewScreenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub group: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
@@ -1669,6 +1674,10 @@ pub struct NewScreenRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -3078,6 +3087,9 @@ impl CmuxClient {
     }
 
     pub fn close_tabs(&mut self, request: CloseTabsRequest) -> Result<CloseTabsResult> {
+        if !request.reason.is_missing() {
+            self.require_capability_field("close-tabs", "close-reason-v1")?;
+        }
         self.execute(&CLOSE_TABS_METADATA, &request)
     }
 
@@ -3566,6 +3578,18 @@ impl CmuxClient {
     }
 
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
 

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe";
+pub const ir_sha256 = "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3172,6 +3172,8 @@ pub const CloseTabsRequest = struct {
     expected_revision: wire.Field(u64) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
+    /// session_end only: the close is not recorded in the closed history.
+    reason: wire.Field([]const u8) = .absent,
     surfaces: []const TabRef,
     transaction: wire.Field([]const u8) = .absent,
 
@@ -3190,6 +3192,9 @@ pub fn closeTabs(client: anytype, request: CloseTabsRequest) !wire.Decoded(Close
             .authority = "control",
             .since = 12,
             .capability = "batch-close-v1",
+            .fields = &.{
+                .{ .name = "reason", .since = null, .capability = "close-reason-v1" },
+            },
         },
         request,
     );
@@ -5220,12 +5225,15 @@ pub const NewScreenRequest = struct {
     color: wire.Field([]const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
     group: wire.Field([]const u8) = .absent,
     icon: wire.Field([]const u8) = .absent,
     index: wire.Field(u64) = .absent,
     pinned: wire.Field(bool) = .absent,
     rows: wire.Field(u16) = .absent,
     screen_name: wire.Field([]const u8) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -5239,6 +5247,11 @@ pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewSc
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "env", .since = 12, .capability = "screen-terminal-env-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "screen-terminal-env-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "screen-terminal-env-v1" },
+            },
         },
         request,
     );
