@@ -1547,6 +1547,85 @@ pub const ValidationInvalidDetails = struct {
     reason: []const u8,
 };
 
+pub const HomeNotClosableDetails = struct {
+    workspace_id: WorkspaceId,
+};
+
+pub const HomePinnedFirstDetails = struct {
+    workspace_id: WorkspaceId,
+};
+
+pub const UnsupportedAction = union(enum) {
+    restart_session,
+    unknown: []const u8,
+
+    pub fn wireName(self: UnsupportedAction) []const u8 {
+        return switch (self) {
+            .restart_session => "restart_session",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const OperationUnsupportedDetails = struct {
+    capability: []const u8,
+    action: UnsupportedAction,
+    session: ?[]const u8,
+};
+
+pub const RequestOrigin = union(enum) {
+    page,
+    agent,
+    app,
+    user,
+    unknown: []const u8,
+
+    pub fn wireName(self: RequestOrigin) []const u8 {
+        return switch (self) {
+            .page => "page",
+            .agent => "agent",
+            .app => "app",
+            .user => "user",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const OriginForbiddenDetails = struct {
+    /// The request's origin: derived from its connection, then narrowed by its claim.
+    derived: RequestOrigin,
+    /// The origin the operation needs.
+    required: ?RequestOrigin,
+    /// The refused origin claim.
+    claim: ?RequestOrigin,
+    reason: ?[]const u8,
+};
+
+pub const TerminalClosedDetails = struct {
+    terminal_id: TerminalId,
+};
+
+pub const TerminalHostUnavailableReason = union(enum) {
+    /// The terminal host did not answer within the daemon's control deadline.
+    timeout,
+    /// The daemon's connection to the host ended before the answer.
+    disconnected,
+    unknown: []const u8,
+
+    pub fn wireName(self: TerminalHostUnavailableReason) []const u8 {
+        return switch (self) {
+            .timeout => "timeout",
+            .disconnected => "disconnected",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const TerminalHostUnavailableDetails = struct {
+    terminal_id: TerminalId,
+    reason: TerminalHostUnavailableReason,
+};
+
 pub const UnrecognizedResourceErrorDetails = struct {
     raw: raw.wire.Value,
 };
@@ -1562,16 +1641,22 @@ pub const ResourceErrorDetails = union(enum) {
     creation_conflict: CreationConflictDetails,
     cursor_gap: CursorGapDetails,
     cursor_invalid: CursorInvalidDetails,
+    home_not_closable: HomeNotClosableDetails,
+    home_pinned_first: HomePinnedFirstDetails,
     idempotency_conflict: IdempotencyConflictDetails,
     local_io: LocalIoDetails,
     mutation_indeterminate: MutationIndeterminateDetails,
     operation_failed: OperationFailedDetails,
+    operation_unsupported: OperationUnsupportedDetails,
+    origin_forbidden: OriginForbiddenDetails,
     resource_not_found: ResourceNotFoundDetails,
     revision_conflict: RevisionConflictDetails,
     selector_ambiguous: SelectorAmbiguousDetails,
     selector_invalid: SelectorInvalidDetails,
     selector_not_found: SelectorNotFoundDetails,
     selector_wrong_parent: SelectorWrongParentDetails,
+    terminal_closed: TerminalClosedDetails,
+    terminal_host_unavailable: TerminalHostUnavailableDetails,
     transport_closed: TransportClosedDetails,
     validation_invalid: ValidationInvalidDetails,
     unknown: UnrecognizedResourceErrorDetails,
@@ -2131,16 +2216,22 @@ const catalog_error_codes = [_][]const u8{
     "creation.conflict",
     "cursor.gap",
     "cursor.invalid",
+    "home.not_closable",
+    "home.pinned_first",
     "idempotency.conflict",
     "local.io",
     "mutation.indeterminate",
     "operation.failed",
+    "operation.unsupported",
+    "origin.forbidden",
     "resource.not_found",
     "revision.conflict",
     "selector.ambiguous",
     "selector.invalid",
     "selector.not_found",
     "selector.wrong_parent",
+    "terminal.closed",
+    "terminal_host.unavailable",
     "transport.closed",
     "validation.invalid",
 };
@@ -2150,6 +2241,35 @@ fn isCatalogErrorCode(code: []const u8) bool {
         if (std.mem.eql(u8, code, known)) return true;
     }
     return false;
+}
+
+fn parseUnsupportedAction(value: []const u8) UnsupportedAction {
+    if (std.mem.eql(u8, value, "restart_session")) return .restart_session;
+    return .{ .unknown = value };
+}
+
+fn parseRequestOrigin(value: []const u8) RequestOrigin {
+    if (std.mem.eql(u8, value, "page")) return .page;
+    if (std.mem.eql(u8, value, "agent")) return .agent;
+    if (std.mem.eql(u8, value, "app")) return .app;
+    if (std.mem.eql(u8, value, "user")) return .user;
+    return .{ .unknown = value };
+}
+
+fn parseOptionalRequestOrigin(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?RequestOrigin {
+    const value = try optionalObjectString(object, name) orelse return null;
+    return parseRequestOrigin(value);
+}
+
+fn parseTerminalHostUnavailableReason(
+    value: []const u8,
+) TerminalHostUnavailableReason {
+    if (std.mem.eql(u8, value, "timeout")) return .timeout;
+    if (std.mem.eql(u8, value, "disconnected")) return .disconnected;
+    return .{ .unknown = value };
 }
 
 fn parseCatalogErrorDetails(
@@ -2265,6 +2385,24 @@ fn parseCatalogErrorDetails(
             .reason = try objectString(object, "reason"),
         } };
     }
+    if (std.mem.eql(u8, code, "home.not_closable")) {
+        return .{ .home_not_closable = .{
+            .workspace_id = try parseRequiredId(
+                WorkspaceId,
+                object,
+                "workspace_id",
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "home.pinned_first")) {
+        return .{ .home_pinned_first = .{
+            .workspace_id = try parseRequiredId(
+                WorkspaceId,
+                object,
+                "workspace_id",
+            ),
+        } };
+    }
     if (std.mem.eql(u8, code, "idempotency.conflict")) {
         return .{ .idempotency_conflict = .{
             .idempotency_key = try objectString(
@@ -2308,6 +2446,27 @@ fn parseCatalogErrorDetails(
             .operation = try objectString(object, "operation"),
             .reason = try objectString(object, "reason"),
             .extra = extra,
+        } };
+    }
+    if (std.mem.eql(u8, code, "operation.unsupported")) {
+        const capability = try objectString(object, "capability");
+        if (capability.len == 0) return error.ExpectedNonEmptyString;
+        return .{ .operation_unsupported = .{
+            .capability = capability,
+            .action = parseUnsupportedAction(
+                try objectString(object, "action"),
+            ),
+            .session = try optionalObjectString(object, "session"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "origin.forbidden")) {
+        return .{ .origin_forbidden = .{
+            .derived = parseRequestOrigin(
+                try objectString(object, "derived"),
+            ),
+            .required = try parseOptionalRequestOrigin(object, "required"),
+            .claim = try parseOptionalRequestOrigin(object, "claim"),
+            .reason = try optionalObjectString(object, "reason"),
         } };
     }
     if (std.mem.eql(u8, code, "resource.not_found")) {
@@ -2385,6 +2544,27 @@ fn parseCatalogErrorDetails(
                 "expected_parent",
             ),
             .actual_parent = try objectString(object, "actual_parent"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "terminal.closed")) {
+        return .{ .terminal_closed = .{
+            .terminal_id = try parseRequiredId(
+                TerminalId,
+                object,
+                "terminal_id",
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "terminal_host.unavailable")) {
+        return .{ .terminal_host_unavailable = .{
+            .terminal_id = try parseRequiredId(
+                TerminalId,
+                object,
+                "terminal_id",
+            ),
+            .reason = parseTerminalHostUnavailableReason(
+                try objectString(object, "reason"),
+            ),
         } };
     }
     if (std.mem.eql(u8, code, "transport.closed")) {
@@ -19149,6 +19329,16 @@ const catalog_error_fixtures = [_]CatalogErrorFixture{
         .tag = .cursor_invalid,
     },
     .{
+        .code = "home.not_closable",
+        .details = "{\"workspace_id\":\"ws_11111111111111111111111111111111\"}",
+        .tag = .home_not_closable,
+    },
+    .{
+        .code = "home.pinned_first",
+        .details = "{\"workspace_id\":\"ws_11111111111111111111111111111111\"}",
+        .tag = .home_pinned_first,
+    },
+    .{
         .code = "idempotency.conflict",
         .details = "{\"idempotency_key\":\"key\"," ++
             "\"committed_operation\":\"workspace.rename\"}",
@@ -19171,6 +19361,18 @@ const catalog_error_fixtures = [_]CatalogErrorFixture{
         .details = "{\"operation\":\"workspace.run\"," ++
             "\"reason\":\"failed\",\"extra\":{\"exit_code\":2}}",
         .tag = .operation_failed,
+    },
+    .{
+        .code = "operation.unsupported",
+        .details = "{\"capability\":\"session.restart\"," ++
+            "\"action\":\"restart_session\",\"session\":\"main\"}",
+        .tag = .operation_unsupported,
+    },
+    .{
+        .code = "origin.forbidden",
+        .details = "{\"derived\":\"page\",\"required\":\"user\"," ++
+            "\"claim\":\"app\",\"reason\":\"page origin\"}",
+        .tag = .origin_forbidden,
     },
     .{
         .code = "resource.not_found",
@@ -19212,6 +19414,17 @@ const catalog_error_fixtures = [_]CatalogErrorFixture{
             "\"actual_parent\":" ++
             "\"screen_22222222222222222222222222222222\"}",
         .tag = .selector_wrong_parent,
+    },
+    .{
+        .code = "terminal.closed",
+        .details = "{\"terminal_id\":\"term_11111111111111111111111111111111\"}",
+        .tag = .terminal_closed,
+    },
+    .{
+        .code = "terminal_host.unavailable",
+        .details = "{\"terminal_id\":\"term_11111111111111111111111111111111\"," ++
+            "\"reason\":\"disconnected\"}",
+        .tag = .terminal_host_unavailable,
     },
     .{
         .code = "transport.closed",
@@ -19297,6 +19510,29 @@ test "catalog error details decode every declared shape" {
                 details.confirmation_token,
             );
             try std.testing.expectEqual(@as(u64, 3), details.revision);
+        }
+        if (std.mem.eql(u8, fixture.code, "terminal_host.unavailable")) {
+            const details = switch (owned.value.details) {
+                .terminal_host_unavailable => |value| value,
+                else => unreachable,
+            };
+            try std.testing.expectEqualStrings(
+                "term_11111111111111111111111111111111",
+                details.terminal_id.slice(),
+            );
+            try std.testing.expectEqualStrings(
+                "disconnected",
+                details.reason.wireName(),
+            );
+        }
+        if (std.mem.eql(u8, fixture.code, "origin.forbidden")) {
+            const details = switch (owned.value.details) {
+                .origin_forbidden => |value| value,
+                else => unreachable,
+            };
+            try std.testing.expectEqualStrings("page", details.derived.wireName());
+            try std.testing.expectEqualStrings("user", details.required.?.wireName());
+            try std.testing.expectEqualStrings("app", details.claim.?.wireName());
         }
     }
 }
