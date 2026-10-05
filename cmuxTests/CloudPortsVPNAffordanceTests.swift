@@ -321,6 +321,38 @@ struct CloudPortsVPNAffordanceTests {
         #expect(refreshed == [.cloud("paid")])
     }
 
+    @Test("Clicking a Ports status row's text does nothing; only its button acts")
+    func statusRowClickIsInert() throws {
+        var terminals: [SurfaceMachineID] = []
+        var refreshed: [SurfaceMachineID] = []
+        var actions = nodeActions(newTerminal: { terminals.append($0) })
+        actions.refreshMachine = { refreshed.append($0) }
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: machineActions(),
+            nodeActions: actions,
+            expansionStore: CloudTreeExpansionStore(defaults: try #require(UserDefaults(suiteName: "ports-status-click-\(UUID())"))),
+            tabDragTransferRegistry: { nil })
+        coordinator.nodes = [machineNode(id: "paid")]
+        func status(link: SurfaceLinkState, discovery: CloudPortDiscoveryState) -> CloudTreeNode {
+            CloudMachineSurfacePresentation.emptyPorts(info: SurfaceMachineInfo(
+                id: .cloud("paid"), name: "paid", status: "running", image: "base", hasDesktop: false,
+                memoryMb: nil, diskMb: nil, linkState: link, linkError: nil,
+                cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, portDiscoveryState: discovery))
+        }
+        // "No ports yet" (Refresh) and an asleep machine (Wake Machine).
+        let noPorts = status(link: .connected, discovery: .empty(.noListeningService))
+        let asleep = status(link: .asleep, discovery: .notRequested)
+        guard case .placeholder(_, let noPortsRow) = noPorts.kind, case .placeholder(_, let asleepRow) = asleep.kind else {
+            Issue.record("status rows must be placeholders"); return
+        }
+        #expect(noPortsRow.portStatus?.action == .refresh)
+        #expect(asleepRow.portStatus?.action == .openMachine)
+        coordinator.open(noPorts)
+        coordinator.open(asleep)
+        #expect(refreshed.isEmpty)
+        #expect(terminals.isEmpty)
+    }
+
     private func machineNode(id: String, expired: Bool = false) -> CloudTreeNode {
         let machine = SurfaceMachineID.cloud(id)
         var snapshot = MachineSnapshot(id: id, provider: "freestyle", image: "base", isDesktop: false, activity: .ready, createdAt: nil, label: nil)

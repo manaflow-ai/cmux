@@ -64,6 +64,7 @@ public struct CloudMachinesSection: View {
                     return
                 }
                 let includesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+                // A newer check (account switch, app reactivation) owns the row now.
                 guard !Task.isCancelled else { return }
                 planIncludesCloud = includesCloud
             }
