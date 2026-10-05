@@ -18,5 +18,6 @@ struct LaunchCleanup {
 
     /// Runs each cleanup once, when `settle` settles (at once when it has).
     func schedule(on settle: LaunchSettle) {
+        settle.whenSettled(cleanUpDownloadTempFiles)
     }
 }
