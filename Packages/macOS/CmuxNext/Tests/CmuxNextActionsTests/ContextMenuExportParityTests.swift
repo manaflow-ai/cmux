@@ -55,8 +55,8 @@ import Testing
                 nodes.append(.item(title))
             case "choices":
                 guard visible(row), let id, let title = registry.title(for: id),
-                      let choices = row["choices"] as? [String: Any], let values = choices["values"] as? [[String: String]] else { continue }
-                var children = values.compactMap { $0["title"] }.map(Node.item)
+                      let choices = row["choices"] as? [String: Any], let values = choices["values"] as? [[String: Any]] else { continue }
+                var children = values.compactMap { $0["title"] as? String }.map(Node.item)
                 if (choices["more_opens_palette"] as? Bool) == true { children += [.separator, .item(ActionSuggestionsStrings.more)] }
                 nodes.append(.menu(plain(title), children))
             case "submenu":
@@ -79,6 +79,9 @@ import Testing
         let text = ActionSurfaceExport.json(ActionCatalog.all, titles: try ActionSurfaceParityTests.titleCatalog())
         let root = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         #expect((root["context_menu_rules"] as? [String])?.isEmpty == false)
+        // The hand-built menus are a named known gap, never silently absent.
+        let gap = try #require(root["context_menus_not_exported"] as? [[String: String]])
+        #expect(!gap.isEmpty && gap.allSatisfy { $0["name"]?.isEmpty == false && $0["source"]?.isEmpty == false })
         return try #require(root["context_menus"] as? [String: Any])
     }
 
@@ -106,5 +109,17 @@ import Testing
             checked += 1
         }
         #expect(checked >= 10, "most menu contexts are exported")
+    }
+
+    /// Localizable choice titles carry their key and table (GPUI localizes them).
+    @Test func choiceValuesNameTheirLocalizationKey() throws {
+        func rows(_ entries: [[String: Any]]) -> [[String: Any]] {
+            entries.flatMap { [$0] + rows($0["children"] as? [[String: Any]] ?? []) }
+        }
+        let page = try #require(try Self.exportedMenus()["browserPage"] as? [String: Any])
+        let theme = try #require(rows(page["entries"] as? [[String: Any]] ?? []).first { ($0["id"] as? String) == "browserTheme" })
+        let values = try #require((theme["choices"] as? [String: Any])?["values"] as? [[String: Any]])
+        #expect(values.map { $0["value"] as? String } == ["system", "light", "dark"])
+        #expect(values.allSatisfy { ($0["title_key"] as? String)?.hasPrefix("argument.value.") == true && ($0["title_table"] as? String) == "Localizable" })
     }
 }
