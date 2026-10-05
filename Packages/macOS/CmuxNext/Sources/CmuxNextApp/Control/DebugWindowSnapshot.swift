@@ -50,10 +50,7 @@ enum DebugWindowSnapshot {
             var failed = 0
             for webView in webViews {
                 do {
-                    guard let image = try await webView.takeSnapshot(configuration: nil) else {
-                        failed += 1
-                        continue
-                    }
+                    let image = try await webView.takeSnapshot(configuration: nil)
                     var proposedRect = NSRect.zero
                     guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
                         failed += 1
