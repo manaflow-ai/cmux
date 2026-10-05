@@ -46,6 +46,17 @@ class ComposeTest(unittest.TestCase):
         self.assertNotIn("musl as a whole is licensed", text)
         self.assertIn("rustc 1.95.0", text)
 
+    def test_every_target_credits_the_embedded_shell_integration(self) -> None:
+        # cmux-tui embeds ghostty-next shell integration with include_str! on every
+        # target, bash-preexec 0.7.0 (MIT) among it.
+        for kind in ("cmux-tui", "relay"):
+            for target in pn.TARGETS:
+                with self.subTest(kind=kind, target=target):
+                    text = pn.compose(kind, target, CRATES, self.inputs)
+                    self.assertIn("bash/bash-preexec.sh", text)
+                    self.assertIn("Copyright (c) 2017 Ryan Caloras and contributors", text)
+                    self.assertIn("based on Kitty", text)
+
     def test_relay_notice_names_its_binaries(self) -> None:
         text = pn.compose("relay", "aarch64-unknown-linux-musl", CRATES, self.inputs)
         self.assertIn("bin/chatmux-relay", text)
