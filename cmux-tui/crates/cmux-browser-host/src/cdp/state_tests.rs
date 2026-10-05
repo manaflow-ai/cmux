@@ -371,3 +371,28 @@ fn a_nested_frame_on_a_browser_page_is_released_through_its_parent_frame() {
     navigate_main(&mut state, "S1", "L2", "https://b.test/");
     assert_eq!(state.tabs["T1"].frame_urls.len(), 1);
 }
+
+/// page.on("request" | "response" | "requestfinished") need the Network
+/// domain's events, mapped to the tab (parity 16 had none).
+#[test]
+fn network_events_report_requests_of_the_tab() {
+    let mut state = State::default();
+    attach(&mut state, "T1", "S1", None);
+    let names = |applied: Applied| -> Vec<String> {
+        applied.events.into_iter().map(|e| format!("{}:{}", e.name, e.payload["targetId"])).collect()
+    };
+    let sent = state.apply(&cdp(
+        Some("S1"),
+        "Network.requestWillBeSent",
+        json!({"requestId": "r1", "type": "Fetch", "request": {"url": "http://a.test/api/data", "method": "GET"}}),
+    ));
+    assert_eq!(names(sent), vec!["request:\"T1\""]);
+    let response = state.apply(&cdp(
+        Some("S1"),
+        "Network.responseReceived",
+        json!({"requestId": "r1", "response": {"status": 200}}),
+    ));
+    assert_eq!(names(response), vec!["response:\"T1\""]);
+    let done = state.apply(&cdp(Some("S1"), "Network.loadingFinished", json!({"requestId": "r1"})));
+    assert_eq!(names(done), vec!["requestfinished:\"T1\""]);
+}
