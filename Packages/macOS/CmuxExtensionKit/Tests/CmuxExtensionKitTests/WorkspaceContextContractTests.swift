@@ -30,6 +30,22 @@ struct WorkspaceContextContractTests {
     }
 
     @Test
+    func proposalRejectionsRoundTripAndOlderContextStartsWithoutThem() throws {
+        let context = CmuxSidebarWorkspaceContext(rejectedSourceFingerprints: ["sha256:rejected"])
+        #expect(try JSONDecoder().decode(CmuxSidebarWorkspaceContext.self, from: JSONEncoder().encode(context)) == context)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(context)) as? [String: Any])
+        object.removeValue(forKey: "rejectedSourceFingerprints")
+        let legacy = try JSONDecoder().decode(CmuxSidebarWorkspaceContext.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(legacy.rejectedSourceFingerprints.isEmpty)
+        let id = UUID()
+        for mutation in [CmuxSidebarWorkspaceContextMutation.rejectProposal(id: id), .clearProposalRejections(fingerprints: ["sha256:rejected"]), .clearProposalRejections(fingerprints: nil)] {
+            let action = CmuxSidebarAction.mutateWorkspaceContext(workspaceID: id, expectedRevision: 7, mutation: mutation)
+            #expect(try CmuxSidebarXPCCodec.decodeAction(CmuxSidebarXPCCodec.encodeAction(action)) == action)
+            #expect(action.requiredScopes == [.editWorkspaceContext])
+        }
+    }
+
+    @Test
     func contextActionsKeepIdentityRevisionAndIndependentRenamePermission() throws {
         let id = UUID()
         let proposal = Self.proposal()

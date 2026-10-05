@@ -14,4 +14,8 @@ public enum CmuxSidebarWorkspaceContextMutation: Codable, Equatable, Sendable {
     case rejectAutomaticTags(ids: [String])
     /// Clears specified rejections, or every rejection when IDs are nil; it does not auto-accept tags.
     case clearAutomaticTagRejections(ids: [String]?)
+    /// Rejects the exact retained proposal and suppresses its source fingerprint.
+    case rejectProposal(id: UUID)
+    /// Clears specific rejected proposal fingerprints, or every rejection when nil.
+    case clearProposalRejections(fingerprints: [String]?)
 }
