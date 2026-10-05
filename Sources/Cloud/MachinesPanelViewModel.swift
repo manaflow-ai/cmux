@@ -363,10 +363,17 @@ final class MachinesPanelViewModel: ObservableObject {
         readUnreadTerminalIDs()
     }
 
-    /// Refreshes only the local workspace projection after a window selection.
-    /// This keeps the Cloud tree highlight independent from the next catalog poll.
-    func refreshLocalWorkspaces() {
-        let updated = localWorkspacesProvider()
+    /// Refreshes the local workspace projection with the selection that was just committed.
+    /// The selection publisher fires from `willSet`, so reading the tab manager here can still
+    /// return the previous workspace and leave the Cloud tree highlight one selection behind.
+    func refreshLocalWorkspaces(selectedWorkspaceID: UUID?) {
+        let updated = localWorkspacesProvider().map { workspace in
+            CloudTreeLocalWorkspace(
+                id: workspace.id,
+                title: workspace.title,
+                isSelected: workspace.id == selectedWorkspaceID
+            )
+        }
         guard updated != localWorkspaces else { return }
         localWorkspaces = updated
     }

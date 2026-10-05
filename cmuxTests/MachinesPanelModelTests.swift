@@ -27,10 +27,10 @@ final class MachinesPanelModelTests: XCTestCase {
             }
         )
 
-        model.refreshLocalWorkspaces()
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
         XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, first)
         selected = second
-        model.refreshLocalWorkspaces()
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
         XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, second)
     }
 
