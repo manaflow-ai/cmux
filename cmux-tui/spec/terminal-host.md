@@ -371,7 +371,7 @@ Missing means already acknowledged; any mismatch remains for recovery.
 
 ## Discovery and authority
 
-The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, and TTL. Renderers must not receive the daemon's durable owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
+The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, and TTL. Renderers must not receive the daemon's durable owner capability. A mint the host does not answer fails with `error_code` `terminal_host_unavailable` and `error_details.reason` `timeout` (no answer within the 2 s control deadline) or `disconnected` (the admin connection ended first; a host refuses a bad request by closing it). The `error` text keeps the root cause after the outer context, and the client may retry. `terminal.renderer_grant.create` returns the same failure as retryable `terminal_host.unavailable` with `details.terminal_id` and `details.reason`. A mint sent right after `set-default-colors` is answered: the host applies the defaults first, and the reply reaches the daemon although the defaults update restarts its stream. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
 
 Terminal-host protocol changes use their own version and do not change `identify.protocol`.
 
