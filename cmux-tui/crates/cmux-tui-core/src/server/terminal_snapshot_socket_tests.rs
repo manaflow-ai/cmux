@@ -888,7 +888,11 @@ fn a_local_ready_after_a_resize_is_followed_by_no_images() {
     };
     assert_eq!(local["phase"], "ready", "{local}");
     assert_eq!(local["history"], "local", "{local}");
-    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images after a local READY");
+    assert_no_snapshot_event(
+        &outbound,
+        Duration::from_millis(500),
+        "no images after a local READY",
+    );
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }

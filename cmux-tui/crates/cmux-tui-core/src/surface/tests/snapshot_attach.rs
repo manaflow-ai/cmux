@@ -544,7 +544,8 @@ fn viewer_snapshot_images_respect_the_cap_and_the_opt_in() {
     let mux = Mux::new_for_test("snapshot-images-cap", SurfaceOptions::default());
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
+    let stream =
+        surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
     // Two placed 4x4 RGBA images (64 decoded bytes each).
     let pixels = format!("{}AA==", "A".repeat(84));
     for id in [1, 2] {

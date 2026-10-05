@@ -55,7 +55,9 @@ impl Terminal {
         let mut generation = 0u64;
         // The out-pointer is valid for the call; the caller owns the
         // terminal (`&self`).
-        check(unsafe { sys::ghostty_terminal_kitty_image_generation(self.raw(), &mut generation) })?;
+        check(unsafe {
+            sys::ghostty_terminal_kitty_image_generation(self.raw(), &mut generation)
+        })?;
         Ok(generation)
     }
 
@@ -72,7 +74,7 @@ impl Terminal {
             userdata: (&mut bytes as *mut Vec<u8>).cast(),
         };
         let mut stats = sys::GhosttyKittyReplayStats {
-            size: std::mem::size_of::<sys::GhosttyKittyReplayStats>(),
+            size: size_of::<sys::GhosttyKittyReplayStats>(),
             images: 0,
             placements: 0,
             skipped_images: 0,
@@ -81,7 +83,12 @@ impl Terminal {
         };
         // `writer.userdata` and `stats` outlive the call.
         check(unsafe {
-            sys::ghostty_terminal_kitty_replay_encode(self.raw(), max_image_bytes, writer, &mut stats)
+            sys::ghostty_terminal_kitty_replay_encode(
+                self.raw(),
+                max_image_bytes,
+                writer,
+                &mut stats,
+            )
         })?;
         Ok((
             bytes,

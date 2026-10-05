@@ -426,7 +426,12 @@ struct PendingImages {
 
 impl PendingImages {
     fn of(images: SnapshotImages) -> Self {
-        Self { data: images.data, sent: 0, finished: false, skipped_images: images.stats.skipped_images }
+        Self {
+            data: images.data,
+            sent: 0,
+            finished: false,
+            skipped_images: images.stats.skipped_images,
+        }
     }
 
     /// The next images chunk and whether it is the last one. The stream is
@@ -934,12 +939,16 @@ mod tests {
     #[test]
     fn images_chunks_split_the_stream_and_the_last_names_skipped_images() {
         let stream: Vec<u8> = (0..(IMAGES_CHUNK_BYTES * 2 + 17)).map(|i| i as u8).collect();
-        let stats = ghostty_vt::KittyReplayStats { images: 1, skipped_images: 2, ..Default::default() };
+        let stats =
+            ghostty_vt::KittyReplayStats { images: 1, skipped_images: 2, ..Default::default() };
         let mut pending = PendingImages::of(SnapshotImages { data: stream.clone(), stats });
         let (mut joined, mut events) = (Vec::new(), Vec::new());
         while let Some((value, done)) = pending.next_chunk(3, 9, 77) {
             assert_eq!(value["phase"], "images");
-            assert_eq!((value["generation"].as_u64(), value["offset"].as_u64()), (Some(9), Some(77)));
+            assert_eq!(
+                (value["generation"].as_u64(), value["offset"].as_u64()),
+                (Some(9), Some(77))
+            );
             assert!(value.get("compression").is_none(), "{value}");
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(value["data"].as_str().unwrap())
