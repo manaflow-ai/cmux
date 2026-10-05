@@ -12,7 +12,7 @@ import Testing
                          source: Int32 = 0, profile: String = profile,
                          bounds: CGRect? = nil) -> CEFWindowRequest {
         CEFWindowRequest(kind: kind, disposition: disposition, sourceBrowser: source, bounds: bounds,
-                         url: "https://chromewebstore.google.com/", profilePath: profile)
+                         url: "https://chromewebstore.google.com/", userGesture: true, profilePath: profile)
     }
 
     private func candidate(_ anchor: Int32, source: Bool = false, lastShown: Bool = false,
@@ -104,11 +104,13 @@ import Testing
             == .openInNewTab(url: "https://chromewebstore.google.com/", disposition: .foregroundTab))
     }
 
-    /// Every disposition Chromium can send maps to a cmux tab or to nothing
-    /// (Chromium keeps it); with Chrome's defaults and no recent click,
-    /// only Shift-click (NEW_WINDOW) opens a cmux window.
+    /// Every disposition Chromium can send maps to a cmux tab, a download
+    /// or to nothing (Chromium keeps it); with Chrome's defaults and no
+    /// recent click, only Shift-click (NEW_WINDOW) opens a cmux window.
     @Test func dispositionsMapToTabs() {
-        func placement(_ raw: Int) -> CEFLinkPlacement { CEFLinkContext().placement(for: CEFDisposition(raw: raw), source: 0) }
+        func placement(_ raw: Int) -> CEFLinkPlacement {
+            CEFLinkContext().placement(for: CEFDisposition(raw: raw), source: 0, userGesture: true)
+        }
         #expect(placement(3) == .tab(.foregroundTab))
         #expect(placement(4) == .tab(.backgroundTab))
         #expect(placement(5) == .tab(.popup))
@@ -116,7 +118,7 @@ import Testing
         #expect(placement(2) == .tab(.foregroundTab))
         #expect(placement(10) == .tab(.foregroundTab))
         #expect(placement(1) == .chromium)
-        #expect(placement(7) == .chromium)
+        #expect(placement(7) == .download)
         #expect(CEFDisposition(raw: 99) == .unknown)
     }
 

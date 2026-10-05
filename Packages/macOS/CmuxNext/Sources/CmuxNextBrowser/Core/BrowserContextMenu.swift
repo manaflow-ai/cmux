@@ -123,32 +123,19 @@ public final class BrowserContextMenuRequest {
     public let target: BrowserContextMenuTarget
     /// In the tab's `contentView` coordinates.
     public let location: CGPoint
-    /// Commands of the engine's full model that `items` leaves out and a
-    /// cmux row may hand back to (``runEngineCommand(_:)``).
-    public let engineCommands: [BrowserEngineMenuCommand: Int]
     /// Set when the engine shows its own menu (WebKit): the host passes its
     /// leading rows here at once instead of presenting a menu.
     public let insertLeading: (([NSMenuItem]) -> Void)?
     private var completion: ((Int?) -> Void)?
 
     public init(items: [BrowserContextMenuItem], target: BrowserContextMenuTarget, location: CGPoint,
-                engineCommands: [BrowserEngineMenuCommand: Int] = [:], insertLeading: (([NSMenuItem]) -> Void)? = nil,
+                insertLeading: (([NSMenuItem]) -> Void)? = nil,
                 completion: @escaping (Int?) -> Void) {
         self.items = items
         self.target = target
         self.location = location
-        self.engineCommands = engineCommands
         self.insertLeading = insertLeading
         self.completion = completion
-    }
-
-    /// Completes the open menu with the engine's own `command` (Chromium's
-    /// Save Link As until the shim has a download API). False when the
-    /// engine has no such command or the menu already completed.
-    public func runEngineCommand(_ command: BrowserEngineMenuCommand) -> Bool {
-        guard let id = engineCommands[command], completion != nil else { return false }
-        complete(id)
-        return true
     }
 
     public func complete(_ id: Int?) {

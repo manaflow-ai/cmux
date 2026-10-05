@@ -2,7 +2,8 @@ public import Foundation
 public import WebKit
 
 /// Downloads: WebKit hands a `WKDownload` to the tab, which mirrors it into a
-/// `BrowserDownload` for the host and writes it to the engine's folder.
+/// `BrowserDownload` for the host and writes it where `BrowserDownloadPolicy`
+/// says (the engine's folder, or the file the person chose).
 extension WebKitTab: WKDownloadDelegate, BrowserURLSaving {
     func register(_ download: WKDownload, source: URL?) {
         let item = BrowserDownload(sourceURL: source, filename: source?.lastPathComponent ?? "download")
@@ -32,9 +33,8 @@ extension WebKitTab: WKDownloadDelegate, BrowserURLSaving {
     }
 
     func finishDownload(_ download: WKDownload, status: BrowserDownload.Status) {
-        guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
-        if status == .finished { item.fraction = 1 }
-        if item.status == .inProgress { item.status = status }
+        // `complete` quarantines a finished file (`BrowserDownloadPolicy`).
+        downloads.removeValue(forKey: ObjectIdentifier(download))?.complete(status)
     }
 
     public func download(
@@ -42,14 +42,11 @@ extension WebKitTab: WKDownloadDelegate, BrowserURLSaving {
         decideDestinationUsing response: URLResponse,
         suggestedFilename: String
     ) async -> URL? {
-        let destination: URL
-        if let chosen = chosenDestinations.removeValue(forKey: ObjectIdentifier(download)) {
-            // The save panel already asked before replacing a file there.
-            try? FileManager.default.removeItem(at: chosen)
-            destination = chosen
-        } else {
-            destination = DownloadDestination.uniqueURL(in: downloadsDirectory, suggestedFilename: suggestedFilename)
-        }
+        let chosen = chosenDestinations.removeValue(forKey: ObjectIdentifier(download))
+        // The save panel already asked before replacing a file there.
+        if let chosen { try? FileManager.default.removeItem(at: chosen) }
+        let destination = BrowserDownloadPolicy.destination(chosen: chosen, suggestedFilename: suggestedFilename,
+                                                            directory: downloadsDirectory)
         if let item = self.download(for: download) {
             item.filename = destination.lastPathComponent
             item.destination = destination
