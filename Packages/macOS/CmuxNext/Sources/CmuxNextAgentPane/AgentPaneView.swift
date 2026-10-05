@@ -227,39 +227,14 @@ public final class AgentPaneView: NSView {
         try? await self?.webView.takeSnapshot(configuration: nil)
     }
     /// Waits out the re-apply's steps (tests set it).
-    // wakeup-allow: one-shot steps of a render-rate change (33 ms hidden, 50 ms covered), injected for tests
-    var pause: (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+    var pause: (Duration) async -> Void = WebKitRenderRate.livePause
 
-    /// WebKit reads the rate only when the page's visibility changes, so the
-    /// web view is hidden for a moment and shown again. A snapshot of the
-    /// page covers it meanwhile; the adaptive rate changes only after a
-    /// scroll settles, so the snapshot matches what is on screen. Without a
-    /// snapshot the rate waits for the next visibility change instead of
-    /// blinking the page.
+    /// WebKit reads the rate only when the page's visibility changes: the
+    /// shared re-show hides the web view for a moment under a snapshot of
+    /// the page. The adaptive rate changes only after a scroll settles, so
+    /// the snapshot matches what is on screen.
     private func reapplyRenderRate() {
-        let previous = rateReapply
-        rateReapply = Task { [weak self] in
-            await previous?.value
-            guard let self, let image = await self.snapshotPage() else { return }
-            let cover = NSImageView(frame: self.webView.frame)
-            cover.image = image
-            cover.imageScaling = .scaleAxesIndependently
-            cover.autoresizingMask = [.width, .height]
-            self.addSubview(cover, positioned: .above, relativeTo: self.webView)
-            let focused = (self.window?.firstResponder as? NSView)?.isDescendant(of: self.webView) == true
-            self.webView.isHidden = true
-            // Hiding hands keyboard focus to the next key view; take it back
-            // unless the user moved it meanwhile.
-            let handedTo = self.window?.firstResponder
-            await self.pause(.milliseconds(33))
-            self.webView.isHidden = false
-            if focused, let window = self.window, window.firstResponder === handedTo {
-                window.makeFirstResponder(self.webView)
-            }
-            // The shown page paints its first frame under the cover.
-            await self.pause(.milliseconds(50))
-            cover.removeFromSuperview()
-        }
+        rateReapply = WebKitRenderRate.reshow(webView, after: rateReapply, snapshot: snapshotPage, pause: pause)
     }
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
