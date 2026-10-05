@@ -1,5 +1,9 @@
 name: CI hosted queue rescue
 
+# `workflow_run` is intentional here: this job only reads completed run/job
+# metadata and requests a rerun through the Actions API. It never checks out or
+# executes pull-request code, and the numeric inputs are validated before use.
+# Keep this explanation beside the trigger for dangerous-trigger audits.
 # GitHub-hosted jobs can be cancelled by the Actions service after waiting
 # about fifteen minutes without ever receiving a runner. A cancelled required
 # check is reported as a failure even though no step ran. This trusted watcher
@@ -14,10 +18,7 @@ on:
       - CI fast guards
     types: [completed]
 
-permissions:
-  actions: write
-  contents: read
-  pull-requests: read
+permissions: {}
 
 env:
   # Keep the workflow_run display names tied to their source files. The
@@ -37,6 +38,9 @@ concurrency:
 jobs:
   rescue:
     name: Rescue a hosted queue timeout
+    permissions:
+      # Read run/job metadata and request the guarded rerun.
+      actions: write
     if: >-
       github.repository == 'manaflow-ai/cmux' &&
       contains(fromJSON('["failure","cancelled"]'), github.event.workflow_run.conclusion) &&
