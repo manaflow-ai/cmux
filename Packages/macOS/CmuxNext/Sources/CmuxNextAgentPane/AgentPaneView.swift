@@ -424,7 +424,7 @@ extension AgentPaneView {
     static func confirmationSpec(_ asked: AgentPaneModeConfirmation) -> CmuxDialogSpec {
         let line = switch asked {
         case .mode(let mode): String(format: confirmModeMessage, mode)
-        case .option(let id, let value): String(format: confirmModeMessage, "\(id) = \(value)")
+        case .option(let id, let value): String(format: confirmOptionMessage, id, value)
         }
         return CmuxDialogSpec(title: confirmModeTitle, lines: [line],
                               buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])
