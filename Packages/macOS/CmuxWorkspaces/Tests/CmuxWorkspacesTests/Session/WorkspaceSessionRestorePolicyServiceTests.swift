@@ -345,7 +345,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(!service.shouldReplaySessionScrollback(hasRestorableAgent: true))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
-            tmuxStartCommand: "oh-my-codex hud"
+            tmuxStartCommand: "oh-my-codex hud --watch"
         ))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
@@ -353,14 +353,25 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         ))
     }
 
-    @Test("tmux start command is restorable only for OMX HUD commands")
+    @Test("tmux start command restoration requires the exact OMX HUD executable and arguments")
     func restorableTmuxStartCommandRequiresOmxHud() {
         let service = makeService()
 
-        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud  ") == "oh-my-codex hud")
-        #expect(service.restorableTmuxStartCommand("omx run") == nil)
-        #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
-        #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
+        for command in ["omx hud --watch", "/usr/local/bin/omx hud --watch", "oh-my-codex hud --watch"] {
+            #expect(service.restorableTmuxStartCommand(command) == command)
+        }
+        for command in [
+            "omx run",
+            "hudson omx",
+            "omx hud",
+            "omx hud --watchdog",
+            "echo omx hud --watch",
+            "node /opt/oh-my-pi/scripts/cleanup.js --label 'hud --watch'",
+            "node /opt/omx/helper.js hud --watch",
+            "omx hud --watch && cleanup",
+        ] {
+            #expect(service.restorableTmuxStartCommand(command) == nil)
+        }
     }
 
     @Test("cmux-generated local tmux attach commands are restorable")
