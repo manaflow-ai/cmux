@@ -1,6 +1,6 @@
 import { and, eq, gt, notInArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
-import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schema";
+import { vaultSessions, vaultSnapshots, vaultUploadGrants, vaultUploadTombstones } from "../../db/schema";
 import { logVaultQuotaError } from "./logging";
 
 type VaultDb = ReturnType<typeof cloudDb>;
@@ -83,6 +83,31 @@ export async function getVaultPendingGrantBytes(
     return row?.total ?? 0;
   } catch (error) {
     logVaultQuotaError("get_pending_grant_bytes", error);
+    throw error;
+  }
+}
+
+/**
+ * Compressed bytes held by superseded upload reservations whose staged
+ * objects have not been deleted yet. A retry replaces the grant, but the old
+ * presigned PUT stays usable until it expires, so its declared bytes stay
+ * charged until garbage collection deletes the staged object and its row.
+ * Expiry alone does not release them: an undeleted object still costs storage.
+ */
+export async function getVaultRetainedTombstoneBytes(
+  db: VaultDb,
+  userId: string,
+): Promise<number> {
+  try {
+    const [row] = await db
+      .select({
+        total: sql<number>`coalesce(sum(${vaultUploadTombstones.compressedSizeBytes}), 0)::double precision`,
+      })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.userId, userId));
+    return row?.total ?? 0;
+  } catch (error) {
+    logVaultQuotaError("get_retained_tombstone_bytes", error);
     throw error;
   }
 }

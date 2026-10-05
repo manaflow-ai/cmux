@@ -228,6 +228,76 @@ describe("Vault uploads route", () => {
     expect(tombstones).toHaveLength(1);
   });
 
+  dbTest("charges superseded staging uploads against the quota so retries cannot mint unbounded storage", async () => {
+    const db = cloudDb();
+    const first = await POST(uploadRequest({ compressedSizeBytes: 600_000 }));
+    expect((await first.json()).items[0].status).toBe("upload");
+
+    // The first PUT URL stays writable after a retry supersedes it, so its
+    // declared bytes remain reserved until the superseded object is deleted.
+    const retry = await POST(uploadRequest({ compressedSizeBytes: 600_000 }));
+    expect((await retry.json()).items[0]).toMatchObject({ status: "error", error: "quota_exceeded" });
+    expect(presignCalls).toHaveLength(1);
+
+    const smallRetry = await POST(uploadRequest({ compressedSizeBytes: 300_000 }));
+    expect((await smallRetry.json()).items[0].status).toBe("upload");
+    const [tombstone] = await db
+      .select({ compressedSizeBytes: vaultUploadTombstones.compressedSizeBytes })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.uploadObjectKey, presignCalls[0].key));
+    expect(tombstone?.compressedSizeBytes).toBe(600_000);
+
+    const exhausted = await POST(uploadRequest({ compressedSizeBytes: 300_000 }));
+    expect((await exhausted.json()).items[0]).toMatchObject({ status: "error", error: "quota_exceeded" });
+    expect(presignCalls).toHaveLength(2);
+  });
+
+  dbTest("releases a superseded upload reservation once its staged object is deleted", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    const staleUploadObjectKey = `${objectKey}.stale-upload`;
+    await db.insert(vaultUploadTombstones).values({
+      userId,
+      objectKey,
+      uploadObjectKey: staleUploadObjectKey,
+      compressedSizeBytes: 900_000,
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 600_000 }));
+
+    expect((await response.json()).items[0].status).toBe("upload");
+    expect(deleteObject).toHaveBeenCalledWith(staleUploadObjectKey);
+    const tombstones = await db
+      .select({ id: vaultUploadTombstones.id })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.uploadObjectKey, staleUploadObjectKey));
+    expect(tombstones).toHaveLength(0);
+  });
+
+  dbTest("keeps charging a superseded upload whose storage deletion failed", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    const staleUploadObjectKey = `${objectKey}.undeletable-upload`;
+    await db.insert(vaultUploadTombstones).values({
+      userId,
+      objectKey,
+      uploadObjectKey: staleUploadObjectKey,
+      compressedSizeBytes: 900_000,
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+    const failDelete = async () => {
+      beforeNextDelete = failDelete;
+      throw new Error("storage cleanup failed");
+    };
+    beforeNextDelete = failDelete;
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 600_000 }));
+
+    expect((await response.json()).items[0]).toMatchObject({ status: "error", error: "quota_exceeded" });
+    expect(deleteObject).toHaveBeenCalledWith(staleUploadObjectKey);
+  });
+
   dbTest("mints a fresh staging key when expired staging cleanup has not completed", async () => {
     const db = cloudDb();
     const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);

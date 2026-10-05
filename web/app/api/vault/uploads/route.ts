@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, lt } from "drizzle-orm";
+import { and, asc, eq, lt } from "drizzle-orm";
 import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../db/client";
 import {
@@ -17,6 +17,7 @@ import {
 } from "../../../../services/vault/storage";
 import {
   getVaultPendingGrantBytes,
+  getVaultRetainedTombstoneBytes,
   getVaultStoredCompressedBytes,
   withVaultUserQuotaLock,
 } from "../../../../services/vault/usage";
@@ -30,6 +31,10 @@ import { setSpanAttributes } from "../../../../services/telemetry";
 // object is deleted by the opportunistic GC below.
 const UPLOAD_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 const GRANT_GC_BATCH = 10;
+// Storage checks a presigned PUT's expiry when the request starts, so a large
+// upload that began just before expiry can still land afterwards. A superseded
+// staging object is deleted only after this grace has also passed.
+const SUPERSEDED_UPLOAD_WRITE_GRACE_MS = 60 * 60 * 1000;
 
 type VaultDb = ReturnType<typeof cloudDb>;
 
@@ -113,18 +118,23 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
   await gcExpiredVaultStorage(db, now);
 
   const reservedResults = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
-    // Per-user storage quota covers committed snapshots plus unexpired upload
-    // grants, so minting URLs and never committing still consumes quota (the
-    // presigned ContentLength is signed, bounding each upload to its declared
-    // size). Grants for keys in this batch are excluded from the pending sum and
-    // re-added per item below, so retries are not double-counted. The commit
-    // route re-checks, so previously issued URLs cannot bypass the quota either.
+    // Per-user storage quota covers committed snapshots, unexpired upload
+    // grants, and superseded staging uploads that are not deleted yet, so
+    // minting URLs and never committing still consumes quota (the presigned
+    // ContentLength is signed, bounding each upload to its declared size).
+    // Grants for keys in this batch are excluded from the pending sum and
+    // re-added per item below, so retries are not double-counted. A retry
+    // also charges the grant it supersedes, because that grant's URL can still
+    // write its staging object. The commit route re-checks, so previously
+    // issued URLs cannot bypass the quota either.
+    await gcExpiredVaultTombstonesForUser(lockedDb, userId, now);
     const batchObjectKeys = [...new Set(batch.value.map((item) =>
       buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256),
     ))];
     let projectedUserBytes =
       (await getVaultStoredCompressedBytes(lockedDb, userId)) +
-      (await getVaultPendingGrantBytes(lockedDb, userId, now, batchObjectKeys));
+      (await getVaultPendingGrantBytes(lockedDb, userId, now, batchObjectKeys)) +
+      (await getVaultRetainedTombstoneBytes(lockedDb, userId));
     const lockedResults: ReservedUploadResult[] = [];
     const objectKeysCreatedInRequest = new Set<string>();
     const objectKeysSeenInRequest = new Set<string>();
@@ -150,16 +160,6 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
           relPath: item.relPath,
           status: "error",
           error: "upload_too_large",
-        });
-        continue;
-      }
-      if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
-        lockedResults.push({
-          agent: item.agent,
-          agentSessionId: item.agentSessionId,
-          relPath: item.relPath,
-          status: "error",
-          error: "quota_exceeded",
         });
         continue;
       }
@@ -212,23 +212,37 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .from(vaultUploadGrants)
         .where(eq(vaultUploadGrants.objectKey, objectKey))
         .limit(1);
+      const supersededBytes = previousGrant?.compressedSizeBytes ?? 0;
+      if (projectedUserBytes + supersededBytes + item.compressedSizeBytes > config.maxUserBytes) {
+        lockedResults.push({
+          agent: item.agent,
+          agentSessionId: item.agentSessionId,
+          relPath: item.relPath,
+          status: "error",
+          error: "quota_exceeded",
+        });
+        continue;
+      }
       const grantReservationToken = randomUUID();
       const uploadObjectKey = buildUploadObjectKey(objectKey, grantReservationToken);
       if (previousGrant) {
+        const tombstoneExpiresAt = supersededUploadWritableUntil(previousGrant, config.presignTtlSeconds);
         await lockedDb
           .insert(vaultUploadTombstones)
           .values({
             userId,
             objectKey,
             uploadObjectKey: previousGrant.uploadObjectKey,
-            expiresAt: previousGrant.expiresAt,
+            compressedSizeBytes: previousGrant.compressedSizeBytes,
+            expiresAt: tombstoneExpiresAt,
           })
           .onConflictDoUpdate({
             target: vaultUploadTombstones.uploadObjectKey,
             set: {
               userId,
               objectKey,
-              expiresAt: previousGrant.expiresAt,
+              compressedSizeBytes: previousGrant.compressedSizeBytes,
+              expiresAt: tombstoneExpiresAt,
             },
           });
       }
@@ -256,7 +270,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .returning({ id: vaultUploadGrants.id });
       if (!grant) throw new Error("vault upload grant upsert returned no row");
       if (!previousGrant) objectKeysCreatedInRequest.add(objectKey);
-      projectedUserBytes += item.compressedSizeBytes;
+      projectedUserBytes += supersededBytes + item.compressedSizeBytes;
       lockedResults.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,
@@ -397,6 +411,51 @@ async function gcExpiredVaultStorage(
     await withVaultUserQuotaLock(db, tombstone.userId, async (lockedDb) => {
       await cleanupExpiredTombstone(lockedDb, tombstone, now);
     });
+  }
+}
+
+/**
+ * A superseded grant's presigned PUT was minted when the grant was created, so
+ * its staging object can be written only until that URL expires (plus the
+ * in-flight upload grace). Deleting it then releases the user's quota sooner
+ * than waiting for the grant's full reservation lifetime.
+ */
+function supersededUploadWritableUntil(
+  previousGrant: Pick<ExistingUploadGrant, "createdAt" | "expiresAt">,
+  presignTtlSeconds: number,
+): Date {
+  const urlWritableUntil =
+    previousGrant.createdAt.getTime() + presignTtlSeconds * 1000 + SUPERSEDED_UPLOAD_WRITE_GRACE_MS;
+  return new Date(Math.min(previousGrant.expiresAt.getTime(), urlWritableUntil));
+}
+
+/**
+ * Delete the caller's own expired superseded uploads under their quota lock,
+ * so the bytes they hold are released before this request's quota check
+ * instead of waiting for the global sweep to reach them.
+ */
+async function gcExpiredVaultTombstonesForUser(
+  lockedDb: VaultDb,
+  userId: string,
+  now: Date,
+): Promise<void> {
+  const expiredTombstones = await lockedDb
+    .select({
+      id: vaultUploadTombstones.id,
+      userId: vaultUploadTombstones.userId,
+      objectKey: vaultUploadTombstones.objectKey,
+      uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+      expiresAt: vaultUploadTombstones.expiresAt,
+    })
+    .from(vaultUploadTombstones)
+    .where(and(
+      eq(vaultUploadTombstones.userId, userId),
+      lt(vaultUploadTombstones.expiresAt, now),
+    ))
+    .orderBy(asc(vaultUploadTombstones.expiresAt))
+    .limit(GRANT_GC_BATCH);
+  for (const tombstone of expiredTombstones) {
+    await cleanupExpiredTombstone(lockedDb, tombstone, now);
   }
 }
 
