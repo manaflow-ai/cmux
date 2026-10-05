@@ -7,7 +7,7 @@ nonisolated enum PaletteStrings {
     static var sectionWorkspaces: String { String(localized: "palette.section.workspaces", defaultValue: "Workspaces", bundle: .module) }
     static var sectionTabs: String { String(localized: "palette.section.tabs", defaultValue: "Tabs", bundle: .module) }
     static var sectionOpenIn: String { String(localized: "palette.section.openIn", defaultValue: "Open In", bundle: .module) }
-    static var sectionSettings: String { String(localized: "palette.section.settings", defaultValue: "Toggle Setting", bundle: .module) }
+    static var sectionSettings: String { String(localized: "palette.section.settings", defaultValue: "Change Settings", bundle: .module) }
     static var sectionRecentDirectories: String { String(localized: "palette.section.recentDirectories", defaultValue: "Recent Directories", bundle: .module) }
     static var commandsTitle: String { String(localized: "palette.page.commands", defaultValue: "Commands", bundle: .module) }
     static var searchPlaceholder: String { String(localized: "palette.placeholder.commands", defaultValue: "Search for commands…", bundle: .module) }
@@ -19,7 +19,7 @@ nonisolated enum PaletteStrings {
     static var tabsPlaceholder: String { String(localized: "palette.placeholder.tabs", defaultValue: "Search tabs…", bundle: .module) }
     static var openInTitle: String { String(localized: "palette.page.openIn", defaultValue: "Open Current Directory", bundle: .module) }
     static var openInPlaceholder: String { String(localized: "palette.placeholder.openIn", defaultValue: "Search apps…", bundle: .module) }
-    static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Toggle Setting", bundle: .module) }
+    static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Change Settings", bundle: .module) }
     static var settingsPlaceholder: String { String(localized: "palette.placeholder.settings", defaultValue: "Search settings…", bundle: .module) }
     static var searchActionsPlaceholder: String { String(localized: "palette.placeholder.actions", defaultValue: "Search actions…", bundle: .module) }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }

@@ -52,6 +52,7 @@ jobs:
       - name: Notices tool tests
         run: |
           python3 cmux-tui/build-support/notices/test_rust_notices.py
+          python3 cmux-tui/build-support/notices/test_license_match.py
           python3 scripts/cmux-next/notices/test_compose_notices.py
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py

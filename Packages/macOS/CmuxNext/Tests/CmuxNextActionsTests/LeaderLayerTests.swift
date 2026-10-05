@@ -37,7 +37,7 @@ import Testing
     @Test func aDefaultChordAddsToTheSingleKey() {
         let registry = Self.registry()
         #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command]))
-        #expect(registry.resolve(Shortcut("i", modifiers: [.command]))?.id == "palette.newAgentChat")
+        #expect(registry.keyWinner(Shortcut("i", modifiers: [.command]))?.command == "palette.newAgentChat")
         #expect(registry.shortcutDisplay(for: "palette.newAgentChat") == "⌘I")
         #expect(registry.shortcutDisplay(for: "terminal.scrollToSelection") == "⌘J J")
         #expect(registry.shortcutKeycaps(for: "terminal.scrollToSelection") == ["⌘", "J", "J"])
@@ -89,7 +89,7 @@ import Testing
         let registry = Self.registry()
         registry.bind("toggleSidebar") {}
         registry.setShortcutOverride(LeaderLayer.prefix, for: "toggleSidebar")
-        #expect(registry.resolve(LeaderLayer.prefix)?.id == "toggleSidebar")
+        #expect(registry.keyWinner(LeaderLayer.prefix)?.command == "toggleSidebar")
         #expect(registry.effectiveChord(for: "terminal.scrollToSelection") == nil)
         #expect(!LeaderLayer(registry: registry).hasChords())
 

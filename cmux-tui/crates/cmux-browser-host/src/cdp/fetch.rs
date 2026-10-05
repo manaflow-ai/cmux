@@ -21,7 +21,7 @@
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use crate::protocol::{DriverError, timeout_of};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
@@ -80,15 +80,8 @@ const SHELL_MARKER: &str = "about:blank#cmux-shell-";
 pub(crate) struct Shells {
     live: HashSet<String>,
     ended: bool,
-    /// Running fetches by the gate's `fetchId`: the tab they run in (once
-    /// known) and whether the gate cancelled them.
-    runs: HashMap<String, Run>,
-}
-
-#[derive(Debug, Default)]
-struct Run {
-    target: Option<String>,
-    cancelled: bool,
+    /// Running fetches by the gate's `fetchId` (cancels).
+    runs: super::fetch_runs::Runs,
 }
 
 /// A running fetch's entry: removed when the fetch returns.
@@ -99,7 +92,7 @@ struct RunEntry<'a> {
 
 impl Drop for RunEntry<'_> {
     fn drop(&mut self) {
-        self.inner.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.remove(&self.id);
+        self.inner.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.finish(&self.id);
     }
 }
 
@@ -137,19 +130,16 @@ impl Inner {
         // that came first fails it at once).
         let run = match params.get("fetchId").and_then(Value::as_str) {
             Some(id) => {
-                let entry = RunEntry { inner: self, id: id.to_owned() };
-                if self
+                let started = self
                     .shells
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .runs
-                    .entry(id.to_owned())
-                    .or_default()
-                    .cancelled
-                {
+                    .start(id, Instant::now());
+                if !started {
                     return Err(cancelled());
                 }
-                Some(entry)
+                Some(RunEntry { inner: self, id: id.to_owned() })
             }
             None => None,
         };
@@ -177,20 +167,14 @@ impl Inner {
     /// Records the tab a fetch runs in; fails when it was cancelled.
     fn run_in(&self, run: Option<&str>, target: &str) -> Result<(), DriverError> {
         let Some(id) = run else { return Ok(()) };
-        let mut shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
-        let entry = shells.runs.entry(id.to_owned()).or_default();
-        entry.target = Some(target.to_owned());
-        if entry.cancelled { Err(cancelled()) } else { Ok(()) }
+        let cancelled_now =
+            self.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.set_target(id, target);
+        if cancelled_now { Err(cancelled()) } else { Ok(()) }
     }
 
     fn run_cancelled(&self, run: Option<&str>) -> bool {
         run.is_some_and(|id| {
-            self.shells
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .runs
-                .get(id)
-                .is_some_and(|entry| entry.cancelled)
+            self.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.is_cancelled(id)
         })
     }
 
@@ -202,9 +186,7 @@ impl Inner {
         let id = crate::protocol::required_str(params, "fetchId")?;
         let (target, shell) = {
             let mut shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
-            let entry = shells.runs.entry(id.to_owned()).or_default();
-            entry.cancelled = true;
-            let target = entry.target.clone();
+            let target = shells.runs.cancel(id, Instant::now());
             let shell = target.as_ref().is_some_and(|t| shells.live.remove(t));
             (target, shell)
         };

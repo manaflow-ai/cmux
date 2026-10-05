@@ -20,7 +20,7 @@ A user who makes cmux the default browser hits these in the first day.
 | Item | W | C | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | Omnibar opens in new tab (Cmd-Return, modified row click) | fixed (P1) | fixed (P1) | app | was loading in the current tab |
-| Downloads UI (progress, list, reveal, open, cancel, retry) | missing | missing/UNSURE | app (UI), engine (C events) | S2: both engines feed one App list (`BrowserDownloadList`) with progress and end, a notice on finish/failure, one policy (`BrowserDownloadPolicy`: Downloads folder or chosen file, sanitized unique names, quarantine, never open). C through shim download events (`CEFDownloads`). The list UI is still missing |
+| Downloads UI (progress, list, reveal, open, cancel, retry) | missing | missing/UNSURE | app (UI), engine (C events) | S2: both engines feed one App list (`BrowserDownloadList`) with progress and end, a notice on finish/failure, one policy (`BrowserDownloadPolicy`: Downloads folder or chosen file, sanitized unique names, quarantine, never open). C through shim download events (`CEFDownloads`). DL2: both engines write a temporary sibling and move into place only on a complete end (`BrowserDownloadPlacement`: reserved names, exclusive rename, Save As replaced only by a complete download, 255-byte names keep the extension, lstat); shim download tokens are unique across profiles; download URLs only http/https/data/blob; an early cancel is held. Later P3 in the lane plan below. The list UI is still missing |
 | New tabs open next to the opener (Chrome order) | broken | broken | app + daemon (crate slot) | daemon appends to strip end |
 | Session restore with back/forward history | URL only | works | engine (W interactionState), app | W history lost on relaunch and Cmd-Shift-T |
 | Passwords: save prompt, fill, generator, manager page | missing | partial | pw | C fills from Chromium store; no save UI |
@@ -107,6 +107,24 @@ workspace, tab search across every machine.
   input, never incognito), fully configurable search engines per profile,
   default Google, calculator row (local only); Ctrl-J/K and Ctrl-N/P move
   rows while the list is open.
+
+## Downloads lane plan (later P3, not implemented)
+
+After DL2 (shim tokens, temporary-file placement, scheme filter, held
+cancel, shutdown clear, popup match), in this order:
+
+1. Save Link As pick: the shim returns a token from `cmux_shim_download_url`
+   (StartDownload) and matches the download by its GURL spec, with a TTL, so
+   the pick never depends on the URL string cmux sent.
+2. Auto-resume a download once after its first interrupt (network change),
+   then fail.
+3. Quarantine on the DONE path in the shim side too (Chromium's own
+   quarantine call), so a file is never unquarantined between the move and
+   cmux's attribute write.
+4. Downloads that have no cmux tab (a tab closed before the download, a
+   popup panel) still reach the App's list.
+5. A test that checks the Swift copies of the shim event numbers and
+   function prototypes against `cmux_cef_shim.h`.
 
 ## Order (app-level items)
 

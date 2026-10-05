@@ -744,3 +744,65 @@ fn empty_group_machine_is_optional_in_the_wire_shape() {
     let decoded: Section = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, section);
 }
+
+/// Swift `previousExpandedSection` takes the section header right above and
+/// answers nil when it is collapsed; it never skips past a collapsed section
+/// to an expanded one further up.
+#[test]
+fn a_collapsed_previous_section_is_not_skipped_for_the_one_above_it() {
+    let mut rows: Vec<Row> = rows()
+        .into_iter()
+        .filter(|row| row.section != machine("local") || matches!(row.key, RowKey::Section { .. }))
+        .collect();
+    for row in &mut rows {
+        if row.key == (RowKey::Section { id: machine("local") }) {
+            row.is_collapsed = true;
+        }
+    }
+    let mut y = 0.0;
+    for row in &mut rows {
+        row.y = y;
+        y += row.height + 2.0;
+    }
+    let cloud =
+        rows.iter().find(|row| row.key == RowKey::Section { id: machine("cloud") }).unwrap();
+    let request = request_with_rows(
+        cloud.y + cloud.height * 0.1,
+        Payload::Workspaces { ids: vec!["y".into()] },
+        rows,
+        sections(),
+    );
+    assert_eq!(
+        resolve(&request),
+        Some(Target::Position { section: machine("cloud"), group: None, index: 0 })
+    );
+}
+
+/// Swift expandedGroupHeaderZones and sectionHeaderTargetsTopOrPreviousSectionEnd
+/// (ec4d1034372^) drag c: a stays at index 0, so the expanded G1 header is
+/// index 1, and the top of the local header is the end of pinned.
+#[test]
+fn expanded_group_header_zones_while_dragging_c_match_swift() {
+    let rows = rows_without(&["c"], None);
+    let resolve_c = |key: RowKey, fraction: f64| {
+        let row = rows.iter().find(|row| row.key == key).unwrap();
+        resolve(&request_with_rows(
+            row.y + row.height * fraction,
+            Payload::Workspaces { ids: vec!["c".into()] },
+            rows.clone(),
+            sections(),
+        ))
+    };
+    assert_eq!(
+        resolve_c(RowKey::Group { id: "g1".into() }, 0.2),
+        Some(Target::Position { section: machine("local"), group: None, index: 1 })
+    );
+    assert_eq!(
+        resolve_c(RowKey::Group { id: "g1".into() }, 0.7),
+        Some(Target::Position { section: machine("local"), group: Some("g1".into()), index: 0 })
+    );
+    assert_eq!(
+        resolve_c(RowKey::Section { id: machine("local") }, 0.1),
+        Some(Target::Position { section: SectionId::Pinned, group: None, index: 1 })
+    );
+}
