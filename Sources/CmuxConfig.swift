@@ -3425,6 +3425,12 @@ final class CmuxConfigStore: ObservableObject {
             return ParsedConfigResult(config: nil, issue: nil)
         }
 
+        // Retain a last-good snapshot for the primary global cmux.json. Pack
+        // files are independently replaceable inputs: an invalid pack must be
+        // removed from the resolved action set so a later fixed write can be
+        // observed as a real transition.
+        let retainedConfig = path == globalConfigPath ? lastGoodConfigs[path] : nil
+
         // Key the parse cache on stat(2), which follows symlinks, rather than
         // attributesOfItem(atPath:), which has lstat semantics and does not.
         // When cmux.json is a symlink into a dotfiles repo, editing the target
@@ -3455,10 +3461,10 @@ final class CmuxConfigStore: ObservableObject {
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: lastGoodConfigs[path],
+                config: retainedConfig,
                 issue: issue
             )
-            return ParsedConfigResult(config: lastGoodConfigs[path], issue: issue)
+            return ParsedConfigResult(config: retainedConfig, issue: issue)
         }
         let sanitized: Data
         do {
@@ -3469,11 +3475,11 @@ final class CmuxConfigStore: ObservableObject {
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: lastGoodConfigs[path],
+                config: retainedConfig,
                 issue: issue
             )
             NSLog("[CmuxConfig] JSONC preprocessing error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: lastGoodConfigs[path], issue: issue)
+            return ParsedConfigResult(config: retainedConfig, issue: issue)
         }
 
         do {
@@ -3498,11 +3504,11 @@ final class CmuxConfigStore: ObservableObject {
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: lastGoodConfigs[path],
+                config: retainedConfig,
                 issue: issue
             )
             NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: lastGoodConfigs[path], issue: issue)
+            return ParsedConfigResult(config: retainedConfig, issue: issue)
         }
     }
 
