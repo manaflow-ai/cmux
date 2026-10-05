@@ -23,6 +23,15 @@ public struct BrowserReplListedURLs: Sendable {
         creator == reader ? row : Self.redactingURL(row)
     }
 
+    /// A `frames.list` row as the reader gets it.
+    /// - Parameters:
+    ///   - creator: The live session that created the tab, or `nil` for a
+    ///     user's tab.
+    ///   - blocked: Whether the reader's domain policy blocks the frame.
+    public func frameRow(_ row: [String: Any], creator: String?, blocked: Bool) -> [String: Any] {
+        row
+    }
+
     /// A `history.search` row as the reader gets it.
     public func historyRow(_ row: [String: Any]) -> [String: Any] {
         Self.redactingURL(row)

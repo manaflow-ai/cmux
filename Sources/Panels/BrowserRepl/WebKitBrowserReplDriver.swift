@@ -1620,16 +1620,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 } ?? nil
             }
         }
+        // Frame URLs reach the session as tabs.list URLs do
+        // (BrowserReplListedURLs).
+        let listed = BrowserReplListedURLs(reader: sessionID)
+        let creator = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.creatorSessionID
         var result: [[String: Any]] = []
         for (frame, nameTask) in zip(frames, names) {
             let name = await nameTask.value
-            result.append([
+            result.append(listed.frameRow([
                 "frameId": frame.frameID,
                 "parentFrameId": frame.parentFrameID ?? NSNull(),
                 "url": frame.url,
                 "name": name ?? frame.name,
                 "crossOrigin": frame.crossOrigin,
-            ])
+            ], creator: creator, blocked: frameGate.recordedBlockReason(of: frame, in: webView) != nil))
         }
         return result
     }
