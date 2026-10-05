@@ -42,11 +42,11 @@ jobs:
       - name: Localization audit
         continue-on-error: true
         run: |
-          scripts/localize-changes --base upstream/feat-cmux-next
+          scripts/localize-changes --base origin/feat-cmux-next
           python3 scripts/localization_catalog.py check
       - name: Save generated changes
         if: always()
-        run: git diff --binary > generated.patch
+        run: git diff HEAD --binary > generated.patch
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
