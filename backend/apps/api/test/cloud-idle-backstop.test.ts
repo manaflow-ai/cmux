@@ -94,4 +94,29 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
     expect(got).toMatchObject({ status: "paused", pause_reason: "provider_stopped" })
   })
+
+  it("a machine that never binds is paused by the cost backstop 24 h after create (review P2)", async () => {
+    const a = await signedInWithInstall("cloud-bind-4", "mac")
+    const machine = (await op(a.session, "cloud.machine.create", { size: SIZE }, crypto.randomUUID())).body.value.machine.id as string
+    const stub = cloudStub(a.team)
+    await stub.fakeControl({ advance_ms: 25 * H } as never)
+    await fireAlarm(stub)
+    const got = (await post("/v1/read", a.session, { op: "cloud.machine.get", params: { machine } })).body.value
+    expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
+  })
+
+  it("the real-state check changes nothing on an unknown or missing state field, and reads the provider at most once per 30 s (review P2)", async () => {
+    const s = await vmSetup("cloud-bind-5")
+    const vm = ((await s.stub.fakeControl({})) as unknown as { vms: Array<{ name: string }> }).vms.find((v) => v.name.endsWith(s.machine.replace(/_/g, "-")))!
+    const reads = async () => ((await s.stub.fakeControl({})) as unknown as { state_reads: number }).state_reads
+    const ci = () => post("/v1/read", s.a.installToken, { op: "cloud.machine.connect_info", params: { machine: s.machine } })
+    const r0 = await reads()
+    for (let i = 0; i < 3; i++) await ci()
+    expect((await reads()) - r0).toBe(1)
+    await s.stub.fakeControl({ vm_state: { name: vm.name, state: "restarting" }, advance_ms: 31_000 } as never)
+    expect((await ci()).body.value.state).toBe("running")
+    await s.stub.fakeControl({ vm_state: { name: vm.name, state: "<none>" }, advance_ms: 31_000 } as never)
+    expect((await ci()).body.value.state).toBe("running")
+    expect(await s.status()).toBe("running")
+  })
 })
