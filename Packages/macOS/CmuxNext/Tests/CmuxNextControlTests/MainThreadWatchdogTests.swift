@@ -77,10 +77,10 @@ import Testing
         watchdog.start()
         defer { watchdog.stop() }
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
-            stallForTest()
+            stallForTestLong()
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
-        CFRunLoopRunInMode(.defaultMode, 0.4, false)
+        CFRunLoopRunInMode(.defaultMode, 1.0, false)
         // The full package run shares the main run loop with other tests, so
         // other stalls can be recorded too; one record must be this stall's.
         let records = watchdog.log.records()
@@ -103,4 +103,11 @@ import Testing
 @inline(never)
 func stallForTest() {
     spin(for: .milliseconds(150))
+}
+
+/// A longer stall, so a loaded host's watchdog thread still wakes inside it
+/// (the sample is due 30 ms in).
+@inline(never)
+func stallForTestLong() {
+    spin(for: .milliseconds(500))
 }
