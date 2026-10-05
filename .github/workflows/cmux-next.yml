@@ -373,6 +373,7 @@ jobs:
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-action-surfaces-fleet-only.test.sh
+          bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
           bash scripts/cmux-next/tests/swift-test-summary.test.sh
