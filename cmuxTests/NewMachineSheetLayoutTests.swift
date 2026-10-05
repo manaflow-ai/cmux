@@ -151,7 +151,8 @@ struct NewMachineSheetLayoutTests {
         }
 
         let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
-        let base = try #require(popUps.first { $0.itemTitles.contains("cmux-devbox-0") }, "no Base pop-up")
+        // `nightlyMachines` renames one machine per tick, so match the family, not a title.
+        let base = try #require(popUps.first { $0.itemTitles.contains { $0.hasPrefix("cmux-devbox-") } }, "no Base pop-up")
         let size = try #require(popUps.first { $0.itemTitles.contains { $0.contains("GB RAM") } }, "no Size pop-up")
         let rows = [("Base", base), ("Size", size)]
         let leading = rows.map { $0.1.convert($0.1.bounds, to: host).minX }
