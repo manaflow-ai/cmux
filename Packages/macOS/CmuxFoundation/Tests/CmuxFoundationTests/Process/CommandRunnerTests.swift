@@ -19,7 +19,7 @@ import Testing
 
     @Test func boundedUTF8CaptureCannotDisappearAtAMultibyteBoundary() async {
         let result = await CommandRunner(maximumCaptureBytes: 1).run(directory: tempDir,
-            executable: "/usr/bin/printf", arguments: ["%s", "é"], timeout: 5)
+            executable: "/usr/bin/perl", arguments: ["-e", "binmode STDOUT; print pack(q(C*),195,169)"], timeout: 5)
         #expect(result.exitStatus == 0)
         #expect(result.stdout != nil)
         #expect((result.stdout?.utf8.count ?? 0) >= 1)
