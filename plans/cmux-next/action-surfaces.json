@@ -776,7 +776,7 @@
         "title_key" : "category.workspace",
         "title_table" : "Localizable"
       },
-      "title" : "Next Workspace",
+      "title" : "Next Sidebar Item",
       "title_key" : "action.nextSidebarTab",
       "title_table" : "ActionCatalog"
     },
@@ -805,7 +805,7 @@
         "title_key" : "category.workspace",
         "title_table" : "Localizable"
       },
-      "title" : "Previous Workspace",
+      "title" : "Previous Sidebar Item",
       "title_key" : "action.prevSidebarTab",
       "title_table" : "ActionCatalog"
     },

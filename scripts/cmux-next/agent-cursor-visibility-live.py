@@ -195,9 +195,11 @@ def step(name, target, expect_kind, expect_anchor=None, expect_reason=None, ask_
     if expect_reason:
         ok = ok and result.get("reason") == expect_reason
     if ask_window:
-        placement = next((p["placement"] for p in entry.get("placements") or [] if p.get("window") == ask_window), None)
-        record["asked_window"] = {"window": ask_window, "placement": placement}
-        ok = ok and placement is not None and placement.get("kind") == "elsewhere"
+        # Placements are keyed by the app's window state ids (not NSWindow numbers): every
+        # window other than the resolver's answer must draw nothing.
+        others = [p for p in entry.get("placements") or [] if p.get("window") != result.get("window")]
+        record["other_windows"] = others
+        ok = ok and len(others) >= 1 and all((p.get("placement") or {}).get("kind") == "elsewhere" for p in others)
     if opts.publish_verb:
         record["publish"] = rpc(opts.publish_verb, {"target": target, "kind": "click", "point": {"x": 280, "y": 180}})
     for index, window in enumerate(windows()):
@@ -206,6 +208,8 @@ def step(name, target, expect_kind, expect_anchor=None, expect_reason=None, ask_
             {"window": window.get("id"), "result": rpc("debug.window_snapshot", {"window": window.get("id"), "path": path})})
     with open(os.path.join(opts.out, f"{name}-snapshot.json"), "w") as f:
         f.write(entry.get("snapshot_json") or "{}")
+    with open(os.path.join(opts.out, f"{name}-sidebar-rows.json"), "w") as f:
+        json.dump(rpc("debug.sidebar_rows"), f, indent=1)
     record["ok"] = ok
     report["steps"].append(record)
     if not ok:
@@ -265,7 +269,7 @@ try:
     window2 = (wait(lambda: [w.get("id") for w in windows() if w.get("id") not in known], 30) or [None])[0]
     report["windows"] = {"window1": window1, "window2": window2}
     if setup("other_window", target, lambda snap: len(snap.get("windows") or []) >= 2 and not shows_other_workspace(snap)):
-        step("other_window", target, "hidden", expect_anchor="columnEdge.leading", ask_window=window2)
+        step("other_window", target, "hidden", expect_anchor="columnEdge.leading", ask_window=True)
 
     # Minimize window 1 (minimizeWindow acts on the key window: focus window 1 through the target tab first).
     focus_tab(target)

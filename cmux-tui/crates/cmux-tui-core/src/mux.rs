@@ -54,7 +54,7 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
+pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{

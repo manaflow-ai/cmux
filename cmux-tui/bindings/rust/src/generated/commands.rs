@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c.
+// cmux-tui mux protocol 12, IR ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -409,6 +409,9 @@ pub struct CloseTabsRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// session_end only: the close is not recorded in the closed history.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
     pub surfaces: Vec<T::TabRef>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -3084,6 +3087,9 @@ impl CmuxClient {
     }
 
     pub fn close_tabs(&mut self, request: CloseTabsRequest) -> Result<CloseTabsResult> {
+        if !request.reason.is_missing() {
+            self.require_capability_field("close-tabs", "close-reason-v1")?;
+        }
         self.execute(&CLOSE_TABS_METADATA, &request)
     }
 

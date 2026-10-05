@@ -977,6 +977,10 @@ path = "tests/test_nightly_next_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_source_archive.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_r2_presign.py"
 lane = "linux-guard"
 

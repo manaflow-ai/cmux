@@ -55,12 +55,17 @@ enum SettingsHandlers {
     }
 
     /// Opens Ghostty's config (terminal fonts, colors, keybinds), which cmux
-    /// reads for every terminal.
+    /// reads for every terminal: the file Ghostty.app would open
+    /// (`GhosttyRuntime.editableConfigPath`), so a user whose config is
+    /// `config.ghostty` or in Application Support gets that file, not a new
+    /// empty `~/.config/ghostty/config` (R92).
     private static func openGhosttyConfig(_ context: AppActionContext) throws {
         let environment = ProcessInfo.processInfo.environment
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config")
-        try openCreatingIfMissing(base.appending(path: "ghostty/config"), contents: "", context)
+        let url = GhosttyRuntime.editableConfigPath().map { URL(fileURLWithPath: $0) }
+            ?? base.appending(path: "ghostty/config")
+        try openCreatingIfMissing(url, contents: "", context)
     }
 
     private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) throws {

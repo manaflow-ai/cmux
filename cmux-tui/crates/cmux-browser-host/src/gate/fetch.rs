@@ -10,7 +10,7 @@ use crate::protocol::{DriverError, ErrorCode};
 use crate::vm::VmHost;
 use serde_json::{Value, json};
 use std::sync::PoisonError;
-use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 /// Main's maxBodyBytes.
 pub const MAX_BODY_BYTES: u64 = 64 * 1024 * 1024;
@@ -24,25 +24,65 @@ fn forbidden_header(name: &str) -> bool {
         || name.starts_with("proxy-")
 }
 
-/// Keeps the request filter installed while a fetch runs.
+/// Fetches of one session that run at once (a9 shell-tab condition d; a
+/// shell fetch counts too). One more waits for a slot.
+pub const MAX_FETCHES: usize = 16;
+
+/// The session's fetch slots.
+#[derive(Debug, Default)]
+pub(super) struct FetchSlots {
+    pub(super) running: usize,
+    ended: bool,
+}
+
+/// One running fetch: holds a slot and keeps the request filter installed.
 struct Fetching<'a>(&'a Gate);
 
 impl<'a> Fetching<'a> {
-    fn start(gate: &'a Gate) -> Fetching<'a> {
-        gate.fetches.fetch_add(1, Ordering::SeqCst);
+    /// Takes a slot, waiting until `deadline` while all are taken.
+    fn start(gate: &'a Gate, deadline: Instant) -> Result<Fetching<'a>, DriverError> {
+        let mut slots = gate.fetches.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if slots.ended {
+                return Err(DriverError::closed("fetch: the session ended"));
+            }
+            if slots.running < MAX_FETCHES {
+                break;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(DriverError::timeout(format!(
+                    "fetch: {MAX_FETCHES} fetches of this session are running and none ended in time"
+                )));
+            }
+            slots = gate
+                .fetch_slot_free
+                .wait_timeout(slots, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        slots.running += 1;
+        drop(slots);
         gate.sync_request_filter();
-        Fetching(gate)
+        Ok(Fetching(gate))
     }
 }
 
 impl Drop for Fetching<'_> {
     fn drop(&mut self) {
-        self.0.fetches.fetch_sub(1, Ordering::SeqCst);
+        self.0.fetches.lock().unwrap_or_else(PoisonError::into_inner).running -= 1;
+        self.0.fetch_slot_free.notify_all();
         self.0.sync_request_filter();
     }
 }
 
 impl Gate {
+    /// The session ends: no fetch starts any more, also none that waits.
+    pub(super) fn end_fetches(&self) {
+        self.fetches.lock().unwrap_or_else(PoisonError::into_inner).ended = true;
+        self.fetch_slot_free.notify_all();
+    }
+
     /// DNS rebinding (a9 v1, after the fact; fetch and navigations share
     /// it): why a response from `url` that came from `ip` is refused.
     pub(super) fn rebinding_refusal(&self, url: &str, ip: &str) -> Option<String> {
@@ -82,6 +122,14 @@ impl Gate {
         if let Some(reason) = self.url_refusal(&url) {
             return Err(self.refuse_fetch(&url, format!("fetch: {url} is blocked: {reason}")));
         }
+        // a9 shell-tab condition (e): a shell tab would enter a signed-in
+        // profile's history; the page's own tab runs the fetch instead.
+        if self.grants.signed_in_profile && !params.get("targetId").is_some_and(Value::is_string) {
+            return Err(DriverError::new(
+                ErrorCode::Forbidden,
+                "fetch: open a page first; on a signed-in profile fetch runs in the page's tab",
+            ));
+        }
         let start = self
             .filtered
             .lock()
@@ -91,7 +139,8 @@ impl Gate {
         let mut call = params.clone();
         call["maxBytes"] = json!(MAX_BODY_BYTES);
         let result = {
-            let _fetching = Fetching::start(self);
+            let deadline = Instant::now() + crate::protocol::timeout_of(params);
+            let _fetching = Fetching::start(self, deadline)?;
             self.driver.call("net.fetch", &call)
         };
         let mut value = match result {

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c";
+pub const ir_sha256 = "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3172,6 +3172,8 @@ pub const CloseTabsRequest = struct {
     expected_revision: wire.Field(u64) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
+    /// session_end only: the close is not recorded in the closed history.
+    reason: wire.Field([]const u8) = .absent,
     surfaces: []const TabRef,
     transaction: wire.Field([]const u8) = .absent,
 
@@ -3190,6 +3192,9 @@ pub fn closeTabs(client: anytype, request: CloseTabsRequest) !wire.Decoded(Close
             .authority = "control",
             .since = 12,
             .capability = "batch-close-v1",
+            .fields = &.{
+                .{ .name = "reason", .since = null, .capability = "close-reason-v1" },
+            },
         },
         request,
     );

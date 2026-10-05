@@ -27,6 +27,11 @@ pub struct Grants {
     /// The session's origin is not the machine the browser runs on (a
     /// relay): loopback and private ranges are refused (FETCH-PRIVATE-RANGES).
     pub remote: bool,
+    /// The session drives a profile other than the agent's (the person's
+    /// signed-in one): a tab-less fetch is refused, since its shell tab
+    /// would enter that profile's history (a9 shell-tab condition e, until
+    /// cmux.18+ candidate 9).
+    pub signed_in_profile: bool,
 }
 
 /// Entries the host keeps in its log of blocked requests.
@@ -39,9 +44,12 @@ pub struct Gate {
     grants: Grants,
     /// Navigations the policy refused (`session.blockedNavigations()`).
     log: Arc<Mutex<Vec<Value>>>,
-    /// `net.fetch` calls in flight: the request filter stays installed
-    /// while any runs, so every redirect hop meets the range rule.
-    fetches: std::sync::atomic::AtomicUsize,
+    /// `net.fetch` calls in flight (at most [`fetch::MAX_FETCHES`]; the
+    /// request filter stays installed while any runs, so every redirect hop
+    /// meets the range rule) and whether the session ended.
+    fetches: Mutex<fetch::FetchSlots>,
+    /// Signalled when a fetch slot frees or the session ends.
+    fetch_slot_free: std::sync::Condvar,
     /// HOST-FETCH-CORS relaxations (policy op "corsLog"), kept apart from
     /// the blocked-request log the runtime shows as blockedNavigations().
     cors_log: Mutex<Vec<Value>>,
@@ -74,7 +82,8 @@ impl Gate {
             vault: Mutex::new(Vault::default()),
             grants,
             log: Arc::default(),
-            fetches: std::sync::atomic::AtomicUsize::new(0),
+            fetches: Mutex::default(),
+            fetch_slot_free: std::sync::Condvar::new(),
             cors_log: Mutex::new(Vec::new()),
             filtered: Arc::default(),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
@@ -99,6 +108,7 @@ impl Gate {
 
     /// The session ends: the driver releases its per-session state now.
     pub fn end_session(&self) {
+        self.end_fetches();
         self.driver.end_session();
     }
 
@@ -157,7 +167,7 @@ impl Gate {
             let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
             policy.base().is_active() || policy.agent().is_active()
         };
-        let fetching = self.fetches.load(std::sync::atomic::Ordering::SeqCst) > 0;
+        let fetching = self.fetches.lock().unwrap_or_else(PoisonError::into_inner).running > 0;
         let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
             let (policy, filtered, log, remote) =
                 (self.policy.clone(), self.filtered.clone(), self.log.clone(), self.grants.remote);
