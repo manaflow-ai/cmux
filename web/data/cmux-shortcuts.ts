@@ -58,9 +58,15 @@ export const shortcutCategories: ShortcutCategory[] = file.sections.map((section
   title: section.title as LocalizedText,
   shortcuts: section.shortcuts.map((row) => {
     const strokes = row.chord ?? (row.shortcut ? [row.shortcut] : []);
+    // A chord's strokes are one sequence; otherwise the default key, then each
+    // table alias once, as alternatives.
+    const combos = row.chord
+      ? strokes.map(shortcutStroke)
+      : [...strokes, ...row.aliases.map((alias) => alias.keys[0])].map(shortcutStroke)
+          .filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
     return {
       id: row.id,
-      combos: strokes.map(shortcutStroke),
+      combos,
       sequence: row.chord ? true : undefined,
       description: row.title as LocalizedText,
       configValue: row.chord ? JSON.stringify(row.chord.map(shortcutConfigStroke)) : strokes.map(shortcutConfigStroke)[0],
