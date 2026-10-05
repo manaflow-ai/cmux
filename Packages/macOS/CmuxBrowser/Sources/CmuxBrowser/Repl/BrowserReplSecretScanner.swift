@@ -4,7 +4,7 @@ import Foundation
 /// (``BrowserReplSecretStore``).
 ///
 /// The pass never rescans its own output and never builds an intermediate
-/// copy: at each position it checks, in order, a Base64 token that starts
+/// copy: at each position of the input it checks, in order, a Base64 token that starts
 /// there, a valid TOTP code standing as a whole number, and each value in
 /// any of its encodings, copying unmatched bytes through. Only values whose
 /// first byte the position can start are tried: the byte itself, or the
@@ -22,6 +22,10 @@ import Foundation
 /// growth is bounded by a budget the caller passes: a pass that would
 /// exceed it stops and reports ``Outcome/overLimit`` instead of allocating
 /// more. Adjacent matches of one mask become a single mask.
+///
+/// Every position is tried, also one inside an earlier match, so a value
+/// that overlaps another (registered to end inside it) never hides it:
+/// intersecting matches are masked as their union.
 struct BrowserReplSecretScanner {
     /// A registered value, compiled for matching.
     struct Value {
@@ -86,9 +90,16 @@ struct BrowserReplSecretScanner {
 
     /// Masks `input`. `budget` is how many bytes the output may grow past
     /// the input; it is reduced by the growth of this pass.
+    ///
+    /// Every position is tried against the original input, also one inside
+    /// a match: agent code can register a value that overlaps a protected
+    /// one (the characters just before it), and a match of that value must
+    /// not hide the protected value's start. Intersecting matches are masked
+    /// as their union, each distinct mask once in the order they start.
     func redact(_ input: UnsafeBufferPointer<UInt8>, budget: inout Int) -> Outcome {
         guard !isEmpty, !input.isEmpty else { return .unchanged }
         var pass = Pass(input: input, budget: budget)
+        var span = Span()
         var work = 0
         let workLimit = Self.workAllowance + input.count.multipliedReportingOverflow(by: Self.workPerByte).partialValue
         var index = 0
@@ -105,9 +116,7 @@ struct BrowserReplSecretScanner {
                 if let mask {
                     var padded = end
                     while padded < input.count, padded - end < 2, input[padded] == UInt8(ascii: "=") { padded += 1 }
-                    guard pass.emit(from: index, to: padded, mask: mask) else { return .overLimit }
-                    index = padded
-                    continue
+                    guard span.add(from: index, to: padded, mask: mask, into: &pass) else { return .overLimit }
                 }
                 tokenCheckedUntil = end
             }
@@ -116,9 +125,7 @@ struct BrowserReplSecretScanner {
                 while end < input.count, Self.isDigit(input[end]) { end += 1 }
                 let run = UnsafeBufferPointer(rebasing: input[index..<end])
                 if let code = codes.first(where: { $0.digits.elementsEqual(run) }) {
-                    guard pass.emit(from: index, to: end, mask: code.mask) else { return .overLimit }
-                    index = end
-                    continue
+                    guard span.add(from: index, to: end, mask: code.mask, into: &pass) else { return .overLimit }
                 }
             }
             if startBytes[Int(byte)] {
@@ -134,16 +141,50 @@ struct BrowserReplSecretScanner {
                     }
                 }
                 if let best {
-                    guard pass.emit(from: index, to: best.end, mask: best.mask) else { return .overLimit }
-                    index = best.end
-                    continue
+                    guard span.add(from: index, to: best.end, mask: best.mask, into: &pass) else { return .overLimit }
                 }
             }
             index += 1
         }
+        guard span.flush(into: &pass) else { return .overLimit }
         guard let output = pass.finish() else { return .unchanged }
         budget = pass.budget
         return .redacted(output)
+    }
+
+    /// The union of the matches that intersect, not emitted yet: its range
+    /// and each distinct mask of its matches, in the order they start (at
+    /// most one per value or code, so bounded like the store).
+    private struct Span {
+        var start = 0
+        var end = 0
+        var masks: [[UInt8]] = []
+        var seen: Set<[UInt8]> = []
+
+        /// Adds the match `start..<end`: to this span when it starts inside
+        /// it, else emits this span and starts a new one. False when the
+        /// output would grow past the budget.
+        mutating func add(from start: Int, to end: Int, mask: [UInt8], into pass: inout Pass) -> Bool {
+            if masks.isEmpty || start >= self.end {
+                guard flush(into: &pass) else { return false }
+                self.start = start
+                self.end = end
+            } else {
+                self.end = max(self.end, end)
+            }
+            if seen.insert(mask).inserted { masks.append(mask) }
+            return true
+        }
+
+        /// Emits the span, if any. False when the output would grow past
+        /// the budget.
+        mutating func flush(into pass: inout Pass) -> Bool {
+            guard !masks.isEmpty else { return true }
+            let joined = masks.count == 1 ? masks[0] : Array(masks.joined())
+            masks.removeAll(keepingCapacity: true)
+            seen.removeAll(keepingCapacity: true)
+            return pass.emit(from: start, to: end, mask: joined)
+        }
     }
 
     /// The output under construction; nil until the first match.
