@@ -498,7 +498,12 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard let address, !address.isEmpty,
               WorkspaceCloudVMBinding.normalizedVMID(machineID) != nil else { return }
         adoptedPrivateAddresses[machineID] = address
-        Task { await links.setPrivateAddresses([address], for: machineID) }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.links.setPrivateAddresses([address], for: machineID)
+            guard let provider = self.providers[machineID], !self.isRetired else { return }
+            _ = await provider.refreshCurrentGraph(force: true)
+        }
     }
 
     /// Registers and updates machines of teams other than the selected one
