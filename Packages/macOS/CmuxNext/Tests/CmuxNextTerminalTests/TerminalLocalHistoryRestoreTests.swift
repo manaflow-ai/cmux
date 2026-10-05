@@ -54,6 +54,7 @@ struct TerminalLocalHistoryRestoreTests {
         await LiveTerminal.until(viewer) { viewer.diagnostics.restoredSnapshots == 1 }
         #expect(viewer.surfaceView === surface)
         #expect(viewer.diagnostics.localHistoryMismatches == 0)
+        #expect(viewer.diagnostics.localSnapshots == 1, "debug.surfaces proves the local path ran")
         #expect(viewer.diagnostics.grid == TerminalGridSize(columns: 25, rows: 10))
         #expect(LiveTerminal.screenText(viewer) == LiveTerminal.screenText(owner))
         #expect(LiveTerminal.screenText(viewer).contains("row 0 "))
@@ -70,6 +71,7 @@ struct TerminalLocalHistoryRestoreTests {
         viewerIO.send(.snapshot(ready, phase: .readyLocalHistory(local)))
         await LiveTerminal.until(viewer) { viewer.diagnostics.localHistoryMismatches == 1 }
         #expect(viewer.diagnostics.localHistoryMismatches == 1)
+        #expect(viewer.diagnostics.localSnapshots == 0)
         #expect(viewer.surfaceView.viewportText() == owner.surfaceView.viewportText())
         #expect(LiveTerminal.screenText(viewer).contains("row 120 "))
         #expect(LiveTerminal.screenText(viewer) == LiveTerminal.screenText(owner))
