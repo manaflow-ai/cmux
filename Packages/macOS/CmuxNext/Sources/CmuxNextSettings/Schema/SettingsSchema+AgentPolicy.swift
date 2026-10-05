@@ -23,6 +23,8 @@ extension SettingsSchema {
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
+        // The diff page's display keys (looks only, diff-host S4).
+        .union(DiffViewerSettingsSchema.keys)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })

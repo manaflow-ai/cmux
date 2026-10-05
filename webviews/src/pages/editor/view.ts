@@ -492,6 +492,16 @@ export class MonacoView implements CodeView {
     return this.model?.getAlternativeVersionId() ?? 0;
   }
 
+  /** The whole document replaced as one undoable edit (a recovered draft); the store reports it. */
+  replaceText(text: string): void {
+    const model = this.model;
+    if (!model) return;
+    const body = analyzeText(text).body;
+    this.applyingLoad = true;
+    this.editor.executeEdits("cmux-recovery", [{ range: model.getFullModelRange(), text: body }]);
+    this.applyingLoad = false;
+  }
+
   setReadOnly(readOnly: boolean): void {
     if (this.documentInfo) this.documentInfo.readOnly = readOnly;
     this.editor.updateOptions(this.editorOptions());

@@ -52,6 +52,12 @@ nonisolated enum SurfaceSettingsSchema {
             Titles(kind: .diff,
                    color: SettingsText.keyed("settings.appearance.surfaces.diff.color", "Diff Viewer Color"),
                    opacity: SettingsText.keyed("settings.appearance.surfaces.diff.opacity", "Diff Viewer Opacity")),
+            Titles(kind: .markdown,
+                   color: SettingsText.keyed("settings.appearance.surfaces.markdown.color", "Markdown Editor Color"),
+                   opacity: SettingsText.keyed("settings.appearance.surfaces.markdown.opacity", "Markdown Editor Opacity")),
+            Titles(kind: .editor,
+                   color: SettingsText.keyed("settings.appearance.surfaces.editor.color", "Code Editor Color"),
+                   opacity: SettingsText.keyed("settings.appearance.surfaces.editor.opacity", "Code Editor Opacity")),
         ]
     }
 

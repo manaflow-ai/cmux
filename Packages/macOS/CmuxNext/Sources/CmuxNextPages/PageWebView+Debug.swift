@@ -11,8 +11,9 @@ import WebKit
 /// `debug.settings_web` (branch feat-cmux-next-settings-react).
 extension PageWebView {
     /// URL fragment, visible text (first 400 characters), control count, the computed html and
-    /// body backgrounds (the one-backdrop check), and the focused element with its value (typing
-    /// checks).
+    /// body backgrounds (the one-backdrop check), the focused element with its value (typing
+    /// checks) and `<html>`'s `data-*` attributes (pages publish their own probes there, such as the
+    /// diff page's highlight worker counters).
     public func debugState() async -> JSONValue {
         let script = """
         return JSON.stringify({
@@ -26,7 +27,8 @@ extension PageWebView {
           painted_ms: document.documentElement.dataset.cmuxPainted ? Number(document.documentElement.dataset.cmuxPainted) : null,
           active: document.activeElement && document.activeElement !== document.body
             ? { tag: document.activeElement.tagName.toLowerCase(), value: 'value' in document.activeElement ? String(document.activeElement.value) : null }
-            : null
+            : null,
+          data: Object.assign({}, document.documentElement.dataset)
         });
         """
         guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
@@ -36,10 +38,48 @@ extension PageWebView {
 
     /// Clicks the first element that matches the CSS `selector` (live GUI proofs drive a page
     /// control with no pointer). Returns whether an element matched.
-    public func debugClick(_ selector: String) async -> Bool {
-        let script = "const el = document.querySelector(selector); if (!el) { return false; } el.click(); return true;"
-        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector], contentWorld: .page)
+    /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`), so a live check can
+    /// prove what the host does when the page crashes. False when WebKit has no such call. DEBUG
+    /// verb only.
+    public func debugKillWebContent() -> Bool {
+        let selector = NSSelectorFromString("_killWebContentProcess")
+        guard webView.responds(to: selector) else { return false }
+        webView.perform(selector)
+        return true
+    }
+
+    /// Whether a real AppKit key or mouse event reached the page in the last second: the same
+    /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.
+    public var debugHasRecentUserGesture: Bool { (webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+
+    /// Clicks the first element matching `selector` from page script (not a user gesture);
+    /// `metaKey` makes it a Cmd-click (a markdown link follows on Cmd-click while editing).
+    public func debugClick(_ selector: String, metaKey: Bool = false) async -> Bool {
+        let script = """
+        const el = document.querySelector(selector); if (!el) { return false; }
+        if (!metaKey) { el.click(); return true; }
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, metaKey: true, view: window }));
+        }
+        return true;
+        """
+        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector, "metaKey": metaKey], contentWorld: .page)
         return clicked as? Bool == true
+    }
+
+    /// Focuses the first element matching `selector` (or keeps the focused one) and inserts `text`
+    /// there as typed input (`insertText`), so live proofs can edit a page whose host has no
+    /// Accessibility grant for real keystrokes. DEBUG verb only.
+    public func debugInsertText(_ text: String, selector: String?) async -> Bool {
+        let script = """
+        const el = selector ? document.querySelector(selector) : document.activeElement;
+        if (!el) { return false; }
+        el.focus();
+        return document.execCommand('insertText', false, text);
+        """
+        let inserted = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector ?? NSNull(), "text": text],
+                                                              contentWorld: .page)
+        return inserted as? Bool == true
     }
 
     /// Writes the page as WebKit rendered it to `url` as PNG.

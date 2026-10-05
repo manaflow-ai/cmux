@@ -26,11 +26,16 @@
 //     popover on the selection.
 // Resources the host serves from the page's origin (the strict PageCSP allows nothing else):
 // `<assetBase><path relative to the file's folder>` for images, `<libBase>mermaid.js` and
-// `<libBase>vega.js` (vega.min.js then vega-lite.min.js) for diagrams.
+// `<libBase>vega.js` (vega.min.js then vega-lite.min.js) for diagrams, and, when the host fetches
+// remote images for the page (`markdown.remoteImages`), `<remoteImageBase><base64url of the URL>`.
 import type { DiffViewerAppearance } from "../../appearance";
 
 export const MARKDOWN_CONFIG_OP = "cmux.markdown.config";
 export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
+/** Page to host: `{path, text, baseHash}` after an edit (the quit hook's unsaved state and draft). */
+export const MARKDOWN_EDITED_OP = "cmux.markdown.edited";
+/** Host to page: saves pending edits now and answers `{dirty}` (before a tab closes or the app quits). */
+export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
@@ -54,6 +59,11 @@ export interface MarkdownConfig {
   assetBase?: string;
   /** URL prefix of the diagram libraries; without it diagrams show their source only. */
   libBase?: string;
+  /**
+   * URL prefix the host fetches remote (http, https) images under, `<remoteImageBase><base64url of
+   * the URL>`; without it remote images do not load (the page CSP allows only its own origin).
+   */
+  remoteImageBase?: string;
   /** The `markdown` section of cmux.json (settings.ts `MarkdownSettings`), unparsed. */
   settings?: unknown;
   /** `<cmux.json dir>/markdown/theme.css`, applied after the settings; absent when missing. */
@@ -104,11 +114,15 @@ export function isMarkdownConfig(value: unknown): value is MarkdownConfig {
   return typeof config?.path === "string" && typeof config.text === "string" && typeof config.hash === "string";
 }
 
-/** The image URL for `src` in the markdown file: relative paths through the host's asset base. */
-export function resolveImageURL(src: string, assetBase: string | undefined): string {
+/**
+ * The image URL for `src` in the markdown file: relative paths through the host's asset base,
+ * http(s) URLs through its remote image base (the host fetches them).
+ */
+export function resolveImageURL(src: string, assetBase: string | undefined, remoteImageBase?: string): string {
   const value = src.trim();
   if (!value) return "";
   if (/^(data:image\/|blob:)/i.test(value)) return value;
+  if (/^https?:\/\//i.test(value)) return remoteImageBase ? remoteImageURL(value, remoteImageBase) : value;
   if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//")) return value;
   if (!assetBase) return "";
   // Path segments stay as the file wrote them (already percent-encoded or not), without `..` escape.
@@ -129,4 +143,18 @@ function safeDecode(segment: string): string {
   } catch {
     return segment;
   }
+}
+
+/** `<base><base64url of the normalized URL>`; the host decodes the same way (RemoteImagePolicy). */
+export function remoteImageURL(src: string, base: string): string {
+  let href: string;
+  try {
+    href = new URL(src).href;
+  } catch {
+    return "";
+  }
+  const bytes = new TextEncoder().encode(href);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return base + btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }

@@ -3,6 +3,9 @@
 # The first column is the git object type at the revision.  Keep this list in
 # sync with the pull_request_target paths filter; the workflow test checks that
 # the two views do not drift.
+#
+# `gitlink ghostty` counts only for the v1 key (cmux_tui_tree_key.py
+# V1_ONLY_INPUTS); the v2 key leaves the classic submodule out.
 tree cmux-tui
 gitlink ghostty
 gitlink ghostty-next

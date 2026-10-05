@@ -104,6 +104,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.surfaces.docks.opacity` | real |  | 0 to 1 | Docked Columns Opacity |
 | `appearance.surfaces.diff.color` | string |  |  | Diff Viewer Color |
 | `appearance.surfaces.diff.opacity` | real |  | 0 to 1 | Diff Viewer Opacity |
+| `appearance.surfaces.markdown.color` | string |  |  | Markdown Editor Color |
+| `appearance.surfaces.markdown.opacity` | real |  | 0 to 1 | Markdown Editor Opacity |
+| `appearance.surfaces.editor.color` | string |  |  | Code Editor Color |
+| `appearance.surfaces.editor.opacity` | real |  | 0 to 1 | Code Editor Opacity |
 | `appearance.statusIndicator.style` | string | `"arc"` | `arc`, `native`, `dot`, `braille`, `none` | Style. How sidebar rows, tabs and panes show work in progress. |
 | `appearance.statusIndicator.size` | real | `1` | 0.5 to 1.5 | Size |
 | `appearance.statusIndicator.thickness` | real | `1.5` | 0.5 to 4 | Line Width |
@@ -111,6 +115,13 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.statusIndicator.honorStatusStyle` | boolean | `true` |  | Let Statuses Choose Their Style. A status that asks for a style (cmux status set --style) uses it. |
 | `status.inferCommandBusy` | boolean | `true` |  | Show Running Commands. A shell command that runs a while shows as busy. |
 | `status.inferCommandBusyAfter` | real | `3` | 0 to 600 | Show After |
+| `diff.layout` | string | `"unified"` | `split`, `unified` | Layout |
+| `diff.diffIndicators` | string | `"bars"` | `bars`, `classic`, `none` | Change Markers |
+| `diff.wordWrap` | boolean | `false` |  | Wrap Lines |
+| `diff.wordDiffs` | boolean | `false` |  | Highlight Word Changes |
+| `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
+| `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
+| `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `sidebar.border` | boolean | `false` |  | Border. A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it. |

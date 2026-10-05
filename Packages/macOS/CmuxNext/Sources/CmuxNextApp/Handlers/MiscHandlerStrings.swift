@@ -15,9 +15,6 @@ enum MiscHandlerStrings {
     static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
     static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
     static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet.", table: "MiscHandlers", bundle: .module) }
-    static var diffViewer: String { String(localized: "handlers.misc.unavailable.diffViewer", defaultValue: "cmux-next has no diff viewer yet.", table: "MiscHandlers", bundle: .module) }
-    static var markdownViewer: String { String(localized: "handlers.misc.unavailable.markdownViewer", defaultValue: "cmux-next has no Markdown viewer yet.", table: "MiscHandlers", bundle: .module) }
-    static var filePreview: String { String(localized: "handlers.misc.unavailable.filePreview", defaultValue: "cmux-next has no file preview surface yet.", table: "MiscHandlers", bundle: .module) }
     static var vscodeServer: String { String(localized: "handlers.misc.unavailable.vscodeServer", defaultValue: "The inline VS Code server is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
     static var reactGrab: String { String(localized: "handlers.misc.unavailable.reactGrab", defaultValue: "React Grab injection is not ported yet.", table: "MiscHandlers", bundle: .module) }
     static var omnibarToggle: String { String(localized: "handlers.misc.unavailable.omnibarToggle", defaultValue: "The address bar cannot be hidden yet.", table: "MiscHandlers", bundle: .module) }
@@ -66,6 +63,12 @@ enum MiscHandlerStrings {
     }
     static func invalidPlace(_ place: String) -> String {
         String(format: String(localized: "handlers.misc.failed.invalidPlace", defaultValue: "%@ is not a place to open a file. Use tab or editor.", table: "MiscHandlers", bundle: .module), place)
+    }
+    /// A cmux picker asked for by a run that may not change the view (an agent, the CLI without
+    /// focus): it would open over the person's window.
+    static var pickerNeedsFocus: String {
+        String(localized: "handlers.misc.refusal.pickerNeedsFocus", defaultValue: "The picker opens only when focus is requested.",
+               table: "MiscHandlers", bundle: .module)
     }
     static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module) }
     static func appNotFound(_ app: String) -> String {
