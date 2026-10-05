@@ -32,6 +32,15 @@ import Testing
         return try JSONDecoder().decode(DaemonTree.self, from: Data(json.utf8))
     }
 
+    /// Waits until `condition` holds, at most `limit`. The row moves are
+    /// animator() frame animations driven by the main run loop, so under a
+    /// loaded parallel run they land later than any fixed sleep; a fixed
+    /// sleep then reads the old frame although the row does move.
+    static func eventually(within limit: Duration = .seconds(10), _ condition: () -> Bool) async throws {
+        let clock = ContinuousClock(), deadline = clock.now + limit
+        while !condition(), clock.now < deadline { try await Task.sleep(for: .milliseconds(16)) }
+    }
+
     static func event(_ type: NSEvent.EventType, _ point: NSPoint, in list: NSView) -> NSEvent? {
         NSEvent.mouseEvent(with: type, location: list.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: list.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
@@ -64,7 +73,10 @@ import Testing
             list.mouseDragged(with: try #require(Self.event(.leftMouseDragged, NSPoint(x: press.x, y: y), in: list)))
             await Task.yield()
         }
-        try await Task.sleep(for: .milliseconds(900))
+        try await Self.eventually {
+            guard let moved = row("Alpha"), let view = list.rowViews[moved.key] else { return false }
+            return view.frame == list.frame(for: moved)
+        }
         #expect(list.drag != nil)
         let moved = try #require(row("Alpha"))
         let view = try #require(list.rowViews[moved.key], "Alpha has a row view")
@@ -109,7 +121,10 @@ import Testing
             list.mouseDragged(with: try #require(Self.event(.leftMouseDragged, NSPoint(x: press.x, y: y), in: list)))
             try await Task.sleep(for: .milliseconds(16))
         }
-        try await Task.sleep(for: .milliseconds(1500))
+        try await Self.eventually {
+            guard let moved = row("Alpha"), let view = list.rowViews[moved.key] else { return false }
+            return view.frame == list.frame(for: moved)
+        }
         let moved = try #require(row("Alpha"))
         let view = list.rowViews[moved.key]
         let selection = sidebar.model.orderedSelection.compactMap { sidebar.model.workspace($0)?.title }
