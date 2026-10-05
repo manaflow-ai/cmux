@@ -89,7 +89,6 @@ struct CloudDisplayMembershipProjectionTests {
         let catalog = SurfaceCatalog()
         let provider = CloudDisplayMembershipTestProvider(machine: machine)
         let stale = try state(revision: 1, memberships: [["display_id": displayID, "client_id": "mac-b", "view_id": "panel-b"]])
-        provider.removing = Set(stale.displayMemberships)
         catalog.register(provider)
         let coordinator = CloudPlacementCoordinator()
         let display = SurfaceResourceID(machine: machine, kind: .display, key: displayID)
@@ -136,9 +135,6 @@ struct CloudDisplayMembershipProjectionTests {
     func reAddedByAnotherClientLiftsTheFence() async throws {
         let catalog = SurfaceCatalog()
         let provider = CloudDisplayMembershipTestProvider(machine: machine)
-        let gone = try #require(try state(memberships: [["display_id": displayID, "client_id": "mac-b", "view_id": "panel-b"]])
-            .displayMemberships.first)
-        provider.removing = [gone]
         catalog.register(provider)
         let coordinator = CloudPlacementCoordinator()
         let display = SurfaceResourceID(machine: machine, kind: .display, key: displayID)
@@ -149,14 +145,35 @@ struct CloudDisplayMembershipProjectionTests {
         await coordinator.enqueue(resource: display, catalog: catalog) { true }.value
         let readded = SurfaceResourcePlacement(resource: display, remoteWorkspaceID: workspaceID,
                                                cloudDisplayMembershipViewID: "panel-c")
-        // Only the deleted token: a graph from before the removal.
+        // A graph from before the removal.
         coordinator.settleClosedDisplays(try state(revision: 1, memberships: [
             ["display_id": displayID, "client_id": "mac-b", "view_id": "panel-b"]]), catalog: catalog)
         #expect(coordinator.isPendingClose(readded, on: machine))
-        // A token the removal never saw: another client opened it again.
+        // Shown again in a graph after the removal: another client opened it.
         coordinator.settleClosedDisplays(try state(revision: 2, memberships: [
             ["display_id": displayID, "client_id": "mac-c", "view_id": "panel-c"]]), catalog: catalog)
         #expect(!coordinator.isPendingClose(readded, on: machine))
+    }
+
+    @Test("A removal that found nothing to delete still fences graphs older than it")
+    func noOpRemovalKeepsOlderGraphsFenced() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = CloudDisplayMembershipTestProvider(machine: machine)
+        // The removal read revision 3, which already had no token for the display.
+        provider.removalBasisRevision = 3
+        catalog.register(provider)
+        let coordinator = CloudPlacementCoordinator()
+        let display = SurfaceResourceID(machine: machine, kind: .display, key: displayID)
+        let placement = SurfaceResourcePlacement(resource: display, remoteWorkspaceID: workspaceID,
+                                                 cloudDisplayMembershipViewID: "panel-b")
+        coordinator.projectionDidEnd(SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID(),
+                                                       remoteWorkspaceID: workspaceID, remoteTabID: nil),
+                                     reason: .paneClosed, catalog: catalog)
+        _ = await provider.removed.result
+        await coordinator.enqueue(resource: display, catalog: catalog) { true }.value
+        coordinator.settleClosedDisplays(try state(revision: 2, memberships: [
+            ["display_id": displayID, "client_id": "mac-b", "view_id": "panel-b"]]), catalog: catalog)
+        #expect(coordinator.isPendingClose(placement, on: machine), "a stale graph must not rebuild the closed pane")
     }
 
     @Test("Reopening a display while its close is still queued keeps the reopened pane")
@@ -342,12 +359,12 @@ private final class CloudDisplayMembershipTestProvider: SurfaceProvider, CloudDi
 
     func cloudDisplayMembershipWorkspace(displayID: String, panelID: UUID) async throws -> String? { nil }
     func syncCloudDisplayMembership(displayID: String, workspaceID: String, panelID: UUID, attached: Bool) async throws {}
-    /// Tokens the next removal reports as deleted.
-    var removing: Set<CloudVMDisplayMembership> = []
+    /// The graph revision a removal reads before writing.
+    var removalBasisRevision: UInt64 = 1
     private(set) var removals = 0
-    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> Set<CloudVMDisplayMembership> {
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> CloudVMCursor? {
         removals += 1
         removed.resolve("\(displayID)@\(workspaceID)")
-        return removing
+        return CloudVMCursor(generation: "membership", revision: removalBasisRevision)
     }
 }

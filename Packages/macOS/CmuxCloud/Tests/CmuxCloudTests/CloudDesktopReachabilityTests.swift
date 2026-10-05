@@ -102,4 +102,20 @@ struct CloudDesktopReachabilityTests {
         )
         #expect(result == .unreachable)
     }
+
+    @Test("A local proxy that resets before the tunnel opens is unknown, not unreachable")
+    func resetBeforeTunnelIsUnknown() async throws {
+        let proxy = try FakeProxy { connection in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
+                connection.forceCancel()
+            }
+        }
+        defer { proxy.stop() }
+        let port = try await proxy.start()
+        let result = try await CloudBrowserRouting.desktopReachability(
+            endpoint: endpoint(port), address: "10.0.0.7", port: 6901, timeout: .seconds(2)
+        )
+        // Only the desktop's own reset proves it is down; the proxy's does not.
+        #expect(result == .unknown)
+    }
 }
