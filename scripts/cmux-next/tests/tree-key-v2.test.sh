@@ -92,6 +92,13 @@ dir="$src/cmux-tui/target/hosted/tree/$v2"
 [[ "$(cat "$dir/cmux-tui")" == "daemon published under v1" ]] || fail "fetch did not store the v1 daemon under the v2 tree dir"
 python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["key"] == sys.argv[2]' "$dir/source.json" "$v1" \
   || fail "the stored source.json does not name the v1 key it came from"
+# B2 evidence: the log names the key actually fetched, and the cache dir (named
+# by the v2 key) records it, so a cached v1 fallback cannot pass for v2.
+grep -qxF "fetched cmux-tui tree $v1 (v1 fallback)" <<<"$out" || fail "fetch did not name the v1 fallback key it fetched:" "$out"
+[[ "$(cat "$dir/fetched-key" 2>/dev/null)" == "$v1 v1" ]] || fail "the cache dir does not record the v1 key it was fetched from"
+out=$(fetch) || fail "the cached fetch failed:" "$out"
+grep -qxF "cmux-tui tree $v2 already present, fetched from $v1 (v1 fallback)" <<<"$out" \
+  || fail "a cache hit hid that the binary came from the v1 fallback:" "$out"
 
 # With a v2 publication, fetch takes it and never the v1 one.
 rm -rf "$dir"
@@ -99,5 +106,29 @@ publish "$v2" "daemon published under v2"
 out=$(fetch) || fail "fetch of the v2 publication failed:" "$out"
 if grep -q "v1 publication" <<<"$out"; then fail "fetch used v1 although v2 is published:" "$out"; fi
 [[ "$(cat "$dir/cmux-tui")" == "daemon published under v2" ]] || fail "fetch did not store the v2 daemon"
+grep -qxF "fetched cmux-tui tree $v2 (v2)" <<<"$out" || fail "fetch did not name the v2 key it fetched:" "$out"
+out=$(fetch) || fail "the cached v2 fetch failed:" "$out"
+grep -qxF "cmux-tui tree $v2 already present, fetched from $v2 (v2)" <<<"$out" || fail "a v2 cache hit did not say v2:" "$out"
+# A cache from before the record says nothing about its source: fetch again.
+rm -f "$dir/fetched-key"
+out=$(fetch) || fail "fetch over an unrecorded cache failed:" "$out"
+grep -qxF "fetched cmux-tui tree $v2 (v2)" <<<"$out" || fail "an unrecorded cache was trusted instead of fetched again:" "$out"
+
+# resolve-commit names the key it resolved on stderr; stdout is the commit only.
+sha=$(awk '{print $1}' "$cdn/tree/$v2/cmux-tui-aarch64-apple-darwin.sha256")
+printf '{"binaries": {"cmux-tui-aarch64-apple-darwin": "%s"}}\n' "$sha" > "$cdn/$base_commit/manifest.json"
+resolve() {
+  (cd "$src" && env -u GITHUB_ACTIONS -u CI_JOB_DIR PATH="$TMP/bin:$PATH" CMUX_NEXT_TUI_ALLOW_DIRTY=1 \
+    CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 \
+    bash scripts/cmux-next/pin-cmux-tui.sh resolve-commit 2>"$TMP/resolve.err")
+}
+commit=$(resolve) || fail "resolve-commit failed:" "$(cat "$TMP/resolve.err")"
+[[ "$commit" == "$base_commit" ]] || fail "resolve-commit printed '$commit', not only the commit"
+grep -qxF "resolved cmux-tui tree $v2 (v2)" "$TMP/resolve.err" || fail "resolve-commit did not name the v2 key:" "$(cat "$TMP/resolve.err")"
+rm -rf "$cdn/tree/$v2"
+sha=$(awk '{print $1}' "$cdn/tree/$v1/cmux-tui-aarch64-apple-darwin.sha256")
+printf '{"binaries": {"cmux-tui-aarch64-apple-darwin": "%s"}}\n' "$sha" > "$cdn/$base_commit/manifest.json"
+commit=$(resolve) || fail "resolve-commit through v1 failed:" "$(cat "$TMP/resolve.err")"
+grep -qxF "resolved cmux-tui tree $v1 (v1 fallback)" "$TMP/resolve.err" || fail "resolve-commit did not name the v1 fallback:" "$(cat "$TMP/resolve.err")"
 
 printf 'tree-key-v2 tests: ok\n'

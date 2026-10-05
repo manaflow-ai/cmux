@@ -42,7 +42,7 @@ public final class OmniboxSuggestionEngine {
     public var providers: [any BrowserSuggestionProvider]
     public var maxResults: Int
     /// Enabled sources in tie-break order (`browser.omnibar.sources`).
-    public var sources: [OmniboxSource] = OmniboxSource.defaultOrder
+    public var sources: [OmniboxSource] = OmniboxSource.defaultOrder + [.calculator]
     /// `browser.omnibar.inlineAutocomplete`.
     public var inlineAutocomplete = true
     /// Open tabs of the profile, read on every query (Switch to Tab rows).
@@ -61,6 +61,10 @@ public final class OmniboxSuggestionEngine {
     private var pumpTask: Task<Void, Never>?
     private var snapshotTask: Task<Void, Never>?
     private var bookmarkTask: Task<Void, Never>?
+    /// URLs (dedupe keys) Shift-Deleted whose removal the history owner has
+    /// not echoed into the index yet: they stay out of every result (a
+    /// pending intent), so an owner that answers late (H3) never shows them again.
+    private(set) var pendingDeletes: Set<String> = []
 
     public init(resolver: OmniboxResolver = OmniboxResolver(), providers: [any BrowserSuggestionProvider] = [], maxResults: Int = 8,
                 history: (any OmniboxHistorySource)? = nil) {
@@ -110,9 +114,10 @@ public final class OmniboxSuggestionEngine {
         let local = self.local, providers = self.providers, maxRows = maxResults
         let remote = sources.contains(.search) && self.remote.enabled && OmniboxRemoteSuggestions.allows(text, resolver: resolver)
             ? self.remote : nil
-        let engine = resolver.searchEngine
+        let engine = resolver.searchEngine, hidden = pendingDeletes
         let task = Task {
             guard var rows = await local.run(query) else { return continuation.finish() }
+            if !hidden.isEmpty { rows.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }
             if !providers.isEmpty, !text.isEmpty {
                 var extra: [BrowserSuggestion] = []
                 for provider in providers {
@@ -150,6 +155,7 @@ public final class OmniboxSuggestionEngine {
     /// Shift-Delete on a history row: the history source forgets `url`, and
     /// every provider that can forget it does (Chromium `AutocompleteController::DeleteMatch`).
     public func deleteSuggestion(_ url: URL) {
+        if history != nil { pendingDeletes.insert(BrowserHistoryRanker.dedupeKey(for: url)) }
         history?.delete(url)
         for case let provider as any BrowserSuggestionDeleting in providers {
             provider.deleteSuggestion(url)
@@ -162,6 +168,7 @@ public final class OmniboxSuggestionEngine {
         remote.enabled = configuration.remoteSuggestions
         inlineAutocomplete = configuration.inlineAutocomplete
         maxResults = configuration.maxRows
+        sources = OmniboxSource.defaultOrder + (configuration.calculator ? [.calculator] : [])
     }
 
     /// Enter loaded typed text as `url`.
@@ -196,8 +203,22 @@ public final class OmniboxSuggestionEngine {
         let local = self.local, now = self.now()
         pumpTask = Task { [weak self] in
             await local.apply(batch, now: now)
+            self?.applied(batch)
             self?.pumpTask = nil
             self?.pump()
+        }
+    }
+
+    /// A pending delete ends when the index has applied the owner's removal
+    /// (or a snapshot without the URL).
+    private func applied(_ batch: [OmniboxHistoryChange]) {
+        guard !pendingDeletes.isEmpty else { return }
+        for change in batch {
+            switch change {
+            case .remove(let urls): pendingDeletes.subtract(urls.map(BrowserHistoryRanker.dedupeKey(for:)))
+            case .reset(let rows): pendingDeletes.formIntersection(rows.map { BrowserHistoryRanker.dedupeKey(for: $0.url) })
+            case .upsert: break
+            }
         }
     }
 }

@@ -43,6 +43,15 @@ section, checked by `ios_notices.py check-repo`; the pane takes the reviewed fil
 musl-derived code (`package-notices.json` `darwin.review`); `package_notices.py
 check-darwin-binary` in the package job fails a Darwin binary that gains some.
 
+Browser host: `bin/cmux-browser-host` has its own Rust section (`rust-cmux-browser-host`;
+rquickjs-sys carries the QuickJS-NG MIT text, the Unicode License V3 of libunicode-table.h
+and the quickjs-c-atomics.h notice from reviewed.json) and the hand-written section
+"cmux browser host runtime JavaScript" for the embedded acorn and Playwright code.
+`cmux-tui/build-support/notices/browser-host/browser_host_js_notices.py check` (notices CI)
+fails a js/vendor file without a reviewed row in `browser-host-js.json`, a new upstream
+version (marker), a changed text, or a section that lacks a path or text.
+install-cmux-tui-client.sh installs the binary only while bundle-map.json maps it.
+
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 

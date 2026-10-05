@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5de21219cdefd725a855d27e4a1958bb298685a08a022e39e04aecb18e404b52";
+inline constexpr std::string_view kProtocolIrSha256 = "c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -224,6 +224,17 @@ struct CloseTabGroupRequest;
 struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
+struct CloudConversationHistoryRequest;
+struct CloudConversationOpRequest;
+struct CloudConversationSnapshotRequest;
+struct CloudConversationSubscribeRequest;
+struct CloudConversationUnsubscribeRequest;
+struct CloudInboxListRequest;
+struct CloudInboxSubscribeRequest;
+struct CloudInboxUnsubscribeRequest;
+struct CloudSessionClearRequest;
+struct CloudSessionSetRequest;
+struct CloudSessionStatusRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
 struct ConversationBindRequest;
@@ -430,6 +441,12 @@ struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
+struct CloudConversationChangedEvent;
+struct CloudConversationResyncedEvent;
+struct CloudInboxChangedEvent;
+struct CloudInboxResetEvent;
+struct CloudSessionNeededEvent;
+struct CloudSubscriptionStateEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
@@ -1225,6 +1242,121 @@ struct CloseWorkspaceRequest {
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
 
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct CloudConversationChangedEvent {
+    std::optional<std::string> account{};
+    std::optional<JsonValue> change{};
+    std::string conversation{};
+    std::uint64_t rev{};
+    std::uint64_t seq{};
+    std::string transaction{};
+    friend bool operator==(const CloudConversationChangedEvent&, const CloudConversationChangedEvent&) = default;
+};
+
+struct CloudConversationHistoryRequest {
+    std::uint64_t before_seq{};
+    std::string conversation{};
+    std::uint32_t limit{};
+    friend bool operator==(const CloudConversationHistoryRequest&, const CloudConversationHistoryRequest&) = default;
+};
+
+struct CloudConversationOpRequest {
+    Field<std::string> conversation{};
+    std::string idempotency_key{};
+    std::optional<JsonValue> op{};
+    Field<std::string> origin{};
+    friend bool operator==(const CloudConversationOpRequest&, const CloudConversationOpRequest&) = default;
+};
+
+struct CloudConversationResyncedEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    std::optional<JsonValue> messages{};
+    std::uint64_t rev{};
+    std::uint64_t seq{};
+    std::optional<JsonValue> summary{};
+    friend bool operator==(const CloudConversationResyncedEvent&, const CloudConversationResyncedEvent&) = default;
+};
+
+struct CloudConversationSnapshotRequest {
+    std::string conversation{};
+    std::uint32_t tail{};
+    friend bool operator==(const CloudConversationSnapshotRequest&, const CloudConversationSnapshotRequest&) = default;
+};
+
+struct CloudConversationSubscribeRequest {
+    std::string conversation{};
+    friend bool operator==(const CloudConversationSubscribeRequest&, const CloudConversationSubscribeRequest&) = default;
+};
+
+struct CloudConversationUnsubscribeRequest {
+    std::string conversation{};
+    friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
+};
+
+struct CloudInboxChangedEvent {
+    std::optional<std::string> account{};
+    std::optional<JsonValue> entries{};
+    std::uint64_t seq{};
+    std::string transaction{};
+    friend bool operator==(const CloudInboxChangedEvent&, const CloudInboxChangedEvent&) = default;
+};
+
+struct CloudInboxListRequest {
+    std::optional<bool> include_archived{};
+    Field<std::uint32_t> limit{};
+    friend bool operator==(const CloudInboxListRequest&, const CloudInboxListRequest&) = default;
+};
+
+struct CloudInboxResetEvent {
+    std::optional<std::string> account{};
+    std::uint64_t seq{};
+    friend bool operator==(const CloudInboxResetEvent&, const CloudInboxResetEvent&) = default;
+};
+
+struct CloudInboxSubscribeRequest {
+    friend bool operator==(const CloudInboxSubscribeRequest&, const CloudInboxSubscribeRequest&) = default;
+};
+
+struct CloudInboxUnsubscribeRequest {
+    friend bool operator==(const CloudInboxUnsubscribeRequest&, const CloudInboxUnsubscribeRequest&) = default;
+};
+
+struct CloudSessionClearRequest {
+    friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
+};
+
+struct CloudSessionNeededEvent {
+    Field<std::uint64_t> expires_at{};
+    std::string reason{};
+    friend bool operator==(const CloudSessionNeededEvent&, const CloudSessionNeededEvent&) = default;
+};
+
+struct CloudSessionSetRequest {
+    std::string access_token{};
+    std::string api_base_url{};
+    Field<std::string> client_version{};
+    std::uint64_t expires_at{};
+    friend bool operator==(const CloudSessionSetRequest&, const CloudSessionSetRequest&) = default;
+};
+
+struct CloudSessionStatusRequest {
+    friend bool operator==(const CloudSessionStatusRequest&, const CloudSessionStatusRequest&) = default;
+};
+
+struct CloudSubscriptionStateEvent {
+    std::optional<std::string> account{};
+    Field<std::string> conversation{};
+    Field<std::string> reason{};
+    std::string scope{};
+    std::string state{};
+    friend bool operator==(const CloudSubscriptionStateEvent&, const CloudSubscriptionStateEvent&) = default;
+};
+
 struct ColorHex {
     std::string value{};
     friend bool operator==(const ColorHex&, const ColorHex&) = default;
@@ -1376,11 +1508,6 @@ struct ConversationChange {
     std::optional<std::uint64_t> seq{};
     Json::Object additional_properties{};
     friend bool operator==(const ConversationChange&, const ConversationChange&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct ConversationChangedEvent {
@@ -5647,6 +5774,72 @@ struct Codec<CloseWorkspaceRequest> {
 };
 
 template <>
+struct Codec<CloudConversationHistoryRequest> {
+    static Result<Json> encode(const CloudConversationHistoryRequest& value);
+    static Result<CloudConversationHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationOpRequest> {
+    static Result<Json> encode(const CloudConversationOpRequest& value);
+    static Result<CloudConversationOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationSnapshotRequest> {
+    static Result<Json> encode(const CloudConversationSnapshotRequest& value);
+    static Result<CloudConversationSnapshotRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationSubscribeRequest> {
+    static Result<Json> encode(const CloudConversationSubscribeRequest& value);
+    static Result<CloudConversationSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationUnsubscribeRequest> {
+    static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
+    static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxListRequest> {
+    static Result<Json> encode(const CloudInboxListRequest& value);
+    static Result<CloudInboxListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxSubscribeRequest> {
+    static Result<Json> encode(const CloudInboxSubscribeRequest& value);
+    static Result<CloudInboxSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxUnsubscribeRequest> {
+    static Result<Json> encode(const CloudInboxUnsubscribeRequest& value);
+    static Result<CloudInboxUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionClearRequest> {
+    static Result<Json> encode(const CloudSessionClearRequest& value);
+    static Result<CloudSessionClearRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionSetRequest> {
+    static Result<Json> encode(const CloudSessionSetRequest& value);
+    static Result<CloudSessionSetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionStatusRequest> {
+    static Result<Json> encode(const CloudSessionStatusRequest& value);
+    static Result<CloudSessionStatusRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationAgentTokenRequest> {
     static Result<Json> encode(const ConversationAgentTokenRequest& value);
     static Result<ConversationAgentTokenRequest> decode(const Json& value);
@@ -6880,6 +7073,42 @@ template <>
 struct Codec<ClientListInvalidatedEvent> {
     static Result<Json> encode(const ClientListInvalidatedEvent& value);
     static Result<ClientListInvalidatedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationChangedEvent> {
+    static Result<Json> encode(const CloudConversationChangedEvent& value);
+    static Result<CloudConversationChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationResyncedEvent> {
+    static Result<Json> encode(const CloudConversationResyncedEvent& value);
+    static Result<CloudConversationResyncedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxChangedEvent> {
+    static Result<Json> encode(const CloudInboxChangedEvent& value);
+    static Result<CloudInboxChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxResetEvent> {
+    static Result<Json> encode(const CloudInboxResetEvent& value);
+    static Result<CloudInboxResetEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionNeededEvent> {
+    static Result<Json> encode(const CloudSessionNeededEvent& value);
+    static Result<CloudSessionNeededEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSubscriptionStateEvent> {
+    static Result<Json> encode(const CloudSubscriptionStateEvent& value);
+    static Result<CloudSubscriptionStateEvent> decode(const Json& value);
 };
 
 template <>

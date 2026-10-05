@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5de21219cdefd725a855d27e4a1958bb298685a08a022e39e04aecb18e404b52'
+IR_SHA256 = 'c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e'
 
 
 @dataclass(frozen=True)
@@ -465,6 +465,133 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-history': CommandMetadata(
+        'cloud-conversation-history',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'before_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-op': CommandMetadata(
+        'cloud-conversation-op',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-snapshot': CommandMetadata(
+        'cloud-conversation-snapshot',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'tail': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-subscribe': CommandMetadata(
+        'cloud-conversation-subscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-unsubscribe': CommandMetadata(
+        'cloud-conversation-unsubscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-inbox-list': CommandMetadata(
+        'cloud-inbox-list',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'include_archived': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-inbox-subscribe': CommandMetadata(
+        'cloud-inbox-subscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-inbox-unsubscribe': CommandMetadata(
+        'cloud-inbox-unsubscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-session-clear': CommandMetadata(
+        'cloud-session-clear',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-session-set': CommandMetadata(
+        'cloud-session-set',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'api_base_url': CommandFieldMetadata(None, None),
+            'client_version': CommandFieldMetadata(None, None),
+            'expires_at': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-session-status': CommandMetadata(
+        'cloud-session-status',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'conversation-agent-token': CommandMetadata(
@@ -2967,6 +3094,12 @@ EVENTS = {
     'client-changed': EventMetadata('client-changed', 6, None, ('subscribe',), 'emitted'),
     'client-detached': EventMetadata('client-detached', 6, None, ('subscribe',), 'emitted'),
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
+    'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-inbox-changed': EventMetadata('cloud-inbox-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-inbox-reset': EventMetadata('cloud-inbox-reset', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-session-needed': EventMetadata('cloud-session-needed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-subscription-state': EventMetadata('cloud-subscription-state', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),

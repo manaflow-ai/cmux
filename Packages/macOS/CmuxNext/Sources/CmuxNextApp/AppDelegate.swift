@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
-        GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
+        TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(registry: services.registry)
         DebugTimings.markLaunch("dfl.settings")

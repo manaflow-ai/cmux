@@ -16,6 +16,10 @@ enum SettingsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
+        // R92: Settings > Terminal shows the Ghostty config diagnostics.
+        registry.bind("ghostty.showDiagnostics", run: { invocation in
+            try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)
+        })
         registry.bind("reloadConfiguration", run: { _ in
             let settings = try requireSettings(context)
             // The Ghostty config too: terminal colors and the chrome theme follow it.

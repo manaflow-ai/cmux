@@ -524,7 +524,8 @@ shows the same keys.
     "omnibar": {
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
-      "maxRows": 8
+      "maxRows": 8,
+      "calculator": true
     }
   }
 }
@@ -545,6 +546,8 @@ shows the same keys.
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
 - `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
+  parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
-Agents (MCP `settings_set`) may change `inlineAutocomplete` and `maxRows`; the search
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.

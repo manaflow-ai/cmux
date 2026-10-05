@@ -67,7 +67,9 @@ public nonisolated struct OmniboxPhaseA {
                     tab.tabKey = tabKeys[match.key]
                     if tab.tabKey != nil { candidates.append((tab, match.key, order, false)) }
                 }
-            case .search, .calculator:
+            case .calculator:
+                if let answer = OmniboxCalculator.row(for: text) { candidates.append((answer, "answer:" + answer.title, order, false)) }
+            case .search:
                 break
             }
         }

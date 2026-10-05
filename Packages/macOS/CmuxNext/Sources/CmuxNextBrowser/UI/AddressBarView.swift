@@ -170,6 +170,9 @@ public final class AddressBarView: NSView {
     /// True from focus until commit, cancel, or blur.
     public var isEditing: Bool { controller.state.hasFocus }
 
+    /// The suggestion list is open (Ctrl-N/P/J/K move its selection).
+    public var isShowingSuggestions: Bool { controller.state.isPopupOpen }
+
     var state: OmnibarState { controller.state }
 
     /// The machine whose localhost this tab sees, as a subtle chip; nil
@@ -300,6 +303,9 @@ public final class AddressBarView: NSView {
         case .beep: NSSound.beep()
         case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
         case .typedNavigation(let url): suggestionEngine.noteTyped(url)
+        case .copyAnswer(let answer):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(answer, forType: .string)
         case .keywordStarted, .keywordEnded: onKeywordSession?(effect)
         case .query, .cancelQuery, .keywordInput: break
         }

@@ -1995,6 +1995,82 @@ class CloseWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class CloudConversationHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-history/request'
+    before_seq: int
+    conversation: str
+    limit: int
+
+
+@dataclass(frozen=True)
+class CloudConversationOpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-op/request'
+    idempotency_key: str
+    op: Union[JsonValue, None]
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudConversationSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-snapshot/request'
+    conversation: str
+    tail: int
+
+
+@dataclass(frozen=True)
+class CloudConversationSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-subscribe/request'
+    conversation: str
+
+
+@dataclass(frozen=True)
+class CloudConversationUnsubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-unsubscribe/request'
+    conversation: str
+
+
+@dataclass(frozen=True)
+class CloudInboxListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-list/request'
+    include_archived: Union[bool, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudInboxSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-subscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudInboxUnsubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-unsubscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudSessionClearRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-clear/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudSessionSetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-set/request'
+    access_token: str
+    api_base_url: str
+    expires_at: int
+    client_version: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudSessionStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-status/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ConversationAgentTokenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
     participant: str
@@ -3744,6 +3820,73 @@ class ClientListInvalidatedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class CloudConversationChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-conversation-changed/payload'
+    change: Union[JsonValue, None]
+    conversation: str
+    event: Literal['cloud-conversation-changed']
+    rev: int
+    seq: int
+    transaction: str
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudConversationResyncedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-conversation-resynced/payload'
+    conversation: str
+    event: Literal['cloud-conversation-resynced']
+    messages: Union[JsonValue, None]
+    rev: int
+    seq: int
+    summary: Union[JsonValue, None]
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudInboxChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-inbox-changed/payload'
+    entries: Union[JsonValue, None]
+    event: Literal['cloud-inbox-changed']
+    seq: int
+    transaction: str
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudInboxResetEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-inbox-reset/payload'
+    event: Literal['cloud-inbox-reset']
+    seq: int
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudSessionNeededEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-session-needed/payload'
+    event: Literal['cloud-session-needed']
+    reason: str
+    expires_at: Union[int, None, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudSubscriptionStateEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-subscription-state/payload'
+    event: Literal['cloud-subscription-state']
+    scope: str
+    state: str
+    account: Union[str, MissingType] = field(default=MISSING)
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    reason: Union[str, None, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class ColorsChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/colors-changed/payload'
     bg: Union[ColorHex, None]
@@ -4342,7 +4485,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -4559,6 +4702,17 @@ __all__ = [
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'CloudConversationHistoryRequest',
+    'CloudConversationOpRequest',
+    'CloudConversationSnapshotRequest',
+    'CloudConversationSubscribeRequest',
+    'CloudConversationUnsubscribeRequest',
+    'CloudInboxListRequest',
+    'CloudInboxSubscribeRequest',
+    'CloudInboxUnsubscribeRequest',
+    'CloudSessionClearRequest',
+    'CloudSessionSetRequest',
+    'CloudSessionStatusRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
     'ConversationBindRequest',
@@ -4764,6 +4918,12 @@ __all__ = [
     'ClientChangedEvent',
     'ClientDetachedEvent',
     'ClientListInvalidatedEvent',
+    'CloudConversationChangedEvent',
+    'CloudConversationResyncedEvent',
+    'CloudInboxChangedEvent',
+    'CloudInboxResetEvent',
+    'CloudSessionNeededEvent',
+    'CloudSubscriptionStateEvent',
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
     'ConversationChangedEvent',

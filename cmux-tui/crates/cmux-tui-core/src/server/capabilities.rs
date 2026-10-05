@@ -1,7 +1,17 @@
-//! The build-level capability list `identify` advertises (moved out of
-//! server.rs, behavior unchanged).
+//! The capabilities `identify` advertises: the static set this daemon
+//! always serves, plus the ones a binary installs at startup.
 
 use super::*;
+
+/// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
+/// when the binary installed a cloud transport.
+pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
+    let mut capabilities = advertised_capabilities(cfg!(unix));
+    if mux.cloud_conversations().is_some() {
+        capabilities.push(cloud_conversations::CAPABILITY);
+    }
+    capabilities
+}
 
 pub(super) fn advertised_capabilities(
     bounded_clear_history_fallback_writes: bool,

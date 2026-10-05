@@ -7,6 +7,7 @@ pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, frontend_fields as frontend_browser_fields,
 };
 pub(crate) mod app_terminals;
+mod cloud_conversations;
 mod conversations;
 mod dock_columns;
 mod exit_settle;
@@ -14,6 +15,7 @@ mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
 mod idle_close;
+mod journal_plugin_host;
 mod kitty_reservation;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
@@ -1004,6 +1006,8 @@ pub enum MuxEvent {
     },
     BookmarksChanged(personal::BookmarksChange),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
+    /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
+    CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -2539,6 +2543,9 @@ pub struct Mux {
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     conversations: crate::conversation_store::ConversationHost,
+    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
+    /// a binary that has a cloud transport; absent otherwise.
+    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -3013,6 +3020,7 @@ impl Mux {
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
+            cloud_conversations: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -12327,50 +12335,6 @@ impl Mux {
         {
             surface.kill();
             self.emit(MuxEvent::SurfaceExited(surface.id));
-        }
-    }
-
-    /// Configure the optional userland agent plugin. The process starts only
-    /// after the local resource socket has been bound.
-    pub fn configure_journal_plugin(&self, options: Option<crate::JournalPluginOptions>) {
-        self.journal_plugin.configure(options);
-    }
-
-    /// Start the configured journal plugin against the bound local socket.
-    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
-        let generation = match self.workspace_registry.lock() {
-            Ok(registry) => registry.reserve_journal_plugin_generation(),
-            Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
-        };
-        match generation {
-            Ok(generation) => self.journal_plugin.start_with_generation_seed(
-                socket,
-                self.session.clone(),
-                generation,
-            ),
-            Err(error) => eprintln!(
-                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
-            ),
-        }
-    }
-
-    /// Journal a supervisor-observed plugin exit. The roster reducer removes
-    /// only entries owned by this producer, so a crash cannot leave stale
-    /// rows until the next terminal scan and the cleanup remains replayable.
-    fn record_journal_plugin_exit(&self, plugin_id: &str, generation: u64) {
-        let ingress =
-            match crate::agent_hooks::journal_plugin_exit_journal_ingress(plugin_id, generation) {
-                Ok(ingress) => ingress,
-                Err(error) => {
-                    eprintln!("cmux-tui: invalid journal plugin exit id {plugin_id:?}: {error}");
-                    return;
-                }
-            };
-        let key =
-            format!("journal-plugin-exit-{plugin_id}-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "journal-plugin-supervisor", &key)
-        {
-            eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
         }
     }
 
