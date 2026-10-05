@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -77,6 +78,16 @@ extension CloudPlacementCoordinator {
         guard reason == .paneClosed,
               projection.resource.kind == .display,
               let provider = catalog.provider(for: projection.resource.machine) as? any CloudDisplayMembershipSyncing else { return }
+        // Fence the view before the asynchronous removal: reconciliation reads
+        // the graph that still holds this token and would rebuild the pane.
+        let machine = projection.resource.machine
+        if let token = catalog.cloudStates[machine]?.displayMemberships.first(where: {
+            $0.displayID == projection.resource.key
+                && $0.clientID == CloudTuiClientPaths().notificationClientID()
+                && $0.viewID == projection.panelID.uuidString.lowercased()
+        }) {
+            closedDisplayViews[machine, default: [:]][token.viewID] = token
+        }
         enqueue(projection, catalog: catalog, presentFailure: false) {
             guard let workspaceID = try await provider.cloudDisplayMembershipWorkspace(
                 displayID: projection.resource.key,
@@ -89,6 +100,40 @@ extension CloudPlacementCoordinator {
                 attached: false
             )
             return true
+        }
+    }
+
+    /// Releases fenced display views whose token is gone from `state`, and
+    /// retries the removal of any that are still present (a removal can fail
+    /// silently while the link is down or after repeated revision conflicts).
+    func settleClosedDisplayViews(_ state: CloudVMState, catalog: SurfaceCatalog) {
+        guard var fenced = closedDisplayViews[state.machine], !fenced.isEmpty else { return }
+        let present = Set(state.displayMemberships.map(\.viewID))
+        fenced = fenced.filter { present.contains($0.key) }
+        closedDisplayViews[state.machine] = fenced.isEmpty ? nil : fenced
+        guard let provider = catalog.provider(for: state.machine) as? any CloudDisplayMembershipSyncing else { return }
+        for token in fenced.values where !retryingDisplayRemovals.contains(token.viewID) {
+            removeOrphanedDisplayMembership(token, provider: provider)
+        }
+    }
+
+    /// Removes one of this Mac's membership tokens whose local view no longer
+    /// exists. Used for a closed view whose removal has not landed and for a
+    /// token the reconciler replaced with a newly materialized pane.
+    func removeOrphanedDisplayMembership(
+        _ token: CloudVMDisplayMembership,
+        provider: any CloudDisplayMembershipSyncing
+    ) {
+        guard let panelID = UUID(uuidString: token.viewID),
+              retryingDisplayRemovals.insert(token.viewID).inserted else { return }
+        Task { @MainActor [weak self] in
+            defer { self?.retryingDisplayRemovals.remove(token.viewID) }
+            try? await provider.syncCloudDisplayMembership(
+                displayID: token.displayID,
+                workspaceID: token.workspaceID,
+                panelID: panelID,
+                attached: false
+            )
         }
     }
 }

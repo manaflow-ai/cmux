@@ -181,8 +181,9 @@ final class CloudWorkspaceProjectionCoordinator {
                         for: placement,
                         fallbackWorkspaceID: remoteID
                     )
-                    _ = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
+                    let (projection, _) = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
+                    adoptOrphanedDisplayMembership(placement, replacedBy: projection, state: state, catalog: catalog)
                 }
                 guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
                     if !Task.isCancelled { requested.insert(machine) }
@@ -240,5 +241,28 @@ struct CloudWorkspaceReconcileBudget {
         passes += 1
         last = mark
         return idlePasses < Self.maxIdlePasses && passes <= Self.maxPassesPerState
+    }
+}
+
+@MainActor
+extension CloudWorkspaceProjectionCoordinator {
+    /// A membership token names the local panel that showed the display. When
+    /// that panel is gone (an app restart, or a close whose removal never
+    /// landed), the rebuilt pane registers its own token; the old one would
+    /// otherwise keep resurrecting the display after every close.
+    fileprivate func adoptOrphanedDisplayMembership(
+        _ placement: SurfaceResourcePlacement,
+        replacedBy projection: SurfaceProjection,
+        state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) {
+        guard let viewID = placement.cloudDisplayMembershipViewID,
+              viewID != projection.panelID.uuidString.lowercased(),
+              let token = state.displayMemberships.first(where: {
+                  $0.viewID == viewID && $0.displayID == placement.resource.key
+              }),
+              let provider = catalog.provider(for: placement.resource.machine) as? any CloudDisplayMembershipSyncing
+        else { return }
+        catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
     }
 }

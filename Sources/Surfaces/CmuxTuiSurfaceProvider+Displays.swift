@@ -20,6 +20,20 @@ extension CmuxTuiSurfaceProvider {
             directURL: info.privateAddress.map { Self.privateDesktopURL(privateAddress: $0) })]
     }
 
+    /// A workspace's display memberships name displays the catalog only learns
+    /// from guest discovery, and memberships for unknown displays are ignored.
+    /// Without this, a cloud workspace opened or restored before anything else
+    /// ran discovery showed only display 1 until a later refresh. Runs once per
+    /// lifecycle generation; the publish path then materializes every member.
+    func discoverMemberDisplaysIfNeeded(_ state: CloudVMState) {
+        guard memberDisplayDiscoveryGeneration != currentLifecycleGeneration,
+              supportsDisplayCreation else { return }
+        let known = Set(displayResources.map(\.id.key))
+        guard state.displayMemberships.contains(where: { !known.contains($0.displayID) }) else { return }
+        memberDisplayDiscoveryGeneration = currentLifecycleGeneration
+        Task { await refreshDisplays() }
+    }
+
     /// Only a user-requested refresh/expansion performs guest discovery. Results
     /// may publish only through the same still-authorized provider instance.
     func refreshDisplays() async {

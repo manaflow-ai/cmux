@@ -51,6 +51,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private(set) var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
     var refreshGeneration: UInt64 = 0
+    /// Lifecycle generation in which member-display discovery already ran.
+    var memberDisplayDiscoveryGeneration: UInt64?
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     let terminalMutationQueue = CloudTerminalMutationQueue()
     /// The only installed daemon graph for this machine. The catalog receives the
@@ -831,6 +833,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
         closePanesForVanishedRemoteTerminals(observation: observation)
+        discoverMemberDisplaysIfNeeded(state)
     }
     func publishDelta(
         _ state: CloudVMState,

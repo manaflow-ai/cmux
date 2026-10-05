@@ -24,6 +24,13 @@ final class CloudPlacementCoordinator {
     private var receipts: [SurfaceResourceID: [UUID: SurfaceRemotePlacement]] = [:]
     private var movedTabs: [SurfaceMachineID: [String: String]] = [:]
     private var closedTabs: [SurfaceMachineID: [String: String]] = [:]
+    /// Display views this Mac closed whose membership token may still be in
+    /// the accepted graph, keyed by view ID (the closed panel's lowercased
+    /// UUID). Reconciliation must not rebuild them; an entry is released only
+    /// once a fetched graph no longer holds the token, and a removal that has
+    /// not landed is retried from there.
+    var closedDisplayViews: [SurfaceMachineID: [String: CloudVMDisplayMembership]] = [:]
+    var retryingDisplayRemovals: Set<String> = []
     private var confirmationCursors: [SurfaceMachineID: [String: CloudVMCursor]] = [:]
     private(set) var failures: [SurfaceResourceID: String] = [:]
 
@@ -201,6 +208,7 @@ final class CloudPlacementCoordinator {
                   let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
             return screen.workspaceID == workspaceID
         }
+        settleClosedDisplayViews(state, catalog: catalog)
         // Receipts for panes closed before confirmation need no retained local state.
         let liveTabIDs = Set(catalog.projections.filter { $0.resource.machine == state.machine }.compactMap(\.remoteTabID))
         confirmationCursors[state.machine] = confirmationCursors[state.machine]?.filter { liveTabIDs.contains($0.key) }
@@ -216,6 +224,10 @@ final class CloudPlacementCoordinator {
     }
 
     func isPendingClose(_ placement: SurfaceResourcePlacement, on machine: SurfaceMachineID) -> Bool {
+        if let viewID = placement.cloudDisplayMembershipViewID,
+           closedDisplayViews[machine]?[viewID] != nil {
+            return true
+        }
         guard let tabID = placement.remoteTabID, let workspaceID = placement.remoteWorkspaceID else { return false }
         return closedTabs[machine]?[tabID] == workspaceID
     }
