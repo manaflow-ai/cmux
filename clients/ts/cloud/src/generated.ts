@@ -646,7 +646,7 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
-export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link"
 
 /** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
 export type PairingCode = string
@@ -2067,7 +2067,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Register an install's public key under the signed-in user; returns the install with its default grant. */
+  /** Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind). */
   readonly "install.register": {
     readonly params: {
       readonly public_jwk: PublicJwk

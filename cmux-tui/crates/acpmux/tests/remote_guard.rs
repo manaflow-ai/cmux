@@ -21,6 +21,8 @@ fn hub() -> Arc<Hub> {
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "presets": {"p": {"harness": "fake"}},
+        // The tests' folders live under the temp dir: a Web root for them.
+        "webRoots": [std::env::temp_dir()],
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;

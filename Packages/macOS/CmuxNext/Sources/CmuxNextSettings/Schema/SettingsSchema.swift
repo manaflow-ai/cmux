@@ -9,11 +9,19 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + UpdateSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+        let next = general + UpdateSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
             + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
             + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
+        return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
+            + BrowserAppSettingsSchema.descriptors
     }
+
+    /// cmux-next keys cmux-browser reads too (its theme picker, window material, focus color and
+    /// minimum column width). The `appearance.metrics.*` rows say so themselves.
+    static let sharedWithBrowser: Set<String> = [
+        "appearance.theme", "appearance.backgroundBlur", "focusRing.color", "layout.minimumPaneWidth",
+    ]
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
     /// (the app theme and the terminal font), which each row still resets.
@@ -21,9 +29,9 @@ public nonisolated enum SettingsSchema {
         AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
     ]
 
-    /// The descriptors of one section, in order.
+    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads stay out).
     public static func settings(in section: SettingsSection) -> [SettingDescriptor] {
-        all.filter { $0.section == section }
+        all.filter { $0.section == section && $0.isShownInCmuxNext }
     }
 
     /// The descriptor for a dotted key or key path.

@@ -24,7 +24,16 @@ export const Origin = Schema.Literals(["user", "cli", "mcp", "script", "remote"]
 export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm"]).annotate({ identifier: "InstallKind" })
 export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "web"]).annotate({ identifier: "Platform" })
 
-export const OpClass = Schema.Literals(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"]).annotate({
+/**
+ * Grant classes. All but `cloud-link` are op risks. `cloud-link` (CLOUD-LINK-FOLLOWUPS 5) is a narrow
+ * grant class that no op declares as its risk: it covers only cloud.machine.link_token, so the
+ * iPhone app can dial its machines without general execute.
+ */
+/** The risk classes an op declares (what OpDef.risk and a feed approve item carry). */
+export const OP_RISKS = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
+export const OpRisk = Schema.Literals(OP_RISKS).annotate({ identifier: "OpRisk" })
+
+export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link"]).annotate({
   identifier: "OpClass"
 })
 

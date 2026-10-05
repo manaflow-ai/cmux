@@ -326,7 +326,7 @@ mod tests {
         mux.control_clients.state.lock().unwrap().clients.get_mut(&client).unwrap().kind =
             kind.map(str::to_string);
         if agent {
-            mux.bind_conversation_principal(client, "agent:test".to_string());
+            mux.bind_conversation_principal(client, "agent:test".to_string()).unwrap();
         }
         (client, outbound)
     }

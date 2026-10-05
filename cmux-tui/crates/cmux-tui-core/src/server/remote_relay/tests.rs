@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use super::super::*;
 use super::gate::{ALLOWED_COMMANDS, COMMAND_PARAMS, Denial, check_frame};
+use super::{NO_PRINCIPAL, Principal};
 use crate::remote_relay_state::{
     BindRefused, LinkPeer, PairingRecords, RelayLock, RelayStateError, RevocationClock,
 };
@@ -667,7 +668,7 @@ fn create_plain(fixture: &Fixture) -> String {
 fn a_remote_connection_never_falls_back_to_the_local_user() {
     let fixture = fixture();
     let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    fixture.mux.bind_conversation_principal(client, "remote_inst_1".into());
+    fixture.mux.bind_conversation_principal(client, "remote_inst_1".into()).unwrap();
     assert_eq!(fixture.mux.principal(client), None);
     assert_ne!(fixture.mux.conversation_principal(client), "user_local");
     fixture.mux.unbind_conversation_principal(client);
@@ -983,4 +984,60 @@ fn a_revoke_with_a_poisoned_pairing_lock_still_closes_the_install() {
     assert!(!fixture.mux.control_clients.is_remote(one));
     assert!(fixture.mux.control_clients.is_remote(other));
     assert!(fixture.records.deleted.lock().unwrap().is_empty());
+}
+
+// Review P3 slice: the conversation bindings lock and the client registry.
+
+const POISONED_BINDINGS: RelayStateError = RelayStateError::Poisoned(RelayLock::Bindings);
+
+/// A poisoned bindings lock cannot say whether a local connection is bound
+/// to an agent, so it gets no principal: never `user_local` for an agent.
+#[test]
+fn a_poisoned_bindings_lock_gives_a_local_connection_no_principal() {
+    let fixture = fixture();
+    let agent = fixture.mux.control_clients.register(ClientTransport::Unix, writer().0);
+    fixture.mux.bind_conversation_principal(agent, "agent_a".into()).unwrap();
+    assert_eq!(fixture.mux.principal(agent), Some(Principal::Agent("agent_a".into())));
+    assert_eq!(fixture.mux.principal(fixture.local), Some(Principal::Local));
+    poison(fixture.mux.conversation_bindings());
+    assert_eq!(fixture.mux.principal(agent), None);
+    assert_eq!(fixture.mux.principal(fixture.local), None);
+    assert_eq!(fixture.mux.conversation_principal(fixture.local), NO_PRINCIPAL);
+    assert_eq!(
+        fixture.mux.bind_conversation_principal(agent, "agent_b".into()),
+        Err(POISONED_BINDINGS)
+    );
+}
+
+/// A bind of a remote peer on a poisoned bindings lock refuses with a typed
+/// error, records no peer, and does not poison the revocation lock (no
+/// panic while it is held).
+#[test]
+fn a_remote_bind_on_a_poisoned_bindings_lock_refuses_without_a_panic() {
+    let fixture = fixture();
+    fixture.mux.record_remote_check("inst_1").unwrap();
+    poison(fixture.mux.conversation_bindings());
+    let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+    assert_eq!(
+        fixture.mux.bind_remote_peer(client, &peer("inst_1", OWNER)),
+        Err(BindRefused::State(POISONED_BINDINGS))
+    );
+    assert!(fixture.mux.remote_relay().peer(client).is_none(), "no orphan peer record");
+    assert!(!fixture.mux.remote_relay().revocation.is_poisoned());
+    assert!(!fixture.mux.remote_relay().peers.is_poisoned());
+}
+
+/// A poisoned client registry trusts no connection as local, and its
+/// record removal still works without a panic. Named residual: the rest of
+/// the disconnect path (attachment and sizing reads) keeps the registry's
+/// panic-on-poison design, so a revoke on a poisoned registry is not
+/// covered here.
+#[test]
+fn a_poisoned_registry_trusts_no_unix_client_and_still_removes_a_record() {
+    let fixture = fixture();
+    let one = remote(&fixture, "inst_1", OWNER);
+    poison(&fixture.mux.control_clients.state);
+    assert!(!fixture.mux.control_clients.is_unix(fixture.local));
+    assert_eq!(fixture.mux.principal(fixture.local), None);
+    assert!(fixture.mux.control_clients.remove(one).is_some());
 }

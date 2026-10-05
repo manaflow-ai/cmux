@@ -1821,7 +1821,7 @@
               "message": "only the cli, mac app and ios installs mint link tokens",
               "retryable": false,
               "details": {
-                "install_kind": "vm",
+                "install_kind": "web",
                 "allowed": [
                   "cli",
                   "mac",

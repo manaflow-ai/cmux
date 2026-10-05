@@ -180,7 +180,7 @@ declare namespace Cmux {
   type NotificationClearResult = { cleared: Array<string /* notification_… */> }
   type NotificationLevel = "info" | "warning" | "error"
   type NotificationSnapshot = { id: string /* notification_… */; session_id: string /* session_… */; title: string; subtitle?: string; body: string; level: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; created_at_ms: string; unread: boolean; read_by: Array<string>; extra?: Record<string, Cmux.JsonValue> }
-  type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+  type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link"
   type OriginConfirmation = { token: string; expires_at: string }
   type OriginForbiddenDetails = { derived: Cmux.RequestOrigin; required?: Cmux.RequestOrigin; claim?: Cmux.RequestOrigin; reason?: string }
   type PairingCode = string

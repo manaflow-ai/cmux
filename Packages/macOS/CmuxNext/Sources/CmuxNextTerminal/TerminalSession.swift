@@ -93,6 +93,9 @@ public final class TerminalSession {
     /// Local-history restores whose history did not match the owner's (or
     /// failed): each one asked the owner for READY + history.
     private(set) var localHistoryMismatches = 0
+    /// Local-history READYs restored with the surface's own reflowed history
+    /// (proves the local path ran in dogfood).
+    private(set) var localSnapshots = 0
 
     public init(io: any TerminalIO, ownsGeometry: Bool = true) {
         self.io = io
@@ -283,6 +286,10 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
+
+    func noteLocalSnapshot() {
+        localSnapshots += 1
+    }
 
     func noteLocalHistoryMismatch() {
         localHistoryMismatches += 1

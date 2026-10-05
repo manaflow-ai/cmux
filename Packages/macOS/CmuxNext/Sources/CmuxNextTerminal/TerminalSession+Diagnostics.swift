@@ -32,6 +32,8 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var swappedSurfaces: Int
     /// Local-history restores that did not match the owner's history.
     public var localHistoryMismatches: Int = 0
+    /// Local-history READYs that kept the surface's own reflowed history.
+    public var localSnapshots: Int = 0
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -58,7 +60,8 @@ extension TerminalSession {
             layerSize: surface.layer?.bounds.size ?? .zero,
             restoredSnapshots: restoredSnapshots,
             swappedSurfaces: swappedSurfaces,
-            localHistoryMismatches: localHistoryMismatches
+            localHistoryMismatches: localHistoryMismatches,
+            localSnapshots: localSnapshots
         )
     }
 }

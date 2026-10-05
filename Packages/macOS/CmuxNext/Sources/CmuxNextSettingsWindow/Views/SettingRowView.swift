@@ -78,6 +78,8 @@ struct SettingControl: View {
         case .timeRange: TimeRangeControl(model: model, descriptor: descriptor)
         case .theme: AppThemeControl(model: model, descriptor: descriptor)
         case .fontFamily: FontFamilyControl(model: model, descriptor: descriptor)
+        // Only cmux-browser keys have these kinds; `SettingsSchema.settings(in:)` never lists them here.
+        case .numberList, .stringMap: EmptyView()
         }
     }
 }
