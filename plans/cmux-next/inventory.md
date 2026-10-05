@@ -204,7 +204,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| palette.newAgentChat | New agent chat | ⇧⌘I (#16620) | P | ContentView+AgentChatCommandPalette:31 |
+| palette.newAgentChat | New agent chat | ⌘I | P | ContentView+AgentChatCommandPalette:31 |
 | palette.openTerminalChatView | Open terminal as chat | — | P | :37 |
 | palette.launchClaudeTeams / launchCodexTeams | Claude / Codex Teams | — | P | :88 |
 | palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace} | Fork Conversation To ▸ | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |

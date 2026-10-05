@@ -12949,6 +12949,7 @@
       "default_shortcut" : {
         "key" : "i",
         "modifiers" : [
+          "shift",
           "cmd"
         ]
       },
@@ -13422,7 +13423,6 @@
       "default_shortcut" : {
         "key" : "i",
         "modifiers" : [
-          "shift",
           "cmd"
         ]
       },
