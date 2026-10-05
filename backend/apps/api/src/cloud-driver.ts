@@ -31,6 +31,12 @@ export interface RawCloudDriver {
   start(id: string): Promise<void>
   /** The VM's provider state (Freestyle VmState: starting, running, pausing, paused, stopped), or null when it is gone. */
   state(id: string): Promise<string | null>
+  /** A snapshot by its slug (Freestyle `GET /v5/snapshots/{slug}`), or null. */
+  findSnapshot(slug: string): Promise<{ readonly id: string; readonly sourceVmId: string | null } | null>
+  /** Snapshot a running or paused VM under `slug` (Freestyle `POST /v5/vms/{id}/snapshot`). */
+  createSnapshot(vmId: string, slug: string): Promise<{ readonly id: string }>
+  /** Delete a snapshot (Freestyle `DELETE /v5/snapshots/{id}`; 404 is success). */
+  deleteSnapshot(id: string): Promise<void>
   /** Grow a VM (Freestyle `POST /v5/vms/{id}/resize`: grow only; memory in MiB, storage in MiB). */
   resize(id: string, size: VmResources): Promise<void>
   /** The VM's resources (Freestyle `resources {cpu, memory, storage}`), or null when it is gone. */
@@ -50,6 +56,8 @@ export interface VmResources {
 export interface CreateOptions {
   /** The machine's idle policy in seconds; 0 = never pause. */
   readonly idleSeconds: number
+  /** Boot from this snapshot slug (a restore: one of ours, guarded) instead of the deployment's image. */
+  readonly snapshot?: string
 }
 
 export interface ListedVm {
@@ -89,6 +97,8 @@ export const ENV_IMAGE_PREFIX: Readonly<Record<string, string>> = { development:
 const LANE_PREFIX = /^cmuxnp-(dev|stg|prod|test)-cld-$/
 /** The exact tail after the prefix: providerName of a machine id (vm_ + 20) with `_` as `-`. */
 const NAME_TAIL = /^vm-[a-z0-9]{20}$/
+/** Snapshot slugs: `<prefix>snap-<20>` (FREESTYLE-NAMES, the cld lane). */
+const SNAP_TAIL = /^snap-[a-z0-9]{20}$/
 const ours = (tag: Record<string, unknown>, want: VmTag) => tag.cmux_next_team === want.team && tag.cmux_next_machine === want.machine
 
 export class GuardedCloudDriver {
@@ -105,9 +115,16 @@ export class GuardedCloudDriver {
     }
   }
 
+  private guardSnapshot(slug: string): void {
+    if (!slug.startsWith(this.prefix) || !SNAP_TAIL.test(slug.slice(this.prefix.length))) {
+      throw new DriverError("cloud.provider.refused", "refused: the snapshot name does not carry this environment's prefix", true)
+    }
+  }
+
   /** The VM under `name`, created if missing. */
   async ensure(name: string, tag: VmTag, opts: CreateOptions): Promise<{ id: string }> {
     this.guard(name)
+    if (opts.snapshot !== undefined) this.guardSnapshot(opts.snapshot)
     const found = await this.raw.find(name)
     if (found) {
       if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
@@ -214,6 +231,28 @@ export class GuardedCloudDriver {
     return { state: found.state !== undefined ? found.state : await this.raw.state(found.id), gone: false }
   }
 
+  /** Snapshots our VM under `vmName` as `slug`; a snapshot already under the slug must come from that VM (a retry). */
+  async snapshot(vmName: string, tag: VmTag, slug: string): Promise<{ id: string }> {
+    this.guard(vmName)
+    this.guardSnapshot(slug)
+    const vm = await this.raw.find(vmName)
+    if (!vm) throw new DriverError("cloud.provider.vm_missing", "snapshot: no VM under the recorded name", true)
+    if (!ours(vm.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    const existing = await this.raw.findSnapshot(slug)
+    if (existing) {
+      if (existing.sourceVmId !== vm.id) throw new DriverError("cloud.provider.name_conflict", "the snapshot name belongs to another snapshot", true)
+      return { id: existing.id }
+    }
+    return this.raw.createSnapshot(vm.id, slug)
+  }
+
+  /** Deletes the snapshot under our recorded `slug`; none there is success. */
+  async removeSnapshot(slug: string): Promise<void> {
+    this.guardSnapshot(slug)
+    const found = await this.raw.findSnapshot(slug)
+    if (found) await this.raw.deleteSnapshot(found.id)
+  }
+
   /** Deletes the VM under `name`; no VM there is success. */
   async remove(name: string, tag: VmTag): Promise<void> {
     this.guard(name)
@@ -300,7 +339,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
   }
 
   async create(name: string, tag: VmTag, opts: CreateOptions) {
-    const created = await this.call("POST", "/v5/vms", createBody(name, this.snapshot, tag, opts), CREATE_TIMEOUT_MS)
+    const created = await this.call("POST", "/v5/vms", createBody(name, opts.snapshot ?? this.snapshot, tag, opts), CREATE_TIMEOUT_MS)
     if (created.status >= 200 && created.status < 300) return { id: this.vm(created.json).id, tag: null }
     // A duplicate name (409) or an unknown outcome: the VM under the name, if any, is the answer.
     const found = await this.find(name)
@@ -363,6 +402,28 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     if (r.status === 404) return null
     if (r.status !== 200) this.fail(r.status, r.json, "read VM state")
     return typeof r.json.state === "string" ? r.json.state : null
+  }
+
+  async findSnapshot(slug: string) {
+    const r = await this.call("GET", `/v5/snapshots/${encodeURIComponent(slug)}`)
+    if (r.status === 404) return null
+    if (r.status !== 200 || typeof r.json.id !== "string") this.fail(r.status, r.json, "read snapshot")
+    return { id: r.json.id as string, sourceVmId: typeof r.json.sourceVmId === "string" ? r.json.sourceVmId : null }
+  }
+
+  async createSnapshot(vmId: string, slug: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(vmId)}/snapshot`, { slug }, CREATE_TIMEOUT_MS)
+    if (r.status >= 200 && r.status < 300 && typeof r.json.snapshotId === "string") return { id: r.json.snapshotId }
+    // A lost answer: the snapshot under the slug, if any, is the answer.
+    const found = await this.findSnapshot(slug)
+    if (found && found.sourceVmId === vmId) return { id: found.id }
+    this.fail(r.status, r.json, "create snapshot")
+  }
+
+  async deleteSnapshot(id: string) {
+    const r = await this.call("DELETE", `/v5/snapshots/${encodeURIComponent(id)}`)
+    if (r.status === 404 || (r.status >= 200 && r.status < 300)) return
+    this.fail(r.status, r.json, "delete snapshot")
   }
 
   async resize(id: string, size: VmResources) {

@@ -162,12 +162,14 @@ export class CloudDO extends CloudCore {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
     if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
+    if (cmd.snapshot_delete_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET snapshot_delete_refuse = ? WHERE id = 1`, cmd.snapshot_delete_refuse)
+    if (cmd.power_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET power_refuse = ? WHERE id = 1`, cmd.power_refuse)
     if (cmd.vm_state) this.stateChecks.clear()
     if (cmd.vm_state) this.sqlStore.exec(`UPDATE cloud_fake_vm SET state = ? WHERE name = ?`, cmd.vm_state.state, cmd.vm_state.name)
     if (cmd.image_size) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET image_cpu = ?, image_memory = ?, image_storage = ? WHERE id = 1`, cmd.image_size.cpu, cmd.image_size.memory, cmd.image_size.storage)
@@ -183,9 +185,10 @@ export class CloudDO extends CloudCore {
       const t = { cmux_next_team: cmd.add_vm.team, cmux_next_machine: cmd.add_vm.machine }
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
-    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads FROM cloud_fake_ctl WHERE id = 1`)[0]!
-    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number }>(`SELECT name, id, idle, cpu, memory FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
+    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls FROM cloud_fake_ctl WHERE id = 1`)[0]!
+    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number; snapshot: string | null }>(`SELECT name, id, idle, cpu, memory, snapshot FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
+    const snapshots = this.sqlStore.exec<{ slug: string; source: string }>(`SELECT slug, source FROM cloud_fake_snapshot ORDER BY slug`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
   }
 }

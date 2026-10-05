@@ -351,7 +351,7 @@ fn a_panic_poisons_only_that_receiver() {
 #[test]
 fn header_declares_exactly_the_exported_functions_and_codes() {
     let header = include_str!("../include/cmux_rd_ffi.h");
-    let source = include_str!("lib.rs");
+    let source = concat!(include_str!("lib.rs"), include_str!("input_ffi.rs"));
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
         .filter(|l| !l.trim_start().starts_with('#') && !l.trim_start().starts_with('/'))
@@ -386,6 +386,24 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert_eq!(size_of::<CmuxRdFrame>(), 40);
     assert_eq!(size_of::<CmuxRdMessage>(), 24);
     assert_eq!(size_of::<CmuxRdStats>(), 24);
+    assert_eq!(size_of::<CmuxRdInputEvent>(), 48);
+    for (name, value) in [
+        ("CMUX_RD_INPUT_KEY", CMUX_RD_INPUT_KEY as usize),
+        ("CMUX_RD_INPUT_POINTER", CMUX_RD_INPUT_POINTER as usize),
+        ("CMUX_RD_INPUT_BUTTON", CMUX_RD_INPUT_BUTTON as usize),
+        ("CMUX_RD_INPUT_SCROLL", CMUX_RD_INPUT_SCROLL as usize),
+        ("CMUX_RD_INPUT_TEXT", CMUX_RD_INPUT_TEXT as usize),
+        ("CMUX_RD_INPUT_MAX_TEXT", CMUX_RD_INPUT_MAX_TEXT),
+        ("CMUX_RD_INPUT_PACKET_MAX", CMUX_RD_INPUT_PACKET_MAX),
+    ] {
+        assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
+    }
+    // The kinds are the wire tags: a key event encodes with tag CMUX_RD_INPUT_KEY.
+    let key = cmux_rd_proto::InputPacket {
+        first_seq: 1,
+        events: vec![cmux_rd_proto::InputEvent::Key { usage: 4, down: true }],
+    };
+    assert_eq!(key.encode()[5], CMUX_RD_INPUT_KEY as u8);
 }
 
 #[test]

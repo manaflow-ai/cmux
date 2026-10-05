@@ -50,7 +50,19 @@ extern "C" {
 #define CMUX_RD_ERR_FAILED (-5)      /* the stream broke or the peer flooded; end the session */
 #define CMUX_RD_ERR_PANIC (-6)       /* internal error; the receiver is unusable */
 
+/* Input event kinds (the wire tags). */
+#define CMUX_RD_INPUT_KEY 1u
+#define CMUX_RD_INPUT_POINTER 2u
+#define CMUX_RD_INPUT_BUTTON 3u
+#define CMUX_RD_INPUT_SCROLL 4u
+#define CMUX_RD_INPUT_TEXT 5u
+/* Largest UTF-8 text of one text event, in bytes. */
+#define CMUX_RD_INPUT_MAX_TEXT 256u
+/* A buffer of this size holds every input packet on either carrier. */
+#define CMUX_RD_INPUT_PACKET_MAX 1157u
+
 typedef struct CmuxRdReceiver CmuxRdReceiver;
+typedef struct CmuxRdInput CmuxRdInput;
 
 /* One complete access unit (Annex-B), ready to decode. */
 typedef struct CmuxRdFrame {
@@ -76,6 +88,21 @@ typedef struct CmuxRdStats {
     uint32_t acked_frame;
     bool need_recovery;
 } CmuxRdStats;
+
+/* One viewer input event. Fields the kind does not use are ignored. */
+typedef struct CmuxRdInputEvent {
+    uint32_t kind;           /* CMUX_RD_INPUT_* */
+    uint32_t usage;          /* key: USB HID usage, page << 16 | id */
+    int32_t x;               /* pointer: absolute position in stream pixels */
+    int32_t y;
+    int32_t dx;              /* scroll: hundredths of a line, or of a point when precise */
+    int32_t dy;
+    const uint8_t *text;     /* text: UTF-8, 1 to CMUX_RD_INPUT_MAX_TEXT bytes */
+    size_t text_len;
+    uint8_t button;          /* button: 1 left, 2 middle, 3 right, 8 back, 9 forward */
+    bool down;               /* key and button: pressed or released */
+    bool precise;            /* scroll: pixel-precise deltas */
+} CmuxRdInputEvent;
 
 uint32_t cmux_rd_ffi_abi_version(void);
 
@@ -112,6 +139,28 @@ int32_t cmux_rd_receiver_stats(const CmuxRdReceiver *receiver, CmuxRdStats *out)
 /* Frames a payload for the stream carrier (for example the viewer's control
    messages). kind is CMUX_RD_MESSAGE_*. */
 int32_t cmux_rd_encode_stream_frame(uint32_t kind, const uint8_t *payload, size_t len, uint8_t *out, size_t cap, size_t *out_len);
+
+/* Input channel: one per session. Events repeat in later packets until the
+   host acknowledges them (key and button releases until acknowledged); the
+   host applies each exactly once, in order. Not thread-safe, like a receiver. */
+
+/* Returns NULL for an unknown carrier. resend_us: how long unacknowledged
+   events wait before they go out again without new input (about one RTT). */
+CmuxRdInput *cmux_rd_input_new(uint32_t carrier, uint64_t resend_us);
+void cmux_rd_input_free(CmuxRdInput *input);
+/* Queues one event; *out_seq (may be NULL) gets its sequence number.
+   CMUX_RD_ERR_INVALID for an unknown kind or empty, too long or non-UTF-8 text. */
+int32_t cmux_rd_input_push(CmuxRdInput *input, const CmuxRdInputEvent *event, uint32_t *out_seq);
+/* Applies an InputAck datagram as cmux_rd_receiver_pop_message hands it out
+   (kind CMUX_RD_MESSAGE_DATAGRAM, header included). CMUX_RD_ERR_INVALID for
+   any other datagram. */
+int32_t cmux_rd_input_ack(CmuxRdInput *input, const uint8_t *datagram, size_t len);
+/* Writes the next due Input datagram (stream-framed on the stream carrier).
+   Returns 1 when written, 0 when none is due. Call again until it returns 0. */
+int32_t cmux_rd_input_packet(CmuxRdInput *input, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
+/* The time at which cmux_rd_input_packet must run next (0 = now; UINT64_MAX
+   when nothing is queued, for NULL, or for an unusable handle). */
+uint64_t cmux_rd_input_next_deadline_us(const CmuxRdInput *input);
 
 #ifdef __cplusplus
 }

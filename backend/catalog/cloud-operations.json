@@ -18902,8 +18902,11 @@
         "auth.unauthenticated",
         "client.too_old",
         "cloud.machine.not_found",
+        "cloud.machine.not_running",
+        "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
+        "cloud.rate_limited",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -18933,7 +18936,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19093,7 +19096,9 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.machine.busy",
         "cloud.provider.unavailable",
+        "cloud.rate_limited",
         "cloud.snapshot.not_found",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -19124,7 +19129,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Delete a snapshot. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19396,6 +19401,7 @@
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
+        "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
         "idempotency.conflict",
@@ -19427,7 +19433,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

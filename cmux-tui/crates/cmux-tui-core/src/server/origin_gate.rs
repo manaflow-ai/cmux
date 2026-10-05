@@ -278,3 +278,7 @@ mod test_hooks {
 #[cfg(all(test, unix))]
 #[path = "origin_gate_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "page_access_tests.rs"]
+mod page_access_tests;

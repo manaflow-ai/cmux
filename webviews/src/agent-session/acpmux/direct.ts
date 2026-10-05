@@ -1580,15 +1580,19 @@ export class AcpmuxDirectClient {
   async setModel(modelId: string): Promise<void> {
     if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });
   }
-  async setMode(modeId: string): Promise<void> {
-    if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId });
+  /// `ticket`: a gesture ticket a held pick took (pane-native transport, `transport.gesture`); it
+  /// rides as `_meta.cmuxGesture`, and the host strips it before acpmux.
+  async setMode(modeId: string, ticket?: string): Promise<void> {
+    if (this.selectedSessionId)
+      await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId, ...gestureMeta(ticket) });
   }
-  async setConfig(configId: string, value: string): Promise<void> {
+  async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
     if (this.selectedSessionId)
       await this.request("session/set_config_option", {
         sessionId: this.selectedSessionId,
         configId,
         value,
+        ...gestureMeta(ticket),
       });
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
@@ -1643,6 +1647,9 @@ export class AcpmuxDirectClient {
     this.pending.clear();
   }
 }
+
+/// The params field that carries a pick's gesture ticket, or nothing without one.
+const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
