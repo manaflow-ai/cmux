@@ -1,17 +1,20 @@
 import Foundation
 
-/// An account type CodeRouter routes, named as `coderouter accounts --json`
-/// reports it in each account's `provider`.
+/// An account type CodeRouter routes, named exactly as `coderouter accounts
+/// --json` reports it in each account's `provider` (the server's provider names).
 struct CoderouterProvider: Hashable {
     let id: String
 
     static let codex = CoderouterProvider(id: "codex")
     static let claude = CoderouterProvider(id: "claude")
-    static let opencode = CoderouterProvider(id: "opencode")
+    static let opencodeGo = CoderouterProvider(id: "opencode-go")
+    static let openaiAPIKey = CoderouterProvider(id: "openai-apikey")
+    static let openrouterAPIKey = CoderouterProvider(id: "openrouter-apikey")
 
     /// The types `cr add <type>` adds, in sidebar order. Each keeps its group
     /// and New Account row even before the team has an account of that type.
-    static let addable: [CoderouterProvider] = [.codex, .claude, .opencode]
+    /// API-key types have no `cr add` flow yet; their accounts still list.
+    static let addable: [CoderouterProvider] = [.codex, .claude, .opencodeGo]
 
     var canAdd: Bool { Self.addable.contains(self) }
 
@@ -19,7 +22,9 @@ struct CoderouterProvider: Hashable {
         switch id {
         case "codex": return "Codex"
         case "claude": return "Claude"
-        case "opencode": return "OpenCode"
+        case "opencode-go": return "OpenCode Go"
+        case "openai-apikey": return "OpenAI API Key"
+        case "openrouter-apikey": return "OpenRouter API Key"
         default: return id.capitalized
         }
     }
@@ -30,7 +35,12 @@ struct CoderouterProvider: Hashable {
 
     /// The command a New Account row submits in a terminal; the CLI adds the
     /// account to its active organization, which the sidebar reads.
-    var addCommand: String { "cmux cr add \(id)" }
+    var addCommand: String {
+        switch id {
+        case "opencode-go": return "cmux cr add opencode"
+        default: return "cmux cr add \(id)"
+        }
+    }
 }
 
 /// What the Cloud tree's CodeRouter section shows: the selected team's

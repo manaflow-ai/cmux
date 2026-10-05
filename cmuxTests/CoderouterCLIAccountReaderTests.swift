@@ -172,13 +172,13 @@ struct CoderouterSidebarSectionTests {
         let root = try #require(CloudTreeCreateActionBuilder.add(to: [CloudTreeNodeBuilder.coderouterNode(section)]).first)
 
         #expect(root.kind == .coderouterSection(count: 3, refresh: CloudTreeSectionRefresh()))
-        #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode", "Gemini"])
+        #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode Go", "Gemini"])
         let codex = root.children[0]
         #expect(codex.kind == .coderouterProviderGroup(.codex, count: 2))
         #expect(codex.children.map(\.searchableTitle) == ["New Codex Account", "a@example.com", "b@example.com"])
         // An empty addable type still offers its New Account row.
         #expect(root.children[1].children.map(\.searchableTitle) == ["New Claude Account"])
-        #expect(root.children[2].children.map(\.searchableTitle) == ["New OpenCode Account"])
+        #expect(root.children[2].children.map(\.searchableTitle) == ["New OpenCode Go Account"])
         // A type CodeRouter can't add lists its accounts without a create row.
         #expect(root.children[3].children.map(\.searchableTitle) == ["c@example.com"])
     }
@@ -200,6 +200,9 @@ struct CoderouterSidebarSectionTests {
 
         #expect(added.providers == [.claude])
         #expect(CoderouterProvider.claude.addCommand == "cmux cr add claude")
+        // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
+        #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
+        #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
     }
 
     @Test("Account rows show usage left, or a state that is not active")

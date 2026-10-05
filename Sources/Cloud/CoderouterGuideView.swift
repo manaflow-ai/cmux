@@ -7,7 +7,7 @@ struct CoderouterGuideView: View {
     /// The one-line pitch: the "?" tooltip and the guide's first paragraph.
     static let summary = String(
         localized: "coderouter.guide.summary",
-        defaultValue: "Add the Codex, Claude and OpenCode accounts you already have, and agents on your Cloud machines use them right away."
+        defaultValue: "Add the Codex, Claude and OpenCode Go accounts you already have, and agents on your Cloud machines use them right away."
     )
 
     var body: some View {
@@ -15,20 +15,15 @@ struct CoderouterGuideView: View {
             Text(String(localized: "coderouter.guide.title", defaultValue: "CodeRouter"))
                 .cmuxFont(size: 13, weight: .semibold)
             paragraph(Self.summary)
-            item(
-                symbol: "plus",
-                text: String(
-                    localized: "coderouter.guide.add",
-                    defaultValue: "New Codex, Claude or OpenCode Account opens a terminal to sign in. The account appears here when sign-in finishes."
-                )
-            )
-            item(
-                symbol: "arrow.triangle.2.circlepath",
-                text: String(
-                    localized: "coderouter.guide.routing",
-                    defaultValue: "When an account reaches its limit, the session moves to another account. Each row shows how much of its limit is left."
-                )
-            )
+            heading(String(localized: "coderouter.guide.sidebar.title", defaultValue: "In this sidebar"))
+            paragraph(String(
+                localized: "coderouter.guide.sidebar",
+                defaultValue: "Click New Codex, Claude or OpenCode Go Account and sign in in the terminal that opens. Each account shows how much of its limit is left; hover it and click × to remove it. When one account reaches its limit, sessions move to another."
+            ))
+            heading(String(localized: "coderouter.guide.cli.title", defaultValue: "From a terminal"))
+            command("cr add codex", String(localized: "coderouter.guide.cli.add", defaultValue: "Add an account. Also claude or opencode."))
+            command("cr", String(localized: "coderouter.guide.cli.list", defaultValue: "List every account and its usage."))
+            command("cr codex", String(localized: "coderouter.guide.cli.run", defaultValue: "Run Codex through CodeRouter on this Mac."))
             paragraph(String(
                 localized: "coderouter.guide.team",
                 defaultValue: "Accounts belong to the team selected at the top of this panel."
@@ -36,7 +31,14 @@ struct CoderouterGuideView: View {
             .foregroundStyle(.secondary)
         }
         .padding(16)
-        .frame(width: 300, alignment: .leading)
+        .frame(width: 320, alignment: .leading)
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text)
+            .cmuxFont(size: 11, weight: .semibold)
+            .foregroundStyle(.secondary)
+            .padding(.top, 2)
     }
 
     private func paragraph(_ text: String) -> some View {
@@ -45,13 +47,16 @@ struct CoderouterGuideView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func item(symbol: String, text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
+    /// A command and what it does. Commands are literal and never localized.
+    private func command(_ command: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: command)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+            Text(text)
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
-                .frame(width: 14)
-            paragraph(text)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
