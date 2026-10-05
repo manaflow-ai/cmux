@@ -79,7 +79,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "38d88ee70d18ede77fbd27158723350514d9a81a6b56cc192cfa2a93c3354e66"
+EXPECTED_GUARD_SCRIPT_DIGEST = "8d74b6392fe7c15a4c5547e9f0f740a986c64f558406e6f63ec2236011c8ece1"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -319,45 +319,53 @@ CLA_DOCUMENT_INPUT = "https://github.com/${{ github.repository }}/blob/${{ githu
 CLA_LIFECYCLE_ACTIONS = %w[opened edited reopened synchronize ready_for_review].freeze
 CLA_TRUSTED_ASSOCIATIONS = %w[OWNER MEMBER COLLABORATOR].freeze
 POSITIVE_ID = /\A[1-9][0-9]*\z/
+CLA_STATUS_CONDITION = <<~EXPRESSION.gsub(/\s+/, " ").strip.freeze
+  github.event_name == 'pull_request_target' &&
+  github.event.action != 'edited' &&
+  github.event.pull_request.head.repo.full_name == github.repository
+EXPRESSION
 CLA_WRITER_CONDITION = <<~EXPRESSION.gsub(/\s+/, " ").strip.freeze
-  needs.CLACommentGate.result == 'success' &&
-  needs.CLACommentGate.outputs.admitted == 'true' &&
   (
+    github.event_name == 'pull_request_target' &&
+    github.event.action != 'edited' &&
+    github.event.pull_request.head.repo.full_name != github.repository
+  ) || (
+    github.event_name == 'issue_comment' &&
+    github.event.action == 'created' &&
+    github.event.issue.state == 'open' &&
+    github.event.issue.pull_request &&
+    github.event.comment.user.type == 'User' &&
     (
-      github.event_name == 'pull_request_target' &&
-      (
-        github.event.action == 'opened' ||
-        github.event.action == 'edited' ||
-        github.event.action == 'reopened' ||
-        github.event.action == 'synchronize' ||
-        github.event.action == 'ready_for_review'
-      )
-    ) ||
-    (
-      github.event_name == 'issue_comment' &&
-      github.event.issue.state == 'open' &&
-      github.event.issue.pull_request &&
-      github.event.comment.user.type == 'User' &&
-      (
-        (
-          github.event.comment.body == 'recheck' &&
-          (
-            github.event.comment.user.id == github.event.issue.user.id ||
-            github.event.comment.author_association == 'OWNER' ||
-            github.event.comment.author_association == 'MEMBER' ||
-            github.event.comment.author_association == 'COLLABORATOR'
-          )
-        ) ||
-        (
-          github.event.comment.body == '#{CLA_SIGN_PHRASE}' &&
-          needs.CLACommentGate.outputs.signer_authorized == 'true' &&
-          needs.CLACommentGate.outputs.head_sha != '' &&
-          needs.CLACommentGate.outputs.base_sha != ''
-        )
-      )
+      github.event.comment.body == 'recheck' ||
+      github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
     )
   )
 EXPRESSION
+CLA_STATUS_ENV = {
+  "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION,
+  "GH_REPO" => "${{ github.repository }}",
+  "PR_NUMBER" => "${{ github.event.pull_request.number }}",
+  "PR_AUTHOR_ID" => "${{ github.event.pull_request.user.id }}",
+  "HEAD_SHA" => "${{ github.event.pull_request.head.sha }}"
+}.freeze
+CLA_STATUS_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+  [[ "$PR_AUTHOR_ID" =~ ^[1-9][0-9]*$ ]]
+  [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+  ledger="$(mktemp)"
+  trap 'rm -f "$ledger"' EXIT
+  encoded="$(gh api --raw-field ref=cla-signatures "repos/$GH_REPO/contents/signatures/version2/cla.json" --jq .content)"
+  printf '%s' "$encoded" | tr -d '[:space:]' | base64 --decode >"$ledger"
+  commits="$(gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/commits?per_page=100")"
+  jq -e --argjson author "$PR_AUTHOR_ID" --argjson commits "$commits" '
+    (.signedContributors | type == "array") and
+    ([ $author ] + [ $commits[].[]? | .author.id ] | all(.[]; type == "number")) and
+    ([ $author ] + [ $commits[].[]? | .author.id ] | unique) as $ids |
+    all($ids[]; . as $id | any(.signedContributors[]?; .id == $id))
+  ' "$ledger" >/dev/null
+SH
+CLA_STATUS_RUN_HASH = "5144605e9a7106a347d60692e1d015ce9c301fe5e5cae85046fb47ee70af4d38"
 
 # The guard validates a deliberately closed workflow vocabulary. A policy
 # change may alter messages and implementation details inside the listed
@@ -2197,290 +2205,93 @@ end
 
 def validate_workflow(raw)
   document = parse_workflow(raw)
-
-  # Keep the policy surface closed. YAML keys that are harmless in an
-  # ordinary workflow, such as `defaults`, `services`, or `concurrency` at the
-  # top level, can silently change the trust boundary here. A maintainer must
-  # update this validator in a separate control-plane PR before introducing a
-  # new surface.
+  fail!("CLA workflow name is not the reviewed context") unless document["name"] == "CLA Assistant"
   top_level_keys = document.keys.map { |key| key == true ? "on" : key.to_s }
-  fail!("CLA workflow has unsupported top-level keys") unless
-    top_level_keys.uniq.sort == WORKFLOW_KEYS.sort
-  fail!("CLA workflow name is not the reviewed context") unless document["name"] == "CLA Assistant v3"
-
+  fail!("CLA workflow has unsupported top-level keys") unless top_level_keys.uniq.sort == WORKFLOW_KEYS.sort
   triggers = document["on"] || document[true]
-  fail!("CLA workflow has no mapping of triggers") unless triggers.is_a?(Hash)
-  fail!("CLA workflow must not use pull_request") if triggers.key?("pull_request")
+  fail!("CLA workflow triggers are malformed") unless triggers.is_a?(Hash)
+  fail!("CLA workflow has unsupported triggers") unless triggers.keys.map(&:to_s).sort == %w[issue_comment pull_request_target].sort
   fail!("issue_comment must trigger only on created") unless triggers["issue_comment"] == { "types" => ["created"] }
   target = triggers["pull_request_target"]
-  fail!("pull_request_target is malformed") unless target.is_a?(Hash)
-  fail!("pull_request_target must target main only") unless target["branches"] == ["main"]
-  expected_types = %w[opened closed edited reopened synchronize ready_for_review]
-  fail!("pull_request_target event set is unsafe") unless target["types"] == expected_types
+  fail!("pull_request_target is malformed") unless target == {
+    "branches" => ["main"],
+    "types" => %w[opened reopened synchronize ready_for_review]
+  }
   fail!("top-level permissions must be empty") unless document["permissions"] == {}
-
   env = document["env"]
   assert_exact_keys(env, ["CLA_GENERATION"], "CLA workflow env")
   generation = env["CLA_GENERATION"]
-  fail!("CLA_GENERATION is missing or malformed") unless
-    generation.is_a?(String) && generation.match?(/\Av[0-9]+\.[0-9]+-action-[0-9a-f]{40}\z/)
-  action_sha = CLA_ACTION.split("@", 2).last
-  fail!("CLA_GENERATION is not bound to the maintained action") unless
-    generation.match?(/\A v[0-9]+\.[0-9]+-action-#{Regexp.escape(action_sha)} \z/x)
+  fail!("CLA_GENERATION is missing or malformed") unless generation.is_a?(String) && generation.match?(/\Av[0-9]+\.[0-9]+-action-[0-9a-f]{40}\z/)
+  fail!("CLA_GENERATION is not bound to the maintained action") unless generation.end_with?(CLA_ACTION.split("@", 2).last)
 
-  gate = job(document, "CLACommentGate")
-  assistant = job(document, "CLAAssistant")
-  writer = job(document, "CLALedgerWriter")
-  compatibility = job(document, "CLACompatibility")
-  rerun = job(document, "RerunFailedCLA")
-  lock = job(document, "LockMergedPullRequest")
   jobs = document["jobs"]
-  fail!("CLA workflow has unsupported jobs") unless jobs.keys.map(&:to_s).sort == WORKFLOW_JOB_NAMES.sort
-  job_keys = {
-    "CLACommentGate" => %w[name if runs-on timeout-minutes concurrency permissions outputs steps],
-    "CLAAssistant" => %w[name needs if runs-on timeout-minutes permissions steps],
-    "CLALedgerWriter" => %w[name needs if runs-on timeout-minutes concurrency permissions outputs steps],
-    "CLACompatibility" => %w[name needs if runs-on timeout-minutes permissions steps],
-    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes concurrency permissions steps],
-    "LockMergedPullRequest" => %w[name if runs-on timeout-minutes concurrency permissions steps]
+  fail!("CLA workflow jobs are malformed") unless jobs.is_a?(Hash) && jobs.keys.map(&:to_s).sort == %w[status writer].sort
+  status = job(document, "status")
+  writer = job(document, "writer")
+  assert_exact_keys(status, %w[name if runs-on timeout-minutes concurrency permissions steps], "CLA status job")
+  assert_exact_keys(writer, %w[name if runs-on timeout-minutes concurrency permissions steps], "CLA writer job")
+  [status, writer].each { |value| assert_cla_runner(value["runs-on"], "CLA job") }
+  fail!("CLA status name is not the required context") unless status["name"] == "CLA Assistant"
+  fail!("CLA writer name is not the required context") unless writer["name"] == "CLA Assistant"
+  fail!("CLA status route is not same-repository only") unless status["if"].to_s.gsub(/\s+/, " ").strip == CLA_STATUS_CONDITION
+  fail!("CLA writer route is not the reviewed fork/comment split") unless writer["if"].to_s.gsub(/\s+/, " ").strip == CLA_WRITER_CONDITION
+  fail!("CLA status concurrency is not replaceable per PR") unless status["concurrency"] == {
+    "group" => "cla-status-${{ github.event.pull_request.number }}", "cancel-in-progress" => true
   }
-  [gate, assistant, writer, compatibility, rerun, lock].each_with_index do |value, index|
-    names = %w[CLACommentGate CLAAssistant CLALedgerWriter CLACompatibility RerunFailedCLA LockMergedPullRequest]
-    fail!("#{names[index]} has no runner") unless value.key?("runs-on")
-    assert_exact_keys(value, job_keys.fetch(names[index]), names[index])
-    assert_safe_job_common(value, names[index])
-    assert_cla_runner(value["runs-on"], names[index])
-    assert_hosted_runner_job_steps(value, names[index])
-  end
+  fail!("CLA writer concurrency must protect ledger writes") unless writer["concurrency"] == {
+    "group" => "cla-signature-${{ github.event.pull_request.number || github.event.issue.number }}", "cancel-in-progress" => false
+  }
+  fail!("CLA status permissions are not read-only") unless status["permissions"] == { "contents" => "read", "pull-requests" => "read" }
+  fail!("CLA writer permissions are not least-privilege") unless writer["permissions"] == {
+    "actions" => "write", "contents" => "write", "issues" => "write", "pull-requests" => "write", "statuses" => "read"
+  }
+  [status, writer].each { |value| assert_positive_integer(value["timeout-minutes"], "CLA job timeout") }
 
-  fail!("CLACommentGate must use read-only permissions") unless
-    gate["permissions"] == { "contents" => "read", "issues" => "read", "pull-requests" => "read" }
-  fail!("CLACompatibility must have no permissions") unless compatibility["permissions"] == {}
-  fail!("CLA Assistant result must have no permissions") unless assistant["permissions"] == {}
-  fail!("CLACommentGate outputs are not the reviewed contract") unless
-    gate["outputs"] == {
-      "admitted" => "${{ steps.admission.outputs.admitted }}",
-      "signer_authorized" => "${{ steps.signer_preflight.outputs.signer_authorized }}",
-      "head_sha" => "${{ steps.signer_preflight.outputs.head_sha }}",
-      "base_sha" => "${{ steps.signer_preflight.outputs.base_sha }}"
-    }.merge(CLA_COMMENT_BINDING_OUTPUTS)
-  fail!("CLALedgerWriter outputs are not the reviewed contract") unless
-    writer["outputs"] == {
-      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}",
-      "cla_passed" => "${{ steps.cla_action.outputs.cla_passed }}"
-    }
-  fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
-  fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
-  writer_condition = writer["if"].to_s.gsub(/\s+/, " ").strip
-  fail!("CLA ledger writer condition is not the reviewed admission contract") unless
-    writer_condition == CLA_WRITER_CONDITION
-  fail!("CLA Assistant result must depend on the ledger writer") unless dependencies(assistant, "CLAAssistant").include?("CLALedgerWriter")
-  fail!("CLA Assistant result must always report the writer outcome") unless assistant["if"].to_s.include?("always()")
-  fail!("CLA compatibility must depend on the v2 result") unless dependencies(compatibility, "CLACompatibility").include?("CLAAssistant")
+  status_steps = steps(status, "CLA status")
+  fail!("CLA status must contain a runner guard and ledger check") unless status_steps.length == 2
+  assert_hosted_runner_guard_step(status_steps[0], "CLA status")
+  assert_step_keys(status_steps[1], "CLA status ledger step", %w[name if env run])
+  fail!("CLA status ledger step has an unexpected name") unless status_steps[1]["name"] == "Read CLA signature ledger"
+  assert_hosted_runner_step(status_steps[1], "CLA status ledger step")
+  assert_exact_environment(status_steps[1], CLA_STATUS_ENV, "CLA status ledger step")
+  assert_exact_normalized_run(status_steps[1]["run"], CLA_STATUS_RUN, CLA_STATUS_RUN_HASH, "CLA status ledger run")
 
-  # A write-capable job is intentionally one pinned action invocation. An
-  # extra `run` step would execute contributor-controlled policy text with the
-  # ledger token in its environment. The no-permission result and compatibility
-  # jobs may run shell diagnostics, but they cannot introduce actions or
-  # service/container settings.
-  writer_steps = steps(writer, "CLALedgerWriter")
-  fail!("CLALedgerWriter must contain a runner guard and one action step") unless writer_steps.length == 2
-  writer_step = writer_steps[1]
-  assert_step_keys(writer_step, "CLALedgerWriter step", %w[name id if uses env with])
-  assert_hosted_runner_step(writer_step, "CLALedgerWriter action")
-  fail!("CLALedgerWriter step must have id cla_action") unless writer_step["id"] == "cla_action"
-  assert_action_reference(writer_step["uses"], "CLALedgerWriter step uses")
-  fail!("CLALedgerWriter must invoke only the maintained CLA action") unless writer_step["uses"] == CLA_ACTION
-  assert_exact_environment(
-    writer_step,
-    { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION },
-    "CLALedgerWriter step"
-  )
-
-  gate_steps = steps(gate, "CLACommentGate")
-  fail!("CLACommentGate must contain a runner guard, admission, and preflight") unless gate_steps.length == 3
-  admission_step_shape = gate_steps[1]
-  assert_step_keys(admission_step_shape, "CLACommentGate admission step", %w[name id if env run])
-  assert_hosted_runner_step(admission_step_shape, "CLACommentGate admission")
-  fail!("CLACommentGate admission step must have id admission") unless admission_step_shape["id"] == "admission"
-  assert_exact_environment(admission_step_shape, ADMISSION_ENV, "CLACommentGate admission step")
-  fail!("CLACommentGate admission step must not access a token or network") if
-    admission_step_shape["run"].to_s.match?(/\b(gh|curl|wget|git|ssh|sudo|eval|source)\b|\bsecrets\b|\bgithub\.token\b|GITHUB_TOKEN/i)
-  preflight_step_shape = gate_steps[2]
-  assert_step_keys(preflight_step_shape, "CLACommentGate preflight step", %w[name id if uses env with])
-  assert_hosted_runner_step(preflight_step_shape, "CLACommentGate preflight")
-  assert_action_reference(preflight_step_shape["uses"], "CLACommentGate preflight uses")
-  fail!("CLACommentGate preflight must invoke only the maintained CLA action") unless preflight_step_shape["uses"] == CLA_ACTION
-  fail!("CLACommentGate preflight step must have id signer_preflight") unless preflight_step_shape["id"] == "signer_preflight"
-  assert_exact_environment(
-    preflight_step_shape,
-    { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION },
-    "CLACommentGate preflight step"
-  )
-
-  result_steps = steps(assistant, "CLAAssistant")
-  fail!("CLAAssistant must contain a runner guard and one result step") unless result_steps.length == 2
-  assert_step_keys(result_steps[1], "CLAAssistant result step", %w[name if env run])
-  assert_hosted_runner_step(result_steps[1], "CLAAssistant result")
-  assert_exact_environment(result_steps[1], RESULT_ENV, "CLAAssistant result step")
-  compatibility_steps = steps(compatibility, "CLACompatibility")
-  fail!("CLACompatibility must contain a runner guard and one result step") unless compatibility_steps.length == 2
-  assert_step_keys(compatibility_steps[1], "CLACompatibility result step", %w[name if env run])
-  assert_hosted_runner_step(compatibility_steps[1], "CLACompatibility result")
-  assert_exact_environment(compatibility_steps[1], COMPATIBILITY_ENV, "CLACompatibility result step")
-
-  rerun_steps = steps(rerun, "RerunFailedCLA")
-  fail!("RerunFailedCLA must contain a runner guard, checkout, and guard step") unless rerun_steps.length == 3
-  assert_step_keys(rerun_steps[1], "RerunFailedCLA checkout step", %w[name if uses with])
-  assert_hosted_runner_step(rerun_steps[1], "RerunFailedCLA checkout")
-  assert_step_keys(rerun_steps[2], "RerunFailedCLA guard step", %w[name if env run])
-  assert_hosted_runner_step(rerun_steps[2], "RerunFailedCLA helper")
-  assert_action_reference(rerun_steps[1]["uses"], "RerunFailedCLA checkout uses")
-  fail!("RerunFailedCLA may not invoke the CLA action") if rerun_steps.any? { |step| step["uses"] == CLA_ACTION }
-  fail!("RerunFailedCLA guard step must invoke the immutable helper exactly") unless
-    rerun_steps[2]["run"] == "bash .github/scripts/rerun-failed-cla.sh"
-  assert_exact_environment(rerun_steps[2], RERUN_ENV, "RerunFailedCLA guard step")
-
-  lock_steps = steps(lock, "LockMergedPullRequest")
-  fail!("LockMergedPullRequest must contain a runner guard and one action step") unless lock_steps.length == 2
-  assert_step_keys(lock_steps[1], "LockMergedPullRequest step", %w[name if uses env with])
-  assert_hosted_runner_step(lock_steps[1], "LockMergedPullRequest action")
-  assert_action_reference(lock_steps[1]["uses"], "LockMergedPullRequest uses")
-  fail!("LockMergedPullRequest must invoke only the maintained CLA action") unless lock_steps[1]["uses"] == CLA_ACTION
-  assert_exact_environment(
-    lock_steps[1],
-    { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION },
-    "LockMergedPullRequest step"
-  )
-  assert_action_inputs(
-    lock_steps[1],
-    {
-      "mode" => "sign",
-      "path-to-signatures" => CLA_SIGNATURES_PATH,
-      "path-to-document" => CLA_DOCUMENT_INPUT,
-      "branch" => "cla-signatures",
-      "required-base-ref" => "main",
-      "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
-      "allowlist-ids" => "38676809,67667005",
-      "require-opener-as-author" => "true",
-      "lock-pullrequest-aftermerge" => "true"
-    },
-    "LockMergedPullRequest action"
-  )
-
-  [assistant, compatibility, rerun, lock].each do |job_value|
-    steps(job_value, job_value.equal?(assistant) ? "CLAAssistant" : job_value.equal?(compatibility) ? "CLACompatibility" : job_value.equal?(rerun) ? "RerunFailedCLA" : "LockMergedPullRequest").each do |step|
-      fail!("policy jobs may not mix run and uses in one step") if step.is_a?(Hash) && step.key?("run") && step.key?("uses")
-    end
-  end
-
-  admission_step = steps(gate, "CLACommentGate").find { |step| step.is_a?(Hash) && step["id"] == "admission" }
-  admission_run = admission_step && admission_step["run"]
-  fail!("CLACommentGate admission implementation is missing") unless admission_run.is_a?(String)
-  assert_lifecycle_admission_contract(
-    [gate["if"], assistant["if"], compatibility["if"], writer_condition],
-    admission_run
-  )
-  # Stop at the first sibling branch. A non-signing recheck branch may need
-  # opener identity fields, but those fields must not be duplicated inside the
-  # exact signing declaration branch itself.
-  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?=\n\s*(?:elif|fi))/m]
-  fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
-  fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
-  preflight = step_using_with(gate, CLA_ACTION, "mode", "signer-preflight", "CLACommentGate")
-  preflight_with = preflight["with"]
-  fail!("CLA signer preflight inputs are missing") unless preflight_with.is_a?(Hash)
-  {
-    "mode" => "signer-preflight",
+  writer_steps = steps(writer, "CLA writer")
+  fail!("CLA writer must contain a runner guard and action") unless writer_steps.length == 3
+  assert_hosted_runner_guard_step(writer_steps[0], "CLA writer")
+  action_step = writer_steps[1]
+  assert_step_keys(action_step, "CLA writer action", %w[name id if uses env with])
+  assert_hosted_runner_step(action_step, "CLA writer action")
+  fail!("CLA writer action must use the maintained action") unless action_step["uses"] == CLA_ACTION
+  assert_exact_environment(action_step, { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION }, "CLA writer action")
+  assert_action_inputs(action_step, {
     "path-to-signatures" => CLA_SIGNATURES_PATH,
     "path-to-document" => CLA_DOCUMENT_INPUT,
-    "required-base-ref" => "main",
-    "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
-    "require-opener-as-author" => "true",
-    "allowlist-ids" => "38676809,67667005",
-    "branch" => "cla-signatures"
-  }.then { |expected| assert_action_inputs(preflight, expected, "CLACommentGate preflight") }
-  fail!("CLA signer preflight must be conditional on the exact signing phrase") unless preflight["if"].to_s.include?(CLA_SIGN_PHRASE)
-  fail!("CLA gate must expose the signer preflight result") unless gate.dig("outputs", "signer_authorized").to_s.include?("signer_preflight")
-  fail!("CLALedgerWriter permissions are not least-privilege") unless
-    writer["permissions"] == { "contents" => "write", "issues" => "write", "pull-requests" => "write" }
-  fail!("RerunFailedCLA permissions are not least-privilege") unless
-    rerun["permissions"] == { "actions" => "write", "checks" => "read", "contents" => "read", "issues" => "read", "pull-requests" => "read" }
-  fail!("LockMergedPullRequest permissions are not least-privilege") unless
-    lock["permissions"] == { "issues" => "write", "pull-requests" => "write" }
-
-  action_step = step_using(writer, CLA_ACTION, "CLALedgerWriter")
-  with_values = action_step["with"]
-  fail!("CLA action inputs are missing") unless with_values.is_a?(Hash)
-  writer_inputs = {
-    "path-to-document" => CLA_DOCUMENT_INPUT,
-    "path-to-signatures" => CLA_SIGNATURES_PATH,
     "branch" => "cla-signatures",
     "required-base-ref" => "main",
     "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
-    "allowlist-ids" => "38676809,67667005",
-    "require-opener-as-author" => "true",
     "lock-pullrequest-aftermerge" => "false",
-    "expected-head-sha" => "${{ needs.CLACommentGate.outputs.head_sha }}",
-    "expected-base-sha" => "${{ needs.CLACommentGate.outputs.base_sha }}"
-  }.merge(CLA_COMMENT_BINDING_INPUTS)
-  assert_action_inputs(action_step, writer_inputs, "CLALedgerWriter action")
-  assert_comment_binding_contract(gate["outputs"], writer_inputs)
+    "allowlist-ids" => "54008264,38676809,67667005",
+    "trusted-merge-status-context" => "cmux/catch-up-merge",
+    "trusted-merge-status-creator-ids" => "41898282"
+  }, "CLA writer action")
+  rerun = writer_steps[2]
+  assert_step_keys(rerun, "CLA writer rerun step", %w[name if env run])
+  assert_hosted_runner_step(rerun, "CLA writer rerun step")
+  assert_exact_environment(rerun, { "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION, "PR_NUMBER" => "${{ github.event.issue.number }}" }, "CLA writer rerun step")
+  fail!("CLA writer rerun step must use the trusted rerun commands") unless rerun["run"].to_s.include?("gh run rerun")
 
-  checkout = step_using(rerun, "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", "RerunFailedCLA")
-  assert_action_inputs(
-    checkout,
-    {
-      "repository" => "${{ github.repository }}",
-      "ref" => "${{ github.workflow_sha }}",
-      "persist-credentials" => false,
-      "sparse-checkout" => ".github/scripts/rerun-failed-cla.sh",
-      "sparse-checkout-cone-mode" => false
-    },
-    "RerunFailedCLA checkout"
-  )
-  rerun_runs = steps(rerun, "RerunFailedCLA").each_with_object([]) do |step, runs|
-    runs << step["run"] if step.is_a?(Hash) && step["run"].is_a?(String)
-  end
-  fail!("rerun job does not invoke the trusted guard") unless rerun_runs.any? { |run| run.include?("bash .github/scripts/rerun-failed-cla.sh") }
-
-  # These are the high-value admission and identity invariants. The local
-  # fixture harnesses exercise their full event matrix; this base-controlled
-  # check ensures a PR cannot remove the invariants from that harness's input.
-  [
-    "github.event.comment.body == '#{CLA_RECHECK_PHRASE}'",
-    "github.event.comment.body == '#{CLA_SIGN_PHRASE}'",
-    "github.event.comment.user.type == 'User'",
-    "github.event.comment.user.id == github.event.issue.user.id",
-    "github.event.action == 'created'",
-    "id: admission",
-    "admitted: ${{ steps.admission.outputs.admitted }}",
-    "issues: write"
-  ].each { |fragment| assert_text(raw, fragment) }
-  # YAML block scalars normalize the expression at runtime. Check the parsed
-  # signer step instead of matching raw source, so an explicit runner guard
-  # may precede the success() term without creating a source-shape bypass.
-  fail!("CLA workflow is missing a successful-step guard") unless
-    preflight_step_shape["if"].to_s.gsub(/\s+/, " ").include?("success()")
-  [gate["if"], assistant["if"]].each do |expression|
-    fail!("CLA signing trigger is missing from a signer job") unless expression.is_a?(String) && expression.include?(CLA_SIGN_PHRASE)
-  end
-  sign_author_guard = Regexp.new(
-    "github\\.event\\.comment\\.body\\s*==\\s*'#{Regexp.escape(CLA_SIGN_PHRASE)}'\\s*&&\\s*" \
-    "github\\.event\\.comment\\.user\\.id\\s*==\\s*github\\.event\\.issue\\.user\\.id"
-  )
-  fail!("CLA signing trigger must admit authenticated contributors") if [gate["if"], assistant["if"], rerun["if"]].any? { |expression| expression.to_s.match?(sign_author_guard) }
-  fail!("CLA workflow may not checkout a pull-request ref") if raw.match?(/ref:\s*\$\{\{\s*github\.event\.pull_request/)
-
-  uses = []
-  walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
-  uses.each do |reference|
-    assert_action_reference(reference, "CLA workflow action")
-  end
-  assert_exact_secret_paths(document)
-  assert_safe_expression_fields(document, "CLA workflow")
+  assert_exact_secret_paths(document, allowed_paths: [
+    %w[jobs status steps] + [1] + %w[env GH_TOKEN],
+    %w[jobs writer steps] + [1] + %w[env GITHUB_TOKEN],
+    %w[jobs writer steps] + [2] + %w[env GH_TOKEN]
+  ])
+  assert_safe_expression_fields(document, "CLA workflow", allowed_secret_paths: [
+    %w[jobs status steps] + [1] + %w[env GH_TOKEN],
+    %w[jobs writer steps] + [1] + %w[env GITHUB_TOKEN],
+    %w[jobs writer steps] + [2] + %w[env GH_TOKEN]
+  ])
   assert_safe_run_values(document)
-
   raw
 rescue Psych::Exception => error
   fail!("CLA workflow YAML is invalid: #{error.message.lines.first.to_s.strip}")
