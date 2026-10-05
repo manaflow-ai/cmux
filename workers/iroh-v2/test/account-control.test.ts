@@ -32,7 +32,7 @@ async function world() {
       return identities.map(value => team.accountMacRecord(value));
     },
   });
-  return { x, y, now, setClock: (value: number) => { clock = value; }, account, calls };
+  return { x, y, now, setClock: (value: number) => { clock = value; }, account, calls, replaceTeam: (teamId: string, store: TeamStore) => { teams.set(teamId, store); } };
 }
 
 async function accountSetup(key: DeviceKey, device: DeviceDescriptor, requestId: string, issuedAt: number, request?: unknown, nonce = "B".repeat(21) + requestId.length % 10) {
@@ -93,10 +93,30 @@ test("scope comes only from the account object's user: another user's ticket can
   const tKey = await deviceKey(31);
   const teammate = descriptor(tKey, identity("team-x", "user-t", "mac-t"), "mac", HOST);
   w.x.enroll(teammate, NOW - 100);
+  const [aKey, bKey] = await Promise.all([32, 33].map(deviceKey));
+  const a = descriptor(aKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const b = descriptor(bKey!, identity("team-x", "user-u", "mac-b"), "mac", HOST);
+  w.x.enroll(a, NOW - 100); w.x.enroll(b, NOW - 100);
+  w.x.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  w.x.store.observeAuthority("user-t", NOW - 50, NOW + 3550, NOW);
   const broker = w.account("user-u");
-  await expect(call(broker, tKey, teammate, "account.directory.v1")).rejects.toMatchObject({ code: "identity_mismatch" });
-  // A teammate's own account object holds nothing of user-u.
-  const own = directoryOf((await call(w.account("user-t"), tKey, teammate, "account.directory.v1")).response);
+  const teammateBroker = w.account("user-t");
+  await call(broker, aKey!, a, "account.publish.v1");
+  await call(teammateBroker, tKey, teammate, "account.publish.v1");
+  // user-t's ticket (claims user-t) never authorizes user-u's object, for any operation.
+  for (const schemaId of ["account.directory.v1", "account.publish.v1", "account.withdraw.v1"]) {
+    await expect(call(broker, tKey, teammate, schemaId)).rejects.toMatchObject({ code: "identity_mismatch" });
+  }
+  // A setup whose team differs from the verified authority is refused too.
+  const request = { schemaId: "account.directory.v1", requestId: "cross-team" };
+  const crossTeam = await accountSetup(aKey!, a, "cross-team", NOW, request, "X".repeat(22));
+  await expect(broker.authorize(crossTeam, request, { environment: a.identity.environment, projectId: a.identity.projectId, teamId: "team-y", userId: "user-u", verifiedAt: NOW }, NOW + 3600))
+    .rejects.toMatchObject({ code: "identity_mismatch" });
+  // Teammates never appear in each other's directory, even as same-team hosts.
+  const mine = directoryOf((await call(broker, bKey!, b, "account.directory.v1")).response);
+  expect(mine.macs.map(mac => mac.descriptor.identity.userId)).toEqual(["user-u"]);
+  expect(mine.inboundMacs.map(peer => peer.device.descriptor.identity.userId)).toEqual(["user-u"]);
+  const own = directoryOf((await call(teammateBroker, tKey, teammate, "account.directory.v1")).response);
   expect(own.macs).toEqual([]);
   expect(own.inboundMacs).toEqual([]);
 });
@@ -120,6 +140,24 @@ test("revoked and rekeyed rows drop on read; withdraw works even after revocatio
   const withdrawn = await call(broker, cKey!, c, "account.withdraw.v1");
   expect(withdrawn.response.schemaId).toBe("account.withdrawn.v1");
   expect(directoryOf((await call(broker, bKey!, b, "account.directory.v1")).response).macs).toEqual([]);
+});
+
+test("a row whose team record was rekeyed is dropped on read and the old key cannot republish", async () => {
+  const w = await world();
+  const [oldKey, newKey, bKey] = await Promise.all([45, 46, 47].map(deviceKey));
+  const oldA = descriptor(oldKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const b = descriptor(bKey!, identity("team-y", "user-u", "mac-b"), "mac", HOST);
+  w.x.enroll(oldA, NOW - 100); w.y.enroll(b, NOW - 100);
+  const broker = w.account("user-u");
+  await call(broker, oldKey!, oldA, "account.publish.v1");
+  await call(broker, bKey!, b, "account.publish.v1");
+  expect(directoryOf((await call(broker, bKey!, b, "account.directory.v1")).response).macs.map(mac => mac.descriptor.endpointId)).toEqual([oldKey!.endpointId]);
+  // Team X now holds mac-a under a new key (same installation identity).
+  const rekeyed = await teamHarness("team-x", w.now);
+  rekeyed.enroll(descriptor(newKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST), NOW - 10);
+  w.replaceTeam("team-x", rekeyed.store);
+  expect(directoryOf((await call(broker, bKey!, b, "account.directory.v1")).response).macs).toEqual([]);
+  await expect(call(broker, oldKey!, oldA, "account.publish.v1")).rejects.toMatchObject({ code: "key_replacement_required" });
 });
 
 test("publish requires a Mac record with a Mac capability, matching key, and teamChanged revalidates", async () => {

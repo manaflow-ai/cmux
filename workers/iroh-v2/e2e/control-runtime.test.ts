@@ -567,13 +567,13 @@ test("a team at its socket cap sheds the next socket before it mutates team stat
 });
 
 test("the account directory reaches AccountControl and the team record through the production Worker", async () => {
-  const accountCall = async (schemaId: string, requestId: string, authorization = `IrohTicket ${ticket}`) => {
+  const accountCall = async (schemaId: string, requestId: string, authorization = `IrohTicket ${ticket}`, device = descriptor) => {
     const request = { schemaId, requestId };
-    const plain = { schemaId: "session.open.v1", requestId, device: descriptor };
+    const plain = { schemaId: "session.open.v1", requestId, device };
     const nonce = encodeBase64URL(crypto.getRandomValues(new Uint8Array(16)));
     const issuedAt = Math.floor(Date.now() / 1000);
     const signature = await crypto.subtle.sign("Ed25519", signingKey, new TextEncoder().encode(
-      accountRequestSigningInput(descriptor, requestId, issuedAt, { setup: plain, request }, nonce)));
+      accountRequestSigningInput(device, requestId, issuedAt, { setup: plain, request }, nonce)));
     const setup = { ...plain, proof: { requestId, nonce, issuedAt, signature: encodeBase64URL(new Uint8Array(signature)) } };
     return json("https://iroh.test/v2/account/requests", {
       method: "POST", headers: { "content-type": "application/json", authorization, "x-cmux-v2-setup": setupHeader(setup) },
@@ -604,6 +604,18 @@ test("the account directory reaches AccountControl and the team record through t
   const after = await teamRequest({ schemaId: "directory.request.v1", requestId: "team-after-account" });
   expect(after.body.directory.revision).toBe(before.body.directory.revision + 1);
   expect(after.body.directory.rules).toEqual(["cmux.mac-peer-inbound.v1"]);
+  // Another user's valid ticket reaches only that user's object: it cannot
+  // borrow this user's device, and its own object lists nothing of this user.
+  const other = { ...descriptor, identity: { ...descriptor.identity, userId: "other-user" } };
+  const otherTicket = `IrohTicket ${(await issueTicket(other, "k1", ticketSigningKey, Math.floor(Date.now() / 1000))).token}`;
+  const borrowed = await accountCall("account.directory.v1", "account-borrowed", otherTicket);
+  expect(borrowed.response.status).toBe(403);
+  expect(borrowed.body.code).toBe("identity_mismatch");
+  for (const schemaId of ["account.directory.v1", "account.publish.v1"]) {
+    const foreign = await accountCall(schemaId, `account-foreign-${schemaId}`, otherTicket, other);
+    expect(foreign.response.status).toBe(409);
+    expect(foreign.body.code).toBe("device_not_enrolled");
+  }
   expect((await accountCall("account.withdraw.v1", "account-withdraw")).body.schemaId).toBe("account.withdrawn.v1");
   await teamRequest({ schemaId: "device.metadata.v1", requestId: "account-restore", metadata: original });
 });
