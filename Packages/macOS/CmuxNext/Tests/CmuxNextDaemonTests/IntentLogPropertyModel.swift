@@ -132,9 +132,15 @@ struct RefState: Equatable, CustomStringConvertible {
         case .setRowHeights:
             // The property world has no rows.
             return false
-        case .createTab:
-            // The property world creates no tabs (IntentCreateTabTests covers creation).
+        case .bindAgentSession:
+            // The property world's tabs have no agent session record.
             return false
+        case .createTab(let pane, let provisional):
+            // The client's view of a creation: the provisional tab at the end of an open pane.
+            guard layout.tabs[pane] != nil, layout.pane(of: provisional.surface) == nil else { return false }
+            layout.tabs[pane]!.append(provisional.surface)
+            meta[provisional.surface] = RefTabMeta()
+            return true
         }
     }
 
@@ -151,6 +157,7 @@ struct RefState: Equatable, CustomStringConvertible {
         switch intent {
         case .moveTab(let surface, let pane, _): layout.pane(of: surface) != nil && layout.tabs[pane] != nil
         case .renameTab(let surface, _), .setTabPinned(let surface, _): meta[surface] != nil
+        case .createTab(let pane, _): layout.tabs[pane] != nil
         default: true
         }
     }

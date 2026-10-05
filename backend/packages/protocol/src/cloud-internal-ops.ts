@@ -15,6 +15,8 @@ export const CloudDriverResultParams = Schema.Struct({
   error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
   /** Retrying cannot help (configuration, authorization, a name owned by someone else). */
   final: Schema.optionalKey(Schema.Boolean),
+  /** create (and a failed resize): the VM's real resources read from the provider, so the record is honest. */
+  resources: Schema.optionalKey(Schema.Struct({ cpu: Schema.Int, memory_mb: Schema.Int, disk_mb: Schema.Int })),
   /** create: sha256 (hex) of the one-time bind token written into the VM; the token itself never enters an op. */
   bind_token_sha256: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)))
 })
