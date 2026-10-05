@@ -5,7 +5,7 @@ import {
   scrubSentryEvent,
   shouldSendCoderouterSentryEvent,
 } from "./services/sentry";
-import { preconnectFreestyle } from "./services/vms/drivers/freestyle";
+import { preconnectFreestyle } from "./services/vms/drivers/freestyleWarmup";
 
 /** Compile the first-use Cloud routes while the development server is starting. */
 function prewarmDevCloudRoutes(): void {
