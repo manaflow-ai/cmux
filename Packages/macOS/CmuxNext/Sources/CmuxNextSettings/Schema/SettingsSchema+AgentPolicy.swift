@@ -135,6 +135,8 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Whether attached photos and videos send their location.
+        "home.attachments.keepLocation": .privacy,
         "app.quitBehavior": .destructive,
         // Update checks and downloads reach the network; install on quit
         // replaces the app.
