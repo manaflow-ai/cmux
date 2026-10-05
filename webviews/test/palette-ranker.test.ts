@@ -38,6 +38,23 @@ describe("shared palette ranker", () => {
     expect(rankedIDs(entries, "preferences")[0]).toBe("action:openSettings");
   });
 
+  // Live case: typing "settings" ranked the Settings scope row (entered by its keyword) above
+  // the "Settings…" action. A row whose title is the whole query comes first, ahead of a row that
+  // only a keyword matches, also when that row was used more often.
+  test("a row whose whole title is the query outranks a keyword-only match", () => {
+    const entries = [
+      entry("scope:settings", "Change Settings", { keywords: ["settings", "preferences"], frecencyKey: "scope:settings" }),
+      entry("action:openSettings", "Settings…", { keywords: ["preferences", "options", "config"], frecencyKey: "openSettings" }),
+      entry("action:palette.toggleSetting", "Toggle Setting…", { keywords: ["preferences"] }),
+    ];
+    const frecency: PaletteFrecency = { entries: { "scope:settings": { score: 20, lastUsed: now } } };
+    expect(rankedIDs(entries, "settings", frecency)[0]).toBe("action:openSettings");
+    expect(rankedIDs(entries, "Settings", frecency)[0]).toBe("action:openSettings");
+    expect(rankedIDs(entries, "settings…", frecency)[0]).toBe("action:openSettings");
+    // A partial query keeps the normal order rules.
+    expect(rankedIDs(entries, "toggle")[0]).toBe("action:palette.toggleSetting");
+  });
+
   test("frecency breaks ties without beating a clearly better match", () => {
     const entries = [
       entry("right", "Split Right", { frecencyKey: "right" }),
