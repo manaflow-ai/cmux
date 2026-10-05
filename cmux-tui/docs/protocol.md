@@ -145,6 +145,9 @@ persists and restores these tabs but never attaches a CDP target or renders
 frames for them, and `attach-surface` refuses them. Tabs report
 `browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
 their existing behavior and report `browser_renderer:"daemon"`.
+With `frontend-browser-tab-keys-v1`, `new-frontend-browser-tab` takes an
+optional `idempotency_key`: a retry after a lost reply returns the first
+tab (`replayed:true`) instead of creating a second one.
 
 `frontend-browser-history-v1` adds `set-frontend-browser-history` and
 `get-frontend-browser-history`: a frontend stores an opaque JSON object (at

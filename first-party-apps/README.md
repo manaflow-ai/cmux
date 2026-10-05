@@ -12,7 +12,12 @@ Official cmux apps built on the app platform with only the public app API (the g
 | `diffs/` | `cmux/diffs` | `cmux.diff.renderer/1`: working tree, refs, agent proposals and run diffs, with per-hunk decisions and comments |
 | `codemirror/` | `cmux/codemirror` | `cmux.editor/1` on CodeMirror 6 in a web pane |
 | `monaco/` | `cmux/monaco` | `cmux.editor/1` on the Monaco editor in a web pane |
-| `integrations/` | `cmux/integrations` | connections to GitHub, Linear, Slack, Calendar, Gmail and any OpenAPI, GraphQL or MCP API, with health, sharing and per-tool Allow / Ask / Block; generic import adapted from executor (MIT, `integrations/LICENSE-executor`) |
+| `integrations/` | `cmux/integrations` | connections to GitHub, Linear, Slack, Calendar, Gmail and any OpenAPI, GraphQL or MCP API, with health, sharing and per-tool Allow / Ask / Block; generic import and tool policy from the MIT package `libs/integrations-core/` (`@cmux/integrations-core`), adapted from executor (MIT, `integrations/LICENSE-executor`) |
+| `caffeinate/` | `cmux/caffeinate` | keeps the Mac awake (until stopped, for a time, or while a terminal's command runs) through the proposed host capability `power.assertion.*` |
+| `agents/` | `cmux/agents` | agent CLIs (Claude Code, Codex, OpenCode, Pi, Chief, ...) on every machine: versions, updates, installs and sign-ins, run by cmux in a visible terminal |
+| `skills/` | `cmux/skills` | skills and MCP servers per agent, project or everywhere; every config change is a reviewed diff before it is written |
+| `memory/` | `cmux/memory` | agent memory files (CLAUDE.md, AGENTS.md, project memory) per machine and project; every edit shows a diff, deletes go to the Trash |
+| `remote-desktop/` | `cmux/remote-desktop` | the native `remote_view` pane and the `rd.*` ops of the `cmux-rd` host engine (manifest v2 only, development only) |
 
 Each app is `cmux-app.json` + `src/main.ts` (typed by `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`) + built `dist/main.js` + `test/` (bun) + `preview/` (fixtures for screenshots) + a README with its scopes, variants, proposed operations and gaps.
 

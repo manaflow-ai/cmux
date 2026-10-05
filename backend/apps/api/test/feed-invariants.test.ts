@@ -120,6 +120,11 @@ const simulate = (seed: number, steps: number) => {
     if (!res.ok) continue
     try {
       check(res.state, state)
+      // FeedDO's live events carry items with updated_at == the commit time; every change must stamp it.
+      for (const i of Object.values(res.state.items)) {
+        const before = state.items[i.id]
+        if ((!before || before.revision !== i.revision) && res.changed && i.updated_at !== now) throw new Error(`I8 ${i.id} changed without updated_at = now`)
+      }
     } catch (e) {
       throw new Error(`seed ${seed} step ${n} ${o.op}: ${(e as Error).message}`)
     }

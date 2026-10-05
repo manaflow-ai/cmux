@@ -24,6 +24,10 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// vim sequence `g g`. Takes precedence over the formatted shortcut.
     public var shortcutLabel: String?
     public var shortcutFamily: ShortcutFamily?
+    /// A two-key default (`LeaderLayer`: Cmd-J then a key), in addition to
+    /// `defaultShortcut`. cmux.json replaces it with a chord, and a single
+    /// key or an unbind there drops it (`ActionRegistry.effectiveChord`).
+    public var defaultChord: ShortcutChord?
     public var category: ActionCategory
     /// SF Symbol name.
     public var symbol: String
@@ -61,14 +65,33 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// compat layer) uses the terminal start deadline instead of the
     /// control-plane one.
     public var startsTerminal: Bool
+    /// Has a purpose outside the GUI (creating, closing, renaming, moving or
+    /// pinning objects; opening a page; headless settings; scriptable agent
+    /// and Cloud work), so the `cmux` CLI offers it by `cliName`. GUI-only
+    /// actions (focus moves, palette navigation, zoom) stay reachable by id
+    /// through `cmux action run` (plans/cmux-next/state-ownership.md 5).
+    /// `surfacePlan.cli` decides it (`ActionSurfaceCatalog.cliNamed`).
+    public var cli: Bool { surfacePlan.cli?.isOffered == true }
     /// The action's work is a network round trip whose outcome the caller
     /// needs (Connect to CodeRouter): the CLI runs it with `wait` and the
     /// control socket gives it ``ActionDescriptor/resultDeadline``.
     public var waitsForResult: Bool = false
+    /// The action's purpose is to change this client's view: focus a pane
+    /// or tab, select a tab, show a workspace, bring a window forward
+    /// (tab.focus, Go to Tab, workspace next/previous, pane focus moves).
+    /// Such a run may change the view whatever its origin; any other run
+    /// only when its origin is the user or it asks with `focus: true`
+    /// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, ``ActionRunScope``).
+    /// The catalog marks these in `ActionCatalog.focusActionIDs`.
+    public var focuses: Bool = false
     /// Only a person in the app runs it (palette, menu, keyboard): the
     /// control socket refuses it whatever origin the caller claims, so no
     /// script or agent can start it (Import Passwords from CSV).
     public var isPersonOnly: Bool = false
+    /// Registered system-wide (a Carbon hot key) with its effective
+    /// shortcut, so it runs while another app is frontmost. The App's
+    /// `GlobalHotKeyService` owns registration and follows rebinds.
+    public var isGlobalHotKey: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
 

@@ -30,6 +30,10 @@ export const CLOUD_REJECT_CODES = [
   "address_cannot_act",
   /** The conversation is archived (no human participant is left). */
   "archived",
+  "importing",
+  "conversation_exists",
+  "import_out_of_order",
+  "invalid_import",
   /** The actor may not run this op (not the owner, inviter, or system). */
   "forbidden",
   /** The op does not apply to this conversation kind (for example `title.set` on a dm). */
@@ -54,7 +58,13 @@ export const CLOUD_REJECT_CODES = [
   "invalid_invite",
   /** A delivery report would move the delivery state backwards. */
   "delivery_regression",
-  "invalid_settings"
+  "invalid_settings",
+  /** An attachment part names a hash that was not uploaded (and verified) for this conversation. */
+  "unknown_attachment",
+  /** An attachment part's type or size differs from the uploaded object's record. */
+  "attachment_mismatch",
+  /** A human the actor may not reach (no shared team or connection, their settings, or a block); also an unknown account (section 16). */
+  "not_reachable"
 ] as const
 
 export type LocalRejectCode = (typeof LOCAL_REJECT_CODES)[number]

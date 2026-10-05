@@ -45,9 +45,10 @@ organization does not need a second fork in one network. `main` =
 
 | Patch | Why |
 | --- | --- |
-| build: restore iOS slices in GhosttyKit.xcframework | Upstream stopped building the full library for iOS on 2026-08-12 (`7a171895dd`); only libghostty-vt still targets iOS. The iOS code paths in `src/apprt/embedded.zig` and `src/renderer/Metal.zig` are still upstream, so the revert is small. |
+| build: restore iOS slices in the xcframework | Upstream stopped building the full library for iOS on 2026-08-12 (`7a171895dd`); only libghostty-vt still targets iOS. The iOS code paths in `src/apprt/embedded.zig` and `src/renderer/Metal.zig` are still upstream, so the revert is small. |
 | build: add the ios xcframework target | `-Dxcframework-target=ios` builds iOS device, iOS simulator and native macOS (for host-side Swift package tests). |
 | ci: ghostty-next GhosttyKit pipeline | Section 10. |
+| build: name the ios xcframework and module GhosttyNextKit | The iOS app and the desktop app can share one Xcode workspace without a module collision (D9). |
 | build: enable blocks when translating Apple SDK headers | The iOS 26.5 SDK CoreGraphics headers use blocks; translate-c needs `-fblocks` (found by the first iOS build). |
 | ci: zero archive dates and add a link smoke | Reproducible archives; link-and-run smoke for every slice. |
 | (in review, PR 2) remote IO mode | Manual and manual-mirror IO with the desktop fork's C names and values (struct offsets differ: different base), plus `ghostty_surface_text_input`. CI: 88 unit tests green; review asked for fixes (Kitty temp-file media, local clear and reset in mirror mode, exhaustive reply classification, sliced `process_output`, threading contract, byte-level reply corpus test). |
@@ -86,11 +87,14 @@ block the renderer thread when the app goes to the background; ghostty-next
 needs a bounded wait there. Upstream also changed the clipboard callback
 interface, so no Swift code from today's app links unchanged.
 
-Risk for the shipping app: the current iOS app links GhosttyKit from
-`manaflow-ai/ghostty`. The next upstream sync of that fork inherits
-`7a171895dd` and drops the iOS slices unless the sync reverts it. The
-update-ghostty-upstream skill must say so until the shipping iOS app moves
-to ghostty-next.
+**Decided (D1, 2026-10-02): the next upstream sync of `manaflow-ai/ghostty`
+must revert upstream `7a171895dd`.** The shipping iOS app links GhosttyKit
+from `manaflow-ai/ghostty`. That sync inherits `7a171895dd` ("build: stop
+building Ghostty.xcframework for iOS") and drops the iOS slices unless it
+reverts that commit, exactly as ghostty-next's first patch does. Keep the
+revert in every sync until the shipping iOS app links GhosttyNextKit from
+ghostty-next. The sync owner checks that the published GhosttyKit still has
+`ios-arm64` and `ios-arm64-simulator` slices before the cmux pointer bump.
 
 ## 2. Who parses VT
 
@@ -153,6 +157,72 @@ Speculative local echo (drawing a typed character before the host echoes
 it) is out of scope for v1. It helps only on high-RTT paths, it is wrong in
 raw-mode apps, and it needs a reconciliation layer. Revisit with measured
 RTT data from lane 12's path badges.
+
+### 2.1 Frame fields (proposal for sync-and-transport.md sections 3 and 4)
+
+Capability `terminal-snapshot-v1`. One `terminal_bytes` channel per attached
+viewer. Every binary frame keeps the section 4 header (`u32 channel`,
+`u64 seq`, `u8 flags`) and adds a terminal sub-header before the payload:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | u8 | 0 `bytes` (raw PTY output), 1 `snapshot_ready` (GHOSTSNP up to READY; keyframe flag set), 2 `snapshot_history` (GHOSTSNP HISTORY pages, newest first), 3 `digest` |
+| `generation` | u32 | grid generation (size-state `generation`); a viewer drops `bytes` older than its last restored snapshot |
+| `offset` | u64 | host byte offset of the PTY output stream after this frame (for `snapshot_ready`: the offset the snapshot reflects) |
+| `snapshot_version` | u16 | GHOSTSNP version, present for kinds 1 to 3 |
+
+Rules: the first frame after attach is `snapshot_ready`. A grid change sends
+`snapshot_ready` with the new generation to every viewer. Per-viewer credit:
+when a viewer's unacknowledged backlog would exceed
+`terminal.viewerBacklogBytes` (default 262144), the host drops that
+viewer's pending bytes and sends `snapshot_ready` at the next credit. 2 s
+after output goes idle the host sends `digest` (sha256 of its READY
+encoding). A viewer with a different `snapshot_version` gets the byte
+replay instead (capability fallback). `presence.set` carries `visible` and
+`counts` (section 6).
+
+The same fields map onto cmux-tui raw v12 events for local clients:
+`attach-surface {mode:"bytes", snapshot:"ghostsnp", snapshot_version}`
+answers with event `snapshot {phase:"ready"|"history", generation, offset,
+version, data(b64)}`; `output` gains `generation` and `offset`; `digest
+{generation, offset, version, sha256}`; command `snapshot-request
+{surface}`. `terminal.history` and `terminal.read_range` are in the
+request file `terminal-snapshot-history.md`.
+
+### 2.2 Mac viewer (S2b, landed 2026-10-04)
+
+- The Mac asks for snapshots only when the host advertises
+  `terminal-snapshot-history-v1`: after every READY the host sends the rest
+  of the same COMPLETE encode (HISTORY records through FINISH) as
+  `snapshot {phase: "history"}` chunks at lower priority than live output,
+  and a newer READY cancels the older history. A READY alone would drop the
+  scrollback at every attach and grid change; `terminal-history` pages are
+  bare PAGE records and cannot be fed to `ghostty_surface_restore_snapshot`.
+- Generation order has one owner: `TerminalSnapshotSequencer` on the attach
+  reader thread drops `output` older than the last READY and history of a
+  replaced READY. The Mac channel event `output` therefore carries no
+  generation or offset (deviation from the raw v12 fields above, accepted).
+- `digest` is ignored in v1: comparing it needs the viewer to encode its own
+  READY (drift repair above). Until then attach and grid snapshots repair
+  drift.
+- A READY restore keeps the owner's default palette, bg/fg and cursor
+  defaults; the surface's own config must win (colors, and the cursor style
+  unless the program chose one). ghostty-next applies them as local policy
+  in the restore (PR 20, GhosttyNextKit 68ac618db); the Mac no longer
+  re-applies its config after a READY.
+- S2c (terminal-snapshot-local-history-v1): a viewer that opts in and is up
+  to date gets, at each host resize, a READY cut exactly at the resize point,
+  ordered after every earlier output frame, marked history: "local", with
+  history_rows and history_digest (libghostty-vt digest v2 of the 64 history
+  rows above the READY seam) and no history chunks. The Mac restores it with
+  ghostty_surface_restore_snapshot_local_history: Ghostty reflows the old
+  terminal with the owner's settings and keeps its history on a match (a
+  smaller local scrollback limit still matches); a mismatch restores the READY
+  without history, counts local_history_mismatch and sends snapshot-request
+  (reason gap). A behind viewer, attach, overflow and request keep READY +
+  history. 100k lines: 2.58 MB -> 60 KB base64 per settled resize.
+- Kitty images on screen are lost after a snapshot until S3k (the host
+  replays on-screen images after READY).
 
 ## 3. Manual IO mode
 
@@ -438,8 +508,28 @@ and the live RTT show in the terminal header, so a slow path is visible.
   scrollback on an iPhone 15-class device. Verified with Instruments
   (Allocations, Metal System Trace, Energy) during the lane 14 dogfood.
 
-## 10. GhosttyKit pipeline
+## 10. GhosttyNextKit pipeline
 
+- Current pin for lane 14 (2026-10-03): release ios-v4,
+  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-76db9d14f3cd66cb026d56a0bd46eecaa085ece4-ios-v4/GhosttyNextKit.xcframework.zip,
+  sha256 `e8f62d62a48eec2c685e997ba8efff2bb34712784f2d4aed988c38b691771126`.
+  New API: `ghostty_surface_set_grid(s, cols, rows, generation)` (older
+  generation refused; larger grid crops at the top-left, smaller grid pads
+  in the background color, MANUAL_MIRROR never reflows) and
+  `ghostty_surface_grid`; `ghostty_surface_restore_snapshot(s, bytes, len,
+  phase)` and `ghostty_surface_encode_snapshot(s, write_cb, userdata,
+  phase)` with phases READY=0, HISTORY=1, COMPLETE=2;
+  `ghostty_surface_snapshot_version()` (1). set_grid, restore and encode run
+  on the process_output serial queue. Also: surface calls no longer block
+  on the renderer mailbox, 72 DPI fonts on iOS, IOSurfaceLayer detach before
+  renderer free, bounded (100 ms) swap-chain release on hide. Evidence:
+  ghostty-next PR 6 (CI: 101 Zig tests incl. a byte-equal snapshot round
+  trip); `next/ios-render-smoke.sh --release` on the build host passes fill,
+  grid (10x5 grid red only inside, stale generation refused) and snapshot
+  restore. iOS draw contract (from ios-v3): no display link; the renderer
+  thread draws on change and ghostty_surface_draw draws on main; the
+  embedder view is a plain UIView passing pixel sizes from layoutSubviews.
+  Never pin ios-v1 (module GhosttyKit) or ios-v2 (draws black).
 - Status 2026-10-02: first release
   `xcframework-e699e418bf5e16bac6451dc44bd0c82907af58bc-ios-v1`
   (zip 96,269,903 bytes, sha256
@@ -466,12 +556,14 @@ and the live RTT show in the terminal header, so a slow path is visible.
   timestamps and modes), `SHA256SUMS`, and `manifest.json` (commit, upstream
   base, Zig, Xcode and SDK versions, flags, per-slice SHA-256).
 - A push to `main` publishes release `xcframework-<sha>-<flavor>` (flavor
-  `ios-v1`) with the zip, sums, manifest and a build provenance attestation.
+  `ios-v4` at the time of writing; asset `GhosttyNextKit.xcframework.zip`) with the zip, sums, manifest and a build provenance attestation.
   A release is never replaced. Pull requests build and upload a workflow
   artifact only. `workflow_dispatch -f verify_reproducible=true` rebuilds on
   a second runner without caches and compares slice hashes.
 - The iOS app pins one release with SwiftPM:
-  `.binaryTarget(name: "GhosttyKit", url: "https://github.com/manaflow-ai/ghostty-next/releases/download/<tag>/GhosttyKit.xcframework.zip", checksum: "<sha256>")`.
+  `.binaryTarget(name: "GhosttyNextKit", url: "https://github.com/manaflow-ai/ghostty-next/releases/download/<tag>/GhosttyNextKit.xcframework.zip", checksum: "<sha256>")`,
+  and Swift code does `import GhosttyNextKit`. The C API (`ghostty_*`) is
+  unchanged.
   The zip SHA-256 is the SwiftPM checksum. A pin change is one reviewed
   commit that changes both values. `gh attestation verify` checks
   provenance.
@@ -487,7 +579,7 @@ and the live RTT show in the terminal header, so a slow path is visible.
   a snapshot), `terminal.history`, `terminal.read_range`, idle screen digest,
   grow hysteresis in the sizing reducer (fixture first). File:
   `.cmux-scratch/nx-worker/cli-requests/terminal-snapshot-history.md`.
-- Lane 14 (iOS): consume GhosttyKit only through the pinned release; adopt
+- Lane 14 (iOS): consume GhosttyNextKit only through the pinned release; adopt
   the visibility, keyboard and preview rules of section 6; settings keys in
   sections 4, 5 and 7 go to the settings catalog with documented defaults.
 
@@ -509,11 +601,31 @@ and the live RTT show in the terminal header, so a slow path is visible.
 
 ## 13. Open questions
 
-- Snapshot on the host needs `manaflow-ai/ghostty` to sync past upstream's
-  `snapshot.h`, or cmux-tui to build ghostty-vt from ghostty-next. See the
-  DECISION lines in the lane report.
 - Mac Catalyst for the Home screen (IOS3) would need a `maccatalyst` slice;
   not built until IOS3 picks Catalyst.
 - Whether `visible: false` should also apply when the phone shows the
   terminal in a small Home preview while the user reads messages (rule 4
   treats previews as non-counting).
+
+## 14. Decided (coordinator, 2026-10-02)
+
+- D1: the next upstream sync of `manaflow-ai/ghostty` reverts upstream
+  `7a171895dd`, so the shipping iOS app keeps its iOS slices (section 1).
+- D2: the session host gets the snapshot encoder by syncing
+  `manaflow-ai/ghostty` past upstream `snapshot.h`; the desktop app and the
+  daemon keep one parser. Byte replay stays behind `terminal-snapshot-v1`
+  until then.
+- D3: GHOSTSNP v1 is used with an on-screen Kitty image replay after each
+  snapshot and an exact snapshot version match (section 2).
+- D4: no Ghostty surface call blocks its caller (section 3, item 8).
+- D5: iOS encodes keys with Ghostty's encoder from `pressesBegan`; no Swift
+  key table (section 5).
+- D6: input reaches `io_write_cb` synchronously on the caller's thread.
+- D7: releases that are not bit-reproducible are accepted for now; the
+  sha256 pin and the attestation protect integrity; the cache-path leak is
+  fixed later.
+- D8: the iOS grid rules of section 6 (keyboard never changes rows, a phone
+  counts only while foreground and visible, 250 ms grow delay, previews do
+  not count).
+- D9: the ghostty-next xcframework and Swift module are named
+  GhosttyNextKit, not GhosttyKit.

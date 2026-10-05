@@ -22,6 +22,9 @@ enum TabHandlers {
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
         registry.bind("newTab.sameKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
+        registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
+        registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
+        registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
         registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
         let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs?.cefUnavailableReason() }
@@ -51,8 +54,11 @@ enum TabHandlers {
                 pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
-            } else if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
+            } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {
                 pane.duplicateAgentTab(id.rawValue)
+            } else if id.rawValue.hasPrefix(LocalPageTab.prefix) {
+                // One tab per page per window: the page is already there.
+                return
             } else {
                 pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
             }
@@ -60,7 +66,11 @@ enum TabHandlers {
         let history = ClosedTabTracker(services: ctx.services)
         ctx.services.closedTabs = history
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
-            guard let record = history.popLast() ?? ctx.refuse(RefusalStrings.noRecentlyClosedTab) else { return }
+            // The daemon's history first; the app's tracker covers daemons without it.
+            if let entry = DaemonClosedHistory.entries([.tab], in: ctx.services).first {
+                return DaemonClosedHistory.reopen(entry, services: ctx.services)
+            }
+            guard let record = history.popLast() ?? ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab) else { return }
             history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
         })
     }
@@ -72,7 +82,7 @@ enum TabHandlers {
             guard let pane = ctx.paneController(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let ids = pane.orderedIDs
-            guard !ids.isEmpty else { return ctx.refuse(RefusalStrings.paneHasNoTabs) }
+            guard !ids.isEmpty else { return ctx.refuseQuietly(RefusalStrings.paneHasNoTabs) }
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
@@ -80,22 +90,33 @@ enum TabHandlers {
             guard let ref = invocation["tab"]?.targetValue ?? invocation.target ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
             reveal(tabID: ref.id, ctx: ctx)
         })
+        // `cmux tab <id> focus`: the same path, by target.
+        registry.bind("tab.focus", invoke: { invocation in
+            guard let ref = invocation.target ?? ctx.scope(invocation).tab.map({ ActionTargetRef(kind: .tab, id: $0.id.rawValue) })
+                ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
+            reveal(tabID: ref.id, ctx: ctx)
+        })
     }
 
-    /// Shows the tab's workspace in the active window, then selects and focuses it.
+    /// Shows the tab in the window that lists its workspace (the active
+    /// window takes the workspace when no window lists it), selects it and
+    /// focuses its pane. Selection is the window's (state-ownership.md 3);
+    /// the change is saved in the window's record at once.
     static func reveal(tabID: String, ctx: AppActionContext) {
-        guard let (_, paneModel) = ctx.services.locateTab(tabID) ?? ctx.refuse(RefusalStrings.noTab(tabID)) else { return }
-        if let pane = ctx.services.paneController(for: paneModel) {
-            pane.select(StripTabID(tabID))
-            if let window = pane.view.window { WindowActivation.show(window, .raise) }
-            return
+        // tab.focus and Go to Tab focus by purpose (`focuses`); any other
+        // caller only with the run's view-change permission.
+        guard ActionRunScope.viewChangeAllowed() else { return }
+        guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
+        let owner = ctx.services.machines.allWorkspaces.first { workspace, _ in
+            workspace.screens.contains { $0.panes.contains { $0 === paneModel } }
         }
-        guard let window = ctx.services.windows.active ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
-        let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === paneModel } } }
-        guard let workspace else { return }
-        window.state.selection.select(tabID, in: paneModel.id)
-        window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
-        ctx.services.windows.show(workspaceID: workspace.id, in: window.state)
+        guard let workspace = owner?.0 ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
+        guard let controller = ctx.window(showing: workspace.id) ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
+        controller.state.selection.select(tab.id, in: paneModel.id)
+        controller.focus.send(.selectTab(pane: paneModel.id, tab: tab.id, workspace: workspace.id, source: .intent))
+        ctx.services.paneController(for: paneModel)?.select(StripTabID(tab.id))
+        ctx.services.windows.recordSaver.stateDidChange(controller.state)
+        if let window = controller.window { WindowActivation.show(window, .raise) }
     }
 
     private static func bindMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -117,7 +138,7 @@ enum TabHandlers {
         let ids = pane.orderedIDs
         guard let index = ids.firstIndex(of: id) else { return }
         let target = min(max(index + offset, 0), ids.count - 1)
-        guard target != index else { return ctx.refuse(RefusalStrings.tabAtEdge) }
+        guard target != index else { return ctx.refuseQuietly(RefusalStrings.tabAtEdge) }
         pane.move(id, toPane: pane, index: target)
     }
 
@@ -127,7 +148,7 @@ enum TabHandlers {
         guard let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
         let order = screen.layout.panes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
-            return ctx.refuse(RefusalStrings.screenHasNoOtherPane)
+            return ctx.refuseQuietly(RefusalStrings.screenHasNoOtherPane)
         }
         let next = order[(index + offset + order.count) % order.count]
         guard let target = content.panes[next] else { return }
@@ -138,7 +159,7 @@ enum TabHandlers {
         guard let (pane, id) = ctx.tab(invocation), let content = pane.workspace else { return }
         guard let neighbor = PaneHandlers.neighbor(of: pane.layoutPaneID, direction: direction, in: content),
               let target = content.panes[neighbor] else {
-            return ctx.refuse(RefusalStrings.noPaneInDirectionOfTab(RefusalStrings.direction(direction)))
+            return ctx.refuseQuietly(RefusalStrings.noPaneInDirectionOfTab(RefusalStrings.direction(direction)))
         }
         pane.move(id, toPane: target, index: target.pane.tabs.count)
     }

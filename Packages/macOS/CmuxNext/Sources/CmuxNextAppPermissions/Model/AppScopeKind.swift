@@ -1,3 +1,4 @@
+import CmuxNextApps
 import Foundation
 
 /// The parsed parts of a scope string and its classification.
@@ -10,10 +11,6 @@ public nonisolated struct AppScopeKind: Sendable, Hashable {
     public var risk: AppScopeRisk
     public var axis: AppScopeAxis
 
-    /// Scopes only first-party apps (and Verified versions whose human
-    /// review approved them) may hold (section 4).
-    public static let restrictedScopes: Set<String> = ["coderouter:keys", "usage:read", "fs:write", "mcp:expose", "clipboard:write"]
-
     public init(_ scope: String) {
         self.scope = scope
         let parts = scope.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
@@ -22,10 +19,18 @@ public nonisolated struct AppScopeKind: Sendable, Hashable {
         (risk, axis) = Self.classify(family: family, level: level)
     }
 
-    /// Restricted scopes; `fs:write:<root>` counts as `fs:write`.
+    /// Scopes only first-party apps (and Verified versions whose human
+    /// review approved them) may hold: the `restricted` class of the shared
+    /// scope table (`AppScopeClassTable`, the Rust validator's table), and any
+    /// scope the table does not know. `fs:write:<root>` counts as `fs:write`.
     public var isRestricted: Bool {
-        Self.restrictedScopes.contains(scope) || scope.hasPrefix("fs:write:")
+        let base = family == "fs" ? "fs:" + (level.split(separator: ":").first.map(String.init) ?? level) : scope
+        return AppScopeClassTable.bundled.isRestricted(base)
     }
+
+    /// Granted only by an explicit user grant in the native confirmation
+    /// sheet, never at install (`elevated` in the shared scope table).
+    public var isElevated: Bool { AppScopeClassTable.bundled.isElevated(scope) }
 
     /// A network host scope (`net:api.example.com`, `net:*.example.com`).
     public var isNetwork: Bool { family == "net" }

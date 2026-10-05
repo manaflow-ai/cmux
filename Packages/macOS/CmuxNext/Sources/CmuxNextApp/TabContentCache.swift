@@ -12,28 +12,34 @@ import Observation
 /// view (`SurfaceLedger`). Surfaces exist for tabs presented on screen or in
 /// the keep-alive band (off-screen columns within one viewport width, paused)
 /// plus an LRU of 8 recently hidden ones; older hidden surfaces are destroyed and re-attach
-/// from the daemon replay when shown. Previews of destroyed surfaces stay in
-/// a 32 MB image LRU.
+/// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:]
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
-    /// Every tab's content phase and visibility generation
-    /// (plans/cmux-next/tab-lifecycle.md): the only source of show and hide
-    /// for terminal surfaces and pages (`TabContentCache+Lifecycle`).
+    /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
+    /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
     /// Shown tabs whose content did not exist yet (a Chromium page being
     /// created): the token of their `mount`, answered when it installs.
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm (memory budget; pressure).
     var warmBudget = WarmSetBudget.standard
+    var onRelease: ((String) -> Void)?
     /// Hibernates hidden pages (time, memory pressure) and restores them.
     var hibernation: BrowserHibernation?
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
+    /// Browser pages' hover card thumbnails, captured when a page leaves the
+    /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
+    /// apart from `previews`, whose full-size page images hibernation shows.
+    let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// Pages revealed since their last hide: the next hide captures their
+    /// thumbnail (`TabContentCache+Lifecycle`).
+    var shownPages: Set<String> = []
     let webKit = WebKitEngine()
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
@@ -61,9 +67,8 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
-    /// Tabs an agent drove (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
-    var agentDrivenTabs: Set<String> = []
-    var agentDrivenSurfaces: Set<SurfaceID> = []
+    /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
+    var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
@@ -137,9 +142,8 @@ final class TabContentCache {
         )
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
-        let io = DaemonTerminalIO(target: target, visible: render, endpoint: { try await daemon.endpoint() })
-        let session = TerminalSession(io: io, ownsGeometry: true)
-        session.delegate = sessionDelegate
+        let io = DaemonTerminalIO(target: target, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
+        let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface)
         terminals[tab.id] = entry
@@ -303,6 +307,7 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
         entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
@@ -349,32 +354,22 @@ final class TabContentCache {
         browsers.first { $0.value.tab === page }?.key
     }
 
-    /// The tab closed: free everything it held.
+    /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String) {
+        onRelease?(key)
         if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil
         hibernation?.forget(key)
-        agentDrivenTabs.remove(key)
+        agentMarks.forget(key)
+        pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        pageThumbnails.remove(key)
+        shownPages.remove(key)
         onPresentationChange?()
-    }
-
-    // MARK: Previews
-
-    func previewImage(for key: String, maxPixelSize: CGSize) async -> CGImage? {
-        if let entry = terminals[key],
-           let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
-            previews.insert(image, for: key)
-            return image
-        }
-        if let entry = browsers[key], let image = try? await entry.tab.snapshot() {
-            return image
-        }
-        return previews.image(for: key)
     }
 }
 

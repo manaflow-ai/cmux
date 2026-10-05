@@ -9,6 +9,9 @@ public nonisolated enum BrowserNewTabDisposition: Hashable, Sendable {
     /// `window.open` with window features (OAuth, payment popups). Callers may
     /// show it as a tab or a small floating pane; it keeps `window.opener`.
     case popup
+    /// Shift-click, "Open Link in New Window": a new cmux window (a new
+    /// workspace holding the tab).
+    case newWindow
 }
 
 /// Requests a tab sends to its host. The App layer turns them into daemon
@@ -47,6 +50,9 @@ public enum BrowserTabIntent {
     /// The page did not handle an Escape key down (a popup panel closes on
     /// it; a tab ignores it).
     case unhandledEscape
+    /// The page did not handle a letter key while no editable field had
+    /// focus (Chromium only). The host may run a single-key shortcut on it.
+    case unhandledKey(BrowserPageKey)
     /// Keyboard focus left the page: Tab past its last element (`forward`)
     /// or Shift-Tab past its first. The host moves focus to the tab's
     /// omnibar.

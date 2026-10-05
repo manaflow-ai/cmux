@@ -36,8 +36,8 @@ final class TerminalStatusBanner: NSView {
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func show(_ status: TerminalConnectionStatus) {
-        guard let text = Self.text(for: status) else {
+    func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil) {
+        guard let text = Self.text(for: status, hostLoss: hostLoss) else {
             isHidden = true
             return
         }
@@ -46,17 +46,30 @@ final class TerminalStatusBanner: NSView {
         isHidden = false
     }
 
-    /// The banner text, or nil while connected. `strings` defaults to this
+    /// The banner text, or nil while connected. An exited terminal whose
+    /// host was lost (`hostLoss`) says so. `strings` defaults to this
     /// module's table and falls back to English if the bundle is gone.
     static func text(
         for status: TerminalConnectionStatus,
+        hostLoss: TerminalHostLoss? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
         switch status {
         case .connected:
             return nil
         case .exited:
-            return strings.text("terminal.link.exited", defaultValue: "Process exited")
+            switch hostLoss {
+            case .hostEnded:
+                return strings.text("terminal.link.lost.hostEnded", defaultValue: "Terminal lost: its host process ended")
+            case .sessionShutdown:
+                return strings.text("terminal.link.lost.sessionShutdown", defaultValue: "Terminal lost: the session shut down")
+            case .hostMissing:
+                return strings.text("terminal.link.lost.hostMissing", defaultValue: "Terminal lost: its host is gone")
+            case nil:
+                return strings.text("terminal.link.exited", defaultValue: "Process exited")
+            }
+        case .disconnected(.turnedOffByOrganization, _):
+            return strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
         case .disconnected(_, reconnecting: true):
             return strings.text("terminal.link.reconnecting", defaultValue: "Reconnecting…")
         case .disconnected(let cause, reconnecting: false):
@@ -67,6 +80,8 @@ final class TerminalStatusBanner: NSView {
                 strings.text("terminal.link.connectionLost", defaultValue: "Disconnected: connection lost")
             case .attachFailed:
                 strings.text("terminal.link.attachFailed", defaultValue: "Disconnected: could not attach")
+            case .turnedOffByOrganization:
+                strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
             case .fellBehind:
                 strings.text("terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind")
             }

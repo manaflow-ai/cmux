@@ -19,16 +19,17 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
+        let animate = animated && !context.reduceMotion && bounds.width > 0
+        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals)
         guard let strip else {
             scrollState = ColumnScrollState()
             applyPresentation()
-            return false
+            return rowsNeedFrames
         }
         scrollState.mode = mode
-        let animate = animated && !context.reduceMotion && bounds.width > 0
         let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals))
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
-        return apply(effects)
+        return apply(effects) || rowsNeedFrames
     }
 
     /// Centers the column holding `pane` once. Returns true if the spring needs frames.
@@ -41,7 +42,7 @@ extension ScreenContentView {
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
 
     /// A horizontal scroll at `localPoint` scrolls the strip only over its
-    /// uncovered range; over a sticky column it stays with the pane.
+    /// uncovered range; over a docked column it stays with the pane.
     func acceptsHorizontalScroll(at localPoint: NSPoint) -> Bool {
         acceptsHorizontalScroll && uncoveredRect.contains(localPoint)
     }

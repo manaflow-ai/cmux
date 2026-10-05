@@ -78,6 +78,12 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+
 jobs:
   contract:
     name: protocol contract
@@ -553,6 +559,8 @@ jobs:
             -- -D warnings
 
   conformance:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
@@ -563,7 +571,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize Ghostty protocol submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -616,7 +624,7 @@ jobs:
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         id: headless-cache
@@ -658,10 +666,12 @@ jobs:
             --require python,typescript,rust,go,java,cpp,zig \
             --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
 
-      # cmux::raw::ByteAttachment against the exact headless daemon built above.
-      - name: Test Rust SDK byte attachment against the live daemon
+      # cmux::raw::ByteAttachment, the typed state calls, and Home (ensure_home,
+      # conversation tabs, typed conversation results) against the exact
+      # headless daemon built above.
+      - name: Test Rust SDK byte attachment and typed state against the live daemon
         if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
         working-directory: cmux-tui
         env:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
-        run: cargo test -p cmux-sdk --locked --test byte_attachment_live -- --nocapture
+        run: cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live -- --nocapture

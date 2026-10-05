@@ -16,7 +16,11 @@
 //! A saved screen group is a session-wide record (name, color, members'
 //! names, colors, icons and directories) that outlives its screens.
 
+use super::tab_strip::StripRequest;
 use super::*;
+use crate::state::screen_state_store::ScreenMetaUpdate;
+use crate::state::screens::ScreenResult;
+use crate::state::store::StateCommit;
 use crate::workspace_registry::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationState,
     new_saved_screen_group_id, new_screen_group_id, validate_tab_group_color,
@@ -119,7 +123,7 @@ pub(super) fn locate_screen(state: &State, screen: ScreenId) -> Option<(usize, u
     })
 }
 
-fn screen_public_id(state: &State, screen: ScreenId) -> anyhow::Result<String> {
+pub(crate) fn screen_public_id(state: &State, screen: ScreenId) -> anyhow::Result<String> {
     let (wi, si) =
         locate_screen(state, screen).with_context(|| format!("unknown screen {screen}"))?;
     Ok(state.workspaces[wi].screens[si].public_id.as_str().to_string())
@@ -140,7 +144,7 @@ fn group_members(state: &State, screens: &ScreenPresentationState, group: &str) 
 
 /// Drop rows of screens that are gone, memberships of pinned screens or of
 /// screens outside their group's workspace, and groups left empty.
-fn prune_screen_state(state: &State, screens: &mut ScreenPresentationState) {
+pub(crate) fn prune_screen_state(state: &State, screens: &mut ScreenPresentationState) {
     let live = state
         .workspaces
         .iter()
@@ -171,7 +175,7 @@ fn prune_screen_state(state: &State, screens: &mut ScreenPresentationState) {
 
 /// Pinned screens first, then every group gathered at its first member. The
 /// active screen stays active.
-fn normalize_screen_order(workspace: &mut Workspace, screens: &ScreenPresentationState) {
+pub(crate) fn normalize_screen_order(workspace: &mut Workspace, screens: &ScreenPresentationState) {
     let active = workspace.screens.get(workspace.active_screen).map(|screen| screen.id);
     let group_of = |screen: &Screen| screens.members.get(screen.public_id.as_str()).cloned();
     let old = std::mem::take(&mut workspace.screens);
@@ -248,127 +252,31 @@ fn place_screens(
 }
 
 impl Mux {
-    /// Commit a change that may reorder screens or move them between
-    /// workspaces. `mutate` edits a clone of the live state and the screen
-    /// rows; both commit together, then the clone replaces the live state.
+    /// A raw screen command that may reorder screens or move them between
+    /// workspaces: one local commit through the shared screen path.
     fn commit_screen_change<R>(
         self: &Arc<Self>,
         operation: &str,
         mutate: impl FnOnce(&Arc<Mux>, &mut State, &mut ScreenPresentationState) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
-        let mux = Arc::clone(self);
-        let mut output = None;
-        let mut retarget = Vec::new();
-        let fingerprint = serde_json::json!({
-            "operation": operation,
-            "nonce": crate::workspace_registry::new_uuid_v4(),
-        });
-        self.commit_resource_mutation_plan(
-            &WorkspaceMutation::local("cmux-tui-screens"),
-            operation,
-            &fingerprint,
-            None,
-            None,
-            |state, registry| {
-                let mut projected = state.clone();
-                let mut screens = mux.presentation_snapshot().screens.clone();
-                let result = mutate(&mux, &mut projected, &mut screens)?;
-                prune_screen_state(&projected, &mut screens);
-                for workspace in &mut projected.workspaces {
-                    normalize_screen_order(workspace, &screens);
-                }
-                projected.rebuild_resource_indexes();
-                Mux::rebuild_split_screen_index(&mut projected);
-                let workspace_key = |state: &State, surface: SurfaceId| {
-                    state
-                        .pane_of(surface)
-                        .and_then(|pane| state.screen_of(pane))
-                        .map(|(workspace, _)| state.workspaces[workspace].key.clone())
-                };
-                for (surface, runtime) in &projected.surfaces {
-                    let (Some(before), Some(after)) =
-                        (workspace_key(&*state, *surface), workspace_key(&projected, *surface))
-                    else {
-                        continue;
-                    };
-                    if before != after
-                        && let Some(terminal) = runtime.terminal_public_id()
-                    {
-                        retarget.push((*surface, terminal.clone(), after));
-                    }
-                }
-                let created = projected
-                    .workspaces
-                    .iter()
-                    .enumerate()
-                    .find(|(_, workspace)| state.workspace_index(workspace.id).is_none())
-                    .map(|(index, workspace)| (index, workspace.id, workspace.key.clone()));
-                let ledger = created.map(|(index, id, key)| ResourceWorkspaceLedger {
-                    event_kind: "workspace-added",
-                    workspace_key: key.clone(),
-                    workspaces: mux.registry_projection(&projected),
-                    legacy_result: serde_json::json!({
-                        "workspace": id,
-                        "key": key,
-                        "index": index,
-                        "changed": true,
-                    }),
-                    presentation: None,
-                });
-                let mut projection = mux.resource_effect_projection_locked(
-                    registry,
-                    &mut projected,
-                    serde_json::json!({}),
-                )?;
-                for (_, terminal, key) in &retarget {
-                    tab_drag::retarget_terminal_workspace(&mut projection.patch, terminal, key);
-                }
-                output = Some(result);
-                let mut plan = ResourceMutationPlan::replacing(
-                    projection.patch,
-                    projection.result,
-                    projection.changes,
-                    projected,
-                )
-                .with_screen_state(screens);
-                if let Some(ledger) = ledger {
-                    plan = plan.with_workspace_ledger(ledger);
-                }
-                Ok(plan)
-            },
-        )?;
-        {
-            let registry = self.workspace_registry.lock().unwrap();
-            self.reload_presentation(&registry)?;
-        }
-        for (surface, _, key) in retarget {
-            if let Some(runtime) = self.surface(surface) {
-                let _ = runtime.persist_host_workspace(&key);
-            }
-        }
-        self.publish_journal_event();
-        self.emit(MuxEvent::TreeChanged);
-        output.context("screen change committed no result")
+        self.commit_screen_request(StripRequest::local_screens(operation), |mux, state, edit| {
+            mutate(mux, state, &mut edit.screens)
+        })?
+        .0
+        .context("screen change committed no result")
     }
 
-    /// Write screen rows without changing screen order.
+    /// A raw screen command that leaves screen order alone.
     fn commit_screen_metadata<R>(
         &self,
         mutate: impl FnOnce(&State, &mut ScreenPresentationState) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
-        let result = {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let state = self.state.lock().unwrap();
-            let mut screens = self.presentation_snapshot().screens.clone();
-            let result = mutate(&state, &mut screens)?;
-            prune_screen_state(&state, &mut screens);
-            drop(state);
-            registry.replace_screen_state(&screens)?;
-            self.reload_presentation(&registry)?;
-            result
-        };
-        self.publish_journal_event();
-        Ok(result)
+        self.commit_screen_rows(
+            StripRequest::local_screens("screen.presentation"),
+            |state, edit| mutate(state, &mut edit.screens),
+        )?
+        .0
+        .context("screen change committed no result")
     }
 
     /// The group's record, workspace, and members (for command results).
@@ -396,34 +304,18 @@ impl Mux {
     /// Set or clear a screen's color and icon. `None` leaves a field,
     /// `Some(None)` clears it. Returns whether anything changed.
     pub fn set_screen_metadata(
-        &self,
+        self: &Arc<Self>,
         screen: ScreenId,
         color: Option<Option<String>>,
         icon: Option<Option<String>>,
     ) -> anyhow::Result<bool> {
-        if let Some(Some(color)) = &color {
-            crate::workspace_registry::validate_presentation_color(color)?;
-        }
-        if let Some(Some(icon)) = &icon {
-            crate::workspace_registry::validate_presentation_icon(icon)?;
-        }
-        let changed = self.commit_screen_metadata(|state, screens| {
-            let public = screen_public_id(state, screen)?;
-            let before = screens.screen(&public).cloned().unwrap_or_default();
-            screens.edit(&public, |record| {
-                if let Some(color) = color {
-                    record.color = color;
-                }
-                if let Some(icon) = icon {
-                    record.icon = icon;
-                }
-            });
-            Ok(screens.screen(&public).cloned().unwrap_or_default() != before)
-        })?;
-        if changed {
-            self.emit_screen_changed(&[screen]);
-        }
-        Ok(changed)
+        let before = self.screen_presentation_record(screen);
+        self.update_screen_presentation(
+            StripRequest::local_screens("screen.metadata"),
+            screen,
+            ScreenMetaUpdate { pinned: None, color, icon },
+        )?;
+        Ok(self.screen_presentation_record(screen) != before)
     }
 
     /// Pin or unpin a screen. Pinned screens sort first and leave their
@@ -433,19 +325,26 @@ impl Mux {
         screen: ScreenId,
         pinned: bool,
     ) -> anyhow::Result<(bool, usize)> {
-        let changed = self.commit_screen_change("screen.pin", |_, state, screens| {
-            let public = screen_public_id(state, screen)?;
-            let before = screens.is_pinned(&public);
-            screens.edit(&public, |record| record.pinned = pinned);
-            if pinned {
-                screens.members.remove(&public);
-            }
-            Ok(before != pinned)
-        })?;
+        let before = self.screen_presentation_record(screen).is_some_and(|record| record.pinned);
+        self.update_screen_presentation(
+            StripRequest::local_screens("screen.pin"),
+            screen,
+            ScreenMetaUpdate { pinned: Some(pinned), color: None, icon: None },
+        )?;
         let index =
             self.with_state(|state| locate_screen(state, screen).map(|(_, si)| si)).unwrap_or(0);
-        self.emit_screen_changed(&[screen]);
-        Ok((changed, index))
+        Ok((before != pinned, index))
+    }
+
+    fn screen_presentation_record(
+        &self,
+        screen: ScreenId,
+    ) -> Option<crate::workspace_registry::ScreenPresentationRecord> {
+        let presentation = self.presentation_snapshot();
+        self.with_state(|state| {
+            let public = screen_public_id(state, screen).ok()?;
+            presentation.screens.screen(&public).cloned()
+        })
     }
 
     /// Move one screen within its workspace, into another workspace, or into
@@ -467,7 +366,6 @@ impl Mux {
                 index: si,
             })
         })
-        .inspect(|_| self.emit_screen_changed(&[screen]))
     }
 
     fn move_screen_block(
@@ -476,9 +374,30 @@ impl Mux {
         destination: ScreenDestination,
         operation: &str,
     ) -> anyhow::Result<()> {
+        self.move_screen_block_request(
+            StripRequest::local_screens(operation),
+            block,
+            destination,
+            false,
+        )
+        .map(|_| ())
+    }
+
+    /// Move a block of screens; with `screen_result`, the v2 result is the
+    /// first screen's snapshot.
+    pub(crate) fn move_screen_block_request(
+        self: &Arc<Self>,
+        request: StripRequest,
+        block: &[ScreenId],
+        destination: ScreenDestination,
+        screen_result: bool,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         anyhow::ensure!(!block.is_empty(), "bad request: nothing to move");
         let workspace_id = self.next_id();
-        self.commit_screen_change(operation, |_, state, _| {
+        let (_, commit) = self.commit_screen_request(request, |_, state, edit| {
+            if screen_result {
+                edit.result = ScreenResult::Screen(screen_public_id(state, block[0])?);
+            }
             let (from, _) = locate_screen(state, block[0])
                 .with_context(|| format!("unknown screen {}", block[0]))?;
             for screen in block {
@@ -520,7 +439,11 @@ impl Mux {
             // a membership whose group lives in another workspace.
             place_screens(state, block, from, to, index)?;
             Ok(())
-        })
+        })?;
+        if !commit.replayed {
+            self.emit_screen_changed(block);
+        }
+        Ok(commit)
     }
 
     /// Create a group from screens of one workspace. Members become
@@ -532,6 +455,22 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
+        let (id, _) = self.create_screen_group_request(
+            StripRequest::local_screens("screen.group.create"),
+            members,
+            name,
+            color,
+        )?;
+        Ok(self.screen_group_outcome(&id))
+    }
+
+    pub(crate) fn create_screen_group_request(
+        self: &Arc<Self>,
+        request: StripRequest,
+        members: &[ScreenId],
+        name: Option<String>,
+        color: Option<String>,
+    ) -> anyhow::Result<(String, ResourcePatchCommit)> {
         anyhow::ensure!(
             !members.is_empty(),
             "bad request: a screen group needs at least one screen"
@@ -541,7 +480,9 @@ impl Mux {
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
         let id = new_screen_group_id();
-        self.commit_screen_change("screen.group.create", |_, state, screens| {
+        let (_, commit) = self.commit_screen_request(request, |_, state, edit| {
+            edit.result = ScreenResult::Group(id.clone());
+            let screens = &mut edit.screens;
             let (wi, _) = locate_screen(state, members[0])
                 .with_context(|| format!("unknown screen {}", members[0]))?;
             let key = state.workspaces[wi].key.clone();
@@ -570,9 +511,11 @@ impl Mux {
             );
             Ok(())
         })?;
-        let outcome = self.screen_group_outcome(&id);
-        self.emit_screen_changed(&outcome.members);
-        Ok(outcome)
+        if !commit.replayed {
+            let outcome = self.screen_group_outcome(&id);
+            self.emit_screen_changed(&outcome.members);
+        }
+        Ok((id, commit))
     }
 
     /// Rename, recolor, or collapse a group. A linked saved record follows.
@@ -589,8 +532,34 @@ impl Mux {
         if let Some(color) = &color {
             validate_tab_group_color(color)?;
         }
-        let saved = self.commit_screen_metadata(|_, screens| {
-            let record = screens
+        self.update_screen_group_request(
+            StripRequest::local_screens("screen.group.update"),
+            group,
+            name,
+            color,
+            collapsed,
+        )?;
+        Ok(self.screen_group_outcome(group))
+    }
+
+    pub(crate) fn update_screen_group_request(
+        &self,
+        request: StripRequest,
+        group: &str,
+        name: Option<String>,
+        color: Option<String>,
+        collapsed: Option<bool>,
+    ) -> anyhow::Result<StateCommit> {
+        if let Some(name) = &name {
+            validate_tab_group_name(name)?;
+        }
+        if let Some(color) = &color {
+            validate_tab_group_color(color)?;
+        }
+        let (saved, commit) = self.commit_screen_rows(request, |_, edit| {
+            edit.result = ScreenResult::Group(group.to_string());
+            let record = edit
+                .screens
                 .groups
                 .get_mut(group)
                 .with_context(|| format!("unknown screen group {group}"))?;
@@ -605,13 +574,15 @@ impl Mux {
             }
             Ok(record.saved_id.clone())
         })?;
-        if saved.is_some() {
+        if commit.replayed {
+            return Ok(commit);
+        }
+        if saved.flatten().is_some() {
             self.sync_saved_screen_group(group)?;
         }
-        self.emit(MuxEvent::TreeChanged);
         let outcome = self.screen_group_outcome(group);
         self.emit_screen_changed(&outcome.members);
-        Ok(outcome)
+        Ok(commit)
     }
 
     /// Add screens to a group at `index` inside it (default: the end).
@@ -621,8 +592,26 @@ impl Mux {
         added: &[ScreenId],
         index: Option<usize>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
+        self.add_screens_request(
+            StripRequest::local_screens("screen.group.add"),
+            group,
+            added,
+            index,
+        )?;
+        Ok(self.screen_group_outcome(group))
+    }
+
+    pub(crate) fn add_screens_request(
+        self: &Arc<Self>,
+        request: StripRequest,
+        group: &str,
+        added: &[ScreenId],
+        index: Option<usize>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         anyhow::ensure!(!added.is_empty(), "bad request: no screens to add");
-        self.commit_screen_change("screen.group.add", |_, state, screens| {
+        let (_, commit) = self.commit_screen_request(request, |_, state, edit| {
+            edit.result = ScreenResult::Group(group.to_string());
+            let screens = &mut edit.screens;
             let record = screens
                 .groups
                 .get(group)
@@ -667,9 +656,11 @@ impl Mux {
             place_screens(state, &block, wi, wi, Some(start - before))?;
             Ok(())
         })?;
-        let outcome = self.screen_group_outcome(group);
-        self.emit_screen_changed(&outcome.members);
-        Ok(outcome)
+        if !commit.replayed {
+            let outcome = self.screen_group_outcome(group);
+            self.emit_screen_changed(&outcome.members);
+        }
+        Ok(commit)
     }
 
     /// Remove screens from their groups; each lands right after its former
@@ -678,7 +669,18 @@ impl Mux {
         self: &Arc<Self>,
         removed: &[ScreenId],
     ) -> anyhow::Result<Vec<String>> {
-        let left = self.commit_screen_change("screen.group.remove", |_, state, screens| {
+        Ok(self
+            .remove_screens_request(StripRequest::local_screens("screen.group.remove"), removed)?
+            .0)
+    }
+
+    pub(crate) fn remove_screens_request(
+        self: &Arc<Self>,
+        request: StripRequest,
+        removed: &[ScreenId],
+    ) -> anyhow::Result<(Vec<String>, ResourcePatchCommit)> {
+        let (left, commit) = self.commit_screen_request(request, |_, state, edit| {
+            let screens = &mut edit.screens;
             let mut left = Vec::new();
             for screen in removed {
                 let public = screen_public_id(state, *screen)?;
@@ -701,10 +703,13 @@ impl Mux {
                     left.push(group);
                 }
             }
+            edit.result = ScreenResult::Groups(left.clone());
             Ok(left)
         })?;
-        self.emit_screen_changed(removed);
-        Ok(left)
+        if !commit.replayed {
+            self.emit_screen_changed(removed);
+        }
+        Ok((left.unwrap_or_default(), commit))
     }
 
     /// Move a whole group within its workspace, into another workspace, or
@@ -762,15 +767,37 @@ impl Mux {
 
     /// Dissolve a group; its screens stay in place. Returns the members.
     pub fn ungroup_screen_group(&self, group: &str) -> anyhow::Result<Vec<ScreenId>> {
+        Ok(self
+            .ungroup_screen_group_request(
+                StripRequest::local_screens("screen.group.ungroup"),
+                group,
+            )?
+            .0)
+    }
+
+    pub(crate) fn ungroup_screen_group_request(
+        &self,
+        request: StripRequest,
+        group: &str,
+    ) -> anyhow::Result<(Vec<ScreenId>, StateCommit)> {
         let members = self.screen_group_outcome(group).members;
-        self.commit_screen_metadata(|_, screens| {
+        let (_, commit) = self.commit_screen_rows(request, |state, edit| {
+            let screens = &mut edit.screens;
             anyhow::ensure!(screens.groups.remove(group).is_some(), "unknown screen group {group}");
             screens.members.retain(|_, member| member != group);
+            edit.result = ScreenResult::Release {
+                group: group.to_string(),
+                screens: members
+                    .iter()
+                    .filter_map(|screen| screen_public_id(state, *screen).ok())
+                    .collect(),
+            };
             Ok(())
         })?;
-        self.emit(MuxEvent::TreeChanged);
-        self.emit_screen_changed(&members);
-        Ok(members)
+        if !commit.replayed {
+            self.emit_screen_changed(&members);
+        }
+        Ok((members, commit))
     }
 
     /// Close every member screen. A linked saved record stays.
@@ -930,8 +957,8 @@ impl Mux {
                 icon: member.icon.clone(),
                 ..ScreenSpec::default()
             };
-            let (_, screen) =
-                self.new_screen_with_spec(Some(workspace), member.cwd.clone(), None, spec)?;
+            let spawn = TerminalSpawnOptions::new(member.cwd.clone(), Vec::new());
+            let (_, screen) = self.new_screen_with_spec(Some(workspace), spawn, None, spec)?;
             created.push(screen);
         }
         anyhow::ensure!(!created.is_empty(), "bad request: the saved screen group has no members");
@@ -959,7 +986,7 @@ impl Mux {
     pub fn new_screen_with_spec(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
-        cwd: Option<String>,
+        spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
         spec: ScreenSpec,
     ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
@@ -969,7 +996,7 @@ impl Mux {
         if let Some(icon) = &spec.icon {
             crate::workspace_registry::validate_presentation_icon(icon)?;
         }
-        let surface = self.new_screen_named(workspace, spec.name.clone(), cwd, size)?;
+        let surface = self.new_screen_named(workspace, spec.name.clone(), spawn, size)?;
         let screen = self
             .with_state(|state| {
                 let pane = state.pane_of(surface.id)?;
@@ -1010,298 +1037,4 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Session {
-        root: std::path::PathBuf,
-    }
-
-    impl Session {
-        fn new(name: &str) -> Self {
-            let root = std::env::temp_dir()
-                .join(format!("cmux-screens-{name}-{}", WorkspacePublicId::random().unwrap()));
-            Self { root }
-        }
-
-        /// The registry alone, after the mux that held it is dropped.
-        fn registry(&self) -> WorkspaceRegistry {
-            WorkspaceRegistry::open(&self.root, "screens").unwrap()
-        }
-
-        fn open(&self) -> Arc<Mux> {
-            let registry = WorkspaceRegistry::open(&self.root, "screens").unwrap();
-            Mux::from_workspace_registry(
-                "screens".into(),
-                SurfaceOptions::default(),
-                registry,
-                ProviderWorkspaceState::default(),
-                true,
-            )
-            .unwrap()
-        }
-    }
-
-    impl Drop for Session {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
-    }
-
-    /// Screen ids of workspace `index`, in order.
-    fn order(mux: &Mux, index: usize) -> Vec<ScreenId> {
-        mux.with_state(|state| state.workspaces[index].screens.iter().map(|s| s.id).collect())
-    }
-
-    fn public_order(mux: &Mux, index: usize) -> Vec<String> {
-        mux.with_state(|state| {
-            state.workspaces[index]
-                .screens
-                .iter()
-                .map(|s| s.public_id.as_str().to_string())
-                .collect()
-        })
-    }
-
-    fn tree(mux: &Mux) -> Value {
-        let decorations = mux.tree_decorations();
-        mux.with_state(|state| crate::server::workspaces_json(state, &decorations))
-    }
-
-    fn new_screen(mux: &Arc<Mux>, workspace: WorkspaceId) -> ScreenId {
-        mux.new_screen_with_spec(Some(workspace), None, None, ScreenSpec::default()).unwrap().1
-    }
-
-    #[test]
-    fn cmux_next_screen_metadata_survives_restart_and_emits_screen_changed() {
-        let session = Session::new("metadata");
-        let mux = session.open();
-        let first = mux.new_workspace(None, None).unwrap().id;
-        let workspace = mux.with_state(|state| state.workspaces[0].id);
-        let s1 = order(&mux, 0)[0];
-        let s2 = new_screen(&mux, workspace);
-        let s3 = new_screen(&mux, workspace);
-        assert_eq!(order(&mux, 0), vec![s1, s2, s3]);
-        let _ = first;
-
-        let events = mux.subscribe();
-        assert!(
-            mux.set_screen_metadata(s3, Some(Some("green".into())), Some(Some("🚀".into())))
-                .unwrap()
-        );
-        let delta = std::iter::from_fn(|| events.try_recv().ok())
-            .find_map(|event| match event {
-                MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::ScreenChanged => {
-                    Some(delta)
-                }
-                _ => None,
-            })
-            .expect("screen-changed delta");
-        assert_eq!(delta.screen, Some(s3));
-        assert_eq!(delta.index, Some(2));
-        assert_eq!(delta.entity["color"], "green");
-        assert_eq!(delta.entity["icon"], "🚀");
-        assert!(mux.set_screen_metadata(s3, Some(Some("bad color!".into())), None).is_err());
-        assert!(mux.set_screen_metadata(s3, None, Some(Some("two words".into()))).is_err());
-        // Absent keeps, null clears.
-        assert!(mux.set_screen_metadata(s3, None, Some(None)).unwrap());
-        assert!(!mux.set_screen_metadata(s3, None, None).unwrap());
-
-        let (changed, index) = mux.set_screen_pinned(s3, true).unwrap();
-        assert!(changed);
-        assert_eq!(index, 0);
-        assert_eq!(order(&mux, 0), vec![s3, s1, s2]);
-        mux.rename_screen(s2, "logs".into());
-        mux.move_screen(s2, ScreenDestination::Workspace { workspace: None, index: Some(0) })
-            .unwrap();
-        // The pinned screen stays first.
-        assert_eq!(order(&mux, 0), vec![s3, s2, s1]);
-        let json = tree(&mux);
-        assert_eq!(json["workspaces"][0]["screens"][0]["pinned"], true);
-        assert_eq!(json["workspaces"][0]["screens"][0]["color"], "green");
-        assert_eq!(json["workspaces"][0]["screens"][0]["icon"], Value::Null);
-        assert_eq!(json["workspaces"][0]["screens"][1]["name"], "logs");
-
-        // Order, pin, and color are durable: the registry has them after
-        // the daemon exits.
-        let before = public_order(&mux, 0);
-        let workspace_public =
-            mux.with_state(|state| state.workspaces[0].public_id.as_str().to_string());
-        drop(mux);
-        let registry = session.registry();
-        assert_eq!(registry.live_screen_order(&workspace_public).unwrap(), before);
-        let snapshot = registry.presentation_snapshot().unwrap();
-        let record = snapshot.screens.screen(&before[0]).unwrap();
-        assert!(record.pinned);
-        assert_eq!(record.color.as_deref(), Some("green"));
-        assert_eq!(record.icon, None);
-    }
-
-    #[test]
-    fn cmux_next_screen_groups_stay_contiguous_and_survive_restart() {
-        let session = Session::new("groups");
-        let mux = session.open();
-        mux.new_workspace(None, None).unwrap();
-        let workspace = mux.with_state(|state| state.workspaces[0].id);
-        let s1 = order(&mux, 0)[0];
-        let s2 = new_screen(&mux, workspace);
-        let s3 = new_screen(&mux, workspace);
-        let s4 = new_screen(&mux, workspace);
-        mux.set_screen_pinned(s1, true).unwrap();
-        assert!(
-            mux.create_screen_group(&[s1], None, None).is_err(),
-            "pinned screens cannot be grouped"
-        );
-        assert!(mux.create_screen_group(&[s2], None, Some("blurple".into())).is_err());
-
-        let created = mux
-            .create_screen_group(&[s4, s2], Some("Build".into()), Some("orange".into()))
-            .unwrap();
-        let group = created.group.clone().unwrap().id;
-        assert_eq!(created.members, vec![s2, s4]);
-        assert_eq!(order(&mux, 0), vec![s1, s2, s4, s3]);
-
-        mux.update_screen_group(&group, Some(String::new()), Some("cyan".into()), Some(true))
-            .unwrap();
-        let record = mux.presentation_snapshot().screens.groups[&group].clone();
-        assert_eq!(
-            (record.name.as_str(), record.color.as_str(), record.collapsed),
-            ("", "cyan", true)
-        );
-
-        mux.add_screens_to_screen_group(&group, &[s3], Some(0)).unwrap();
-        assert_eq!(order(&mux, 0), vec![s1, s3, s2, s4]);
-        mux.remove_screens_from_screen_group(&[s3]).unwrap();
-        assert_eq!(order(&mux, 0), vec![s1, s2, s4, s3]);
-        // A single screen move into the middle of the group is pulled out:
-        // groups stay contiguous.
-        mux.move_screen(s3, ScreenDestination::Workspace { workspace: None, index: Some(2) })
-            .unwrap();
-        let runs = mux.with_state(|state| {
-            workspace_screen_groups(&state.workspaces[0], &mux.presentation_snapshot().screens)
-        });
-        assert_eq!(runs.len(), 1);
-        assert_eq!(runs[0].members.len(), 2);
-        // Moving the group cannot pass the pinned screen.
-        mux.move_screen_group(
-            &group,
-            ScreenDestination::Workspace { workspace: None, index: Some(0) },
-        )
-        .unwrap();
-        assert_eq!(order(&mux, 0)[0], s1);
-
-        let json = tree(&mux);
-        let groups = &json["workspaces"][0]["screen_groups"];
-        assert_eq!(groups[0]["id"], group.as_str());
-        assert_eq!(groups[0]["count"], 2);
-        assert_eq!(groups[0]["collapsed"], true);
-        let start = groups[0]["start"].as_u64().unwrap() as usize;
-        assert_eq!(json["workspaces"][0]["screens"][start]["group"], group.as_str());
-
-        let saved = mux.save_screen_group(&group).unwrap();
-        assert_eq!(mux.presentation_snapshot().saved_screen_groups[0].id, saved);
-        assert_eq!(mux.presentation_snapshot().saved_screen_groups[0].members.len(), 2);
-
-        let before = public_order(&mux, 0);
-        let workspace_public =
-            mux.with_state(|state| state.workspaces[0].public_id.as_str().to_string());
-        drop(mux);
-        {
-            let registry = session.registry();
-            assert_eq!(registry.live_screen_order(&workspace_public).unwrap(), before);
-            let snapshot = registry.presentation_snapshot().unwrap();
-            assert_eq!(snapshot.screens.groups[&group].saved_id.as_deref(), Some(saved.as_str()));
-            assert!(snapshot.screens.groups[&group].collapsed);
-            assert_eq!(snapshot.screens.members.values().filter(|g| **g == group).count(), 2);
-            assert_eq!(snapshot.saved_screen_groups.len(), 1);
-        }
-        let mux = session.open();
-        mux.new_workspace(None, None).unwrap();
-
-        mux.ungroup_screen_group(&group).ok();
-        assert!(mux.presentation_snapshot().screens.groups.is_empty());
-        // The saved record outlives the live group and reopens it.
-        let workspace = mux.with_state(|state| state.workspaces.last().unwrap().id);
-        let reopened = mux.reopen_saved_screen_group(&saved, workspace).unwrap();
-        assert_eq!(reopened.members.len(), 2);
-        assert_eq!(reopened.group.unwrap().saved_id.as_deref(), Some(saved.as_str()));
-        assert!(mux.delete_saved_screen_group(&saved).unwrap());
-    }
-
-    #[test]
-    fn cmux_next_screens_move_between_workspaces_with_their_terminals() {
-        let session = Session::new("moves");
-        let mux = session.open();
-        mux.new_workspace(None, None).unwrap();
-        mux.new_workspace(None, None).unwrap();
-        let (a, b) = mux.with_state(|state| (state.workspaces[0].id, state.workspaces[1].id));
-        let s1 = order(&mux, 0)[0];
-        // A workspace keeps at least one screen.
-        assert!(
-            mux.move_screen(s1, ScreenDestination::Workspace { workspace: Some(b), index: None })
-                .is_err()
-        );
-        let s2 = new_screen(&mux, a);
-        let surface = mux.with_state(|state| {
-            let (wi, si) = locate_screen(state, s2).unwrap();
-            state.panes[&state.workspaces[wi].screens[si].active_pane].tabs[0]
-        });
-        let moved = mux
-            .move_screen(s2, ScreenDestination::Workspace { workspace: Some(b), index: Some(0) })
-            .unwrap();
-        assert_eq!(moved.workspace, b);
-        assert_eq!(moved.index, 0);
-        assert_eq!(order(&mux, 0), vec![s1]);
-        assert_eq!(order(&mux, 1)[0], s2);
-        // The terminal moved with its screen.
-        let owner = mux.with_state(|state| {
-            state.pane_of(surface).and_then(|pane| state.screen_of(pane)).map(|(wi, _)| wi)
-        });
-        assert_eq!(owner, Some(1));
-
-        let count = mux.with_state(|state| state.workspaces.len());
-        let s3 = new_screen(&mux, b);
-        let moved = mux.move_screen(s3, ScreenDestination::NewWorkspace).unwrap();
-        assert_eq!(mux.with_state(|state| state.workspaces.len()), count + 1);
-        assert_eq!(order(&mux, count), vec![s3]);
-        assert_eq!(moved.key, mux.with_state(|state| state.workspaces[count].key.clone()));
-
-        // A screen that changes workspace leaves its group.
-        let s4 = new_screen(&mux, b);
-        let group = mux.create_screen_group(&[s4], None, None).unwrap().group.unwrap().id;
-        mux.move_screen(s4, ScreenDestination::Workspace { workspace: Some(a), index: None })
-            .unwrap();
-        assert!(!mux.presentation_snapshot().screens.members.values().any(|g| g == &group));
-    }
-
-    #[test]
-    fn cmux_next_new_screen_with_spec_applies_name_metadata_position_and_directory() {
-        let session = Session::new("spec");
-        let mux = session.open();
-        mux.new_workspace(None, None).unwrap();
-        let workspace = mux.with_state(|state| state.workspaces[0].id);
-        let s1 = order(&mux, 0)[0];
-        let group =
-            mux.create_screen_group(&[s1], Some("g".into()), None).unwrap().group.unwrap().id;
-        let dir = std::env::temp_dir();
-        let spec = ScreenSpec {
-            name: Some("deploy".into()),
-            color: Some("red".into()),
-            icon: Some("server.rack".into()),
-            pinned: None,
-            index: Some(0),
-            group: Some(group.clone()),
-        };
-        let (_, screen) = mux
-            .new_screen_with_spec(Some(workspace), Some(dir.display().to_string()), None, spec)
-            .unwrap();
-        let json = tree(&mux);
-        let screens = json["workspaces"][0]["screens"].as_array().unwrap();
-        let entity = screens.iter().find(|s| s["id"] == screen).unwrap();
-        assert_eq!(entity["name"], "deploy");
-        assert_eq!(entity["color"], "red");
-        assert_eq!(entity["icon"], "server.rack");
-        assert_eq!(entity["group"], group.as_str());
-        assert_eq!(order(&mux, 0), vec![screen, s1]);
-    }
-}
+mod tests;

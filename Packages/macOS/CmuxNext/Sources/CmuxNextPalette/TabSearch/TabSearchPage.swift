@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDesign
 public import Foundation
 
@@ -17,6 +18,9 @@ public protocol TabSearchSource: AnyObject {
     func reopenClosedTab(id: String)
     /// Removes a closed tab from the closed-items log.
     func forgetClosedTab(id: String)
+    /// One element after each change to the tabs or the closed list, once
+    /// both are current (`TabSearchLiveUpdates` re-reads the page).
+    func changes() -> AsyncStream<Void>
 }
 
 /// The Search Tabs page (Cmd-Shift-A, action `tab.search`): every tab with
@@ -44,7 +48,8 @@ extension PalettePageSpec {
         return PalettePageSpec(
             id: tabSearchID, title: PaletteStrings.tabSearchTitle, placeholder: PaletteStrings.tabSearchPlaceholder,
             symbol: "magnifyingglass", providers: [listed, older], initialQuery: query, ownsCloseKey: true, keepsSectionOrder: true,
-            emptyQuerySelection: TabSearchPlan.emptyQuerySelection(rows.filter(\.isVisibleWhenQueryEmpty)))
+            emptyQuerySelection: TabSearchPlan.emptyQuerySelection(rows.filter(\.isVisibleWhenQueryEmpty)),
+            scope: PaletteScopeID.tabs)
     }
 
     /// The palette row of `row`, with its commands.
@@ -72,6 +77,11 @@ extension PalettePageSpec {
         // Recency from the location trail ranks these rows; palette usage
         // counts would fight it.
         item.frecencyKey = nil
+        let tab = ActionTargetRef(kind: .tab, id: id)
+        item.actionRefs = entry.isClosed
+            ? [PaletteActionRef("history.reopen", arguments: ["id": .string(id)], title: PaletteStrings.tabSearchReopen)]
+            : [PaletteActionRef("tab.focus", target: tab, title: PaletteStrings.switchToTab),
+               PaletteActionRef("closeTab", target: tab, title: PaletteStrings.closeTab, isDestructive: true)]
         return item
     }
 }

@@ -37,7 +37,7 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
   tag (3).
 - The tab-loss agent owns the typed LayoutOp, the daemon conservation check, its
   proptest and `formal/LayoutConservation.tla`; step 2 builds the pure reducer from its
-  LayoutOp. The sticky-column lead adds `sticky` to columns through LayoutModel's
+  LayoutOp. The docked-column lead adds `dock` to columns through LayoutModel's
   transaction override (migrates in step 4). The federation branch adds remote-terminal
   tab rows and detached kept terminals (the store's "tab referencing `{host, terminal}`").
 - data-model.md 1 (sessions, home session, personal state) is superseded where it puts
@@ -54,7 +54,7 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
 | Input order with attribution | session host | each attached participant | session host journal | journal | refuse; never queue keystrokes |
 | Presence, kick-off, revive | session host | connections, `set-client-info`; any attached user may kick a client | viewers (presence list of every client) | memory | the kicked client shows "disconnected by X" (the old cmux screen) |
 | Notifications, unread, agent state | session host (terminal-derived) | hooks, agents; viewers ack | viewers | registry | refuse (nothing queues) |
-| Workspaces, screens, columns incl. sticky, splits, panes, tab order, tabs referencing `{host, terminal}` | workspace store | local app, CLI, TUI; remote agents via layout intents | every client of that store | store registry + journal | the local store is always reachable |
+| Workspaces, screens, columns incl. docked, splits, panes, tab order, tabs referencing `{host, terminal}` | workspace store | local app, CLI, TUI; remote agents via layout intents | every client of that store | store registry + journal | the local store is always reachable |
 | Workspace identity (name, color, icon), tab names, pins, tab groups | workspace store | same | same | same | same |
 | Browser tab record (placement, URL with revision, title, profile, zoom, short history) | workspace store | any app showing the tab: `browser.navigate` with `expected_revision`, page info for the current URL revision only; user ops (move, close) | clients (each Mac's page follows the URL) | store | same |
 | Spaces, workspace groups and order, saved groups, closed history, keep-layout records, session registry, browser profiles | workspace store (personal) | local app, CLI | clients | store | same |
@@ -169,10 +169,24 @@ mirror. Target, decided by the store inside the commit that causes it:
 | --- | --- |
 | Last tab closed by a client (Cmd-W, CLI, TUI) | remove the tab; the workspace empties and closes (user decision 8.3, same for every client) |
 | Last process exits normally and its tab is not kept (`keep_on_exit` false) | same as above, caused by the session host's typed `exited` event |
-| Terminal host lost (outcome `unknown`: crash, kill, reboot), or a process ended by a signal at or after the daemon began shutting down (logout, `server stop`, SIGTERM to the daemon; the shutdown start is recorded durably so a restarted daemon classifies exits found at adoption) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
+| Terminal host lost (outcome `unknown`: crash, kill, reboot), or a process ended by a signal from 2 s before to 60 s after the daemon began shutting down (logout, `server stop`, SIGTERM to the daemon; the shutdown start is recorded durably so a restarted daemon classifies exits found at adoption) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
 | A move, drag or tear-off takes the last tab out | the move op names the source workspace as closing; it closes in the same commit (tear-off is one op) |
 | `workspace.create` | creates the workspace with its first terminal in one op; there is no empty workspace for a client to repair |
 | Legacy empty workspace found at open (older builds, hard kill) | the store gives it a terminal once at open, recorded in the journal |
+
+Logout race (2026-10-02): logout signals the shell and the daemon at the same time, so a
+shell's signal exit can reach the daemon before it records its shutdown start. A signal
+exit is final only once the 2 s lead has passed: until then the daemon commits the exit
+receipt without removing the tab, then classifies the receipt again (a shutdown that
+started meanwhile makes it a host loss, and the receipt is rewritten to the host-loss
+shape so later daemons agree without the window). A daemon that stops first leaves the
+receipt to the next one, which classifies and rewrites it the same way. Visible cost: a
+command ended by Ctrl-C or a user's `kill` shows its tab dead for 2 s before it goes. The
+receipt records no provenance (the public `TerminalExit` shape is closed and older
+daemons reject unknown receipt keys), so an older host's status-less exit and an
+abandoned launch read as host losses after a restart: the tab stays dead, the safe side
+of principle 3. A separate provenance table keyed by the receipt revision is the path if
+that ever matters.
 
 Restart of a host-lost tab (user decision 2026-10-02): a dead tab shows one-click
 Restart (same cwd and command); the setting `terminal.restartLostTerminals` (default
@@ -225,6 +239,7 @@ The problems are around it:
 | ... never send the transaction to the daemon at all | 31 | closures written `{ c, _ in }` |
 | Second copies of shared state mutated outside `DaemonStore` | 11 | sidebar model (25 `model.apply` sites, 3 local-only: `.setIcon`, `.setGroupPinned`, `.openGroup`), tab strip `orderOverride`/`membershipOverride`/`detachedID`, `PaneController.pendingClosed`, `pendingSelect*`, `LayoutModel` split/width overrides (local `UInt64` gesture ids, not transaction ids), new-column resize, `WindowRegistry`, session-local browser tabs, incognito overlay, live page overlay, drag restore |
 | ... that can drift (no echo, no deadline) | 5 | sidebar local-only intents, screen-bar reorder (`daemon.send`, no rejection path), `pendingSelect*`, an unended layout gesture, `pendingClosed` (cleared on reply, `cache.release` even on failure) |
+| Tab membership owned by the client (named gap) | 1 | internal page tabs (`InternalPageTabStore`, `LocalPageTab.prefix`: Settings, Debug Settings, the App Store) keep pane membership and order in the app and are not persisted; agent chat tabs left this row on 2026-10-04 (store `conversation` tabs on an acpmux session, `agent-session-tabs-v1`) |
 | Per-client view state written to shared state | 6 | `zoom-pane` (shared `zoomed_pane`), 4 collapse writes (workspace and tab groups), 1 window projection |
 | Window projection clobber | 1 | `WindowStateStore.update` replaces the whole `windows` array with one default subject for every client: two Macs on one daemon overwrite each other's windows |
 | App-side destructive inference | 3 | `EmptyWorkspaceRepair`, workspace `isDead` membership pruning, `claimClosing` |
@@ -364,8 +379,8 @@ COORDINATION.md line.
    fixed-capacity array representation checked equal to the real reducer by proptest;
    not scheduled.
 3. `mutation-echo-v1` in the dispatcher: central transaction tag on every caused event,
-   `request-settled` for every request; additive capability, advertised in
-   `awaitingPin` until the pin carries it.
+   `request-settled` for every request; additive capability, listed in the app's
+   `optional` capabilities in the same change as its daemon half.
 3a. Authenticated client identity (`client-identity-v1`). Today v2 requests carry no
    client identity, so "only the hosting app writes the browser record" and "only the
    owning install writes its window record" are enforced by clients alone. Bind an

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/coderouter",
+  "name": {
+    "en": "CodeRouter",
+    "ja": "CodeRouter"
+  },
+  "version": "0.2.0",
+  "description": {
+    "en": "Set up and watch CodeRouter, the cmux model router: provider accounts, sharing, API keys, usage, failover order and a test request.",
+    "ja": "cmux のモデルルーター CodeRouter の設定と状況確認: プロバイダーアカウント、共有、API キー、使用量、フェイルオーバー順、テストリクエスト。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "agents",
+    "cloud",
+    "monitoring"
+  ],
+  "keywords": [
+    "coderouter",
+    "router",
+    "models",
+    "api key",
+    "usage",
+    "accounts"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "catalog": "catalog/coderouter-catalog.json",
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": {
+        "en": "CodeRouter",
+        "ja": "CodeRouter"
+      },
+      "symbol": "arrow.triangle.branch",
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 12
+      }
+    },
+    "cmux.status/1": {
+      "export": "renderStatus",
+      "title": {
+        "en": "CodeRouter Health",
+        "ja": "CodeRouter の状態"
+      },
+      "symbol": "arrow.triangle.branch",
+      "options": {
+        "placement": "titlebar"
+      }
+    },
+    "cmux.pane/1": {
+      "export": "renderDashboard",
+      "title": {
+        "en": "CodeRouter",
+        "ja": "CodeRouter"
+      },
+      "symbol": "arrow.triangle.branch"
+    }
+  },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 20 },
+    "screen": "app",
+    "tab": true
+  },
+  "scopes": {
+    "coderouter:read": "See CodeRouter status, your connected accounts, API key names, usage and failover order. Never a key or token.",
+    "coderouter:write": "Ask cmux to connect, share or remove an account and to route your agents through CodeRouter. cmux asks you and handles the secret.",
+    "actions:run": "Open the Accounts screen, sign in, and start a provider's own login when you click."
+  },
+  "optionalScopes": {
+    "coderouter:execute": "Send one tiny test prompt through CodeRouter when you click Test. It uses a few tokens.",
+    "coderouter:keys": "Create and revoke CodeRouter API keys. cmux shows the new key once in its own window; this app never sees it."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "variant": {
+        "type": "string",
+        "title": "Design variant",
+        "enum": [
+          "checklist",
+          "wizard",
+          "tabs"
+        ],
+        "default": "checklist",
+        "x-cmux-devOnly": true
+      },
+      "usageWindow": {
+        "type": "string",
+        "title": "Usage window",
+        "enum": [
+          "24h",
+          "7d",
+          "30d"
+        ],
+        "default": "7d"
+      },
+      "statusShowsUsage": {
+        "type": "boolean",
+        "title": "Show today's spend in the status item",
+        "default": true
+      },
+      "language": {
+        "type": "string",
+        "title": "Language override",
+        "enum": [
+          "auto",
+          "en",
+          "ja"
+        ],
+        "default": "auto",
+        "x-cmux-devOnly": true
+      }
+    }
+  },
+  "activation": [
+    "onInterface:cmux.section/1",
+    "onInterface:cmux.status/1",
+    "onInterface:cmux.pane/1",
+    "onOp:coderouter.app.open"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/"
+  ]
+}

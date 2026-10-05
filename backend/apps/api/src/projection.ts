@@ -1,6 +1,7 @@
 import type { OutboxRow } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { pgSafe } from "./text-safe.ts"
+import { drizzleStatements } from "./projection-drizzle.ts"
 
 /**
  * Projection writes into PlanetScale `cmux-next`. A DO never writes Postgres in
@@ -8,101 +9,29 @@ import { pgSafe } from "./text-safe.ts"
  * them with upserts guarded by `(source_stream, source_seq)`, so a replayed or
  * reordered batch never moves a row backwards (the DO stays the single writer).
  */
-const statements: Record<string, (p: Record<string, unknown>, stream: string, seq: number) => [string, Array<unknown>]> = {
-  "user.upsert": (p, stream, seq) => [
-    `INSERT INTO users (id, stack_user_id, email, display_name, personal_team, source_stream, source_seq, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-     ON CONFLICT (id) DO UPDATE SET stack_user_id = excluded.stack_user_id, email = excluded.email, display_name = excluded.display_name,
-       personal_team = excluded.personal_team, source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
-     WHERE users.source_seq < excluded.source_seq`,
-    [p.id, p.stack_user_id, p.email ?? null, p.display_name, p.personal_team, stream, seq]
-  ],
-  "install.upsert": (p, stream, seq) => [
-    `INSERT INTO installs (id, user_id, device_id, kind, name, device_name, platform, thumbprint, grant_id, created_at, revoked_at, source_stream, source_seq, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_timestamp($10 / 1000.0), CASE WHEN $11::bigint IS NULL THEN NULL ELSE to_timestamp($11 / 1000.0) END, $12, $13, now())
-     ON CONFLICT (id) DO UPDATE SET name = excluded.name, device_name = excluded.device_name, revoked_at = excluded.revoked_at,
-       source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
-     WHERE installs.source_seq < excluded.source_seq`,
-    [p.id, p.user, p.device, p.kind, p.name, p.device_name, p.platform, p.thumbprint, p.grant, p.created_at, p.revoked_at ?? null, stream, seq]
-  ],
-  "team.upsert": (p, stream, seq) => [
-    `INSERT INTO teams (id, kind, display_name, source_stream, source_seq, updated_at) VALUES ($1, $2, $3, $4, $5, now())
-     ON CONFLICT (id) DO UPDATE SET kind = excluded.kind, display_name = excluded.display_name, source_stream = excluded.source_stream,
-       source_seq = excluded.source_seq, updated_at = now()
-     WHERE teams.source_seq < excluded.source_seq`,
-    [p.id, p.kind, p.display_name, stream, seq]
-  ],
-  "membership.upsert": (p, stream, seq) => [
-    `INSERT INTO memberships (team_id, user_id, role, source_stream, source_seq, updated_at) VALUES ($1, $2, $3, $4, $5, now())
-     ON CONFLICT (team_id, user_id) DO UPDATE SET role = excluded.role, source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
-     WHERE memberships.source_seq < excluded.source_seq`,
-    [p.team, p.user, p.role, stream, seq]
-  ],
-  "host.upsert": (p, stream, seq) => [
-    `INSERT INTO hosts (id, team_id, owner_user, enrolled_by, name, platform, enrolled_at, deleted_at, source_stream, source_seq, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), NULL, $8, $9, now())
-     ON CONFLICT (id) DO UPDATE SET name = excluded.name, platform = excluded.platform, deleted_at = NULL,
-       source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
-     WHERE hosts.source_seq < excluded.source_seq`,
-    [p.id, p.team, p.owner_user, p.enrolled_by, p.name, p.platform, p.enrolled_at, stream, seq]
-  ],
-  "automation.upsert": (p, stream, seq) => [
-    `INSERT INTO automations (id, team_id, name, enabled, version, definition, created_by, created_at, updated_at, next_run_at, deleted_at, source_stream, source_seq)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0), to_timestamp($9 / 1000.0),
-       CASE WHEN $10::bigint IS NULL THEN NULL ELSE to_timestamp($10 / 1000.0) END, NULL, $11, $12)
-     ON CONFLICT (id) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, version = excluded.version, definition = excluded.definition,
-       updated_at = excluded.updated_at, next_run_at = excluded.next_run_at, deleted_at = NULL,
+/** The search rows table is hash-partitioned (not modeled in Drizzle): raw SQL with the same guard. */
+const rawStatements: Record<string, (p: Record<string, unknown>, stream: string, seq: number) => [string, Array<unknown>]> = {
+  "home.message.upsert": (p, stream, seq) => [
+    `INSERT INTO home_message_search (conversation_id, seq, message_id, author_id, author_kind, created_at, edited_at, body, source_stream, source_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT (conversation_id, seq) DO UPDATE SET message_id = excluded.message_id, author_id = excluded.author_id,
+       author_kind = excluded.author_kind, edited_at = excluded.edited_at, body = excluded.body,
        source_stream = excluded.source_stream, source_seq = excluded.source_seq
-     WHERE automations.source_seq < excluded.source_seq`,
-    [p.id, p.owner, p.name, p.enabled, p.version, JSON.stringify(p), p.created_by, p.created_at, p.updated_at, p.next_run_at ?? null, stream, seq]
+     WHERE home_message_search.source_seq < excluded.source_seq`,
+    [p.conversation_id, p.seq, p.message_id, p.author_id, p.author_kind, p.created_at, p.edited_at ?? null, p.body, stream, seq]
   ],
-  "automation.delete": (p, stream, seq) => [
-    `UPDATE automations SET deleted_at = now(), source_stream = $2, source_seq = $3 WHERE id = $1 AND source_seq < $3`,
-    [p.id, stream, seq]
+  "home.message.delete": (p, stream, seq) => [
+    `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq = $2 AND source_stream = $3 AND source_seq <= $4`,
+    [p.conversation_id, p.seq, stream, seq]
   ],
-  "automation_run.upsert": (p, stream, seq) => {
-    const trigger = p.trigger as { type: string }
-    const ts = (v: unknown) => (typeof v === "number" ? v : null)
-    return [
-      `INSERT INTO automation_runs (id, team_id, automation_id, automation_version, trigger_type, trigger, state, step, error, outcome, created_at, started_at, finished_at, source_stream, source_seq, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11 / 1000.0),
-         CASE WHEN $12::bigint IS NULL THEN NULL ELSE to_timestamp($12 / 1000.0) END,
-         CASE WHEN $13::bigint IS NULL THEN NULL ELSE to_timestamp($13 / 1000.0) END, $14, $15, now())
-       ON CONFLICT (id) DO UPDATE SET state = excluded.state, step = excluded.step, error = excluded.error, outcome = excluded.outcome,
-         started_at = excluded.started_at, finished_at = excluded.finished_at, source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
-       WHERE automation_runs.source_seq < excluded.source_seq`,
-      [
-        p.id, p.owner, p.automation, p.automation_version, trigger.type, JSON.stringify(p.trigger), p.state, p.step,
-        p.error == null ? null : JSON.stringify(p.error), p.outcome == null ? null : JSON.stringify(p.outcome),
-        p.created_at, ts(p.started_at), ts(p.finished_at), stream, seq
-      ]
-    ]
-  },
-  "audit.append": (p, stream, seq) => [
-    `INSERT INTO audit_events (team_id, n, op, actor, on_behalf_of, transaction, at, summary, detail, prev_hash, hash, source_stream, source_seq)
-     VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), $8, $9, $10, $11, $12, $13)
-     ON CONFLICT DO NOTHING`,
-    [p.team, p.n, p.op, p.actor, p.on_behalf_of ?? null, p.tx, p.at, p.summary, JSON.stringify(p.detail ?? null), p.prev_hash, p.hash, stream, seq]
-  ],
-  "connection.upsert": (p, stream, seq) => {
-    const account = p.account as { key?: string; name?: string } | null
-    return [
-      `INSERT INTO connections (id, team_id, created_by, provider, account_key, account_name, scopes_requested, scopes_granted, status, sharing, created_at, updated_at, source_stream, source_seq)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11 / 1000.0), to_timestamp($12 / 1000.0), $13, $14)
-       ON CONFLICT (id) DO UPDATE SET account_key = excluded.account_key, account_name = excluded.account_name, scopes_granted = excluded.scopes_granted,
-         status = excluded.status, sharing = excluded.sharing, updated_at = excluded.updated_at, source_stream = excluded.source_stream, source_seq = excluded.source_seq
-       WHERE connections.source_seq < excluded.source_seq`,
-      [
-        p.id, p.owner, p.created_by, p.provider, account?.key ?? null, account?.name ?? null,
-        JSON.stringify(p.scopes_requested ?? []), JSON.stringify(p.scopes_granted ?? []), p.status, p.sharing, p.created_at, p.updated_at, stream, seq
-      ]
-    ]
-  },
-  "host.delete": (p, stream, seq) => [
-    `UPDATE hosts SET deleted_at = now(), source_stream = $2, source_seq = $3, updated_at = now() WHERE id = $1 AND source_seq < $3`,
-    [p.id, stream, seq]
+  // Retention (conversation.sweep): every row of the conversation up to `seq`, one statement per sweep.
+  "home.message.delete_through": (p, stream, seq) => [
+    `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq <= $2 AND source_stream = $3 AND source_seq <= $4`,
+    [p.conversation_id, p.seq, stream, seq]
   ]
 }
+
+const statements: Record<string, (p: Record<string, unknown>, stream: string, seq: number) => [string, Array<unknown>]> = { ...drizzleStatements, ...rawStatements }
 
 /** The SQL for one outbox row, or undefined for a kind this drain does not know. */
 export const projectionStatement = (kind: string, payload: unknown, stream: string, seq: number): [string, Array<unknown>] | undefined => {
@@ -110,27 +39,105 @@ export const projectionStatement = (kind: string, payload: unknown, stream: stri
   return make ? make(pgSafe(payload) as Record<string, unknown>, stream, seq) : undefined
 }
 
-export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<OutboxRow>): Promise<void> => {
+/** The part of a pg client the drain uses (a fake in tests). */
+export interface PgQuery {
+  query(sql: string, values?: Array<unknown>): Promise<unknown>
+}
+
+/** MySQL server errors that mean "try again later": lock wait, deadlock, too many connections,
+ * server shutdown, gone away / lost, read-only during failover, query interrupted by the server. */
+const MYSQL_TRANSIENT_ERRNO = new Set([1040, 1053, 1205, 1213, 1290, 1317, 1836, 2002, 2003, 2006, 2013, 2055, 3024])
+
+/**
+ * True when the error says PlanetScale or Hyperdrive is unreachable or overloaded, not that the
+ * row is bad. Postgres: SQLSTATE classes 08 (connection), 40 (rollback, deadlock), 53 (resources),
+ * 57 (operator intervention, shutdown), 58 (system). MySQL (mysql2): the same SQLSTATE classes in
+ * `sqlState`, plus the transient server errno list above. Network errors without a SQL code count
+ * too. Such a batch backs off and retries forever; it never dead-letters (home-scale review P1).
+ */
+export const isTransientError = (e: unknown): boolean => {
+  const err = (e ?? {}) as { code?: unknown; sqlState?: unknown; errno?: unknown; fatal?: unknown }
+  if (typeof err.errno === "number" && MYSQL_TRANSIENT_ERRNO.has(err.errno)) return true
+  if (typeof err.sqlState === "string" && /^[0-9A-Z]{5}$/.test(err.sqlState) && err.sqlState !== "HY000") return /^(08|40|53|57|58)/.test(err.sqlState)
+  const code = err.code
+  if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return /^(08|40|53|57|58)/.test(code)
+  // Node-style socket codes (ECONNRESET, ETIMEDOUT, EPIPE, ...) and mysql2 protocol losses.
+  if (typeof code === "string" && (/^E[A-Z]+$/.test(code) || /^PROTOCOL_(CONNECTION_LOST|SEQUENCE_TIMEOUT)$/.test(code))) return true
+  // A fatal mysql2 error with no server errno is a dead connection.
+  if (err.fatal === true && typeof err.errno !== "number") return true
+  // The pg client's own connection errors carry no code; nothing else is matched by text.
+  const text = e instanceof Error ? e.message : String(e)
+  return /^(Connection terminated|Connection terminated unexpectedly|connection timeout|timeout expired|HYPERDRIVE binding missing|PS_MYSQL binding missing|Network connection lost)/i.test(text)
+}
+
+const describeError = (e: unknown): string => {
+  const code = (e as { code?: unknown } | null)?.code
+  return `${typeof code === "string" ? `${code} ` : ""}${e instanceof Error ? e.message : String(e)}`.slice(0, 300)
+}
+
+/**
+ * Applies one batch in one transaction, each row under its own savepoint. A row that fails with a
+ * non-transient error rolls back to its savepoint and is returned as dead (only that row); the
+ * other rows commit. A transient error rolls back the whole batch and is thrown (the channel backs
+ * off). Upserts are guarded by (source_stream, source_seq), so a later replay of the dead row
+ * cannot move a newer row backwards.
+ */
+export const applyProjectionRows = (client: PgQuery, stream: string, rows: ReadonlyArray<OutboxRow>) => applyRows(client, stream, rows, projectionStatement)
+
+/** applyProjectionRows for any SQL dialect: the statement renderer is the only difference. */
+export const applyRows = async (
+  client: PgQuery,
+  stream: string,
+  rows: ReadonlyArray<OutboxRow>,
+  statementOf: (kind: string, payload: unknown, stream: string, seq: number) => [string, Array<unknown>] | undefined
+): Promise<{ sent: Array<number>; dead: Array<{ id: number; error: string }> }> => {
+  const sent: Array<number> = []
+  const dead: Array<{ id: number; error: string }> = []
+  await client.query("BEGIN")
+  try {
+    for (const row of rows) {
+      let statement: [string, Array<unknown>] | undefined
+      try {
+        statement = statementOf(row.kind, row.payload, stream, row.seq)
+      } catch (e) {
+        // A payload that cannot even be rendered is poison for this row only.
+        dead.push({ id: row.id, error: describeError(e) })
+        continue
+      }
+      // An unknown kind (newer writer than this drain) must not block every later row.
+      if (!statement) {
+        console.error(JSON.stringify({ msg: "outbox row skipped: no projection", stream, seq: row.seq, kind: row.kind }))
+        sent.push(row.id)
+        continue
+      }
+      // Not `row`: Vitess (PlanetScale MySQL) reserves it, so `SAVEPOINT row` is a syntax error there.
+      await client.query("SAVEPOINT projection_row")
+      try {
+        await client.query(statement[0], statement[1])
+        await client.query("RELEASE SAVEPOINT projection_row")
+        sent.push(row.id)
+      } catch (e) {
+        if (isTransientError(e)) throw e
+        await client.query("ROLLBACK TO SAVEPOINT projection_row")
+        dead.push({ id: row.id, error: describeError(e) })
+      }
+    }
+    await client.query("COMMIT")
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => undefined)
+    throw e
+  }
+  return { sent, dead }
+}
+
+export const drainOutbox = async (env: Env, stream: string, rows: ReadonlyArray<OutboxRow>): Promise<{ sent: Array<number>; dead: Array<{ id: number; error: string }> }> => {
   if (!env.HYPERDRIVE) throw new Error("HYPERDRIVE binding missing")
   // Loaded on first drain only: keeps pg (CommonJS, node:net) off the request path and out of unit tests.
   const { default: pg } = await import("pg")
   const client = new pg.Client({ connectionString: env.HYPERDRIVE.connectionString })
   await client.connect()
   try {
-    await client.query("BEGIN")
-    for (const row of rows) {
-      const statement = projectionStatement(row.kind, row.payload, stream, row.seq)
-      // An unknown kind (newer writer than this drain) must not block every later row.
-      if (!statement) {
-        console.error(JSON.stringify({ msg: "outbox row skipped: no projection", stream, seq: row.seq, kind: row.kind }))
-        continue
-      }
-      await client.query(statement[0], statement[1])
-    }
-    await client.query("COMMIT")
-  } catch (e) {
-    await client.query("ROLLBACK").catch(() => undefined)
-    throw e
+    return await applyProjectionRows(client, stream, rows)
   } finally {
     await client.end()
   }

@@ -60,6 +60,7 @@ The helper calls `enter_helper_sandbox()` (Chromium `Sandbox::initialize` via `l
 - CEF on macOS already offers keys that the page did not handle to the main menu. cmux2 sets `unhandled_key = nil` because a second offer ran every menu shortcut twice (cmux2:`apple/Sources/CmuxMac/Engine.swift:134-137`). The Rust `on_key_event` still forwards `RAWKEYDOWN` when a host hook exists (cmux2:`crates/engine/src/client.rs:374-390`).
 - Chrome accelerators that act on a tab strip (`IDC_NEW_TAB`, `IDC_CLOSE_TAB`, `IDC_SELECT_*`, `IDC_FOCUS_LOCATION`, new window) are captured in `CefCommandHandler::on_chrome_command` and re-emitted as `CMUX_EVENT_COMMAND` for the shell (`client.rs:394-440`).
 - Terminal views route key equivalents to the main menu first (cmux2:`apple/Sources/CmuxMac/TerminalView.swift:223-229`).
+- Link hints (`f` follows, `F` opens the link in a new browser split; `browserLinkHints`, `browserLinkHintsNewSplit`, rebindable like any action) are bare keys, so they never run from the window key path. The shim's `OnKeyEvent` reports a letter only after the page left it unhandled while no editable field had focus (`CMUX_SHIM_KEY_UNHANDLED`), and `KeyRouter.routePageKey` runs the action only while that page has the keyboard. While labels show, the router gives every key to `LinkHintController` before Chromium sees it. Escape, a chord, a scroll or another window ends the session. The page script runs in the isolated world, and a follow is a trusted CDP click. Chromium pages only for now.
 - With the fork, focus goes to the embedded child window. `CefBrowserHost::SetFocus` activates that widget (fork commit `a7bcbc0`). The child window "never becomes main", and it counts as active while the parent is key (fork commit `377a33a`, `chrome_child_window_mac.mm:118-140`).
 
 ### Browser process switches
@@ -88,7 +89,7 @@ fork:`include/cef_cmux.h` (`CMUX_CEF_API_VERSION 1`). Browsers are addressed by 
 
 cmux2's `fork::Api` does not bind `cmux_tab_window_id` or `cmux_ext_action_hide_popup` (cmux2:`crates/engine/src/fork.rs:24-33`).
 
-Missing for cmux next: detach or attach a tab across windows (moving a CEF tab between panes), close through the tab strip, and a tab snapshot. Chromium has `TabStripModel::DetachWebContentsAtForInsertion`, so a fork `cmux_tab_move_to_window` is a small patch.
+Missing for cmux next: close through the tab strip, and a tab snapshot. Moving a tab between panes or windows needs no fork call today: the app gives every Chromium tab its own Chromium window (below). `cmux_tab_move_to_window` exists for popups and for tabs Chromium opens itself (`CEFOrphanTabs`).
 
 ## 2. What the fork patches
 
@@ -150,7 +151,9 @@ Child-window rules for `.childWindow` tabs (Decision 2):
 - Sidebar Liquid Glass must not sit over a CEF pane. Keep panes inset from glass, or accept the plain background next to CEF.
 - Column scroll, tab open/close animations, tab drag, and hover previews: call `setOccluded(true)`, which shows a `Page.captureScreenshot` image in the placeholder view and hides the child window. Restore after the settle signal. Fork patch: observe clip-view bounds changes and clip or hide when the placeholder is only partly visible. Do not ship the no-clip behavior.
 
-Chromium `Browser` per pane (Decision 1): the first CEF tab in a pane creates the tabbed browser in that pane's placeholder view. Later CEF tabs in the pane use `cmux_tab_add`. The pane's selected tab maps to `cmux_tab_activate`. When a WebKit or terminal tab is selected, the placeholder is hidden and the tracker hides the child window. Cross-pane moves need the new fork call. Without it, a move recreates the tab and loses page state.
+Chromium `Browser` per pane (Decision 1, planned): the first CEF tab in a pane creates the tabbed browser in that pane's placeholder view. Later CEF tabs in the pane use `cmux_tab_add`. The pane's selected tab maps to `cmux_tab_activate`. When a WebKit or terminal tab is selected, the placeholder is hidden and the tracker hides the child window.
+
+As built (2026-10-02): the app leaves `BrowserTabConfiguration.pane` nil (`TabContentCache.chromiumConfiguration`), so `CEFEngine` gives each Chromium tab its own `Browser` (`tab-<id>`, `CEFPaneHost`). Its host view reparents into whichever pane or cmux window shows the tab, so a move between panes or windows keeps the page with no fork call (checked for a workspace move to another window on 2026-10-02: scroll, form values and the document survived, #16997). The cost: extensions see one single-tab Chromium window per tab. Adopting Decision 1 later needs `cmux_tab_move_to_window` (already in the fork, used for popups and Chromium-opened tabs) for cross-pane moves.
 
 ### Rust crate or Swift against the CEF C API
 
@@ -633,11 +636,13 @@ Owners: `CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift`,
 - Links, popups and Chromium window requests a page opens stay in that
   page's profile.
 
-TODO: the `link` menu context (`openLinkInNewTab`, `openLinkInDefaultBrowser`)
-still receives no link (MiscHandlerStrings.linkTarget) and is not shown by
-any surface. When a surface passes a link to actions, add
-`browserProfile.openLink` to `ContextMenuCatalog.link` and remove the
-`hoveredLink` special case in `TerminalHostDelegate`.
+Page links have a menu context since R123 slice B: `browserLink` (and
+`browserImage`, `browserSelection`) rows carry the hit's `url` and `text`
+as action arguments, the same in WebKit and Chromium (`BrowserHitMenu`).
+TODO: `browserProfile.openLink` and `openLinkInDefaultBrowser` still use the
+profile item list and the unavailable stub; move them into `browserLink`
+(and the terminal's `hoveredLink` menu) when they take the `url` argument
+from a menu row.
 
 ## Browser import: cookies and security (2026-09-30)
 
@@ -690,6 +695,8 @@ Suite results on the final build (`brw3`, pinned cmux.12): API 140 checks, 136 p
 ## Fork API 15: saved password import, password fill switch, smaller engine (2026-10-02)
 
 Release `cef-154.0.28-cmux.13` (fork `8f931f24b`, `CMUX_CEF_API_VERSION 15`), arm64 and x86_64, GitHub and R2, pinned in `cef-manifest.json`. Fork owner review of Leo's `3e772d04e` (`cmux_password_import`, `cmux_tab_set_password_fill`): entries are pointer+length structs copied before return (the caller may zero its buffers at once), nothing is logged, the callback has counts only. Two fixes in the fork (`4576d26f2`): an entry whose `signon_realm` is not `GetSignonRealm(url)` is rejected (else an import could make a password fill on a site other than its URL), and a sign-in twice in one import counts as duplicate. The fill switch gates `IsFillingEnabled`, so it also stops saving, the Credential Management API, HTTP auth, the context-menu manual fallback and generation. It is per WebContents: the app must set it before the first navigation of every agent-driven tab and on every popup or tab adopted from one; a value filled before the call stays until a reload. Size: `enable_pseudolocales=false`, `enable_pdf_save_to_drive=false` (PR 3; `enable_pdf_ink2=false` breaks Chromium 154's PDF viewer TypeScript build and is not used), and the packaged locale paks are only the 21 Chromium locales matching cmux's languages (Chromium has no bs or km; other languages get en-US). Compressed / installed: arm64 124.3 / 446 MiB (cmux.12 130.5 / 479), x86_64 158.1 / 541 MiB (163 / 574). ext-e2e API on the pinned build: same result as cmux.12 (136 pass, the same 3 known failures). The password exports are not exercised by cmux yet (Leo's lane binds them).
+
+Release `cef-154.0.28-cmux.14` (fork `65ac76acd`, merged in manaflow-ai/cef PR 4, `CMUX_CEF_API_VERSION 16`), arm64 and x86_64, GitHub and R2, pinned in `cef-manifest.json`. (1) Chromium's Mac shutdown watchdogs are off: a CefShutdown longer than 10 s exited with code 2 before `applicationWillTerminate`. (2) The browser process keeps the app's SIGINT, SIGTERM and SIGHUP dispositions (Chromium neither resets them nor installs its own); it still clears the signal mask, so the app ignores these signals (SIG_IGN) and must reset them in children it spawns outside the PTY path. (3) `cmux_tab_duplicate(browser, window, index)`: a background, user-owned copy in a normal window of the same profile, with history from the session restore conversion (request bodies dropped from every frame), a sessionStorage snapshot, its own BrowsingInstance, no opener, the default user agent and password filling on (feed.md section 10). `CEFPaneHost.duplicate(_:)` binds it behind fork API 16. The fork's `scripts/test-cmux-embedder.sh` tests all three in a real embedder process; cmux.13 fails all three, cmux.14 passes. Compressed: arm64 130.4 MiB, x86_64 164.4 MiB.
 
 ## Session history across relaunch (2026-10-02)
 

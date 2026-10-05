@@ -39,13 +39,57 @@ impl Inner {
         // Any document committed after this call counts, so a client redirect
         // continues the navigation instead of stranding the wait.
         let what = format!("navigation to {url}");
-        self.wait_for(&session.target_id, deadline, &what, |tab| {
+        let landed = self.wait_for(&session.target_id, deadline, &what, |tab| {
             if tab.download_seq > downloads {
                 return Some(Err(DriverError::invalid(format!("Download is starting: {url}"))));
             }
             (tab.nav_seq > before && !tab.last_nav_same_document && reached(tab, wait_until))
                 .then(|| Ok(json!({"url": tab.url})))
-        })
+        })?;
+        if self.shows_browser_page(&session.target_id) {
+            return Err(self.leave_browser_page(&session, deadline));
+        }
+        Ok(self.with_status(&session, landed))
+    }
+
+    /// Adds the main document's HTTP status (`status`, as Playwright's
+    /// Response) when the document came from HTTP. Read from the
+    /// document's navigation timing entry in the agent world, which agent
+    /// code can change: the status is a report, not a guard.
+    fn with_status(&self, session: &super::driver::Session, mut answer: Value) -> Value {
+        let context = {
+            let state = self.lock();
+            state.tabs.get(&session.target_id).and_then(|tab| {
+                // Only an HTTP document has a status (Chromium reports 200 for
+                // data: URLs; Playwright answers no response there).
+                let http = tab.committed_url.starts_with("http://")
+                    || tab.committed_url.starts_with("https://");
+                if !http {
+                    return None;
+                }
+                let frame = tab.main_frame.clone()?;
+                tab.contexts.get(&(frame, super::state::World::Agent)).cloned()
+            })
+        };
+        let Some((context_session, context)) = context else {
+            return answer;
+        };
+        let reply = self.conn.call(
+            Some(&context_session),
+            "Runtime.evaluate",
+            json!({
+                "expression": "(() => { const e = performance.getEntriesByType('navigation')[0]; return e && e.responseStatus ? e.responseStatus : 0; })()",
+                "contextId": context,
+                "returnByValue": true,
+            }),
+            Duration::from_secs(2),
+        );
+        if let Ok(reply) = reply
+            && let Some(status) = reply["result"]["value"].as_u64().filter(|s| *s > 0)
+        {
+            answer["status"] = json!(status);
+        }
+        answer
     }
 
     /// Clears a crash (navigation starts a new renderer) and returns the
@@ -82,7 +126,7 @@ impl Inner {
         let (before, _) = self.begin_navigation(&session.target_id);
         self.send_until(&session, "Page.reload", json!({}), deadline)?;
         self.wait_for_next_load(&session.target_id, before, wait_until, deadline)?;
-        Ok(json!({}))
+        Ok(self.with_status(&session, json!({})))
     }
 
     pub(super) fn history(&self, params: &Value) -> Result<Value, DriverError> {
@@ -104,6 +148,12 @@ impl Inner {
         // The blank page a tab opened on is not an entry (driver-protocol.md).
         if index == 0 && delta < 0 && entry["url"].as_str() == Some("about:blank") {
             return Ok(Value::Null);
+        }
+        if let Some(url) = entry["url"].as_str().filter(|url| crate::policy::is_browser_page(url)) {
+            return Err(DriverError::new(
+                crate::protocol::ErrorCode::Forbidden,
+                format!("tab.history: {url} is a browser page, not available to agents"),
+            ));
         }
         let entry_id =
             entry["id"].as_i64().ok_or_else(|| DriverError::invalid("history entry has no id"))?;
@@ -144,7 +194,8 @@ impl Inner {
                 }
             }
         }
-        if !dialog_open {
+        // The driver's own title read does not run in a browser page.
+        if !dialog_open && !self.shows_browser_page(&session.target_id) {
             self.refresh_title(&session);
         }
         let state = self.lock();
@@ -164,7 +215,11 @@ impl Inner {
     pub(super) fn set_viewport(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         if params.get("reset").and_then(Value::as_bool) == Some(true) {
-            self.send(&session, "Emulation.clearDeviceMetricsOverride", json!({}))?;
+            // Back to the hidden-tab size on headless; an app tab's own size.
+            match self.hidden_viewport_step() {
+                Some((method, args)) => self.send(&session, method, args)?,
+                None => self.send(&session, "Emulation.clearDeviceMetricsOverride", json!({}))?,
+            };
             return Ok(Value::Null);
         }
         let width = required_f64(params, "width")?;

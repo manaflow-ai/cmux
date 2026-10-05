@@ -26,6 +26,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
     @ObservationIgnored private let container: WebKitPageContainer
+    /// Web Inspector's visibility, for the toolbar's DevTools button.
+    @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -34,10 +36,15 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
-    @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
+    /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
+    @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
+    /// This tab's downloads (`WebKitDownloads`).
+    @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
+    /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
+    @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
-    @ObservationIgnored private var isClosed = false
+    @ObservationIgnored private(set) var isClosed = false
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -48,6 +55,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.webView = webView
         container = WebKitPageContainer(page: webView)
         super.init()
+        inspectorWatch.attach(webView: webView, container: container)
 
         webView.owner = self
         webView.navigationDelegate = self
@@ -68,6 +76,8 @@ public final class WebKitTab: NSObject, BrowserTab {
             forMainFrameOnly: false
         ))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
+        WebKitContextHit.install(self, into: controller)
+        WebKitPasskeyInstaller.install(self, into: controller)
 
         observeWebView()
         if configuration.zoom != 1 {
@@ -97,25 +107,10 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     // MARK: Navigation commands
 
-    public func load(_ url: URL) {
-        guard !isClosed else { return }
-        if url.isFileURL {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        } else {
-            webView.load(URLRequest(url: url))
-        }
-    }
-
-    public func goBack() { webView.goBack() }
-    public func goForward() { webView.goForward() }
-
-    public func reload() {
-        if webView.url == nil, let url = state.url {
-            load(url)
-        } else {
-            webView.reload()
-        }
-    }
+    public func load(_ url: URL) { startLoad(url) }
+    public func goBack() { startGoBack() }
+    public func goForward() { startGoForward() }
+    public func reload() { startReload() }
 
     public func stop() {
         webView.stopLoading()
@@ -252,6 +247,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     func apply(_ event: BrowserNavigationEvent) {
         let previousFavicon = machine.state.faviconURL
         machine.apply(event)
+        for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
         }
@@ -359,7 +355,13 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     func syncHistory() {
         apply(.historyChanged(canGoBack: webView.canGoBack, canGoForward: webView.canGoForward))
+        let list = webView.backForwardList
+        apply(.historyListed(back: list.backList.suffix(Self.historyListLimit).map(\.url.absoluteString),
+                             forward: list.forwardList.prefix(Self.historyListLimit).map(\.url.absoluteString)))
     }
+
+    /// URLs kept on each side of the current entry (the daemon's tab record holds 20).
+    static let historyListLimit = 20
 
     func syncSecurity() {
         guard !isClosed, state.phase == .committed || state.phase == .finished else { return }

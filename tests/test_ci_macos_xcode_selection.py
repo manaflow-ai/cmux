@@ -47,9 +47,10 @@ EXEMPT = {
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
-    ("ci.yml", "claude-wrapper"): "shell wrapper tests only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
+    ("cmux-tui-artifacts.yml", "cmux-next-daemon-tests"):
+        "Rust only; no Xcode (the cmux_next_ tests gating the tree publication)",
     ("cmux-tui.yml", "cdp-browser-smoke"): "Rust only; no Xcode",
     ("cmux-tui-build-package.yml", "build"):
         "Rust release binaries linked against the runner's default macOS SDK, "

@@ -7,7 +7,7 @@ struct TasksInboxView: View {
     @Environment(\.tasksColors) private var colors
 
     var body: some View {
-        let groups = InboxGroups(tasks: model.visibleTasks, me: model.me?.stableID)
+        let groups = InboxGroups(tasks: model.shownTasks, me: model.me?.stableID)
         HStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {

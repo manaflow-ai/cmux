@@ -1,6 +1,6 @@
 # Sidebar
 
-Window-height list of workspaces with sticky sections (Home at the top; Settings and Account at the bottom). Same surface as the window (`sidebarBackground` = `windowBackground`), no panel, no borders on rows. Width 208 compact / 240 comfortable. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/` at `dd5e6216935` unless noted; images from `1824883286a`. Tokens: [design-tokens.md](../design-tokens.md); JSON keys `components["sidebar.*"]`.
+Window-height list of workspaces with pinned sections (Home at the top; Settings and Account at the bottom). A flat tonal step over the window backdrop: `sidebarStep` (the foreground at 4%) painted by `ChromeStepView` (`SidebarContainerView.swift (SidebarContainerView.backdropStep)`), no panel, no border, no seam, no borders on rows. Apple System dark: `#272727` over `#1E1E1E`. The images predate this step and show the bare window background. Width 208 compact / 240 comfortable. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/` at `d445a445556` unless noted; images from `1824883286a`. Tokens: [design-tokens.md](../design-tokens.md); JSON keys `components["sidebar.*"]`.
 
 ![Sidebar, dark, default: selected row on the shared pill, unread badge on api-server](../images/sidebar/dark-default.png) ![Sidebar, light, default](../images/sidebar/light-default.png)
 
@@ -10,12 +10,12 @@ Row height `sidebarRowHeight` (24/32); `sidebarRowHeightWithSubtitle` (36/46) on
 
 | state | background | title | subtitle | other | source |
 |---|---|---|---|---|---|
-| default | none | textPrimary | textSecondary | | WorkspaceRowView.swift:120-130 (`WorkspaceRowView.updateLayer`) |
-| hover | hoverFill | textPrimary | textSecondary | close button (x) replaces the badge; title narrows, then marquees after 0.6 s | :103-115 (`hoverChanged`), :128, :156-163 (`layout`) |
+| default | none | textPrimary | textSecondary | | WorkspaceRowView.swift:117-126 (`WorkspaceRowView.updateLayer`) |
+| hover | hoverFill, fading over 0.08 s (`SidebarRowView.paintFill`) | textPrimary | textSecondary | close button (x) replaces the badge; title narrows, then marquees after 0.6 s | :103-115 (`hoverChanged`), :122-124, :149-156 (`layout`) |
 | selected (active) | selectionFill on one shared pill that glides between rows (spring selection 0.15/0.9) | textPrimary | textSecondary | | ChromeDecorations.swift:48-58 (`SidebarDecorationView.updateColors`, `setPill`) |
 | selected + hover | selectionFill pill | textPrimary | | close button shown | |
-| multi-selected (not active) | secondarySelectionFill | | | | WorkspaceRowView.swift:126 (`updateLayer`) |
-| drop target | selectionFill; insertion gap is a hoverFill pill | | | | :124; ChromeDecorations.swift:49 |
+| multi-selected (not active) | secondarySelectionFill | | | | WorkspaceRowView.swift:122-124 (`updateLayer`) |
+| drop target | selectionFill; insertion gap is a hoverFill pill | | | | WorkspaceRowView.swift:122; ChromeDecorations.swift:49 |
 | dragging | card elevatedBackground, radius itemCornerRadius; shadow color shadow, opacity 0.28, radius 12, y 6 (rest: 0, 4, 2); stacked cards inset 4 per depth with alpha 0.85 and a 0.5 pt separator border; count badge textPrimary fill, textOnPrimary text | | | lift fade 0.12 s, drop spring settle | DragLiftView.swift:20-107 (`DragLiftView.init`, `layout`, `setLifted`) |
 | unread | | bodyEmphasized | | badge | WorkspaceRowView.swift:59 (`configure`) |
 | pressed | no distinct state: selection changes on mouse down | | | | |
@@ -31,11 +31,11 @@ Close button: iconSize+space2 (18/20) square, space3 from the trailing edge, gly
 
 ## Unread badge
 
-Count pill: height iconSize (14/16), width max(height+4, text+8), radius height/2, fill badgeFill, text textPrimary in shortcut (SF Mono 10.5 medium). Dot: 6 pt, alpha(textPrimary, 0.85). Hidden while the row is hovered. Source `UnreadBadgeView.swift:40-58 (UnreadBadgeView.preferredWidth, updateLayer)`.
+Count pill: height iconSize (14/16), width max(height+4, text+8), radius height/2 (continuous), the count or `99+` above 99, fill badgeFill, text textPrimary in shortcut (SF Mono 10.5 medium). Dot: 6 pt, alpha(textPrimary, 0.85). Hidden while the row is hovered. Source `UnreadBadgeView.swift:47-65 (UnreadBadgeView.preferredWidth, updateLayer)`.
 
 ## Status indicator
 
-Rows, section headers and tabs share one indicator (`CmuxNextDesign/StatusIndicator/`, `StatusIndicatorLayer`): slot smallIconSize-space1 (10/12) in rows; in tabs the icon frame inset space1. Glyph rules: `StatusIndicatorPlan.swift:58-88 (StatusIndicatorPlan.staticPlan)`. Settings: `appearance.statusIndicator.{style,size,thickness,color}`.
+Rows, section headers and tabs share one indicator (`CmuxNextDesign/StatusIndicator/`, `StatusIndicatorLayer`): slot smallIconSize-space1 (10/12) in rows; in tabs the icon frame inset space1. Glyph rules: `StatusIndicatorPlan.swift:63-93 (StatusIndicatorPlan.staticPlan)`. Settings: `appearance.statusIndicator.{style,size,thickness,color}`.
 
 | state | glyph | color | motion |
 |---|---|---|---|
@@ -48,7 +48,7 @@ Rows, section headers and tabs share one indicator (`CmuxNextDesign/StatusIndica
 | paused | dot or ring | attention | none |
 | Reduce Motion | same glyphs | | no spin, no pulse |
 
-Styles: arc (default), native (NSProgressIndicator, 8 steps), dot, none. UNVERIFIED screenshot: the image build `1824883286a` predates this indicator, and no socket verb sets agent state. Diagram:
+Styles: arc (default), native (NSProgressIndicator, 8 steps), dot, braille (10 frames ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ over the 0.9 s spinner period, in the terminal font, else SF Mono, fitted to the slot), none. `appearance.statusIndicator.honorStatusStyle` decides which reporters may pick the style. UNVERIFIED screenshot: the image build `1824883286a` predates this indicator, and no socket verb sets agent state. Diagram:
 
 ```
  busy        waiting      error       success     progress
@@ -56,16 +56,17 @@ Styles: arc (default), native (NSProgressIndicator, 8 steps), dot, none. UNVERIF
  textSecondary attention  danger      success     textSecondary
 ```
 
-## Section headers and sticky sections
+## Section headers and pinned sections
 
 Header height sidebarHeaderHeight (22/26), text header style (11/12 semibold) in textTertiary, chevron textTertiary (smallIconSize-space2, bold) (`Sections/SidebarSectionHeaderView.swift:49-50 (updateLayer)`). Items: row height sidebarRowHeight, title textPrimary, icon textSecondary (textPrimary when active; textOnPrimary on a colored list chip).
 
 | item state | fill | source |
 |---|---|---|
-| default | none (tray and grid tiles: hoverFill) | SidebarItemRowView.swift:87 (`SidebarItemRowView.updateLayer`) |
-| hover | hoverFill | :88 |
-| active | selectionFill | :88 |
-| missing target | whole item opacity 0.5 | :80 (`configure`) |
+| default | none (tray and grid tiles: hoverFill) | SidebarItemRowView.swift:110-127 (`SidebarItemRowView.updateLayer`, `fill`) |
+| hover | hoverFill (fades 0.08 s) | :123-127 (`fill`) |
+| active | selectionFill | :123-127 |
+| pressed | pressedFill (wins over active) | :123-127 |
+| missing target | whole item opacity 0.5 | :105 (`configure`) |
 
 Section look: cmux.json `sidebar.sectionLook`, default quiet (`CmuxNextSettings/SidebarSectionsSetting.swift:6-22 (SidebarSectionsSetting)`). The Debug tunable `sidebar.sections.look` overrides it (`CmuxNextSidebar/Sections/SidebarSectionTunables.swift:76-91 (SidebarSectionTunables.look, currentLook)`).
 
@@ -79,17 +80,17 @@ Section look: cmux.json `sidebar.sectionLook`, default quiet (`CmuxNextSettings/
 
 Under borders none the lines become hoverFill at 0.6 of its alpha (`Sections/SidebarRegionView.swift:159-160 (SidebarRegionView.updateLayer)`).
 
-Each section also has an arrangement (`CmuxNextSidebar/Sections/SectionArrangement.swift:7-44 (SectionArrangement)`; flow in `SectionFlow.swift:24-35 (SectionFlow.mode)`). The tray look forces built-in sections into a grid; linesIcons forces them inline, icons only.
+Each section also has an arrangement (`CmuxNextSidebar/Sections/SectionArrangement.swift:8-45 (SectionArrangement)`; flow in `SectionFlow.swift:26-37 (SectionFlow.mode)`). The tray look forces built-in sections into a grid; linesIcons forces them inline, icons only.
 
 | arrangement | items |
 |---|---|
 | list (default) | one row per item, icon and label |
-| inline | chips side by side: icon at space2, label space2 after it, no badge, the pill fills the chip; width space2 + iconBox + space2 + label + 2 × space2. Icons only when labels do not fit; a second line only when icons do not fit |
+| inline | chips side by side: icon at space2, label space2 after it, then the unread count badge space2 after the label when there is one; the pill fills the chip; width space2 + iconBox + space2 + label + 2 × space2, plus badge width + space2 with a count. Icons only when labels do not fit; a second line only when icons do not fit |
 | grid | tiles in columns, as many as fit at rowHeight × 1.5 unless `columns` is set; `align fill` stretches them |
 
-Gap between items: the section's `gap`, else space2. Chip geometry: `Sections/SidebarItemRowView.swift:59-66,96-125 (SidebarItemRowView.chipWidth, layout)`.
+Gap between items: the section's `gap`, else space2. Chip geometry: `Sections/SidebarItemRowView.swift:70-77,133-162 (SidebarItemRowView.chipWidth, layout)`.
 
-Band caps: `sidebar.topBandMaxShare` (1/3) and `sidebar.bottomBandMaxShare` (0.25) limit the sticky bands before they scroll inside; `sidebar.stickyBandsScroll = false` keeps them fixed and shrinks the list to at least three rows.
+Band caps: `sidebar.topBandMaxShare` (1/3) and `sidebar.bottomBandMaxShare` (0.25) limit the pinned bands before they scroll inside; `sidebar.pinnedBandsScroll = false` keeps them fixed and shrinks the list to at least three rows.
 
 ![Section looks, dark: quiet](../images/sidebar/dark-look-quiet.png) ![card](../images/sidebar/dark-look-card.png) ![tray](../images/sidebar/dark-look-tray.png) ![lines](../images/sidebar/dark-look-lines.png) ![lines, icons only](../images/sidebar/dark-look-linesIcons.png)
 
@@ -99,7 +100,7 @@ Band caps: `sidebar.topBandMaxShare` (1/3) and `sidebar.bottomBandMaxShare` (0.2
 
 ## Icon buttons and hover card
 
-Sidebar icon buttons: sidebarHeaderHeight square, radius itemCornerRadius, SF Symbol smallIconSize semibold, tint textSecondary, hover fill hoverFill; no distinct pressed state (`SidebarIconButton.swift:17-60 (SidebarIconButton)`).
+Sidebar icon buttons: sidebarHeaderHeight square, radius itemCornerRadius (continuous), SF Symbol smallIconSize semibold, tint textSecondary (textPrimary while hovered or pressed); fills from `ChromeHover`: hover hoverFill (fades 0.08 s), pressed pressedFill, keyboard focus a 1.5 pt focusRing outline (`SidebarIconButton.swift:18-61 (SidebarIconButton)`).
 
 Workspace hover card: glass panel (overlay material), radius panelCornerRadius, shown 0.6 s after the pointer rests on a row, offset space2 from the row (`WorkspaceHoverCard.swift:16 (WorkspaceHoverCardController.delay)`, `CmuxNextDesign/HoverCards/HoverCardPanel.swift (HoverCardPanel)`). Material: the overlay fallbacks in [design-tokens.md](../design-tokens.md#4-materials), opaque under Reduce Transparency, through `Glass.makeOverlayPanel`. UNVERIFIED screenshot: hover cards follow the real pointer through the hover coordinator; `debug.mouse action:hover` did not open one. Diagram:
 

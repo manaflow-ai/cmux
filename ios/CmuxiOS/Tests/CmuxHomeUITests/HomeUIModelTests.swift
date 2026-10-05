@@ -50,26 +50,27 @@ import Testing
         #expect(byID[group]?.preview == "You: Status?")
     }
 
-    @Test func transcriptGroupingMarksRunsInGroupsOnly() throws {
+    @Test func attachmentOnlyPreviewIsALocalizedLabel() {
+        let id = ConversationID("conv_group")
+        let photo = AttachmentRef(hash: "h1", name: "a.jpg", mimeType: "image/jpeg", byteCount: 10, width: 4, height: 3)
+        let photo2 = AttachmentRef(hash: "h2", name: "b.jpg", mimeType: "image/jpeg", byteCount: 10, width: 4, height: 3)
+        let last = Message(id: MessageID("msg_5"), conversation: id, seq: 5, clientMessageID: IdempotencyKey("key_5"), author: leo.id,
+                           parts: [.attachment(photo), .attachment(photo2)], createdAt: epoch)
+        let row = rows([ConversationSummary(id: id, title: "Core", participants: [me, leo, chief], lastSeq: 5, createdAt: epoch,
+                                            updatedAt: epoch, lastMessage: last, readCursors: [me.id: 5])])[0]
+        #expect(ConversationRowModel(row: row, me: me.id).preview == "Leo: 2 photos", "no file names, a counted kind")
+    }
+
+    @Test func newIncomingAnnouncesOnlyLaterMessagesFromOthers() throws {
         let id = ConversationID("conv_group")
         let window = TranscriptWindow(messages: [
             message(1, by: leo, in: id, "a"), message(2, by: leo, in: id, "b"),
             message(3, by: me, in: id, "c"), message(4, by: chief, in: id, "d"),
         ], reachedStart: true)
         let items = window.items(pending: [], me: me.id)
-        let people = [leo.id: leo, chief.id: chief, me.id: me]
-        let group = items.displayItems(me: me.id, isGroup: true) { people[$0] }
-        #expect(group.map(\.showsAuthorName) == [true, false, false, true])
-        #expect(group.map(\.showsAvatar) == [false, true, false, true])
-        #expect(group.map(\.isOutgoing) == [false, false, true, false])
-        #expect(group.map(\.isLastOutgoing) == [false, false, true, false])
-        let direct = items.displayItems(me: me.id, isGroup: false) { people[$0] }
-        #expect(direct.allSatisfy { !$0.showsAuthorName && !$0.showsAvatar && !$0.reservesAvatarSpace })
-
-        let fewer = Array(group.prefix(3))
-        let incoming = group.newIncoming(since: fewer)
-        #expect(incoming.map(\.key) == [IdempotencyKey("key_4")])
-        #expect(group.newIncoming(since: []).isEmpty)
+        let incoming = items.newIncoming(since: Array(items.prefix(2)), me: me.id)
+        #expect(incoming.map(\.key) == [IdempotencyKey("key_4")], "my own message is not announced")
+        #expect(items.newIncoming(since: [], me: me.id).isEmpty, "the first render announces nothing")
     }
 
     @Test func recipientSetParsesDedupesAndResolves() {

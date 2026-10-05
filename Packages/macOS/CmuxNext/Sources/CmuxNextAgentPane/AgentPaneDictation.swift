@@ -40,8 +40,8 @@ final class AgentPaneDictation {
     private let microphone: DictationMicrophone
     private let makeSession: () -> DictationSession
     private var session: DictationSession?
-    /// Delivers a script to the page.
-    private let evaluate: (String) -> Void
+    /// Delivers an update to the page (a script on the old host, an event on the page host).
+    private let send: (DictationUpdate) -> Void
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
@@ -61,13 +61,24 @@ final class AgentPaneDictation {
     static let holdThreshold: TimeInterval = 0.35
 
     init(
+        send: @escaping (DictationUpdate) -> Void,
+        microphone: DictationMicrophone = .shared,
+        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
+    ) {
+        self.send = send
+        self.microphone = microphone
+        self.makeSession = makeSession
+    }
+
+    /// The old host: each update is a script the page runs.
+    convenience init(
         evaluate: @escaping (String) -> Void,
         microphone: DictationMicrophone = .shared,
         makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
     ) {
-        self.evaluate = evaluate
-        self.microphone = microphone
-        self.makeSession = makeSession
+        self.init(send: { update in
+            if let script = Self.script(update) { evaluate(script) }
+        }, microphone: microphone, makeSession: makeSession)
     }
 
     var phase: DictationPhase { session?.phase ?? .idle }
@@ -200,8 +211,7 @@ final class AgentPaneDictation {
             endSleepWatch()
             if microphone.listening === self { microphone.listening = nil }
         }
-        guard let script = Self.script(update) else { return }
-        evaluate(script)
+        send(update)
     }
 
     // MARK: - Page payload

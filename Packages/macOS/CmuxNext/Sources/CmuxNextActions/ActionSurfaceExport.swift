@@ -22,9 +22,54 @@ public nonisolated enum ActionSurfaceExport {
         ]
     }
 
+    /// One action's row in the checked-in export: the wire form plus what
+    /// other clients need to show it without the app (title and its
+    /// localization key, default shortcut and chord).
+    public static func catalogObject(_ descriptor: ActionDescriptor, titles: ActionTitleCatalog) -> [String: Any] {
+        var row = object(descriptor)
+        let entry = titles.entry(for: descriptor)
+        row["title"] = entry?.english ?? descriptor.title
+        row["title_key"] = entry.map { $0.key as Any } ?? NSNull()
+        row["title_table"] = entry.map { $0.table as Any } ?? NSNull()
+        var shortcut: Any = NSNull()
+        if let defaultShortcut = descriptor.defaultShortcut {
+            var wire = wireShortcut(defaultShortcut)
+            if descriptor.shortcutFamily == .digits { wire["family"] = "digits" }
+            shortcut = wire
+        }
+        row["default_shortcut"] = shortcut
+        let category = descriptor.category
+        row["palette_section"] = [
+            "id": category.paletteSectionID,
+            "title_key": category.titleKey,
+            "title_table": category.titleTable,
+            "title": titles.entry(key: category.titleKey, table: category.titleTable)?.english ?? category.title,
+            "order": category.paletteSectionOrder,
+        ] as [String: Any]
+        row["default_chord"] = descriptor.defaultChord.map { [wireShortcut($0.first), wireShortcut($0.second)] as Any } ?? NSNull()
+        return row
+    }
+
+    /// A shortcut in platform-neutral form: the key as typed (lowercased)
+    /// and its modifiers in the order ctrl, opt, shift, cmd.
+    public static func wireShortcut(_ shortcut: Shortcut) -> [String: Any] {
+        var modifiers: [String] = []
+        if shortcut.modifiers.contains(.control) { modifiers.append("ctrl") }
+        if shortcut.modifiers.contains(.option) { modifiers.append("opt") }
+        if shortcut.modifiers.contains(.shift) { modifiers.append("shift") }
+        if shortcut.modifiers.contains(.command) { modifiers.append("cmd") }
+        return ["key": shortcut.key, "modifiers": modifiers]
+    }
+
     /// The whole catalog, keys sorted, one stable text.
-    public static func json(_ descriptors: [ActionDescriptor]) -> String {
-        let root: [String: Any] = ["version": 1, "actions": descriptors.map(object)]
+    public static func json(_ descriptors: [ActionDescriptor], titles: ActionTitleCatalog = ActionTitleCatalog()) -> String {
+        let actions = descriptors.map { catalogObject($0, titles: titles) }
+        let root: [String: Any] = [
+            "version": 1, "actions": actions,
+            "context_menus": ContextMenuCatalog(descriptors: descriptors).exportObject(descriptors: descriptors, titles: titles),
+            "context_menu_rules": ContextMenuCatalog.exportRenderRules,
+            "context_menus_not_exported": ContextMenuCatalog.exportHandBuiltMenus,
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
               let text = String(data: data, encoding: .utf8)
         else { return "" }

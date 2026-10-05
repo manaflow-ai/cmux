@@ -23,6 +23,10 @@ public final class TabModel: Identifiable {
     public internal(set) var title: String
     public internal(set) var size: CellSize?
     public internal(set) var dead: Bool
+    /// Whether the terminal's shell runs (R41); nil for browsers and older daemons.
+    public internal(set) var terminalState: TerminalTabState?
+    /// How a dead terminal ended (R41): the banner names this reason.
+    public internal(set) var end: TerminalTabEnd?
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
@@ -37,6 +41,16 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// Browser page zoom or terminal font scale saved on the tab record;
+    /// nil = 1 (daemon state resources).
+    public internal(set) var zoom: Double?
+    /// A browser tab's saved back URLs (oldest first) and forward URLs
+    /// (nearest first).
+    public internal(set) var backURLs: [String] = []
+    public internal(set) var forwardURLs: [String] = []
+    /// The terminal's OSC 9;4 progress as the daemon parses it, mounted or
+    /// not (`TerminalSnapshot.extra.progress`).
+    public internal(set) var progress: TerminalProgressReport?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -51,6 +65,15 @@ public final class TabModel: Identifiable {
 
     public var hasUnread: Bool { notification?.unread == true }
 
+    /// Public tab id (`tab_…`) on registry daemons.
+    public var resourceID: ResourceID? { snapshot.tabResourceID }
+
+    /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
+    /// source, `agent-session-tabs-v1`); nil for every other tab.
+    public var agentSession: AgentSessionRef? {
+        kind == .conversation ? snapshot.conversation?.agentSession : nil
+    }
+
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
         snapshot = s
@@ -63,6 +86,8 @@ public final class TabModel: Identifiable {
         title = s.title
         size = s.size
         dead = s.dead
+        terminalState = s.terminalState
+        end = s.end
         notification = s.notification
         url = s.url
         pinned = s.pinned
@@ -92,6 +117,8 @@ public final class TabModel: Identifiable {
         if title != s.title { title = s.title }
         if size != s.size { size = s.size }
         if dead != s.dead { dead = s.dead }
+        if terminalState != s.terminalState { terminalState = s.terminalState }
+        if end != s.end { end = s.end }
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
@@ -103,6 +130,15 @@ public final class TabModel: Identifiable {
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
         if remote != s.remote { remote = s.remote }
+    }
+
+    /// Lays the daemon's tab record and terminal progress over the record.
+    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?) {
+        let record = record ?? SessionStateMirror.TabRecord()
+        if zoom != record.zoom { zoom = record.zoom }
+        if backURLs != record.back { backURLs = record.back }
+        if forwardURLs != record.forward { forwardURLs = record.forward }
+        if self.progress != progress { self.progress = progress }
     }
 
     /// Point updates from surface events (no full snapshot).

@@ -55,6 +55,7 @@ enum TerminalHandlers {
             ("terminal.scrollPageDown", "scroll_page_down"),
             ("terminal.scrollToTop", "scroll_to_top"),
             ("terminal.scrollToBottom", "scroll_to_bottom"),
+            ("terminal.scrollToSelection", "scroll_to_selection"),
         ]
         for (id, binding) in bindings {
             registry.bind(id, invoke: { perform(binding, $0, ctx) })

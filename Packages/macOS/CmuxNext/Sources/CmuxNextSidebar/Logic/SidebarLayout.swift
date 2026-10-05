@@ -134,6 +134,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         isCollapsed: false, childCount: 0, groupColor: nil
                     ))
                     y += h + m.rowSpacing
+                    if o.showWorkspaceTabs {
+                        for tab in ws.tabs {
+                            rows.append(SidebarRow(
+                                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
+                                group: nil, workspace: ws.id, siblingIndex: 0, parentIndex: nil,
+                                isLastInGroup: false, isCollapsed: false, childCount: 0,
+                                groupColor: nil, tabKind: tab.kind
+                            ))
+                            y += m.tabRowHeight + m.rowSpacing
+                        }
+                    }
                 case let .group(group):
                     let groupCollapsed = group.isCollapsed && !filtering
                     rows.append(SidebarRow(
@@ -153,6 +164,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             isCollapsed: false, childCount: 0, groupColor: group.color
                         ))
                         y += h + m.rowSpacing
+                        if o.showWorkspaceTabs {
+                            for tab in ws.tabs {
+                                rows.append(SidebarRow(
+                                    key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
+                                    group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
+                                    isLastInGroup: false, isCollapsed: false, childCount: 0,
+                                    groupColor: group.color, tabKind: tab.kind
+                                ))
+                                y += m.tabRowHeight + m.rowSpacing
+                            }
+                        }
                     }
                     openGapIfNeeded(section: section.id, group: group.id, index: entry.children.count)
                     y += m.groupBottomPadding

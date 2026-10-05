@@ -4,15 +4,16 @@
 
 nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        tabMoveActions() + paneExtraActions() + columnActions() + stickyColumnActions() + terminalExtraActions()
+        tabMoveActions() + paneExtraActions() + columnActions() + dockColumnActions() + terminalExtraActions()
     }
 
     static func row(
         _ id: ActionID, _ title: String, _ category: ActionCategory, _ symbol: String, cli: String,
-        keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false
+        keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false,
+        defaultShortcut: Shortcut? = nil
     ) -> ActionDescriptor {
         ActionDescriptor(
-            id: id, title: title, keywords: keywords, category: category, symbol: symbol,
+            id: id, title: title, keywords: keywords, defaultShortcut: defaultShortcut, category: category, symbol: symbol,
             surfaces: [.palette], arguments: arguments, targets: targets, cliName: cli, startsTerminal: startsTerminal
         )
     }
@@ -111,6 +112,10 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 .terminal, "arrow.up.to.line", cli: "terminal scroll-to-top", keywords: ["scroll", "scrollback", "start"], targets: [.tab]),
             row("terminal.scrollToBottom", String(localized: "action.terminal.scrollToBottom", defaultValue: "Scroll to Bottom", table: "LayoutActions", bundle: .module),
                 .terminal, "arrow.down.to.line", cli: "terminal scroll-to-bottom", keywords: ["scroll", "scrollback", "end"], targets: [.tab]),
+            // Ghostty's Cmd-J on macOS; Cmd-J J in cmux (`LeaderLayer`).
+            row("terminal.scrollToSelection", String(localized: "action.terminal.scrollToSelection", defaultValue: "Scroll to Selection", table: "LayoutActions", bundle: .module),
+                .terminal, "text.viewfinder", cli: "terminal scroll-to-selection", keywords: ["scroll", "scrollback", "selection", "jump"],
+                targets: [.tab]),
         ]
     }
 }

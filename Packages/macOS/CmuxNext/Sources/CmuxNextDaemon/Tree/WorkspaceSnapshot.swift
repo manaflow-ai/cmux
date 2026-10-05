@@ -22,6 +22,10 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var pinned: Bool
     /// Marked unread by hand (`notification-mark-unread-v1`).
     public var markedUnread: Bool
+    /// `home` for the store's home workspace (`workspace-kind-v1`), else `normal`; nil on older daemons.
+    public var kind: String?
+    /// The store's home workspace, which no close path closes (`home_not_closable`).
+    public var isHome: Bool { kind == "home" }
     /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
     public var unreadCount: Int?
     /// Contiguous screen group runs in screen order (`screen-groups-v1`).
@@ -66,7 +70,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, key, name, active, screens, group, color, icon, title, pinned
+        case id, key, name, active, screens, group, color, icon, title, pinned, kind
         case markedUnread = "marked_unread"
         case resourceID = "resource_id"
         case shortID = "short_id"
@@ -89,6 +93,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         markedUnread = try c.decodeIfPresent(Bool.self, forKey: .markedUnread) ?? false
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
         screenGroups = try c.decodeIfPresent([ScreenGroupSnapshot].self, forKey: .screenGroups) ?? []
     }

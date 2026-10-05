@@ -42,6 +42,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate the optional Windows TUI and relay packages.",
     )
+    parser.add_argument(
+        "--notices-dir",
+        type=Path,
+        required=True,
+        help="package_notices.py generate output; every platform package and wheel must carry its notice unchanged.",
+    )
     parser.add_argument("--npm", default="npm", help="npm executable")
     args = parser.parse_args()
     if args.npm_packages is None and args.pypi_wheels is None:
@@ -76,8 +82,9 @@ def _pack_npm_packages(
     install_package: str | None,
     install_relay_package: str | None,
     include_windows: bool,
+    notices_dir: Path,
 ) -> None:
-    validate_npm_tree(packages_dir, version, include_windows=include_windows)
+    validate_npm_tree(packages_dir, version, include_windows=include_windows, notices_dir=notices_dir)
     with tempfile.TemporaryDirectory(prefix="cmux-tui-npm-contract-") as temp:
         temp_root = Path(temp)
         packed_dir = temp_root / "packed"
@@ -299,8 +306,10 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
 
     from package_contract import (
         NPM_LAUNCHER_FILES,
+        NPM_LICENSE_FILE,
         NPM_RELAY_LAUNCHER_FILES,
         NPM_SSH_MANIFEST,
+        NOTICE_FILE,
     )
 
     if package_name == "cmux":
@@ -312,8 +321,10 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         expected = frozenset(
             {
                 "package.json",
+                NPM_LICENSE_FILE,
                 f"bin/chatmux-relay{extension}",
                 f"bin/cmux-tui{extension}",
+                NOTICE_FILE,
             }
         )
     else:
@@ -321,9 +332,11 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         expected = frozenset(
             {
                 "package.json",
+                NPM_LICENSE_FILE,
                 f"bin/cmux-tui{extension}",
                 f"bin/cmux-tui-hook{extension}",
                 NPM_SSH_MANIFEST,
+                NOTICE_FILE,
             }
         )
     expected_names = {f"package/{path}" for path in expected}
@@ -373,9 +386,10 @@ def main() -> None:
                 args.install_npm_package,
                 args.install_npm_relay_package,
                 args.include_windows,
+                args.notices_dir.resolve(),
             )
         if args.pypi_wheels is not None:
-            validate_pypi_wheels(args.pypi_wheels.resolve(), args.version)
+            validate_pypi_wheels(args.pypi_wheels.resolve(), args.version, args.notices_dir.resolve())
     except PackageContractError as error:
         raise SystemExit(str(error)) from error
 

@@ -5,7 +5,7 @@ import CmuxNextTerminal
 import os
 
 /// Settings and help actions (category `settings`, except appearance, see
-/// `AppearanceHandlers`). Settings live in cmux.json (architecture.md 1), so
+/// `AppearanceHandlers`). Settings live in cmux-next.json (architecture.md 1), so
 /// "open settings" opens that file and toggles write it; the watcher applies
 /// the change. Update actions go to `UpdaterService` (UpdateHandlers), CLI
 /// install to `CLIInstallHandlers`, Base Keymap to `KeymapHandlers`. Account
@@ -26,8 +26,10 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.chromium", run: { _ in try setDefaultEngine(.chromium, context) })
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
+        registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
-        UpdateHandlers.bind(into: registry, updater: context.services.updater)
+        UpdateHandlers.bind(into: registry, updater: context.services.updater,
+                            openChangelog: { [weak services = context.services] in services.map { ChangelogPageTab.open($0) } ?? false })
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
@@ -47,19 +49,24 @@ enum SettingsHandlers {
         return settings
     }
 
-    /// Opens cmux.json in the default editor, creating an empty one first.
+    /// Opens cmux-next.json in the default editor, creating an empty one first.
     static func openCmuxConfig(_ context: AppActionContext) throws {
         let url = context.services.settings?.file.url ?? CmuxConfigFile.defaultURL()
         try openCreatingIfMissing(url, contents: "{\n}\n", context)
     }
 
     /// Opens Ghostty's config (terminal fonts, colors, keybinds), which cmux
-    /// reads for every terminal.
+    /// reads for every terminal: the file Ghostty.app would open
+    /// (`GhosttyRuntime.editableConfigPath`), so a user whose config is
+    /// `config.ghostty` or in Application Support gets that file, not a new
+    /// empty `~/.config/ghostty/config` (R92).
     private static func openGhosttyConfig(_ context: AppActionContext) throws {
         let environment = ProcessInfo.processInfo.environment
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config")
-        try openCreatingIfMissing(base.appending(path: "ghostty/config"), contents: "", context)
+        let url = GhosttyRuntime.editableConfigPath().map { URL(fileURLWithPath: $0) }
+            ?? base.appending(path: "ghostty/config")
+        try openCreatingIfMissing(url, contents: "", context)
     }
 
     private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) throws {
@@ -71,7 +78,7 @@ enum SettingsHandlers {
         try context.open(url)
     }
 
-    /// Writes a boolean setting at a dotted cmux.json path. Without `on`,
+    /// Writes a boolean setting at a dotted cmux-next.json path. Without `on`,
     /// flips the value that applies now (a schema setting absent from the
     /// file flips its default). A schema setting that is not on/off is refused.
     private static func toggleSetting(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
@@ -86,11 +93,12 @@ enum SettingsHandlers {
         }
         try AppearanceHandlers.requireUnmanaged(path, context)
         let explicit = invocation["on"]?.boolValue
+        let writer = SettingWriter(invocation.origin)
         Task {
             do {
                 let root = try await settings.file.document()
                 if let descriptor {
-                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true))
+                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true), by: writer)
                 } else {
                     try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
                 }
@@ -101,7 +109,7 @@ enum SettingsHandlers {
     }
 
     /// `browser.defaultEngine`: applies at once (the next new tab uses it),
-    /// then writes cmux.json; the watcher reapplies the same value.
+    /// then writes cmux-next.json; the watcher reapplies the same value.
     private static func setDefaultEngine(_ engine: BrowserDefaultEngine, _ context: AppActionContext) throws {
         try AppearanceHandlers.requireUnmanaged(BrowserDefaultEngine.configPath, context)
         context.services.cache.browserTabs?.preference.defaultEngine = engine

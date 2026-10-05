@@ -45,9 +45,10 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.item.hideApp", title: t("action.sidebar.item.hideApp", "Hide"),
                 keywords: ["sidebar", "app", "hide", "extension"], category: .sidebar, symbol: "eye.slash",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar hide-app",
-                // Offered on app items only (SidebarBridge filters the menu).
-                surfacePlan: plan(menus: [p(.sidebarItem, .close, 120)])
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem, .sidebarSection], cliName: "sidebar hide-app",
+                // Offered on app items and app sections only (SidebarBridge
+                // filters the menus); the app comes from the target.
+                surfacePlan: plan(menus: [p(.sidebarItem, .close, 120), p(.sidebarSection, .close, 120)])
             ),
             ActionDescriptor(
                 id: "sidebar.item.toggleLabel", title: t("action.sidebar.item.toggleLabel", "Show or Hide Label"),
@@ -71,12 +72,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.section.rename", title: t("action.sidebar.section.rename", "Rename Section…"),
                 keywords: ["sidebar", "section", "rename", "title"], category: .sidebar, symbol: "pencil",
-                surfaces: [.palette, .keyboard, .contextMenu], arguments: [titleArgument(required: true)], targets: section,
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [titleArgument(required: true).renamingTarget], targets: section,
                 cliName: "sidebar rename-section", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 100)])
             ),
             ActionDescriptor(
                 id: "sidebar.section.moveToTop", title: t("action.sidebar.section.moveToTop", "Move Section to Top"),
-                keywords: ["sidebar", "section", "move", "top", "sticky"], category: .sidebar, symbol: "arrow.up.to.line",
+                keywords: ["sidebar", "section", "move", "top", "pinned"], category: .sidebar, symbol: "arrow.up.to.line",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-top",
                 surfacePlan: plan(menus: [p(.sidebarSection, .move, 100, folder: .move)])
             ),
@@ -88,7 +89,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "sidebar.section.moveToBottom", title: t("action.sidebar.section.moveToBottom", "Move Section to Bottom"),
-                keywords: ["sidebar", "section", "move", "bottom", "sticky"], category: .sidebar, symbol: "arrow.down.to.line",
+                keywords: ["sidebar", "section", "move", "bottom", "pinned"], category: .sidebar, symbol: "arrow.down.to.line",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-bottom",
                 surfacePlan: plan(menus: [p(.sidebarSection, .move, 120, folder: .move)])
             ),

@@ -11,13 +11,16 @@
     "deploy:development": "bash ../../scripts/deploy-worker.sh development"
   },
   "dependencies": {
+    "@cmux/db": "workspace:*",
+    "@cmux/home-core": "workspace:*",
     "@cmux/ownership": "workspace:*",
     "@cmux/protocol": "workspace:*",
     "croner": "10.0.1",
+    "drizzle-orm": "0.45.3",
     "effect": "4.0.0-rc.117",
     "jose": "6.2.12",
-    "pg": "8.23.0",
-    "@cmux/home-core": "workspace:*"
+    "mysql2": "3.15.3",
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.22.0",

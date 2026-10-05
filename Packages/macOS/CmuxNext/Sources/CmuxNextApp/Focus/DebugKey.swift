@@ -47,11 +47,6 @@ enum DebugKey {
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
-        } else if params["target"]?.stringValue == "settings" {
-            guard let settings = services.settingsWindow.window, settings.isVisible else {
-                return .object(["error": .string("the Settings window is not open")])
-            }
-            window = settings
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
                 return .object(["error": .string("Debug Settings is not open")])
@@ -88,6 +83,11 @@ enum DebugKey {
         let previous = registry.isDispatchingKeyDown
         registry.isDispatchingKeyDown = { true }
         defer { registry.isDispatchingKeyDown = previous }
+        // The target window is the key window for this dispatch, so rules
+        // that read the key window (WindowKeyTable) see it.
+        let previousKey = services.keyWindowSource
+        services.keyWindowSource = { [window] in window }
+        defer { services.keyWindowSource = previousKey }
         var handledBy = "responder"
         var action: JSONValue = .null
         let isChord = !flags.isDisjoint(with: [.command, .control])
@@ -114,6 +114,10 @@ enum DebugKey {
                 "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,
                 "palette_unhandled_key_downs": .number(Double(palette.unhandledKeyDowns)),
                 "palette_selected": palette.model.selectedItem.map { .string($0.actionID?.rawValue ?? $0.id) } ?? .null,
+                // The row id Return runs and the first rows, so a probe tells an action row from a
+                // scope or setting row with the same action.
+                "palette_selected_row": palette.model.selectedItem.map { .string($0.id) } ?? .null,
+                "palette_rows": .array(palette.model.rows.prefix(6).map { .string($0.id) }),
                 "palette_recorder": palette.model.shortcutRecorder.map { recorder in
                     .object(["action": .string(recorder.actionID.rawValue), "message": recorder.message.map(JSONValue.string) ?? .null,
                              "recorded": recorder.recorded.map { .string($0.displayString) } ?? .null,
@@ -124,10 +128,6 @@ enum DebugKey {
         if params["target"]?.stringValue == "debugSettings" {
             return .object(["handled_by": .string(handledBy == "page" ? "debugSettings" : handledBy), "action": action,
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
-        }
-        if params["target"]?.stringValue == "settings", let model = services.settingsWindow.model {
-            return .object(["handled_by": .string(handledBy == "page" ? "settings" : handledBy), "action": action, "window_kind": .string("settings"),
-                            "settings": DebugSettings.state(model, window: window)])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
         return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind)])

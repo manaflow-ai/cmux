@@ -62,8 +62,15 @@ import Testing
     @Test func longHomesUseTheSameTmpSocketAsAcpmux() {
         let home = URL(fileURLWithPath: "/Users/someone/Library/Application Support/cmux-next/acpmux-a-rather-long-tag-name-for-tests", isDirectory: true)
         // Any home whose socket path reaches 96 bytes; the hash is computed from the path as acpmux does.
-        #expect(AcpmuxEnvironment.defaultSocketPath(home: home, uid: 501) == "/tmp/acpmux-501-978cd91c92b64955.sock")
+        #expect(AcpmuxEnvironment.defaultSocketPath(home: home, uid: 501) == "/tmp/acpmux-501/978cd91c92b64955.sock")
         #expect(AcpmuxEnvironment.fnv1a64("") == 0xcbf2_9ce4_8422_2325)
         #expect(AcpmuxEnvironment.fnv1a64("a") == 0xaf63_dc4c_8601_ec8c)
+    }
+
+    @Test func aDevOriginIsAddedOnlyWhenThereIsOne() throws {
+        let environment = try #require(resolve(tag: "dev", executables: ["/usr/local/bin/acpmux"]))
+        #expect(environment.allowingDevOrigin(nil) == environment)
+        #expect(environment.allowingDevOrigin("http://127.0.0.1:4176").daemonArguments
+            == ["--listen", "127.0.0.1:0", "--allow-dev-origin", "http://127.0.0.1:4176"])
     }
 }

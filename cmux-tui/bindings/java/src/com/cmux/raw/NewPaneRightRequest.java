@@ -16,10 +16,12 @@ public final class NewPaneRightRequest implements WireValue {
     private final Field<String> cwd;
     private final Field<Map<String, String>> env;
     private final Field<Boolean> keep;
+    private final Field<PaneKind> kind;
     private final UInt64 pane;
     private final Field<Integer> rows;
     private final Field<List<String>> shellArgs;
     private final Field<String> terminalId;
+    private final Field<String> url;
     private final Field<Double> width;
 
     private NewPaneRightRequest(Builder builder) {
@@ -27,11 +29,13 @@ public final class NewPaneRightRequest implements WireValue {
         this.cwd = builder.cwd;
         this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         this.keep = builder.keep;
+        this.kind = builder.kind;
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
         this.pane = Wire.nonNull(builder.pane, "pane");
         this.rows = builder.rows;
         this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
         this.terminalId = builder.terminalId;
+        this.url = builder.url;
         this.width = builder.width;
     }
 
@@ -41,10 +45,12 @@ public final class NewPaneRightRequest implements WireValue {
     public Field<String> cwd() { return cwd; }
     public Field<Map<String, String>> env() { return env; }
     public Field<Boolean> keep() { return keep; }
+    public Field<PaneKind> kind() { return kind; }
     public UInt64 pane() { return pane; }
     public Field<Integer> rows() { return rows; }
     public Field<List<String>> shellArgs() { return shellArgs; }
     public Field<String> terminalId() { return terminalId; }
+    public Field<String> url() { return url; }
     public Field<Double> width() { return width; }
 
     public static NewPaneRightRequest fromWire(Object value) {
@@ -66,6 +72,10 @@ public final class NewPaneRightRequest implements WireValue {
         if (!Wire.isMissing(rawKeep)) {
             builder.keep(Wire.bool(rawKeep, "NewPaneRightRequest.keep"));
         }
+        Object rawKind = Wire.optional(object, "kind");
+        if (!Wire.isMissing(rawKind)) {
+            builder.kind(rawKind == null ? null : PaneKind.fromWire(rawKind));
+        }
         Object rawPane = Wire.required(object, "pane");
         builder.pane(Wire.uint64(rawPane, "NewPaneRightRequest.pane"));
         Object rawRows = Wire.optional(object, "rows");
@@ -79,6 +89,10 @@ public final class NewPaneRightRequest implements WireValue {
         Object rawTerminalId = Wire.optional(object, "terminal_id");
         if (!Wire.isMissing(rawTerminalId)) {
             builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "NewPaneRightRequest.terminal_id"));
+        }
+        Object rawUrl = Wire.optional(object, "url");
+        if (!Wire.isMissing(rawUrl)) {
+            builder.url(rawUrl == null ? null : Wire.string(rawUrl, "NewPaneRightRequest.url"));
         }
         Object rawWidth = Wire.optional(object, "width");
         if (!Wire.isMissing(rawWidth)) {
@@ -94,10 +108,12 @@ public final class NewPaneRightRequest implements WireValue {
         Wire.put(object, "cwd", cwd);
         Wire.put(object, "env", env);
         Wire.put(object, "keep", keep);
+        Wire.put(object, "kind", kind);
         Wire.put(object, "pane", pane);
         Wire.put(object, "rows", rows);
         Wire.put(object, "shell_args", shellArgs);
         Wire.put(object, "terminal_id", terminalId);
+        Wire.put(object, "url", url);
         Wire.put(object, "width", width);
         return Collections.unmodifiableMap(object);
     }
@@ -105,11 +121,11 @@ public final class NewPaneRightRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewPaneRightRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(width, that.width);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(kind, that.kind) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(url, that.url) && Objects.equals(width, that.width);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, env, keep, pane, rows, shellArgs, terminalId, width); }
+    public int hashCode() { return Objects.hash(cols, cwd, env, keep, kind, pane, rows, shellArgs, terminalId, url, width); }
 
     @Override
     public String toString() { return "NewPaneRightRequest" + toWire(); }
@@ -119,11 +135,13 @@ public final class NewPaneRightRequest implements WireValue {
         private Field<String> cwd = Field.omitted();
         private Field<Map<String, String>> env = Field.omitted();
         private Field<Boolean> keep = Field.omitted();
+        private Field<PaneKind> kind = Field.omitted();
         private UInt64 pane;
         private boolean paneSet;
         private Field<Integer> rows = Field.omitted();
         private Field<List<String>> shellArgs = Field.omitted();
         private Field<String> terminalId = Field.omitted();
+        private Field<String> url = Field.omitted();
         private Field<Double> width = Field.omitted();
 
         public Builder cols(Integer value) {
@@ -142,6 +160,10 @@ public final class NewPaneRightRequest implements WireValue {
             this.keep = Field.of(value);
             return this;
         }
+        public Builder kind(PaneKind value) {
+            this.kind = Field.ofNullable(value);
+            return this;
+        }
         public Builder pane(UInt64 value) {
             this.pane = value;
             this.paneSet = true;
@@ -157,6 +179,10 @@ public final class NewPaneRightRequest implements WireValue {
         }
         public Builder terminalId(String value) {
             this.terminalId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder url(String value) {
+            this.url = Field.ofNullable(value);
             return this;
         }
         public Builder width(Double value) {

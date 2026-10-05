@@ -11,11 +11,19 @@ export interface CurrentPrincipalShape {
   readonly team: string
   readonly install?: string
   readonly grant?: string
+  /** A chief token: the owner's chief this request acts as (claim `agt`, confirmed by UserDO per request). */
+  readonly agent?: string
   readonly stack_user_id: string
   readonly email?: string | null
   /** Stack asserted the email as verified (claim `email_verified === true`). */
   readonly email_verified?: boolean
   readonly display_name?: string
+  /** Team whose SSO created this session, resolved server-side by the Worker (sso.enforce). */
+  readonly sso_team?: string
+  /** The Stack session's refresh token id (Stack-signed), so install.register can find the SSO team that created it. */
+  readonly stack_session?: string
+  /** "vm" for a VM install's token (signed claim `vm`): it may call only the cloud.vm.* ops. */
+  readonly install_kind?: string
 }
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, CurrentPrincipalShape>()("cmux/CurrentPrincipal") {}
 
@@ -31,9 +39,16 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
   { httpApiStatus: 403 }
 ) {}
 
+/** A team policy refuses this sign-in (enterprise P17-4): SSO required, client too old, or a denied class. */
+export class PolicyRefused extends Schema.TaggedError<PolicyRefused>()(
+  "PolicyRefused",
+  { code: Schema.Literals(["auth.sso_required", "client.too_old", "policy.denied"]), message: Schema.String, minimum_version: Schema.optionalKey(Schema.String) },
+  { httpApiStatus: 403 }
+) {}
+
 export class BadRequest extends Schema.TaggedError<BadRequest>()(
   "BadRequest",
-  { code: Schema.Literals(["validation.invalid", "selector.not_found"]), message: Schema.String },
+  { code: Schema.Literals(["validation.invalid", "selector.not_found", "cloud.machine.not_found", "cloud.machine.not_bound"]), message: Schema.String },
   { httpApiStatus: 400 }
 ) {}
 
@@ -49,7 +64,7 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, { pr
   {
     requiredForClient: true,
     security: { bearer: HttpApiSecurity.bearer },
-    error: Unauthenticated
+    error: [Unauthenticated, PolicyRefused]
   }
 ) {}
 
@@ -129,9 +144,10 @@ export class AuthGroup extends HttpApiGroup.make("auth")
       error: [BadRequest, Forbidden]
     }),
     HttpApiEndpoint.post("token", "/v1/auth/token", {
-      payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String }),
+      // `agent`: a chief of this user; the token then acts as that chief (principal.agent), checked on every request.
+      payload: Schema.Struct({ user: UserId, install: InstallId, nonce: Schema.String, signature: Schema.String, agent: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/))) }),
       success: TokenResponse,
-      error: [BadRequest, Forbidden]
+      error: [BadRequest, Forbidden, PolicyRefused]
     })
   ) {}
 

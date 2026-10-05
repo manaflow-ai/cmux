@@ -4,12 +4,11 @@
 // backend's provider ops for first-class providers and to the catalog imported
 // in this session for generic ones, and keeps policy edits for the session only.
 
-import { resolveEffectivePolicy, type EffectivePolicy, type PolicyRule } from "../core/policy.ts"
-import type { Catalog, ToolAction, ToolEntry } from "../core/types.ts"
+import { mcpListedTools, resolveEffectivePolicy, type EffectivePolicy, type PolicyRule, type Catalog, type ToolAction, type ToolEntry } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import type { Connection } from "./connections.ts"
 import { builtinTools } from "./providers.ts"
-import { isMissing, problemOf, say, sayProblem, type Problem } from "./store.ts"
+import { connections, isMissing, problemOf, say, sayProblem, type Problem } from "./store.ts"
 
 export interface ToolsState {
   readonly phase: "loading" | "ready" | "error"
@@ -20,7 +19,7 @@ export interface ToolsState {
   /** gateway: from the owner. builtin: provider ops known to this app. session: imported in this session. */
   readonly source: "gateway" | "builtin" | "session"
   readonly problem?: Problem
-  readonly catalog?: { readonly title: string; readonly version?: string; readonly digest?: string; readonly refreshed_at?: number }
+  readonly catalog?: { readonly title: string; readonly version?: string; readonly digest?: string; readonly source_url?: string }
 }
 
 interface ToolsListResult {
@@ -105,6 +104,25 @@ export async function setToolAction(c: Connection, tool: ToolEntry, action: Tool
     sayProblem(p)
   }
 }
+
+/**
+ * MCP names (`<namespace>__<path>`, at most 64 characters) of the listed tools
+ * of every opted-in connection whose tools this session loaded, by connection
+ * id and policy address. Block tools have no name: the endpoint hides them.
+ * The gateway assigns the real names over all of the principal's connections
+ * with the same core function, so a name here differs only when two loaded
+ * sets differ.
+ */
+export const mcpNames = (connections: ReadonlyArray<Connection>): Map<string, string> => {
+  const input = connections.flatMap((c) => {
+    const s = toolsOf(c.id)
+    return c.mcp_exposed && s && s.phase === "ready" ? [{ connection: c.id, mcp_exposed: true, namespace: s.namespace, tools: s.tools, rules: s.rules }] : []
+  })
+  return new Map(mcpListedTools(input).map((l) => [`${l.connection}|${l.address}`, l.name]))
+}
+
+/** `mcpNames` over the current list, recomputed only when the list or a loaded catalog or rule changes. */
+export const mcpNameMap = computed(() => mcpNames(connections()))
 
 export const sourceLabel = (s: ToolsState): string | null => {
   if (s.source === "builtin") return t("tools.builtin", "Built-in list")

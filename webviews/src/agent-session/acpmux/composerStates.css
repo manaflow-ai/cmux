@@ -1,0 +1,120 @@
+/* Interaction states for the composer and its menus: every control gets a hover and a pressed
+   state (focus rings are in styles.css). Each is a tonal step mixed from the theme's text color, so no
+   accent hue appears and every theme keeps its character. Only colors change (never size,
+   padding or borders), so a state never shifts the layout.
+
+   Motion tokens: the native host sends its MotionFade durations with the theme
+   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
+   its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
+   the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
+   no-preference, as the transcript's do (conversation/motion.test.ts). */
+:root {
+  --agent-motion-hover: 80ms;
+  --agent-motion-focus: 100ms;
+  --agent-motion-in: 120ms;
+  --agent-motion-out: 80ms;
+  /* Core Animation's easeOut, which the native fades use. */
+  --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+}
+
+.acpmux-shell {
+  /* One step past hover, for the press. */
+  --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+/* Composer chips: Plan, the mode, model and effort pickers, and +. */
+.acpmux-picker-button:active,
+.acpmux-plan:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-plan[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 22%, transparent);
+}
+.acpmux-plan[aria-pressed="true"]:active {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
+}
+
+/* Send and Stop: the one filled control steps toward the text color on hover and further on press. */
+.acpmux-send.acpmux-send-ready:hover,
+.acpmux-send.acpmux-cancel:hover {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 86%, var(--agent-text));
+}
+.acpmux-send.acpmux-send-ready:active,
+.acpmux-send.acpmux-cancel:active {
+  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
+}
+
+/* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
+.acpmux-mic:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-mic:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-mic[data-state="listening"]:hover,
+.acpmux-mic[data-state="finalizing"]:hover {
+  background: color-mix(in srgb, var(--agent-danger) 24%, transparent);
+  color: var(--agent-danger);
+}
+.acpmux-mic[data-state="listening"]:active,
+.acpmux-mic[data-state="finalizing"]:active {
+  background: color-mix(in srgb, var(--agent-danger) 32%, transparent);
+}
+.acpmux-dictation-settings:hover,
+.acpmux-dictation-dismiss:hover {
+  background: var(--acpmux-menu-press);
+  color: var(--agent-text);
+}
+.acpmux-dictation-settings:active,
+.acpmux-dictation-dismiss:active {
+  background: color-mix(in srgb, var(--agent-text) 26%, var(--acpmux-base));
+}
+
+/* Menu rows follow the pointer through their active row (the keyboard highlight); a press steps further. */
+.acpmux-menu-item:active,
+.acpmux-slash-row:active {
+  background: var(--acpmux-menu-press);
+}
+
+/* New chat's lists (needs input, in progress, recent): rows hover in styles.css; a press steps further. */
+.acpmux-home-row:active {
+  background: var(--acpmux-menu-press);
+}
+
+/* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
+@keyframes acpmux-menu-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-picker-button,
+  .acpmux-plan {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-send {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-mic,
+  .acpmux-dictation-settings,
+  .acpmux-dictation-dismiss {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu-item,
+  .acpmux-slash-row,
+  .acpmux-home-row {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu,
+  .acpmux-slash-menu {
+    animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
+  }
+}

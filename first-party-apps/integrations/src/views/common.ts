@@ -1,7 +1,7 @@
 // Pieces every screen shares: the header, the notice line, status badges,
 // connection rows, the policy control, error states and the credit line.
 
-import type { ToolAction } from "../core/types.ts"
+import type { CredentialKind, ToolAction } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import { displayName, needsAttention, statusLabel, statusTone, subtitle, type Connection } from "../model/connections.ts"
 import { providerInfo } from "../model/providers.ts"
@@ -75,6 +75,26 @@ export function policyControl(current: () => ToolAction, isRule: () => boolean, 
     .fixedSize()
 }
 
+/** Two segments, Off and On, for an opt-in setting such as MCP exposure. */
+export function onOffControl(on: () => boolean, set: (on: boolean) => unknown) {
+  const segment = (value: boolean, label: string) =>
+    Text(label)
+      .font("caption")
+      .weight(() => (on() === value ? "semibold" : "regular"))
+      .color(() => (on() === value ? (value ? "success" : "secondary") : "tertiary"))
+      .padding({ top: 2, leading: 6, bottom: 2, trailing: 6 })
+      .background(() => (on() === value ? "selected" : null))
+      .cornerRadius(4)
+      .cursor("pointer")
+      .onTap(() => (on() === value ? undefined : set(value)))
+  return HStack({ spacing: 2 }, [segment(false, t("toggle.off", "Off")), segment(true, t("toggle.on", "On"))])
+    .padding(1)
+    .borderColor("separator")
+    .borderWidth(1)
+    .cornerRadius(5)
+    .fixedSize()
+}
+
 /** Empty or error panel. A missing proposed op names the op. */
 export function problemState(p: Problem) {
   return EmptyState({ title: problemText(p), message: isMissing(p) ? t("error.missing.hint", "This screen needs a backend operation that is proposed, not built.") : "", symbol: isMissing(p) ? "puzzlepiece.extension" : "exclamationmark.triangle" })
@@ -90,6 +110,29 @@ export const aboutLine = () =>
     .lineLimit(2)
     .padding({ top: 8, leading: 12, bottom: 10, trailing: 12 })
 
-export const methodBadge = (method: string | undefined) => (method ? Text(method.toUpperCase()).font("caption2").monospaced().color("secondary").frame({ width: 52 }) : null)
+export const methodBadge = (method: string | undefined) => (method ? Text(method.toUpperCase()).font("caption2").monospaced().color("secondary").frame({ width: 44 }) : null)
 
 export const providerName = (id: string) => providerInfo(id).name
+
+/** Name of a credential kind (the secret itself stays in the gateway). */
+export const credentialKindText = (kind: CredentialKind): string => {
+  switch (kind) {
+    case "none":
+      return t("auth.none", "No sign-in")
+    case "api_key":
+      return t("auth.apiKeyKind", "API key")
+    case "bearer":
+      return t("auth.bearer", "Bearer token")
+    case "basic":
+      return t("auth.basic", "User name and password")
+    case "headers":
+      return t("auth.headersKind", "Custom headers")
+    case "oauth2_code":
+      return t("auth.oauth", "Sign in with OAuth")
+    case "oauth2_client_credentials":
+      return t("auth.oauthClient", "OAuth client credentials")
+  }
+}
+
+/** A day as YYYY-MM-DD (UTC; the runtime has no locale formatting yet). */
+export const dayText = (ms: number) => new Date(ms).toISOString().slice(0, 10)

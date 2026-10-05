@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c. */
+/* cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47. */
 
 
 import type * as T from "./types.js";
@@ -66,9 +66,27 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "expected_terminal_id"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
+  "snapshot"?: (string) | null;
+  "snapshot_local_history"?: boolean;
+  "snapshot_version"?: (number) | null;
   "surface"?: (T.Id) | null;
+  "viewer_backlog_bytes"?: (bigint) | null;
 }
 export type AttachSurfaceResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface BindConversationTabSessionRequest extends CmuxRequestBase {
+  cmd: "bind-conversation-tab-session";
+  /** The tab's current session, or null for a tab without one; the bind applies only when it matches. */
+  "expected_session": (string) | null;
+  "session": string;
+  "surface": T.Id;
+}
+export type BindConversationTabSessionResult = {
+  "conversation": T.ConversationTabRecord;
+  "replayed": boolean;
+  "surface": T.Id;
+};
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserActivateRequest extends CmuxRequestBase {
@@ -275,6 +293,8 @@ export interface CloseTabsRequest extends CmuxRequestBase {
   "expected_revision"?: (bigint) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
+  /** The close is not recorded in the closed history (session_end). */
+  "reason"?: (T.CloseReason) | null;
   "surfaces": Array<T.TabRef>;
   "transaction"?: (string) | null;
 }
@@ -309,7 +329,10 @@ export interface ConversationAgentTokenRequest extends CmuxRequestBase {
   cmd: "conversation-agent-token";
   "participant": string;
 }
-export type ConversationAgentTokenResult = T.JsonValue;
+export type ConversationAgentTokenResult = {
+  "participant": string;
+  "token": string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationBindRequest extends CmuxRequestBase {
@@ -317,7 +340,9 @@ export interface ConversationBindRequest extends CmuxRequestBase {
   "participant": string;
   "token": string;
 }
-export type ConversationBindResult = T.JsonValue;
+export type ConversationBindResult = {
+  "participant": string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationCreateRequest extends CmuxRequestBase {
@@ -327,7 +352,10 @@ export interface ConversationCreateRequest extends CmuxRequestBase {
   "participants": (T.JsonValue) | null;
   "title": string;
 }
-export type ConversationCreateResult = T.JsonValue;
+export type ConversationCreateResult = {
+  "conversation": T.ConversationSummary;
+  "replayed": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationHistoryRequest extends CmuxRequestBase {
@@ -336,13 +364,17 @@ export interface ConversationHistoryRequest extends CmuxRequestBase {
   "conversation": string;
   "limit": number;
 }
-export type ConversationHistoryResult = T.JsonValue;
+export type ConversationHistoryResult = {
+  "messages": Array<T.ConversationMessage>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationListRequest extends CmuxRequestBase {
   cmd: "conversation-list";
 }
-export type ConversationListResult = T.JsonValue;
+export type ConversationListResult = {
+  "conversations": Array<T.ConversationSummary>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationOpRequest extends CmuxRequestBase {
@@ -353,7 +385,13 @@ export interface ConversationOpRequest extends CmuxRequestBase {
   "op": (T.JsonValue) | null;
   "transaction"?: (string) | null;
 }
-export type ConversationOpResult = T.JsonValue;
+export type ConversationOpResult = {
+  "change": T.ConversationChange;
+  "replayed": boolean;
+  "rev": bigint;
+  "seq"?: bigint;
+  "transaction"?: string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationSearchRequest extends CmuxRequestBase {
@@ -361,7 +399,9 @@ export interface ConversationSearchRequest extends CmuxRequestBase {
   "limit": number;
   "query": string;
 }
-export type ConversationSearchResult = T.JsonValue;
+export type ConversationSearchResult = {
+  "hits": Array<T.ConversationSearchHit>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationSnapshotRequest extends CmuxRequestBase {
@@ -369,7 +409,10 @@ export interface ConversationSnapshotRequest extends CmuxRequestBase {
   "conversation": string;
   "tail": number;
 }
-export type ConversationSnapshotResult = T.JsonValue;
+export type ConversationSnapshotResult = {
+  "conversation": T.ConversationSummary;
+  "messages": Array<T.ConversationMessage>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationTypingRequest extends CmuxRequestBase {
@@ -378,7 +421,7 @@ export interface ConversationTypingRequest extends CmuxRequestBase {
   "conversation": string;
   "on": boolean;
 }
-export type ConversationTypingResult = T.JsonValue;
+export type ConversationTypingResult = T.EmptyResult;
 
 /** Protocol v6; authority: control. */
 export interface CopyRequest extends CmuxRequestBase {
@@ -916,7 +959,9 @@ export type MoveTabGroupToSplitResult = T.JsonValue;
 export interface MoveTabToColumnRequest extends CmuxRequestBase {
   cmd: "move-tab-to-column";
   "after_column"?: (T.Id) | null;
+  "dock"?: (T.ColumnPin) | null;
   "pane"?: (T.Id) | null;
+  "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
   "surface": T.Id;
   "transaction"?: (string) | null;
@@ -929,6 +974,7 @@ export interface MoveTabToNewWorkspaceRequest extends CmuxRequestBase {
   cmd: "move-tab-to-new-workspace";
   "group"?: (string) | null;
   "index"?: (bigint) | null;
+  "name"?: (string) | null;
   "surface": T.Id;
   "transaction"?: (string) | null;
 }
@@ -1013,11 +1059,34 @@ export interface NewBrowserTabRequest extends CmuxRequestBase {
 export type NewBrowserTabResult = T.SurfaceResult;
 
 /** Protocol v12; authority: control. */
+export interface NewConversationTabRequest extends CmuxRequestBase {
+  cmd: "new-conversation-tab";
+  "agent_session"?: (T.AgentSessionSource) | null;
+  "cols"?: (number) | null;
+  "conversation"?: (string) | null;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "owner"?: (string) | null;
+  "pane"?: (T.Id) | null;
+  "rows"?: (number) | null;
+  "workspace"?: (T.Id) | null;
+}
+export type NewConversationTabResult = {
+  "content_resource_id": (string) | null;
+  "conversation": T.ConversationTabRecord;
+  "replayed": boolean;
+  "surface": T.Id;
+  "tab_resource_id": (string) | null;
+};
+
+/** Protocol v12; authority: control. */
 export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   cmd: "new-frontend-browser-tab";
   "cols"?: (number) | null;
   "engine": string;
   "favicon_url"?: (string) | null;
+  "idempotency_key"?: (string) | null;
+  "owner"?: (string) | null;
   "pane"?: (T.Id) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
@@ -1047,13 +1116,30 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "cwd"?: (string) | null;
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  "url"?: (string) | null;
   "width"?: (number) | null;
 }
 export type NewPaneRightResult = T.SurfaceResult;
+
+/** Protocol v12; authority: control. */
+export interface NewRowRequest extends CmuxRequestBase {
+  cmd: "new-row";
+  "cols"?: (number) | null;
+  "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
+  "height_permille": bigint;
+  "keep"?: boolean;
+  "pane": T.Id;
+  "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
+  "terminal_id"?: (string) | null;
+  "transaction"?: (string) | null;
+}
 
 /** Protocol v5; authority: control. */
 export interface NewScreenRequest extends CmuxRequestBase {
@@ -1061,12 +1147,15 @@ export interface NewScreenRequest extends CmuxRequestBase {
   "color"?: (string) | null;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
   "group"?: (string) | null;
   "icon"?: (string) | null;
   "index"?: (bigint) | null;
   "pinned"?: (boolean) | null;
   "rows"?: (number) | null;
   "screen_name"?: (string) | null;
+  "shell_args"?: (Array<string>) | null;
+  "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
 }
 export type NewScreenResult = T.SurfaceResult;
@@ -1489,15 +1578,15 @@ export interface SetClientSizingRequest extends CmuxRequestBase {
 export type SetClientSizingResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
-export interface SetColumnStickyRequest extends CmuxRequestBase {
-  cmd: "set-column-sticky";
+export interface SetColumnDockRequest extends CmuxRequestBase {
+  cmd: "set-column-dock";
+  "dock": boolean;
   "edge"?: (string) | null;
   "mode"?: (string) | null;
   "pane": T.Id;
-  "sticky": boolean;
   "transaction"?: (bigint) | null;
 }
-export type SetColumnStickyResult = T.JsonValue;
+export type SetColumnDockResult = T.JsonValue;
 
 /** Protocol v5; authority: control. */
 export interface SetDefaultColorsRequest extends CmuxRequestBase {
@@ -1559,6 +1648,16 @@ export interface SetRatioRequest extends CmuxRequestBase {
   "ratio": number;
 }
 export type SetRatioResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface SetRowHeightsRequest extends CmuxRequestBase {
+  cmd: "set-row-heights";
+  "column": T.Id;
+  "fit"?: boolean;
+  "heights": Array<T.RowHeight>;
+  "transaction"?: (bigint) | null;
+}
+export type SetRowHeightsResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface SetScreenMetadataRequest extends CmuxRequestBase {
@@ -1687,6 +1786,15 @@ export interface SidebarPluginRequest extends CmuxRequestBase {
   "rows": number;
 }
 
+/** Protocol v12; authority: frontend. */
+export interface SnapshotRequestRequest extends CmuxRequestBase {
+  cmd: "snapshot-request";
+  "have"?: (T.SnapshotRequestHave) | null;
+  "reason"?: (string) | null;
+  "request_id"?: (string) | null;
+  "surface": T.Id;
+}
+
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
@@ -1695,10 +1803,12 @@ export interface SplitRequest extends CmuxRequestBase {
   "dir": T.SplitDirection;
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  "url"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;
 
@@ -1723,6 +1833,27 @@ export type SwapPaneResult = T.EmptyResult;
 export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
   "after_revision"?: bigint;
+}
+
+/** Protocol v12; authority: control. */
+export interface TerminalHistoryRequest extends CmuxRequestBase {
+  cmd: "terminal-history";
+  "before"?: (bigint) | null;
+  "marker_epoch": bigint;
+  "max_bytes"?: (bigint) | null;
+  "surface": T.Id;
+}
+export type TerminalHistoryResult = T.TerminalHistoryPagesResult;
+
+/** Protocol v12; authority: control. */
+export interface TerminalReadRangeRequest extends CmuxRequestBase {
+  cmd: "terminal-read-range";
+  "format"?: (string) | null;
+  "from": T.RowMarkerPoint;
+  "marker_epoch": bigint;
+  "max_bytes"?: (bigint) | null;
+  "surface": T.Id;
+  "to": T.RowMarkerPoint;
 }
 
 /** Protocol v12; authority: control. */
@@ -1809,6 +1940,7 @@ export type UpdateBrowserProfileResult = T.JsonValue;
 export interface UpdateFrontendBrowserTabRequest extends CmuxRequestBase {
   cmd: "update-frontend-browser-tab";
   "favicon_url"?: (string) | null;
+  "owner"?: (string) | null;
   "surface": T.Id;
   "title"?: (string) | null;
   "url"?: (string) | null;
@@ -1929,6 +2061,7 @@ export type CmuxRequest =
   | AddTabsToTabGroupRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
+  | BindConversationTabSessionRequest
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
@@ -2033,9 +2166,11 @@ export type CmuxRequest =
   | MoveWorkspaceGroupRequest
   | MoveWorkspaceToGroupRequest
   | NewBrowserTabRequest
+  | NewConversationTabRequest
   | NewFrontendBrowserTabRequest
   | NewPaneRequest
   | NewPaneRightRequest
+  | NewRowRequest
   | NewScreenRequest
   | NewTabRequest
   | NewWorkspaceRequest
@@ -2083,13 +2218,14 @@ export type CmuxRequest =
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
-  | SetColumnStickyRequest
+  | SetColumnDockRequest
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
   | SetRatioRequest
+  | SetRowHeightsRequest
   | SetScreenMetadataRequest
   | SetScreenPinnedRequest
   | SetSizeCountsRequest
@@ -2104,10 +2240,13 @@ export type CmuxRequest =
   | SetWorkspaceMetadataRequest
   | ShutdownDaemonRequest
   | SidebarPluginRequest
+  | SnapshotRequestRequest
   | SplitRequest
   | SubscribeRequest
   | SwapPaneRequest
   | TerminalEventsRequest
+  | TerminalHistoryRequest
+  | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | UndoLayoutRequest
   | UngroupScreenGroupRequest
@@ -2173,6 +2312,14 @@ export interface CmuxCommandDefinitionMap {
     since: 5;
     capability: null;
     stream: "attach";
+  };
+  "bind-conversation-tab-session": {
+    request: BindConversationTabSessionRequest;
+    result: BindConversationTabSessionResult;
+    authority: "control";
+    since: 12;
+    capability: "agent-session-tabs-v1";
+    stream: null;
   };
   "browser-activate": {
     request: BrowserActivateRequest;
@@ -3006,6 +3153,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "new-conversation-tab": {
+    request: NewConversationTabRequest;
+    result: NewConversationTabResult;
+    authority: "control";
+    since: 12;
+    capability: "conversation-tabs-v1";
+    stream: null;
+  };
   "new-frontend-browser-tab": {
     request: NewFrontendBrowserTabRequest;
     result: NewFrontendBrowserTabResult;
@@ -3028,6 +3183,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: "viewport-splits-v1";
+    stream: null;
+  };
+  "new-row": {
+    request: NewRowRequest;
+    result: T.NewRowResult;
+    authority: "control";
+    since: 12;
+    capability: "rows-v1";
     stream: null;
   };
   "new-screen": {
@@ -3406,12 +3569,12 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
-  "set-column-sticky": {
-    request: SetColumnStickyRequest;
-    result: SetColumnStickyResult;
+  "set-column-dock": {
+    request: SetColumnDockRequest;
+    result: SetColumnDockResult;
     authority: "control";
     since: 12;
-    capability: "sticky-columns-v1";
+    capability: "dock-columns-v1";
     stream: null;
   };
   "set-default-colors": {
@@ -3460,6 +3623,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "set-row-heights": {
+    request: SetRowHeightsRequest;
+    result: SetRowHeightsResult;
+    authority: "control";
+    since: 12;
+    capability: "rows-v1";
     stream: null;
   };
   "set-screen-metadata": {
@@ -3574,6 +3745,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "snapshot-request": {
+    request: SnapshotRequestRequest;
+    result: T.SnapshotRequestResult;
+    authority: "frontend";
+    since: 12;
+    capability: "terminal-snapshot-v1";
+    stream: null;
+  };
   "split": {
     request: SplitRequest;
     result: SplitResult;
@@ -3604,6 +3783,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "terminal-history": {
+    request: TerminalHistoryRequest;
+    result: TerminalHistoryResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-snapshot-v1";
+    stream: null;
+  };
+  "terminal-read-range": {
+    request: TerminalReadRangeRequest;
+    result: T.TerminalReadRangeResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-snapshot-v1";
     stream: null;
   };
   "terminal-resources": {

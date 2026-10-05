@@ -25,6 +25,11 @@ public enum PaletteKeyCommand: Equatable, Sendable {
     case escape
     /// Backspace in an empty field: pop a page.
     case back
+    /// Right with the caret at the end, on a tree page (`PaletteHierarchy`):
+    /// enter the selected row.
+    case enterRow
+    /// Left in an empty field, on a tree page: go up a level.
+    case leaveLevel
     /// Cmd-W: run the selected row's `closeCommand` and keep the palette
     /// open. Not consumed when the row has none.
     case closeItem

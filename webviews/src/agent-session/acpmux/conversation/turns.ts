@@ -8,8 +8,9 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxRow } from "../model";
+import { turnPreviewUrl } from "./previewUrl";
 import { timestampTurns } from "./timestamps";
-import { t } from "../i18n";
+import type { Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -19,6 +20,9 @@ export const DATE = "date";
 /// "Working for 42s" line over its work, where "Worked for" lands when the turn ends.
 export const THINKING = "thinking";
 export const WORKING = "working";
+/// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
+/// preview card, with the page's address as its text.
+export const PREVIEW = "preview";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
@@ -38,7 +42,7 @@ export const toolCalls = (count = 0) => (count === 1 ? "1 tool call" : `${count}
 /// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
 /// or "34 previous messages" for a turn whose timing is unknown (a reloaded turn without a
 /// summary). It shows no tool-call count.
-export function workedLabel(row: AcpmuxRow): string {
+export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.previous !== undefined)
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
   if (row.durationMs === undefined) return toolCalls(row.toolCount);
@@ -84,7 +88,7 @@ export function turnView(
     if (dated[at]) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
     // Only the last turn can still be running.
     const last = at === turns.length - 1;
-    out.push(user, ...shapeTurn(user, turn, expanded, working && last, last), ...held);
+    out.push(user, ...shapeTurn(user, turn, expanded, working && last, last, last && held.length === 0), ...held);
   });
   return out;
 }
@@ -98,6 +102,7 @@ function shapeTurn(
   expanded: ReadonlySet<string>,
   live: boolean,
   last: boolean,
+  retryable: boolean,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status.
@@ -117,8 +122,10 @@ function shapeTurn(
   // Work before the answer folds away (all of it, when the turn ended without one); edits
   // also close the turn as their card.
   const work = (final >= 0 ? body.slice(0, final) : body).filter((row) => row.kind !== "typing");
-  const edits = work.filter(isEdit);
-  const rest = final >= 0 ? body.slice(final + 1) : [];
+  const after = final >= 0 ? body.slice(final + 1) : [];
+  // Edits after the answer join the card too, so its Undo covers the whole turn.
+  const edits = [...work.filter(isEdit), ...after.filter(isEdit)];
+  const rest = after.filter((row) => !isEdit(row));
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -140,8 +147,17 @@ function shapeTurn(
   }
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...editsCard(edits));
-  // The footer copies the answer, so it carries the answer's text.
-  shaped.push({ ...summary, folded: work.length > 0, text: answer?.text ?? summary.text, version });
+  const preview = turnPreviewUrl(user, turn);
+  if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
+  // The footer copies the answer, so it carries the answer's text; the last turn's also retries
+  // its prompt, and stops offering to once a later prompt goes (or waits to).
+  shaped.push({
+    ...summary,
+    folded: work.length > 0,
+    text: answer?.text ?? summary.text,
+    ...(retryable && user.text && { prompt: user.text }),
+    version: version * 2 + (retryable ? 1 : 0),
+  });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
   shaped.push(...turn.slice(end + 1));
@@ -150,17 +166,19 @@ function shapeTurn(
 
 const VERSION_SPAN = 1_000_000;
 
-/// One edited-files card per turn: the turn's edit rows merged into the
-/// first one (its id, so View changes still finds the turn), every edit's items in order.
+/// One edited-files card per ended turn: the turn's edit rows merged into the first one (its id,
+/// so View changes still finds the turn), every edit's items in order. It is `ended`, so it
+/// offers Undo; its version is odd, so the card the turn's live edit row became redraws.
 function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
-  if (edits.length <= 1) return edits;
+  if (edits.length === 0) return [];
   const [first] = edits as [AcpmuxRow, ...AcpmuxRow[]];
   return [
     {
       ...first,
-      version: edits.reduce((sum, row) => sum + row.version, 0),
+      version: edits.reduce((sum, row) => sum + row.version, 0) * 2 + 1,
       items: edits.flatMap((row) => row.items ?? []),
       toolCount: edits.reduce((sum, row) => sum + (row.toolCount ?? 0), 0),
+      ended: true,
     },
   ];
 }

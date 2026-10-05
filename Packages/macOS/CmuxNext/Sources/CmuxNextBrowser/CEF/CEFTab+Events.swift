@@ -9,6 +9,7 @@ extension CEFTab {
     /// OnLoadingStateChange(!loading). Same-document navigations only change
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
+        defer { CEFAgentURLGuard.check(self, after: event) }
         switch event {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)
@@ -62,17 +63,17 @@ extension CEFTab {
         case .fullscreen(_, let entering):
             machine.apply(.contentFullscreenChanged(entering))
         case .findResult(_, let count, let active, let isFinal):
-            guard isFinal, let continuation = findContinuation else { return }
-            findContinuation = nil
-            continuation.resume(returning: BrowserFindResult(
-                matchFound: count > 0, matchCount: count, currentIndex: count > 0 ? active : nil
-            ))
+            findRequests.result(count: count, active: active, isFinal: isFinal)
         case .closeRequested:
             emit(.close)
         case .navigationReroute(_, let url, _):
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
-        case .keyUnhandled(_, let keyCode):
-            if keyCode == 0x1B { emit(.unhandledEscape) }
+        case .keyUnhandled(_, let keyCode, let shift):
+            if keyCode == 0x1B {
+                emit(.unhandledEscape)
+            } else if let key = BrowserPageKey(windowsKeyCode: keyCode, shift: shift) {
+                emit(.unhandledKey(key))
+            }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
@@ -81,6 +82,8 @@ extension CEFTab {
             machine.apply(.unresponsiveChanged(true))
         case .renderResponsive:
             machine.apply(.unresponsiveChanged(false))
+        case .devToolsMessage(_, let json):
+            agentRelay.deliver(json)
         default:
             break
         }
@@ -139,18 +142,14 @@ extension CEFTab {
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        findContinuation?.resume(returning: .none)
-        let findID = nextFindID
-        nextFindID += 1
         return await withCheckedContinuation { continuation in
-            findContinuation = continuation
+            let findID = findRequests.begin(continuation)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
     }
 
     public func clearFind() {
-        findContinuation?.resume(returning: .none)
-        findContinuation = nil
+        findRequests.cancel()
         browserID.map { runtime.shim?.stopFinding($0, 1) }
     }
 

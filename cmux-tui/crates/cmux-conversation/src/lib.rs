@@ -10,6 +10,7 @@
 mod budget;
 mod id;
 mod reducer;
+mod search;
 mod types;
 
 pub use budget::{
@@ -21,9 +22,14 @@ pub use reducer::{
     Commit, CreateRequest, OpRequest, Reject, apply, check_typing, create, summary,
     valid_participant_id, valid_token,
 };
+pub use search::{
+    MAX_QUERY_CHARS, MAX_SEARCH_LIMIT, MIN_SEARCH_LIMIT, SNIPPET_CHARS, SearchHit, SearchInput,
+    SearchReject, SearchSource, fold_query, message_text, search_conversations, search_hit,
+    snippet_of, sort_hits, validate_search,
+};
 pub use types::{
-    AgentClass, Change, ConversationHead, Message, Op, Part, PartRef, Participant, ParticipantKind,
-    Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
+    AgentClass, Change, ConversationHead, Message, Op, Origin, Part, PartRef, Participant,
+    ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

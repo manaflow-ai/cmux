@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// Per-section arrangement (list | inline | grid, alignment, gap) and the
-/// sticky band height rules (plans/cmux-next/sidebar-sections.md 4, 7).
+/// pinned band height rules (plans/cmux-next/sidebar-sections.md 4, 7).
 @Suite struct SectionFlowTests {
     private let m = SidebarRegionMetrics(rowHeight: 28, headerHeight: 22, inset: 8, sectionGap: 8, padding: 4,
                                          cardPadding: 4, tileMinWidth: 42, tileHeight: 36, tileGap: 8, iconButtonWidth: 30)
@@ -18,23 +18,22 @@ import Testing
         LayoutItem(id: LayoutItemID(id), ref: .url(id), showsLabel: label)
     }
 
-    /// Settings at the leading edge; Customize Appearance and the avatar
-    /// (icons only) together at the trailing edge, one gap apart.
-    @Test func defaultBottomLineIsSettingsLeadingAndTheIconsTrailing() throws {
-        let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
+    /// An inline bottom line (the default before R53, which users may
+    /// keep): Settings at the leading edge, the avatar (icon only) at the
+    /// trailing edge.
+    @Test func inlineBottomLineIsSettingsLeadingAndTheIconsTrailing() throws {
+        let bottom = try #require(SidebarLayoutDocument.inlineBottomDefaults.section(SidebarLayoutDocument.bottomSectionID))
         #expect(bottom.arrangement == SectionArrangement(layout: .inline, align: .fill))
-        #expect(bottom.items.map(\.showsLabel) == [true, false, false])
+        #expect(bottom.items.map(\.showsLabel) == [true, false])
         let layout = SidebarRegionLayout.make(sections: [bottom], width: 260, look: .quiet, collapsed: [], metrics: m,
                                               labelWidths: [LayoutItemID("itm_settings"): 90])
-        #expect(layout.rows.count == 3)
-        let settings = layout.rows[0], customize = layout.rows[1], account = layout.rows[2]
+        #expect(layout.rows.count == 2)
+        let settings = layout.rows[0], account = layout.rows[1]
         #expect(settings.kind == .chip(LayoutItemID("itm_settings"), section: bottom.id))
-        #expect(customize.kind == .tile(LayoutItemID("itm_customize"), section: bottom.id))
         #expect(account.kind == .tile(LayoutItemID("itm_account"), section: bottom.id))
         #expect(settings.frame.minX == 8 && settings.frame.width == 90)
         #expect(account.frame.maxX == 252 && account.frame.width == 30)
-        #expect(customize.frame.width == 30 && account.frame.minX - customize.frame.maxX == m.tileGap)
-        #expect(settings.frame.minY == customize.frame.minY && settings.frame.minY == account.frame.minY)
+        #expect(settings.frame.minY == account.frame.minY)
     }
 
     /// Fill without the labeled-then-icons shape still spreads every item
@@ -148,7 +147,7 @@ import Testing
     }
 
     @Test func neverScrollGivesFullHeightUntilTheListMinimum() {
-        let off = SidebarSectionsPreferences(stickyBandsScroll: false)
+        let off = SidebarSectionsPreferences(pinnedBandsScroll: false)
         let full = SidebarBandHeights.resolve(above: band(height: 250), below: band(height: 100), available: 600, preferences: off, minimumList: 84)
         #expect(full.above == 250 && full.below == 100)
         let squeezed = SidebarBandHeights.resolve(above: band(height: 400), below: band(height: 400), available: 600, preferences: off, minimumList: 84)

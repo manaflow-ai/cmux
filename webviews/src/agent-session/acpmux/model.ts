@@ -1,6 +1,8 @@
+import type { PermissionClientState } from "./permissions/protocol";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
+import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 
 export type AcpmuxRow = {
   id: string;
@@ -16,6 +18,8 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   toolCount?: number;
   durationMs?: number;
+  /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
+  checkpoint?: SummaryCheckpoint;
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
@@ -27,6 +31,12 @@ export type AcpmuxRow = {
   settled?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
+  /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
+  queued?: string;
+  /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
+  prompt?: string;
+  /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
+  ended?: boolean;
 };
 
 export type AcpmuxActivity = {
@@ -44,6 +54,10 @@ export type AcpmuxActivity = {
     command?: string;
     /// A finished shell call's exit status (Codex's `rawOutput.exit_code`).
     exitCode?: number;
+    /// When the call started and, once it completed or failed, when it ended (epoch ms),
+    /// for the duration a command row shows.
+    startedAt?: number;
+    endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
   };
@@ -55,6 +69,8 @@ export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; 
 
 export type AcpmuxPermission = {
   permissionId: string;
+  groupId?: string;
+  turnId?: string;
   title?: string;
   kind?: string;
   pending: boolean;
@@ -66,6 +82,8 @@ export type AcpmuxSnapshot = {
   protocolVersion: number;
   rows: AcpmuxRow[];
   sessions: AcpmuxSessionEntry[];
+  /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
+  peers?: string[];
   summary?: {
     sessionId: string;
     cwd?: string;
@@ -73,6 +91,7 @@ export type AcpmuxSnapshot = {
     /// Context-window tokens used of the session's window, from the agent's last usage update.
     usage?: { used: number; size: number };
     host?: string;
+    peer?: string;
     hostKind?: "local" | "cloud";
     branch?: string;
     worktree?: string;
@@ -80,10 +99,17 @@ export type AcpmuxSnapshot = {
     name?: string;
     harness?: string;
     model?: string;
+    /// The model the agent last reported, when the pane draws a pick (`model`) it has not
+    /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
+    confirmedModel?: string;
     effort?: string;
+    promptCapabilities?: { image?: boolean };
     status?: string;
     enforcement?: Enforcement;
-    modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string };
+    modes?: {
+      availableModes: { id: string; name?: string; description?: string }[];
+      currentModeId?: string;
+    };
     configOptions?: {
       id: string;
       name?: string;
@@ -99,12 +125,26 @@ export type AcpmuxSnapshot = {
   canFork?: boolean;
   canHandoff?: boolean;
   handoff?: HandoffClientState;
+  permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
-  catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];
+  /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
+   * (its launcher check or its model probe failed). */
+  catalog: {
+    id: string;
+    name: string;
+    models: { id: string; name?: string; unavailable?: string }[];
+    unavailable?: string;
+  }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
+  /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
+   * the next turn while one streams (deferred), or failed with acpmux's reason. */
+  switching?: { harness: string; name: string; phase: "starting" | "deferred" | "failed"; error?: string };
+  /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
+   * instead of showing another chat. Unset once a session is selected. */
+  missingSession?: string;
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
@@ -113,6 +153,12 @@ export type PreparedRow = {
   text: string;
   /// The row's markdown blocks, as the estimator measures them (conversation/Markdown.tsx draws them).
   blocks: Token[];
+  /// A growing row (a streaming reply) lexes once the text before its last safe block boundary
+  /// (lastBlockBoundary): those blocks and where they end. Only the text after it is lexed again.
+  closedBlocks: Token[];
+  closedEnd: number;
+  /// The characters the last update lexed (tests, perf).
+  lexedLength: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
 };
@@ -128,7 +174,10 @@ const MEASURE_FONT = "14px system-ui";
 const MESSAGE_LINE_HEIGHT = 22.75;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 20;
-const chromeHeight = (row: AcpmuxRow) => (row.kind === "user" ? USER_BUBBLE_PADDING : 0);
+/// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
+const USER_STATUS_HEIGHT = 20;
+const chromeHeight = (row: AcpmuxRow) =>
+  row.kind === "user" ? USER_BUBBLE_PADDING + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
 const USER_BUBBLE_SIDES = 32;
@@ -207,7 +256,7 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
-    // The edited-files card (App.tsx EditedFilesRow): a 58px head, and 34px for each of the first
+    // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
@@ -223,6 +272,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
+  // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
+  if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -326,15 +377,35 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
   }
 }
 
+/// Lexes `text` into `entry`, reusing the blocks before the last safe boundary when `text` grew.
+function lexIncrementally(entry: PreparedRow, text: string): void {
+  if (!text.startsWith(entry.text.slice(0, entry.closedEnd))) {
+    entry.closedBlocks = [];
+    entry.closedEnd = 0;
+  }
+  entry.lexedLength = 0;
+  const boundary = lastBlockBoundary(text, entry.closedEnd);
+  if (boundary > entry.closedEnd) {
+    const chunk = text.slice(entry.closedEnd, boundary);
+    entry.closedBlocks = [...entry.closedBlocks, ...markdownBlocks(chunk)];
+    entry.lexedLength += chunk.length;
+    entry.closedEnd = boundary;
+  }
+  const tail = text.slice(entry.closedEnd);
+  entry.lexedLength += tail.length;
+  entry.blocks = [...entry.closedBlocks, ...markdownBlocks(tail)];
+  entry.text = text;
+}
+
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {
-    entry = { text: row.text, blocks: markdownBlocks(row.text), prepared: new Map() };
+    entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
-  } else if (entry.text !== row.text) {
-    entry.text = row.text;
-    entry.blocks = markdownBlocks(row.text);
+  }
+  if (entry.text !== row.text || entry.lexedLength === 0) {
+    lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
@@ -412,9 +483,11 @@ export function visibleLayoutRange(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
-import { DATE, isFoldedCopy, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
+import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
 /// The pane header: the agent the session runs (its first prompt already titles the session
 /// picker and opens the transcript), and a status only when it says something to act on.

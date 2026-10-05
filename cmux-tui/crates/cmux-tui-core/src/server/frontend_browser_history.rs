@@ -9,6 +9,71 @@ use super::*;
 /// `get-frontend-browser-history`. Never part of the tree.
 pub const FRONTEND_BROWSER_HISTORY_CAPABILITY: &str = "frontend-browser-history-v1";
 
+/// `new-frontend-browser-tab`: a browser tab whose page the frontend renders
+/// (WebKit or CEF); the daemon persists its location and never attaches a CDP
+/// target. With `idempotency_key` (`frontend-browser-tab-keys-v1`) a retry
+/// returns the tab the first request created (state/frontend_browser_keys.rs).
+#[derive(Deserialize)]
+pub(super) struct NewTabParams {
+    url: String,
+    engine: String,
+    #[serde(default)]
+    pane: Option<PaneId>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    favicon_url: Option<String>,
+    #[serde(default)]
+    profile_id: Option<String>,
+    /// Install id of the hosting app (the record's only writer).
+    #[serde(default)]
+    owner: Option<String>,
+    #[serde(default)]
+    idempotency_key: Option<String>,
+    #[serde(default)]
+    cols: Option<u16>,
+    #[serde(default)]
+    rows: Option<u16>,
+}
+
+pub(super) fn create(mux: &Arc<Mux>, params: NewTabParams) -> anyhow::Result<Value> {
+    let NewTabParams {
+        url,
+        engine,
+        pane,
+        title,
+        favicon_url,
+        profile_id,
+        owner,
+        idempotency_key,
+        cols,
+        rows,
+    } = params;
+    let record = crate::workspace_registry::FrontendBrowserRecord {
+        engine,
+        url,
+        title,
+        favicon_url,
+        profile_id,
+        owner,
+    };
+    let size = paired_surface_size("new-frontend-browser-tab", cols, rows)?;
+    let (surface, replayed) = match idempotency_key {
+        Some(key) => {
+            let outcome = mux.new_frontend_browser_tab_keyed(pane, record, size, &key)?;
+            (outcome.surface, outcome.replayed)
+        }
+        None => (mux.new_frontend_browser_tab(pane, record, size)?, false),
+    };
+    let identity = surface.resource_identity();
+    Ok(json!({
+        "surface": surface.id,
+        "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
+        "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
+        "replayed": replayed,
+    }))
+}
+
 /// `update-frontend-browser-tab`: record a frontend-rendered browser's URL,
 /// title, or favicon.
 #[derive(Deserialize)]
@@ -20,6 +85,8 @@ pub(super) struct UpdateTabParams {
     title: Option<String>,
     #[serde(default, deserialize_with = "super::present_nullable")]
     favicon_url: Option<Option<String>>,
+    #[serde(default)]
+    owner: Option<String>,
 }
 
 /// `set-frontend-browser-history`: store a frontend-rendered browser's
@@ -38,13 +105,15 @@ pub(super) struct GetParams {
 }
 
 pub(super) fn update(mux: &Mux, params: UpdateTabParams) -> anyhow::Result<Value> {
-    let UpdateTabParams { surface, url, title, favicon_url } = params;
-    let (record, changed) = mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
+    let UpdateTabParams { surface, url, title, favicon_url, owner } = params;
+    let (record, changed) =
+        mux.update_frontend_browser_tab_with_owner(surface, url, title, favicon_url, owner)?;
     Ok(json!({
         "surface": surface,
         "url": record.url,
         "title": record.title,
         "favicon_url": record.favicon_url,
+        "owner": record.owner,
         "changed": changed,
     }))
 }
@@ -82,7 +151,7 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         });
-        handle_command(mux, 0, command, &writer)
+        handle_command(mux, mux.local_test_client(0), command, &writer)
     }
 
     #[test]
@@ -170,3 +239,11 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "frontend_browser_keys_tests.rs"]
+mod keys_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_reuse_tests.rs"]
+mod reuse_tests;

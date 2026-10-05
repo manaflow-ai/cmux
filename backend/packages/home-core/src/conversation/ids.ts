@@ -23,6 +23,15 @@ export const encodeId = (prefix: string, unixMs: number, random: Uint8Array): st
 }
 
 /**
+ * The id of a conversation promoted from a Mac (`conversation.import`):
+ * `conv_` + base32(sha256("import\0" + user + "\0" + host + "\0" + local_id))[0..26].
+ * Bound to the importing user and the source, so an import can never land in
+ * another conversation's object (and never in a `conv_dm_` id).
+ */
+export const importConversationId = (user: string, host: string, localId: string): string =>
+  `conv_${crockford(createHash("sha256").update(`import\0${user}\0${host}\0${localId}`).digest(), 26)}`
+
+/**
  * The id of the dm between two participants (home-messaging.md section 2):
  * `conv_dm_` + base32(sha256("dm\0" + lo + "\0" + hi))[0..26], where lo and
  * hi are the two ids sorted. Participant ids are ASCII, so UTF-16 order equals
@@ -107,7 +116,7 @@ export const validToken = (token: string): boolean => {
  * `user_<id>` or `agent_<name>`, where the suffix is 1 to 64 characters of
  * ASCII letters, digits, `_`, `.` or `-` (the Rust rule; mentions use it too).
  */
-export const validParticipantId = (id: string): boolean => /^(user|agent)_[A-Za-z0-9_.-]{1,64}$/.test(id)
+export const validParticipantId = (id: string): boolean => /^(user|agent|remote)_[A-Za-z0-9_.-]{1,64}$/.test(id)
 
 /** Cloud: `addr_<26 Crockford base32>`. */
 export const validAddressId = (id: string): boolean => id.startsWith("addr_") && isCrockford(id.slice(5), 26)

@@ -7,5 +7,5 @@
   "engines": {
     "cmux": "^2.0"
   },
-  "contributes": {}
+  "main": "dist/main.js"
 }

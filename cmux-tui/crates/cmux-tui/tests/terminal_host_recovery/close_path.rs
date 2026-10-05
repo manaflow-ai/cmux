@@ -107,6 +107,7 @@ const HUNDRED_HOST_TEARDOWN_BOUND_SECS: u64 = 10;
 /// closes end their hosts in parallel instead of one after another.
 #[test]
 fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() {
+    let _exclusive = exclusive_process_test();
     const COUNT: usize = 100;
     let harness = RecoveryHarness::start("close-one-hundred");
     let terminals: Vec<(String, String)> = (0..COUNT)
@@ -186,6 +187,7 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
 /// every host ends within three.
 #[test]
 fn close_tabs_ends_one_hundred_terminals_in_one_commit() {
+    let _exclusive = exclusive_process_test();
     const COUNT: usize = 100;
     let harness = RecoveryHarness::start("close-tabs-hundred");
     let identify = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
@@ -292,3 +294,6 @@ fn kitty_budget_rebalance_never_holds_a_terminal_for_the_control_timeout() {
     );
     wait_for_no_host_records(&harness.host_root());
 }
+
+#[path = "kitty_create.rs"]
+mod kitty_create;

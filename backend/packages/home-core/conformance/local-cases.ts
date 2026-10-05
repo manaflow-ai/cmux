@@ -2,7 +2,11 @@ import type { Op, Part } from "../src/conversation/types.ts"
 import { agent, CoreHost, human, NOW, text } from "../test/support/harness.ts"
 import type { Corpus } from "./generate.ts"
 
-/** The Rust crate's local subset: heads without `kind`, the eight ops, create and the agent budget. */
+/**
+ * The Rust crate's local subset: heads without `kind`, the eight ops, create and the agent
+ * loop guard. REQUIRED check for the Rust owner: heads carry `agent_text_streak` (0 at
+ * create) and `last_agent_text_at`, updated on every text send (agent +1, human resets).
+ */
 export const localCases = (c: Corpus): void => {
   const ALICE = "user_local"
   const MUX = "agent_mux"
@@ -24,6 +28,30 @@ export const localCases = (c: Corpus): void => {
   c.create("create: no participants", { ...base, participants: [] }, "invalid_participant")
   c.create("create: duplicate participant", { ...base, participants: [human(ALICE), human(ALICE)] }, "duplicate_participant")
   c.create("create: a human with an agent id", { ...base, participants: [human(ALICE), human(MUX)] }, "invalid_participant")
+
+  // Paired devices (server-remote-conversations.md section 5): a `remote_<install>` human names its
+  // person. The reducer accepts it; only the daemon's pairing path creates one (hosts refuse it
+  // from clients, and a cloud head never has one).
+  const DEVICE = "remote_inst_1"
+  const device = (person?: unknown) => ({ ...human(DEVICE, "Alice (MacBook)"), ...(person === undefined ? {} : { person }) }) as never
+  c.create("create: a device of the local user", { ...base, participants: [human(ALICE), agent(MUX), device(ALICE)] }, "commit")
+  c.create("create: a device without a person", { ...base, participants: [human(ALICE), device()] }, "invalid_participant")
+  c.create("create: a device whose person is an agent", { ...base, participants: [human(ALICE), device(MUX)] }, "invalid_participant")
+  c.create("create: a user with a person", { ...base, participants: [{ ...human(ALICE), person: EVE } as never] }, "invalid_participant")
+  c.create("create: an agent with a person", { ...base, participants: [human(ALICE), { ...agent(MUX), person: ALICE } as never] }, "invalid_participant")
+  c.create("create: a device as an agent", { ...base, participants: [human(ALICE), { ...agent(MUX), id: DEVICE } as never] }, "invalid_participant")
+  const paired = new CoreHost()
+  c.op(paired, "participants.add: a device of the local user", ALICE, "d0", { kind: "participants.add", participant: device(ALICE) }, "commit")
+  paired.send(ALICE, "d1", "from the Mac")
+  const local = paired.messages[0]!
+  c.op(paired, "device: sends as its own participant", DEVICE, "d2", send("d2", parts("from the MacBook")), "commit")
+  // The owner stamps the origin of a device message from its actor (the reducer never does).
+  const sent = paired.messages[1]!
+  paired.messages[1] = { ...sent, origin: { kind: "remote", install: "inst_1" } }
+  c.op(paired, "device: edits its own message, the origin stays", DEVICE, "d3", { kind: "message.edit", message_id: sent.id, parts: parts("edited") }, "commit")
+  c.op(paired, "device: cannot edit the local user's message", DEVICE, "d4", { kind: "message.edit", message_id: local.id, parts: parts("mine") }, "not_author")
+  c.op(paired, "device: a reaction keeps the target's origin", DEVICE, "d5", { kind: "reaction.add", message_id: local.id, part_index: 0, reaction: { tapback: "like" } }, "commit")
+  c.op(paired, "device: a mention of a device is valid", ALICE, "d6", send("d6", [{ type: "text", text: "hi", runs: [{ start: 0, length: 2, mention: DEVICE }] }]), "commit")
 
   const host = new CoreHost()
   c.op(host, "send: first message gets seq 1", ALICE, "c1", send("c1", parts("hi")), "commit")
@@ -47,6 +75,8 @@ export const localCases = (c: Corpus): void => {
   c.op(host, "send: a work card", MUX, "c6", send("c6", [{ type: "work", session: "child", host: "mac", status: "running", preview: "building" }, text("on it")]), "commit")
   c.op(host, "send: reply to an unknown message", MUX, "c7", send("c7", parts("answer"), { message_id: "msg_nope", part_index: 0 }), "unknown_message")
   c.op(host, "send: reply to a part that does not exist", MUX, "c7", send("c7", parts("answer"), { message_id: first.id, part_index: 1 }), "invalid_part_index")
+  // The 2 s agent gap applies to every head now; step past it before the next agent text.
+  host.advance(2_000)
   c.op(host, "send: reply to an existing part", MUX, "c7", send("c7", parts("answer"), { message_id: first.id, part_index: 0 }), "commit")
 
   const love = { tapback: "love" as const }
@@ -87,9 +117,8 @@ export const localCases = (c: Corpus): void => {
   c.op(host, "title.set: empty", EVE, "t1", { kind: "title.set", title: "" }, "invalid_title")
   c.op(host, "title.set: by a new participant", EVE, "t2", { kind: "title.set", title: "Team" }, "commit")
 
-  // Agent budget: the host passes the newest messages (newest first).
+  // Agent budget: the head's counters (agent_text_streak, last_agent_text_at), no row window.
   const budget = new CoreHost()
-  budget.budget = true
   budget.send(ALICE, "h1", "go")
   for (let turn = 0; turn < 4; turn++) {
     budget.advance(10_000)
@@ -105,4 +134,15 @@ export const localCases = (c: Corpus): void => {
   c.op(budget, "budget: malformed parts report invalid_parts first", MUX, "m11", send("m11", []), "invalid_parts")
   budget.advance(1)
   c.op(budget, "budget: at the gap", MUX, "m11", send("m11", parts("now")), "commit")
+
+  // The work-card bypass: text-less work cards between agent texts must not reset or hide the count.
+  const cards = new CoreHost()
+  cards.send(ALICE, "h1", "go")
+  for (let turn = 0; turn < 4; turn++) {
+    cards.advance(10_000)
+    c.op(cards, `loop guard: agent text ${turn + 1} of 4 between work cards`, MUX, `t${turn}`, send(`t${turn}`, parts(`turn ${turn}`)), "commit")
+    c.op(cards, `loop guard: work card ${turn + 1}`, MUX, `w${turn}`, send(`w${turn}`, [{ type: "work", session: "s", status: "running" }]), "commit")
+  }
+  cards.advance(10_000)
+  c.op(cards, "loop guard: a fifth agent text after work cards is refused", MUX, "t9", send("t9", parts("again")), "agent_budget")
 }

@@ -97,4 +97,16 @@ describe("acpmux perf stats", () => {
       to_paint: { p50_ms: 9, p95_ms: 12, max_ms: 12 },
     });
   });
+
+  test("agent latency keeps the first token mark and reports composer readiness", () => {
+    const perf = new AcpmuxPerf();
+    perf.markAgent("handshakeStart");
+    perf.markAgent("handshakeReady");
+    perf.markAgent("composerReady");
+    perf.markAgent("firstToken");
+    const first = perf.agentLatency().first_token_ms;
+    perf.markAgent("firstToken");
+    expect(perf.agentLatency().first_token_ms).toBe(first);
+    expect(perf.agentLatency()).toHaveProperty("composer_ready_ms");
+  });
 });

@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { automationCapabilityOps } from "./automation-caps.ts"
 import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
 
 /**
@@ -63,8 +64,44 @@ export const Trigger = Schema.Struct({
 
 export const Step = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sleep"), seconds: Int(1, 365 * 24 * 3600) }),
-  Schema.Struct({ type: Schema.Literal("note"), text: Text(2000) })
+  Schema.Struct({ type: Schema.Literal("note"), text: Text(2000) }),
+  /**
+   * One cloud op, run as the automation (automation-caps.ts lists the ops). The op's own
+   * schema validates `params` when the step runs; the step's key makes a retry replay.
+   */
+  Schema.Struct({ type: Schema.Literal("op"), op: Schema.Literals(automationCapabilityOps), params: Schema.Unknown })
 ]).annotate({ identifier: "Step" })
+
+/**
+ * One host a code automation may reach over HTTPS (port 443) through the egress
+ * gateway: an exact host name or `*.` plus a domain (subdomains only). Lowercase
+ * DNS names with a letter TLD, so IP literals never match.
+ */
+export const EgressHost = Schema.String.check(
+  Schema.isPattern(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/),
+  Schema.isMaxLength(253)
+).annotate({ identifier: "EgressHost" })
+
+/** A full Git commit id (40 lowercase hex). Short ids and branch names never pin a run. */
+export const CommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)).annotate({ identifier: "CommitSha" })
+
+/**
+ * Where an automation's code lives (decisions A12, C1): a directory
+ * `automations/<slug>` of the owner team's code.storage repository at one
+ * commit. The repository is not a field: each team has exactly one, derived
+ * from the owner team by the backend, so a ref can never name another team's
+ * repository. The CLI bundles to `<path>/dist/index.js` in the same commit;
+ * `export` names the WorkflowEntrypoint class in that module.
+ */
+export const CodeRef = Schema.Struct({
+  commit: CommitSha,
+  path: Schema.String.check(Schema.isPattern(/^automations\/[a-z0-9][a-z0-9-]{0,62}$/)),
+  export: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)))
+}).annotate({ identifier: "CodeRef" })
+export type CodeRef = typeof CodeRef.Type
+
+/** The bundle a code ref runs: one ES module the CLI builds into the same commit. */
+export const codeBundlePath = (ref: Pick<CodeRef, "path">) => `${ref.path}/dist/index.js`
 
 export const Body = Schema.Union([
   Schema.Struct({
@@ -79,7 +116,14 @@ export const Body = Schema.Union([
     }),
     conversation: Schema.Literals(["fresh", "continue"])
   }),
-  Schema.Struct({ type: Schema.Literal("steps"), steps: Schema.Array(Step).check(Schema.isMinLength(1), Schema.isMaxLength(50)) })
+  Schema.Struct({ type: Schema.Literal("steps"), steps: Schema.Array(Step).check(Schema.isMinLength(1), Schema.isMaxLength(50)) }),
+  /** Chief-written Workflows code (decision A11) at a pinned commit; runs on Tier 1 Dynamic Workers. */
+  Schema.Struct({
+    type: Schema.Literal("code"),
+    ref: CodeRef,
+    /** Hosts the code may fetch through the egress gateway (none = no network). Part of the body, so a run pins it. */
+    egress: Schema.optionalKey(Schema.Array(EgressHost).check(Schema.isMaxLength(20)))
+  })
 ]).annotate({ identifier: "Body" })
 export type Body = typeof Body.Type
 
@@ -135,7 +179,12 @@ export const Run = Schema.Struct({
     id: Schema.NullOr(TriggerId),
     type: Schema.String,
     scheduled_at: Schema.optionalKey(Schema.Int),
-    delivery_id: Schema.optionalKey(Schema.String)
+    delivery_id: Schema.optionalKey(Schema.String),
+    /** type `automation`: the run whose code or op step started this run, and the chain depth (1 = started by a run another trigger started). */
+    parent_run: Schema.optionalKey(RunId),
+    /** type `automation`: the first run of the chain (its tree shares one run budget). */
+    root_run: Schema.optionalKey(RunId),
+    depth: Schema.optionalKey(Schema.Int)
   }),
   state: RunState,
   step: Schema.Int,
@@ -174,6 +223,14 @@ export const AutomationUpdateParams = Schema.Struct({
 
 export const AutomationSelector = Schema.Struct({ automation: AutomationId })
 
+/** Activate another commit of a code automation (the CLI's `deploy`). */
+export const AutomationDeployParams = Schema.Struct({
+  automation: AutomationId,
+  commit: CommitSha,
+  /** Optimistic check on the automation's own version. */
+  expected_version: Schema.optionalKey(Schema.Int)
+})
+
 export const RunsListParams = Schema.Struct({
   automation: Schema.optionalKey(AutomationId),
   limit: Schema.optionalKey(Int(1, 200))
@@ -201,3 +258,12 @@ export const RunReportParams = Schema.Struct({
 })
 
 export const RunDispatchedParams = Schema.Struct({ run: RunId })
+
+/**
+ * TeamDO's push of the run class of agents.allowedClasses (enterprise P17-4): whether the team
+ * allows automation runs, at a TeamPolicy version. SchedulerDO keeps the newest version.
+ */
+export const RunPolicyApplyParams = Schema.Struct({
+  version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  runs_allowed: Schema.Boolean
+})

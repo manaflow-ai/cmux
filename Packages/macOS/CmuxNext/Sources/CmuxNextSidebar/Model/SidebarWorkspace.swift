@@ -40,6 +40,17 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
+    /// The brand id (CmuxAgentBrands) of an agent working or waiting in one of the
+    /// workspace's tabs; the row draws its mark per `SidebarAgentMarkVariant`.
+    public var agentBrand: String?
+    /// Determinate or indeterminate bar under the row: the workspace's
+    /// reported progress, else a terminal's OSC 9;4 progress.
+    public var progress: SidebarProgress?
+    /// Tabs in pane order, shown only when the sidebar tab setting is enabled.
+    public var tabs: [SidebarTab]
+    /// Live daemon data, a saved row drawn before the daemon answered, or a
+    /// placeholder (`SidebarRowState`).
+    public var rowState: SidebarRowState
 
     public init(
         id: WorkspaceID,
@@ -50,7 +61,11 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         icon: WorkspaceIcon? = nil,
         unread: UnreadState = .none,
         activity: StatusIndicatorState = .idle,
-        activityStyle: StatusIndicatorStyle? = nil
+        activityStyle: StatusIndicatorStyle? = nil,
+        agentBrand: String? = nil,
+        progress: SidebarProgress? = nil,
+        tabs: [SidebarTab] = [],
+        rowState: SidebarRowState = .live
     ) {
         self.id = id
         self.machineID = machineID
@@ -61,6 +76,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.unread = unread
         self.activity = activity
         self.activityStyle = activityStyle
+        self.agentBrand = agentBrand
+        self.progress = progress
+        self.tabs = tabs
+        self.rowState = rowState
     }
 }
 

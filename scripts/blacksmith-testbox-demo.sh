@@ -10,7 +10,6 @@ set -euo pipefail
 WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
 JOB=cmux-tui-rust
 IDLE_TIMEOUT=15
-APPROVE=1
 STAGES=0
 
 usage() {
@@ -19,8 +18,6 @@ usage: scripts/blacksmith-testbox-demo.sh [options]
 
   --stages        run the three measured benchmark stages instead of the two
                   plain builds (slower, produces evidence JSON)
-  --no-approve    do not approve the deployment gate; approve it yourself in
-                  the GitHub UI when the script pauses
   --idle-timeout  minutes before Blacksmith reclaims the box (default 15; the keepalive clamps anything larger to 15)
 USAGE
 }
@@ -28,7 +25,6 @@ USAGE
 while (( $# )); do
   case "$1" in
     --stages) STAGES=1 ;;
-    --no-approve) APPROVE=0 ;;
     --idle-timeout) shift; IDLE_TIMEOUT="${1:?--idle-timeout needs minutes}" ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -49,10 +45,21 @@ for tool in blacksmith gh git; do
 done
 test -x "$BOUNDED" || { echo "missing $BOUNDED; run from a cmux worktree" >&2; exit 65; }
 test -f "$WORKFLOW" || { echo "missing $WORKFLOW; rebase onto a main that has the lane" >&2; exit 65; }
+# Every Testbox starts through the cmuxterm-hq wrapper: it warms the box,
+# registers it with the fleet controller (the Testbox Approver App approves
+# only a registered box) and passes the gate. Human approval of Testbox runs
+# was removed on purpose on 2026-10-05; the cmux-ci App approves registered
+# boxes. A missing reviewer is expected, not a security problem. HQ_TOOLS is an
+# hq checkout that stays on main (the hq primary checkout is not on main and
+# has no wrapper); the script pulls it first.
+HQ_TOOLS="${HQ_TOOLS:-/Users/lawrence/fun/cmuxterm-hq-worktrees/hq-tools-5c}"
+git -C "$HQ_TOOLS" pull --ff-only >/dev/null || { echo "cannot update $HQ_TOOLS (git pull --ff-only)" >&2; exit 65; }
+WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
+test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_TOOLS to an hq checkout on main" >&2; exit 65; }
 
-if [[ ! -f ghostty/build.zig.zon ]]; then
+if [[ ! -f ghostty/build.zig.zon || ! -f ghostty-next/build.zig.zon ]]; then
   say "Initializing the Ghostty submodule (one time, takes a moment)"
-  run_local git submodule update --init ghostty
+  run_local git submodule update --init ghostty ghostty-next
 fi
 
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
@@ -114,56 +121,16 @@ trap cleanup EXIT INT TERM
 say "Warming a box from main"
 echo "The workflow refuses any ref but main: it is the trust boundary, because"
 echo "the CLI resolves the workflow definition from the same ref it hydrates."
-# Snapshot the gates already waiting before dispatching. Set difference against
-# this identifies our run exactly; a time window cannot, because another agent
-# dispatching seconds later lands inside any window we pick.
-lane_runs_url="repos/manaflow-ai/cmux/actions/workflows/$(basename "$WORKFLOW")/runs?event=workflow_dispatch&status=waiting"
-waiting_before="$(mktemp)"
-waiting_now="$(mktemp)"
-gh api "$lane_runs_url" --jq '.workflow_runs[].id' | sort >"$waiting_before"
-warmup_log="$(mktemp)"
-printf '\033[2m$ blacksmith testbox warmup %s --ref main --job %s --idle-timeout %s\033[0m\n' \
-  "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
-"$BOUNDED" 300 blacksmith testbox warmup "$WORKFLOW" \
-  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" | tee "$warmup_log"
-TBX="$(grep -Eo 'tbx_[A-Za-z0-9_-]+' "$warmup_log" | head -1)"
-rm -f "$warmup_log"
+printf '\033[2m$ %s --lane %s -- %s --ref main --job %s --idle-timeout %s\033[0m\n' \
+  "$WARMUP" "${CMUX_TESTBOX_LANE:-testbox-demo}" "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
+warmup_out="$(mktemp)"
+"$WARMUP" --lane "${CMUX_TESTBOX_LANE:-testbox-demo}" -- "$WORKFLOW" \
+  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" | tee "$warmup_out"
+TBX="$(sed -n 's/^TBX=//p' "$warmup_out")"
+RUN_ID="$(sed -n 's/^RUN=//p' "$warmup_out")"
+rm -f "$warmup_out"
 [[ -n "$TBX" ]] || { echo "warmup returned no Testbox ID" >&2; exit 66; }
-
-# ------------------------------------------------------------------ approve --
-say "Approving the deployment gate"
-echo "The run parks before its first step until a reviewer approves. Self-"
-echo "approval is allowed on this environment."
-if (( APPROVE )); then
-  approved=0
-  for _ in $(seq 1 30); do
-    # Our run is the one that appeared since the snapshot. Kept portable to bash
-    # 3.2, which is what macOS ships: no mapfile, no process substitution.
-    gh api "$lane_runs_url" --jq '.workflow_runs[].id' 2>/dev/null | sort >"$waiting_now" || true
-    candidates="$(comm -13 "$waiting_before" "$waiting_now")"
-    candidate_count="$(printf '%s' "$candidates" | grep -c . || true)"
-    if (( candidate_count > 1 )); then
-      echo "$candidate_count runs appeared at once; approve yours in the GitHub UI, or rerun this script" >&2
-      break
-    fi
-    if (( candidate_count == 1 )); then
-      run_id="$candidates"
-      env_id="$(gh api "repos/manaflow-ai/cmux/actions/runs/$run_id/pending_deployments" --jq '.[0].environment.id')"
-      gh api -X POST "repos/manaflow-ai/cmux/actions/runs/$run_id/pending_deployments" \
-        --input - >/dev/null <<JSON
-{"environment_ids": [$env_id], "state": "approved", "comment": "blacksmith-testbox-demo"}
-JSON
-      echo "approved run $run_id"
-      RUN_ID="$run_id"
-      approved=1
-      break
-    fi
-    sleep 5
-  done
-  (( approved )) || echo "not approved automatically; approve the run in the GitHub UI now" >&2
-else
-  echo "approve the waiting run in the GitHub UI now"
-fi
+echo "The wrapper registered $TBX and passed the deployment gate of run ${RUN_ID:-unknown}."
 
 # -------------------------------------------------------------------- ready --
 say "Waiting for hydration (installs pinned Zig and Rust, fetches Cargo and Zig deps)"
@@ -173,7 +140,7 @@ say "Waiting for hydration (installs pinned Zig and Rust, fetches Cargo and Zig 
 say "Pinning the box to your commit"
 echo "The box is an exact checkout of main right now, because that is what CI"
 echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
-pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD"
+pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty ghostty-next; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
 "$BOUNDED" 300 blacksmith testbox run --id "$TBX" "$pin_command"
 

@@ -8,5 +8,13 @@ public enum CmuxiOSApplication {
         RootViewController(container: container)
     }
 
+    /// Call from `application(_:didFinishLaunchingWithOptions:)` so the
+    /// notification delegate exists before a cold-start banner tap arrives.
+    public static func prepare() { _ = container }
+
+    public static func didRegisterForRemoteNotifications(deviceToken: Data) {
+        Task { await container.push.didRegister(token: deviceToken) }
+    }
+
     private static let container = AppContainer()
 }

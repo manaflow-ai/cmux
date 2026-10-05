@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { translatorFor } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { DATE, formatDuration, turnView as shape, workedLabel } from "./turns";
-import { timestampText } from "./timestamps";
+import { timestampText, timestampTurns } from "./timestamps";
+
+const english = translatorFor("en");
 
 /// The turn shape without its date lines, which "date lines" covers.
 const turnView = (...args: Parameters<typeof shape>) => shape(...args).filter((entry) => entry.kind !== DATE);
@@ -37,7 +40,7 @@ describe("turn view", () => {
   test("a finished turn folds its work under Worked for, timed to the answer", () => {
     const view = turnView(turn, new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "a", "e", "s"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 15s");
+    expect(workedLabel(english, view[1]!)).toBe("Worked for 15s");
     // The footer copies the answer and does not repeat the fold's time.
     expect(view.at(-1)).toMatchObject({ text: "Done.", folded: true });
   });
@@ -93,7 +96,7 @@ describe("turn view", () => {
     const answering = turnView(turn.slice(0, 5), new Set(), { working: true });
     expect(ids(answering)).toEqual(["u", "working-u", "c", "t", "e", "a"]);
     expect(answering[1]).toMatchObject({ durationMs: 15_000, version: 2 });
-    expect(workedLabel(turnView(turn, new Set())[1]!)).toStartWith("Worked for 15s");
+    expect(workedLabel(english, turnView(turn, new Set())[1]!)).toStartWith("Worked for 15s");
     // While a tool runs, the line ticks on its own clock.
     expect(turnView(turn.slice(0, 4), new Set(), { working: true })[1]?.durationMs).toBeUndefined();
   });
@@ -112,7 +115,7 @@ describe("turn view", () => {
   test("a turn that ended without an answer folds all of its work", () => {
     const view = turnView([turn[0]!, turn[2]!, turn[5]!], new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "s"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 54s");
+    expect(workedLabel(english, view[1]!)).toBe("Worked for 54s");
   });
 
   test("rows before the first prompt draw as they are", () => {
@@ -124,7 +127,7 @@ describe("turn view", () => {
 
   test("a stopped turn says so", () => {
     const view = turnView([...turn.slice(0, 5), { ...turn[5]!, status: "cancelled" }], new Set());
-    expect(workedLabel(view[1]!)).toBe("You stopped after 15s");
+    expect(workedLabel(english, view[1]!)).toBe("You stopped after 15s");
   });
 
   test("rows after a turn's summary still draw", () => {
@@ -137,7 +140,7 @@ describe("turn view", () => {
     const queued = row("local-1", "user", 1_500, { text: "also this", pending: true });
     const view = turnView([...turn.slice(0, 2), queued, ...turn.slice(2)], new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "a", "e", "s", "local-1"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 15s");
+    expect(workedLabel(english, view[1]!)).toBe("Worked for 15s");
   });
 
   test("the fold line and footer change version when what they draw changes", () => {
@@ -156,6 +159,32 @@ describe("turn view", () => {
       expect(new Set([version(before), version(streamed), version(settled)]).size).toBe(3);
     }
     expect(opened[1]!.version).not.toBe(before[1]!.version);
+  });
+
+  test("only the last turn's footer carries its prompt, and it drops it when a later prompt goes", () => {
+    const footer = (rows: AcpmuxRow[], id: string) => turnView(rows, new Set()).find((entry) => entry.id === id)!;
+    expect(footer(turn, "s").prompt).toBe("fix it");
+    const next = [...turn, row("u2", "user", 90_000, { text: "and the docs" })];
+    expect(footer(next, "s").prompt).toBeUndefined();
+    expect(footer(next, "s").version).not.toBe(footer(turn, "s").version);
+  });
+
+  test("no Retry while a later prompt waits to be accepted", () => {
+    const queued = row("local-1", "user", 90_000, { text: "also this", pending: true });
+    expect(turnView([...turn, queued], new Set()).find((entry) => entry.id === "s")!.prompt).toBeUndefined();
+  });
+
+  test("an ended turn's card holds every edit, after the answer too, and offers Undo", () => {
+    const late = row("e2", "activity", 20_000, { items: [{ ...edit, tool: { ...edit.tool, id: "e2" } }] });
+    const ended = [...turn.slice(0, -1), late, turn.at(-1)!];
+    const card = turnView(ended, new Set()).find((entry) => entry.id === "e")!;
+    expect(card.ended).toBe(true);
+    expect(card.items!.map((item) => item.tool!.id)).toEqual(["e", "e2"]);
+    expect(ids(turnView(ended, new Set()))).not.toContain("e2");
+    // The live edit row and the card it becomes differ in version, so the card redraws with Undo.
+    const live = turnView(turn.slice(0, -1), new Set(), { working: true }).find((entry) => entry.id === "e")!;
+    expect(live.ended).toBeUndefined();
+    expect(turnView(turn, new Set()).find((entry) => entry.id === "e")!.version).not.toBe(live.version);
   });
 
   test("durations read as short units", () => {
@@ -179,6 +208,24 @@ describe("timestamp lines", () => {
     expect(dated(rows, start + 2 * HOUR)).toEqual(["date-a"]);
     // The line sits right above its prompt.
     expect(ids(shape(rows, new Set(), { now: start + 2 * HOUR }))).toEqual(["date-a", "a", "a-a"]);
+  });
+
+  test("missing, zero or invalid times never add a date or an artificial gap", () => {
+    for (const unknown of [undefined, 0, NaN, Infinity, 1e20]) {
+      expect(timestampTurns([{ promptAt: unknown }], start, true)).toEqual([false]);
+      expect(timestampTurns([{ promptAt: start, answerAt: start }, { promptAt: unknown }], start, true)).toEqual([
+        false,
+        false,
+      ]);
+      expect(
+        timestampTurns(
+          [{ promptAt: start, answerAt: unknown }, { promptAt: start + 2 * HOUR }],
+          start + 2 * HOUR,
+          true,
+        ),
+      ).toEqual([true, false]);
+    }
+    expect(dated(turnAt("unknown", 0), start)).toEqual([]);
   });
 
   test("a prompt more than an hour after the previous answer is dated; turns within the hour are not", () => {

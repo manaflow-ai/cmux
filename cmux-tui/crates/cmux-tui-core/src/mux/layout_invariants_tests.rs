@@ -155,7 +155,7 @@ fn terminal_registry_move_keeps_durable_topology_in_step() {
     let first = mux.new_workspace(None, None).unwrap().id;
     let origin = pane_of(&mux, first);
     let moved = mux.new_tab(Some(origin), None, None).unwrap().id;
-    let torn = mux.move_tab_to_new_workspace(moved, None, None).unwrap();
+    let torn = mux.move_tab_to_new_workspace(moved, None, None, None).unwrap();
     assert_ne!(pane_of(&mux, moved), origin);
     assert_durable_matches_memory(&mux);
 
@@ -612,9 +612,11 @@ fn run(
                     pick(&ids, index).or(Some(u64::MAX))
                 })
             });
-            accepted(mux.move_tab_to_column(tab(t), pane, after_column, width, None))
+            accepted(mux.move_tab_to_column(tab(t), pane, after_column, width, None, None))
         }
-        Op::NewWorkspace { tab: t } => accepted(mux.move_tab_to_new_workspace(tab(t), None, None)),
+        Op::NewWorkspace { tab: t } => {
+            accepted(mux.move_tab_to_new_workspace(tab(t), None, None, None))
+        }
         Op::ToWorkspace { tab: t, workspace } => accepted(
             mux.move_tab_to_workspace(tab(t), workspace.and_then(|w| pick(&live.workspaces, w))),
         ),

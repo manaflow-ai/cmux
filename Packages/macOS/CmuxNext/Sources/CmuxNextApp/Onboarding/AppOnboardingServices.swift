@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAccounts
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -15,13 +16,26 @@ import SwiftUI
 @MainActor
 final class AppOnboardingServices: OnboardingServices {
     unowned let owner: OnboardingService
-    private var services: AppServices { owner.services }
+    var services: AppServices { owner.services }
+    /// Workspaces `openProjects` and `resumeChats` opened, by folder path,
+    /// once their window lists them; and the chats waiting for one.
+    var folderWorkspaces: [String: String] = [:]
+    var waitingChats: [String: [AgentChat]] = [:]
+    /// Folders whose workspace was asked for and isn't listed yet.
+    var openingFolders: Set<String> = []
 
     init(owner: OnboardingService) {
         self.owner = owner
     }
 
     var savedProfile: OnboardingProfile? { owner.profile }
+
+    var canRunFirstTask: Bool { services.agentTabs.canHostChat }
+    var firstTaskFolder: FirstTaskFolder { .live() }
+
+    func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? {
+        owner.firstTaskView(cwd: cwd, prompt: prompt)
+    }
 
     func saveProfile(_ profile: OnboardingProfile) {
         owner.saveProfile(profile)
@@ -56,12 +70,52 @@ final class AppOnboardingServices: OnboardingServices {
             // Both through the validated `setSetting`, as the Settings window
             // and the palette write them.
             if themeName != current {
-                try? await settings.setSetting(at: TerminalThemeSetting.path, to: themeName.map(JSONValue.string))
+                try? await settings.setSetting(at: TerminalThemeSetting.path, to: themeName.map(JSONValue.string), by: .user)
             }
             // Compact applies when the file has no density (`SettingsApplier`).
             let currentDensity = (try? await settings.file.value(at: ["appearance", "density"]))?
                 .stringValue.flatMap(Density.init(rawValue:)) ?? .compact
             if density != currentDensity { try? await settings.setDensity(density) }
+        }
+    }
+
+    func scanAgentProjects() async -> [AgentProject] {
+        await Task.detached { AgentProjectScan.live().run() }.value
+    }
+
+    func chooseFolder() async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        // A sheet on the onboarding window, so the step stays in front and one panel opens at a time.
+        let response = await withCheckedContinuation { done in
+            if let window = owner.controller?.window {
+                panel.beginSheetModal(for: window) { done.resume(returning: $0) }
+            } else {
+                panel.begin { done.resume(returning: $0) }
+            }
+        }
+        return response == .OK ? panel.url : nil
+    }
+
+    /// One workspace per folder, named after it, in the current window
+    /// (a new one when none is open). They are created one after another so
+    /// the sidebar keeps the list's order; any macOS privacy prompts for
+    /// Desktop or Documents come now, together, as the step said.
+    func openProjects(_ folders: [URL]) {
+        guard let windows = services.windows else { return }
+        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        // Every folder counts as opening now, so chats picked meanwhile wait for it.
+        let spawns = folders.map { ($0, folderSpawn($0)) }
+        Task {
+            for (folder, spawn) in spawns {
+                do {
+                    _ = try await windows.createWorkspace(spawn, into: target)
+                } catch {
+                    folderFailed(folder, error)
+                }
+            }
         }
     }
 
@@ -118,6 +172,23 @@ final class AppOnboardingServices: OnboardingServices {
     func openExternal(_ url: URL) {
         NSWorkspace.shared.open(url)
     }
+
+    /// The cmux-cua daemon's grants; nil (no step) without its socket. A
+    /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
+    /// grants `debug.onboarding grant` flips instead.
+    var computerUsePermissions: (any ComputerUsePermissionSource)? {
+        // Turned off by policy (DisabledFeatures): no step and no prompts.
+        services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
+    }
+
+    private lazy var computerUseSource: (any ComputerUsePermissionSource)? = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
+            return MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
+        }
+        #endif
+        return AppComputerUsePermissionSource.local()
+    }()
 
     var hasAccountsStep: Bool { true }
 

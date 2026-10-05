@@ -52,7 +52,7 @@ final class SiteDataWindow: PageInfoWindow {
             list.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             list.bottomAnchor.constraint(equalTo: document.bottomAnchor),
         ])
-        contentView = root
+        installContent(root)
     }
 
     func show(_ data: SiteDataSummary) {

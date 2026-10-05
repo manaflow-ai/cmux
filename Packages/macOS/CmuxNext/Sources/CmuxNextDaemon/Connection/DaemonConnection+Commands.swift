@@ -7,7 +7,12 @@ extension DaemonConnection {
     /// Stable frontend identity for the exactly-once ledger.
     public static let origin = "cmux-next"
 
-    public func mutation() -> MutationIdentity { MutationIdentity(origin: Self.origin) }
+    /// A fresh mutation identity, or one derived from the running action's
+    /// idempotency key (`DaemonCommandScope`), so a retried action replays.
+    public func mutation() -> MutationIdentity {
+        guard let derived = DaemonCommandScope.current?.nextMutationID() else { return MutationIdentity(origin: Self.origin) }
+        return MutationIdentity(origin: Self.origin, mutationID: derived)
+    }
 
     public func listWorkspaces() async throws -> DaemonTree {
         try await request(ListWorkspacesRequest())
@@ -38,33 +43,6 @@ extension DaemonConnection {
                                                       markedUnread: markedUnread, mutation: mutation()))
     }
 
-    // Groups (`workspace-groups-v1`)
-
-    @discardableResult
-    public func createGroup(name: String, id: WorkspaceGroupID? = nil, color: String? = nil, index: Int? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(CreateWorkspaceGroupRequest(name: name, group: id, color: color, index: index)).group
-    }
-
-    @discardableResult
-    public func updateGroup(_ id: WorkspaceGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                            collapsed: Bool? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(UpdateWorkspaceGroupRequest(group: id, name: name, color: color, collapsed: collapsed)).group
-    }
-
-    public func deleteGroup(_ id: WorkspaceGroupID) async throws {
-        _ = try await request(DeleteWorkspaceGroupRequest(group: id))
-    }
-
-    public func moveGroup(_ id: WorkspaceGroupID, to index: Int) async throws {
-        _ = try await request(MoveWorkspaceGroupRequest(group: id, index: index))
-    }
-
-    /// Puts a workspace in a group (nil ungroups) at an optional section index.
-    @discardableResult
-    public func moveWorkspace(_ key: WorkspaceKey, toGroup group: WorkspaceGroupID?, index: Int? = nil) async throws -> MoveWorkspaceToGroupRequest.Response {
-        try await request(MoveWorkspaceToGroupRequest(workspace: .key(key), group: group, index: index, mutation: mutation()))
-    }
-
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
     /// commit, each of its terminals not shown elsewhere and not kept; it is
     /// sent only to a daemon with `batch-close-v1` (see `supportsBatchClose`).
@@ -81,9 +59,9 @@ extension DaemonConnection {
     /// `endTerminals`, each terminal whose tabs all close ends too, unless kept.
     @discardableResult
     public func closeTabs(_ surfaces: [SurfaceID], endTerminals: Bool = true,
-                          transaction: ClientTransactionID? = nil) async throws -> CloseTabsResult {
+                          transaction: ClientTransactionID? = nil, reason: CloseReason? = nil) async throws -> CloseTabsResult {
         try await requestNew(CloseTabsRequest(surfaces: surfaces, endTerminals: endTerminals, transaction: transaction,
-                                              mutation: mutation()))
+                                              mutation: mutation(), reason: reason))
     }
 
     // Terminals, tabs, panes, columns, screens
@@ -221,9 +199,9 @@ extension DaemonConnection {
         _ = try await request(SetColumnWidthRequest(pane: pane, width: width, transaction: transaction))
     }
 
-    /// `set-column-sticky` for the column holding `pane`; nil unpins it.
-    public func setColumnSticky(of pane: PaneID, sticky: StickySnapshot?, transaction: UInt64? = nil) async throws {
-        _ = try await request(SetColumnStickyRequest(pane: pane, sticky: sticky, transaction: transaction))
+    /// `set-column-dock` for the column holding `pane`; nil unpins it.
+    public func setColumnDock(of pane: PaneID, dock: DockSnapshot?, transaction: UInt64? = nil) async throws {
+        _ = try await request(SetColumnDockRequest(pane: pane, dock: dock, transaction: transaction))
     }
 
     public func swapPane(_ pane: PaneID, with target: SwapTarget) async throws {
@@ -325,38 +303,11 @@ extension DaemonConnection {
         return try await Self.perform(request, on: transport, timeout: Self.endTerminalsTimeout)
     }
 
-    /// Quit's end choices: stops this connection (so the daemon's exit
-    /// cannot trigger a reconnect that starts a new daemon), then ends every
-    /// terminal and stops the daemon (`shutdown-daemon end_terminals`).
-    /// With `deletingWorkspaces` (End Everything) it first closes every
-    /// workspace, so the next owner starts with none. With `keepingLayout`
-    /// (End Sessions, Keep Layout) on a daemon that serves
-    /// `end-terminals-keep-layout-v1`, placed terminals keep their tabs,
-    /// dead, so the next launch restarts a shell in each with the same
-    /// splits (`relaunchKeptTabs`); older daemons remove the tabs. Both run
-    /// on their own socket. Returns the ended count and whether the tabs
-    /// were kept.
-    @discardableResult
-    public func endSessionsAndStop(deletingWorkspaces: Bool = false, keepingLayout: Bool = false) async throws -> EndedSessions {
-        let keepsLayout = keepingLayout && !deletingWorkspaces && identity?.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) == true
-        await close()
-        if deletingWorkspaces { try await closeEveryWorkspace() }
-        let reply = try await shutdownDaemon(endTerminals: true, keepLayout: keepsLayout)
-        return EndedSessions(endedTerminals: reply.endedTerminals ?? 0, keptLayout: keepsLayout)
-    }
-
-    /// Closes every workspace on a short-lived socket (their terminals
-    /// detach; `shutdown-daemon end_terminals` then ends them).
-    private func closeEveryWorkspace() async throws {
-        guard let endpoint else { throw DaemonError.notConnected }
-        let transport = try LineTransport(path: endpoint.socketPath)
-        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
-        defer { transport.close() }
-        let tree = try await Self.perform(ListWorkspacesRequest(), on: transport)
-        for workspace in tree.workspaces {
-            let ref: WorkspaceRef = workspace.key.map { .key($0) } ?? .handle(workspace.id)
-            _ = try await Self.perform(CloseWorkspaceRequest(workspace: ref, mutation: nil), on: transport)
-        }
+    /// Quit's end choices (`SessionEnding.run`): ends every terminal and
+    /// stops the daemon; End Everything first closes every workspace but
+    /// Home. Returns every step that failed.
+    public func endSessionsAndStop(deletingWorkspaces: Bool = false, keepingLayout: Bool = false) async -> EndedSessions {
+        await SessionEnding.run(on: self, deletingWorkspaces: deletingWorkspaces, keepingLayout: keepingLayout)
     }
 
     /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.

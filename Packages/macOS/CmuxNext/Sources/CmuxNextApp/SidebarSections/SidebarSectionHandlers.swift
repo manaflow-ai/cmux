@@ -19,7 +19,7 @@ enum SidebarSectionHandlers {
                 }
             })
         }
-        let home = LayoutItemRef.builtIn(.home)
+        let home = SidebarLayoutDocument.homeRef
         bind("sidebar.home.add", unavailable: { layout.document.firstItem(with: home) == nil ? nil : SidebarSectionStrings.homeAlreadyShown }) { _, doc in
             SidebarLayoutPlanner.add(home, in: doc)
         }
@@ -30,7 +30,8 @@ enum SidebarSectionHandlers {
             guard let name = invocation["item"]?.stringValue, let builtIn = SidebarBuiltIn(rawValue: name) else {
                 throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
             }
-            let ref = LayoutItemRef.builtIn(builtIn)
+            // Home and the App Store are apps now (R63/R64).
+            let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
                 return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
@@ -48,10 +49,11 @@ enum SidebarSectionHandlers {
         // Hide is app-level state owned by the app platform (D55): the
         // sidebar forwards to its `app.hide` action and changes no layout.
         registry.bind("sidebar.item.hideApp", run: { [weak registry] invocation in
-            let item = try SidebarSectionResolve.item(invocation.target, in: layout.document)
-            guard item.ref.kind == LayoutItemRef.appKind else { throw ActionFailure(message: SidebarSectionStrings.notAnApp) }
+            guard let app = try SidebarSectionResolve.owningApp(invocation.target, in: layout.document) else {
+                throw ActionFailure(message: SidebarSectionStrings.notAnApp)
+            }
             guard let registry, registry.action(for: "app.hide") != nil else { throw ActionFailure.needsAppCapability("app.hide") }
-            _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(item.ref.value)], origin: invocation.origin))
+            _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: invocation.origin))
         })
         bind("sidebar.section.add") { invocation, _ in
             let region = invocation["region"]?.stringValue.flatMap(SidebarRegion.init(rawValue:)) ?? .top
@@ -148,11 +150,24 @@ enum SidebarSectionResolve {
         throw ActionFailure(message: SidebarSectionStrings.noSuchSection)
     }
 
+    /// The app an item or section target belongs to (an app item's app, an
+    /// app section's contribution owner), or nil.
+    static func owningApp(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> String? {
+        switch target?.kind {
+        case .sidebarSection?: try section(target, in: doc).owningAppID
+        default: try item(target, in: doc).owningAppID
+        }
+    }
+
     /// By item id, else by built-in name (`home`).
     static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
         guard let target, target.kind == .sidebarItem else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
         if let item = doc.item(LayoutItemID(target.id)) { return item }
-        if let builtIn = SidebarBuiltIn(rawValue: target.id), let item = doc.firstItem(with: .builtIn(builtIn)) { return item }
+        if let builtIn = SidebarBuiltIn(rawValue: target.id) {
+            // Home and the App Store are app items now (R63/R64); their names still name them.
+            let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)
+            if let item = doc.firstItem(with: ref) { return item }
+        }
         throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
     }
 }

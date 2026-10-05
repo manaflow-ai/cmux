@@ -1,4 +1,4 @@
-import GhosttyKit
+import GhosttyNextKit
 
 /// One action from `action_cb`, copied out of C memory so it can cross an
 /// actor hop.

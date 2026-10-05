@@ -1,0 +1,93 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/caffeinate",
+  "name": { "en": "Caffeinate", "ja": "カフェイネート" },
+  "version": "0.1.0",
+  "description": {
+    "en": "Keep the Mac awake: until you stop it, for a time, or while a terminal's command runs. Each option explained in plain words; no process is spawned.",
+    "ja": "Mac をスリープさせない: 止めるまで、指定した時間、またはターミナルのコマンドが動いている間。各オプションをわかりやすく説明します。プロセスは起動しません。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": ["productivity", "developer-tools"],
+  "keywords": ["caffeinate", "awake", "sleep", "power", "display"],
+  "engines": { "cmux": "^1.0" },
+  "main": "dist/main.js",
+  "scopes": {
+    "power:read": "See what keeps this Mac awake through cmux, and follow changes.",
+    "power:write": "Keep the Mac awake when you choose a preset, and stop it when you choose Stop. cmux holds the power assertion; the app never runs a process."
+  },
+  "optionalScopes": {
+    "terminal:read": "List the terminals that run a command, so you can keep the Mac awake until that command finishes.",
+    "mcp:expose": "Let agents keep the Mac awake while their own terminal's command runs.",
+    "actions:run": "Open the Caffeinate pane from the menu bar."
+  },
+  "contributes": {
+    "statusItems": [{ "id": "menu", "title": { "en": "Caffeinate", "ja": "カフェイネート" }, "symbol": "cup.and.saucer", "placement": "statusStrip", "render": "renderStatus" }],
+    "paneKinds": [{ "id": "caffeinatePane", "title": { "en": "Caffeinate", "ja": "カフェイネート" }, "symbol": "cup.and.saucer", "render": "renderPane" }],
+    "commands": [
+      {
+        "id": "keepAwake",
+        "title": { "en": "Keep Awake Until Stopped", "ja": "止めるまでスリープさせない" },
+        "run": "keepAwake",
+        "keywords": ["caffeinate", "awake", "sleep"],
+        "contexts": ["palette", "statusItem:menu"]
+      },
+      {
+        "id": "keepAwakeHour",
+        "title": { "en": "Keep Awake for 1 Hour", "ja": "1時間スリープさせない" },
+        "run": "keepAwakeHour",
+        "keywords": ["caffeinate", "awake", "hour"],
+        "contexts": ["palette", "statusItem:menu"]
+      },
+      {
+        "id": "start",
+        "title": { "en": "Keep Awake", "ja": "スリープさせない" },
+        "run": "start",
+        "keywords": ["caffeinate", "awake", "json"],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "preset": { "type": "string", "enum": ["command", "untilStopped", "hour", "duration"], "description": "command: until a terminal's command, a task or a process ends; untilStopped; hour; duration (needs minutes)." },
+            "kinds": { "type": "array", "items": { "type": "string", "enum": ["display", "idle", "disk", "system", "user"] }, "description": "What stays awake (caffeinate -d -i -m -s -u). Default: idle for command, display and idle otherwise." },
+            "minutes": { "type": "integer", "minimum": 1, "maximum": 1440, "description": "Time limit (caffeinate -t, in minutes)." },
+            "terminal": { "type": "string", "description": "terminal_… handle: end when its current command finishes. Agents may pass only their own terminal." },
+            "task": { "type": "string", "description": "task_… handle: end when the task finishes." },
+            "pid": { "type": "integer", "minimum": 1, "description": "End when this process exits (caffeinate -w). People only; prefer terminal." },
+            "reason": { "type": "string", "maxLength": 120, "description": "Shown in the system's power assertion list." },
+            "request_id": { "type": "string", "description": "Idempotency key for retries." }
+          }
+        }
+      },
+      {
+        "id": "stop",
+        "title": { "en": "Stop Keeping Awake", "ja": "スリープの抑止を止める" },
+        "run": "stop",
+        "arguments": { "type": "object", "required": ["assertion"], "properties": { "assertion": { "type": "string", "description": "pwr_… id from list. Stopping what someone else started needs a person (origin user)." } } }
+      },
+      {
+        "id": "stopAll",
+        "title": { "en": "Stop Keeping the Mac Awake", "ja": "Mac のスリープ抑止をすべて止める" },
+        "run": "stopAll",
+        "keywords": ["caffeinate", "sleep", "stop"],
+        "contexts": ["palette", "statusItem:menu"],
+        "destructive": true
+      },
+      { "id": "list", "title": { "en": "List What Keeps the Mac Awake", "ja": "Mac をスリープさせないものの一覧" }, "run": "list", "keywords": ["caffeinate", "json"] },
+      { "id": "show", "title": { "en": "Show Caffeinate", "ja": "カフェイネートを表示" }, "run": "show", "keywords": ["caffeinate", "awake"], "contexts": ["palette"] },
+      { "id": "cycleVariant", "title": { "en": "Next Caffeinate Variant", "ja": "次のカフェイネートバリアント" }, "run": "cycleVariant", "contexts": ["palette"], "x-cmux-devOnly": true }
+    ],
+    "mcpServers": [{ "id": "tools", "title": { "en": "Caffeinate", "ja": "カフェイネート" }, "tools": "commands" }],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": { "type": "string", "title": "Design variant", "enum": ["menu", "pane"], "default": "menu", "x-cmux-devOnly": true }
+      }
+    }
+  },
+  "activation": ["onStatusItem:menu", "onPane:caffeinatePane", "onCommand:keepAwake", "onCommand:keepAwakeHour", "onCommand:start", "onCommand:stop", "onCommand:stopAll", "onCommand:list", "onCommand:show", "onCommand:cycleVariant"],
+  "files": ["dist/", "assets/"]
+}

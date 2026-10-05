@@ -5,6 +5,7 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
+#include "page_scheme_registration.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -16,6 +17,11 @@ class App : public CefApp, public CefBrowserProcessHandler {
   explicit App(std::vector<std::string> switches) : switches_(std::move(switches)) {}
 
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
+
+  // The helper processes register the same schemes (helper_main.mm).
+  void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override {
+    RegisterCustomSchemes(registrar);
+  }
 
   void OnBeforeCommandLineProcessing(const CefString& process_type,
                                      CefRefPtr<CefCommandLine> command_line) override {
@@ -36,6 +42,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
     InstallForkObserver();
     InstallWindowRequestHandler();
     InstallExtensionUIHandlers();
+    InstallPageSchemes();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }
 
@@ -79,6 +86,8 @@ class Client : public CefClient,
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+  // Every download waits for the host's path (shim_downloads.mm).
+  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
 
   // MARK: Focus
 
@@ -123,6 +132,8 @@ class Client : public CefClient,
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
+    // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
+    if (NavigationRefusedForAgent(id, url)) return true;
     if (!NavigationViolatesGuard(id, url)) return false;
     Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
     return true;
@@ -255,12 +266,14 @@ class Client : public CefClient,
     request_ = 0;
     int window = fork_api().tab_window_id ? fork_api().tab_window_id(id) : 0;
     std::string features;
-    int64_t popup = request == 0 ? TakePopup(browser, &features) : 0;
-    Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features);
+    std::string popup_url;
+    int64_t popup = request == 0 ? TakePopup(browser, &features, &popup_url) : 0;
+    Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features, popup_url);
   }
 
-  bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
-                     const CefString&, WindowOpenDisposition disposition, bool, const CefPopupFeatures& features,
+  bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int popup_id, const CefString& target_url,
+                     const CefString&, WindowOpenDisposition disposition, bool user_gesture,
+                     const CefPopupFeatures& features,
                      CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings& settings,
                      CefRefPtr<CefDictionaryValue>&, bool*) override {
     // Every popup (target=_blank, window.open with or without features) is
@@ -273,9 +286,15 @@ class Client : public CefClient,
     // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
-    RememberPopup(browser->GetIdentifier(), disposition, features);
-    Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, 0, target_url.ToString());
+    RememberPopup(browser->GetIdentifier(), popup_id, target_url.ToString(), disposition, user_gesture, features);
+    Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, user_gesture ? 1 : 0, target_url.ToString());
     return false;
+  }
+
+  // Chromium refused a popup after OnBeforePopup: it never reaches
+  // OnAfterCreated, so it must not be matched to another tab.
+  void OnBeforePopupAborted(CefRefPtr<CefBrowser> browser, int popup_id) override {
+    AbortPopup(browser->GetIdentifier(), popup_id);
   }
 
   void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
@@ -300,6 +319,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     ForgetNavigationGuard(id);
     registrations_.erase(id);
+    ForgetDevToolsProtocol(id);
     browsers().erase(id);
     ForgetOwnBackground(id);
     ForgetDevTools(id);
@@ -371,15 +391,25 @@ class Client : public CefClient,
     return h.key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0;
   }
 
-  // After the renderer: a key the page did not handle. Only a plain Escape
-  // is reported (a popup panel closes on it); everything else goes on to
-  // Chromium's own accelerators.
+  // After the renderer: a key the page did not handle. A plain Escape is
+  // reported (a popup panel closes on it), and so is a letter, with or
+  // without Shift, while no editable field has focus (single-key page
+  // shortcuts such as link hints). Everything goes on to Chromium's own
+  // accelerators.
   bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle) override {
     constexpr int kEscape = 0x1B;
     constexpr uint32_t kModifiers = EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN |
                                     EVENTFLAG_COMMAND_DOWN;
-    if (event.type == KEYEVENT_RAWKEYDOWN && event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
+    constexpr uint32_t kChordModifiers = EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN | EVENTFLAG_COMMAND_DOWN;
+    if (event.type != KEYEVENT_RAWKEYDOWN) {
+      return false;
+    }
+    if (event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
       Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, kEscape);
+    } else if (event.windows_key_code >= 'A' && event.windows_key_code <= 'Z' && !(event.modifiers & kChordModifiers) &&
+               !event.focus_on_editable_field && !event.is_system_key) {
+      const int64_t shift = (event.modifiers & EVENTFLAG_SHIFT_DOWN) ? 1 : 0;
+      Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, event.windows_key_code, shift);
     }
     return false;
   }
@@ -393,6 +423,12 @@ class Client : public CefClient,
   }
 
   // MARK: DevTools
+
+  // Every message first: raw-send replies are consumed here and never
+  // reach OnDevToolsMethodResult; watched events also go to the host.
+  bool OnDevToolsMessage(CefRefPtr<CefBrowser> browser, const void* message, size_t message_size) override {
+    return ForwardDevToolsMessage(browser->GetIdentifier(), message, message_size);
+  }
 
   void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser, int message_id, bool success, const void* result,
                               size_t result_size) override {

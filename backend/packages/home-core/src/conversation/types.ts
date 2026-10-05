@@ -13,10 +13,11 @@ export type ParticipantKind = "human" | "agent" | "address"
 export type AgentClass = "mux" | "agent"
 export type ParticipantRole = "owner" | "member"
 export type ConversationKind = "chief" | "dm" | "group"
-export type ConversationState = "active" | "archived"
+/** `importing`: a promoted local conversation receiving its history; only import ops run. */
+export type ConversationState = "active" | "archived" | "importing"
 
 export interface Participant {
-  /** `user_<id>`, `agent_<name>` or `addr_<26 base32>` (cloud). */
+  /** `user_<id>`, `agent_<name>`, `remote_<install>` (local device) or `addr_<26 base32>` (cloud). */
   readonly id: string
   readonly kind: ParticipantKind
   readonly display_name: string
@@ -32,6 +33,19 @@ export interface Participant {
   readonly added_by?: string
   /** Cloud: set when the participant left or was removed. */
   readonly left_at?: string
+  /**
+   * Local: the person a `remote_<install>` device participant belongs to
+   * (`user_local`). A paired device is the same human as the server's own
+   * user (server-remote-conversations.md section 5). Only the daemon's
+   * pairing path creates one; a cloud head never has one.
+   */
+  readonly person?: string
+}
+
+/** Where a message came from. Absent for local messages; the owner stamps it from the actor. */
+export interface Origin {
+  readonly kind: "remote"
+  readonly install: string
 }
 
 export interface PartRef {
@@ -49,8 +63,38 @@ export interface TextRun {
 
 export type WorkStatus = "running" | "done" | "failed" | "waiting"
 
+/**
+ * Cloud only: a file stored by content hash in the conversation's attachment store (R2). The
+ * owner accepts it only when the hash was uploaded for this conversation and its type and size
+ * equal the stored record (attachments.ts). Swift `AttachmentRef` in snake_case.
+ */
+export interface AttachmentPart {
+  readonly type: "attachment"
+  /** SHA-256 of the bytes, 64 lowercase hex characters. */
+  readonly hash: string
+  readonly name: string
+  readonly mime_type: string
+  readonly byte_count: number
+  readonly width?: number
+  readonly height?: number
+  /** Video and audio length. */
+  readonly duration_ms?: number
+  /** Video only: the poster image uploaded with this video's slot (home-messaging.md section 10.1); must equal the record's. */
+  readonly poster?: DerivedImage
+  /** Image only: the small preview image uploaded with this image's slot (same rules as a poster); must equal the record's. */
+  readonly preview?: DerivedImage
+}
+
+/** A derived image (a video's poster, an image's preview): JPEG or WebP, stored next to its attachment under the same upload slot. */
+export interface DerivedImage {
+  readonly hash: string
+  readonly mime_type: string
+  readonly byte_count: number
+}
+
 export type Part =
   | { readonly type: "text"; readonly text: string; readonly runs?: ReadonlyArray<TextRun> }
+  | AttachmentPart
   | {
       readonly type: "work"
       readonly session: string
@@ -85,6 +129,8 @@ export interface Message {
   readonly edited_at?: string
   readonly retracted_at?: string
   readonly reactions: ReadonlyArray<Reaction>
+  /** Set by a local owner for a message a paired install sent. */
+  readonly origin?: Origin
 }
 
 export type InviteChannel = "email" | "sms"
@@ -179,6 +225,15 @@ export interface ConversationHead {
    */
   readonly agent_text_streak?: number
   readonly last_agent_text_at?: string
+  /** Provenance of a conversation promoted from a Mac (`conversation.import`). */
+  readonly import?: ImportSource & { readonly by: string }
+}
+
+/** Where an imported conversation came from: the Mac install and its local conversation id. */
+export interface ImportSource {
+  readonly kind: "mac"
+  readonly host: string
+  readonly local_id: string
 }
 
 export interface Summary {

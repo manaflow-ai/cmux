@@ -14,6 +14,10 @@ import {
 } from "@cmux/protocol"
 import { checkCron, nextFire } from "../cron.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
+import { automationTrigger, isAutomationPrincipal } from "./scheduler-chain.ts"
+import { automationOutbox, countDeploy, invalidBody, reduceDeploy } from "./scheduler-code.ts"
+import { MAX_ACTIVE_RUNS_PER_TEAM, MAX_OPEN_RUNS_PER_TEAM, queueFull, rateLimited, takeRunToken, type RunBucket } from "./scheduler-limits.ts"
+import { reduceRunPolicy, runPolicyRefusal, type RunPolicy } from "./scheduler-policy.ts"
 import { personalTeamIdFor } from "./user.ts"
 
 /**
@@ -51,7 +55,8 @@ export const AGENT_RUN_DEFAULT_MS = 24 * 3600_000
 /** Longest a run may take (ms): the budget when set, else the body's sleeps plus grace (agent runs: 24 h). */
 export const runLimitMs = (body: Body, wallClockSeconds: number | undefined): number => {
   if (wallClockSeconds !== undefined) return wallClockSeconds * 1000
-  if (body.type === "agent_prompt") return AGENT_RUN_DEFAULT_MS
+  // Agent and code runs may sleep and wait for hours; the 24 h default is the abuse limit (A18).
+  if (body.type === "agent_prompt" || body.type === "code") return AGENT_RUN_DEFAULT_MS
   return body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : 0), 0) + RUN_GRACE_MS
 }
 
@@ -63,7 +68,16 @@ export interface SchedulerState {
   readonly chains: Readonly<Record<string, number>>
   /** Team automation settings; absent in objects created before settings. */
   readonly settings?: { readonly agent_run_default_seconds: number | null }
+  /** Code changes (create, update or deploy of a code body) in the current UTC day (abuse limit, A18). */
+  readonly deploys?: { readonly day: string; readonly count: number }
+  /** Run-creation token bucket (abuse limit, scheduler-limits.ts). */
+  readonly rate?: RunBucket
+  /** Runs started per automation-run tree (scheduler-chain.ts), keyed by root run. */
+  readonly automation_trees?: Readonly<Record<string, number>>
+  /** TeamDO's push of the run class of agents.allowedClasses (scheduler-policy.ts); absent = not synced, no runs. */
+  readonly run_policy?: RunPolicy
 }
+
 
 export const MAX_AUTOMATIONS = 100
 export const MAX_FINISHED_RUNS = 200
@@ -75,38 +89,7 @@ export const SUPPORTED_TRIGGERS: ReadonlySet<TriggerInput["type"]> = new Set(["c
 /** Whether this backend fires a trigger: the supported types, plus integration events bound to a connection. */
 export const triggerSupported = (spec: TriggerInput) => SUPPORTED_TRIGGERS.has(spec.type) || (spec.type === "event" && spec.source === "integration" && spec.connection !== undefined)
 
-/** Dot path lookup in a provider payload (filters compare the value as a string). */
-const pathValue = (payload: unknown, path: string): unknown => {
-  let v: unknown = payload
-  for (const k of path.split(".")) {
-    if (v === null || typeof v !== "object") return undefined
-    v = (v as Record<string, unknown>)[k]
-  }
-  return v
-}
-
-/** Event triggers of enabled automations that match a provider event: same connection, event pattern, every filter. */
-export const matchingEventTriggers = (
-  state: SchedulerState,
-  ev: { connection: string; event: string; payload: unknown; sharing: "private" | "team"; created_by: string }
-): Array<{ automation: string; trigger: string }> => {
-  const out: Array<{ automation: string; trigger: string }> = []
-  for (const a of Object.values(state.automations)) {
-    if (!a.enabled) continue
-    // A private connection's events start only its creator's automations.
-    if (ev.sharing !== "team" && a.created_by !== ev.created_by) continue
-    for (const t of a.triggers) {
-      const s = t.spec
-      if (t.status !== "active" || s.type !== "event" || s.source !== "integration" || s.connection !== ev.connection) continue
-      const pattern = s.event
-      const eventOk = pattern === "*" || pattern === ev.event || (pattern.endsWith(".*") && ev.event.startsWith(pattern.slice(0, -1)))
-      if (!eventOk) continue
-      if (s.filter && !Object.entries(s.filter).every(([k, v]) => String(pathValue(ev.payload, k)) === v)) continue
-      out.push({ automation: a.id, trigger: t.id })
-    }
-  }
-  return out
-}
+export { matchingEventTriggers } from "./scheduler-events.ts"
 
 const internalByName = new Map(schedulerInternalOps.map((d) => [d.name, d]))
 
@@ -124,12 +107,16 @@ export const dispatchable = (state: SchedulerState): Array<RunRecord> => {
   const used = new Map<string, number>()
   for (const r of runs) if (holdsSlot(r)) used.set(r.automation, (used.get(r.automation) ?? 0) + 1)
   const out: Array<RunRecord> = []
+  // Team-wide cap: past it, runs stay visibly queued until a slot frees.
+  let team = [...used.values()].reduce((n, x) => n + x, 0)
   for (const r of runs) {
+    if (team >= MAX_ACTIVE_RUNS_PER_TEAM) break
     if (r.state !== "queued" || r.dispatched) continue
     const max = state.automations[r.automation]?.concurrency.max ?? 1
     const n = used.get(r.automation) ?? 0
     if (n >= max) continue
     used.set(r.automation, n + 1)
+    team++
     out.push(r)
   }
   return out
@@ -204,7 +191,6 @@ const prune = (runs: Record<string, RunRecord>): Record<string, RunRecord> => {
   return out
 }
 
-const automationOutbox = (a: Automation): OutboxItem => ({ kind: "automation.upsert", entity: a.id, payload: a })
 const runOutbox = (r: RunRecord): OutboxItem => ({ kind: "automation_run.upsert", entity: r.id, payload: publicRun(r) })
 
 /** A new run for `a`; `skipped` when the concurrency limit says so (a visible row, never a silent drop). */
@@ -213,7 +199,12 @@ const startRun = (
   a: Automation,
   trigger: Run["trigger"],
   ctx: ReduceContext
-): { state: SchedulerState; run: RunRecord; outbox: Array<OutboxItem> } => {
+): { state: SchedulerState; run: RunRecord; outbox: Array<OutboxItem> } | { rejected: ReturnType<typeof rateLimited> } => {
+  const refused = runPolicyRefusal(state.run_policy)
+  if (refused) return { rejected: refused }
+  const rate = takeRunToken(state.rate, ctx.now)
+  if (!rate) return { rejected: rateLimited() }
+  if (Object.values(state.runs).filter((r) => !TERMINAL.has(r.state)).length >= MAX_OPEN_RUNS_PER_TEAM) return { rejected: queueFull() }
   const active = Object.values(state.runs).filter((r) => r.automation === a.id && !TERMINAL.has(r.state)).length
   const skip = active >= a.concurrency.max && a.concurrency.on_limit === "skip"
   const run: RunRecord = {
@@ -241,8 +232,8 @@ const startRun = (
   // A run from any trigger other than continue starts a new continue chain.
   const continueTrigger = a.triggers.find((t) => t.spec.type === "continue")
   const chains = { ...state.chains }
-  if (continueTrigger) chains[continueTrigger.id] = trigger.id === continueTrigger.id ? (chains[continueTrigger.id] ?? 0) + 1 : 0
-  return { state: { ...state, runs: prune({ ...state.runs, [run.id]: run }), chains }, run, outbox: [runOutbox(run)] }
+  if (continueTrigger && trigger.type !== "automation") chains[continueTrigger.id] = trigger.id === continueTrigger.id ? (chains[continueTrigger.id] ?? 0) + 1 : 0
+  return { state: { ...state, runs: prune({ ...state.runs, [run.id]: run }), chains, rate }, run, outbox: [runOutbox(run)] }
 }
 
 /** After a run ends: the continue trigger schedules the next run unless a stop condition holds. */
@@ -297,9 +288,11 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const owner = ownerOf(state, p)
         if (!owner || !p.user) return reject("auth.forbidden", "automation.create needs a user in a team")
         if (Object.keys(state.automations).length >= MAX_AUTOMATIONS) return reject("automation.limit", `at most ${MAX_AUTOMATIONS} automations per team`)
-        const bad = validateTriggers(d.value.triggers)
+        const bad = validateTriggers(d.value.triggers) ?? invalidBody(d.value.body)
         if (bad) return bad
         const v = d.value
+        const counted = countDeploy(state, undefined, v.body, ctx.now)
+        if (!counted.ok) return counted.result
         const a = withNextRun({
           id: ctx.newId("auto"),
           owner,
@@ -317,7 +310,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
           updated_at: ctx.now,
           next_run_at: null
         })
-        return { ok: true, state: { ...state, owner, automations: { ...state.automations, [a.id]: a } }, value: a, outbox: [automationOutbox(a)] }
+        return { ok: true, state: { ...state, owner, automations: { ...state.automations, [a.id]: a }, ...(counted.deploys ? { deploys: counted.deploys } : {}) }, value: a, outbox: [automationOutbox(a)] }
       }
 
       case "automation.update": {
@@ -329,6 +322,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
         if (v.expected_version !== undefined && v.expected_version !== a.version) {
           return reject("version.conflict", "expected_version does not match", { expected: v.expected_version, actual: a.version })
         }
+        const badBody = v.body ? invalidBody(v.body) : undefined
+        if (badBody) return badBody
         if (v.triggers) {
           const bad = validateTriggers(v.triggers)
           if (bad) return bad
@@ -355,11 +350,13 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const { version: _v, updated_at: _u, ...cmpDraft } = draft
         const { version: _v2, updated_at: _u2, ...cmpOld } = a
         if (canonicalJson(cmpDraft) === canonicalJson(cmpOld)) return { ok: true, state, value: a, changed: false }
+        const counted = countDeploy(state, a.body, draft.body, ctx.now)
+        if (!counted.ok) return counted.result
         const next = { ...draft, version: a.version + 1, updated_at: ctx.now }
         const stopped = !enabled && a.enabled ? cancelQueued(state.runs, a.id, ctx.now, "the automation was disabled") : { runs: state.runs, outbox: [] }
         return {
           ok: true,
-          state: { ...state, automations: { ...state.automations, [a.id]: next }, runs: stopped.runs },
+          state: { ...state, automations: { ...state.automations, [a.id]: next }, runs: stopped.runs, ...(counted.deploys ? { deploys: counted.deploys } : {}) },
           value: next,
           outbox: [automationOutbox(next), ...stopped.outbox]
         }
@@ -382,13 +379,18 @@ export const schedulerDomain: Domain<SchedulerState> = {
         }
       }
 
+      case "automation.deploy":
+        return reduceDeploy(state, params, ctx)
+
       case "automation.run": {
         const d = decodeParams<typeof AutomationRunNow.params.Type>(AutomationRunNow, params)
         if (!d.ok) return d
         const a = state.automations[d.value.automation]
         if (!a) return reject("selector.not_found", "automation not found")
-        const manual = a.triggers.find((t) => t.spec.type === "manual")
-        const r = startRun(state, a, { id: manual?.id ?? null, type: "manual" }, ctx)
+        const chained = isAutomationPrincipal(p) ? automationTrigger(state, p, a) : undefined
+        if (chained && "ok" in chained) return chained
+        const r = startRun(chained ? { ...state, automation_trees: chained.trees } : state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx)
+        if ("rejected" in r) return r.rejected
         return { ok: true, state: r.state, value: publicRun(r.run), outbox: r.outbox }
       }
 
@@ -404,7 +406,13 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const next_at = spec.type === "cron" ? nextFire(spec.expr, spec.tz, Math.max(d.value.scheduled_at, ctx.now)) : null
         const updated = withNextRun({ ...a, triggers: a.triggers.map((x) => (x.id === t.id ? { ...x, next_at } : x)) })
         const base = { ...state, automations: { ...state.automations, [a.id]: updated } }
+        // Runs denied by team policy: the schedule moves on and no run starts (a retry would loop).
+        // Not synced yet: a retryable refusal, the alarm retries after SchedulerDO pulls the policy.
+        const refused = runPolicyRefusal(state.run_policy)
+        if (refused?.code === "policy.denied") return { ok: true, state: base, value: { skipped: "policy.denied" }, outbox: [automationOutbox(updated)] }
+        if (refused) return refused
         const r = startRun(base, updated, { id: t.id, type: spec.type, scheduled_at: d.value.scheduled_at }, ctx)
+        if ("rejected" in r) return r.rejected
         return { ok: true, state: r.state, value: publicRun(r.run), outbox: [automationOutbox(updated), ...r.outbox] }
       }
 
@@ -415,6 +423,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const t = a?.triggers.find((x) => x.id === d.value.trigger)
         if (!a || !t || !a.enabled || t.status !== "active") return { ok: true, state, value: { stale: true }, changed: false }
         const r = startRun(state, a, { id: t.id, type: t.spec.type, delivery_id: d.value.delivery_id }, ctx)
+        if ("rejected" in r) return r.rejected
         return { ok: true, state: r.state, value: publicRun(r.run), outbox: r.outbox }
       }
 
@@ -461,6 +470,12 @@ export const schedulerDomain: Domain<SchedulerState> = {
           outbox.push(...c.outbox)
         }
         return { ok: true, state: s, value: publicRun(next), outbox }
+      }
+
+      case "scheduler.run_policy": {
+        const d = decodeParams<RunPolicy>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        return reduceRunPolicy(state, d.value, (runs, automation) => cancelQueued(runs, automation, ctx.now, "your team no longer allows automation runs (agents.allowedClasses)"))
       }
 
       case "automation.settings.set": {

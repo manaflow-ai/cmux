@@ -34,7 +34,7 @@ from `cmux-conversation::encode_id` unless stated).
 | --- | --- | --- |
 | Conversation head | `conv_<26>` (group, chief); `conv_dm_<26>` = base32(sha256("dm\0" + lo + "\0" + hi))[0..26] where lo/hi are the two sorted participant ids (a user id or an address id) | `kind`, `title`, `team?` (the team whose policy applies; null for personal), `created_by`, `created_at`, `updated_at`, `last_seq`, `rev`, `participants[]`, `invites[]`, `settings {wake_policy, agent_budget {turns, gap_ms}, history_visible: "all"|"since_join"}`, `retention_days?` (from team policy), `state: "active"|"archived"` |
 | Participant | `user_<id>`, `agent_<id>`, `addr_<26>` | `kind: human|agent|address`, `display_name`, `agent_class?: mux|agent`, `owner_user?` (agents), `role: owner|member`, `joined_seq` (last_seq when added), `added_by`, `left_at?` |
-| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, mime, size, name}`, refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
+| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, name, mime_type, byte_count, width?, height?, duration_ms?, poster? {hash, mime_type, byte_count}, preview? {hash, mime_type, byte_count}}` (cloud heads only; see section 10.1), refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
 | Read cursor | (conversation, participant) | `last_read_seq` (monotonic, written only by that participant) |
 | Invite | `inv_<26>` inside its conversation | `address` (`addr_<26>`), `channel: email|sms`, `display_name`, `invited_by`, `created_at`, `expires_at` (14 days), `token_hash` (sha256 of sha256 of the 128-bit secret), `status: pending|accepted|revoked|expired`, `accepted_by?`, `accepted_at?`, `delivery {state: queued|sent|delivered|bounced|complained|failed|suppressed|refused_env, provider_id?, at}`, `copy_variant`, `locale` |
 | Inbox entry | (user, conversation) | owner-projected (from ConversationDO, guarded by conversation `rev`): `kind`, `title`, `last_seq`, `last_at`, `preview` (240 chars, author + text), `unread` (count after the user's cursor, excluding own messages), `mentions` (unread mentions of the user), `dm_peer?`, `rev`; user-owned: `pinned`, `pin_position`, `muted_until?`, `archived`, `marked_unread` |
@@ -78,7 +78,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `reaction.add` / `reaction.remove` | `{message_id, part_index, reaction}` | client key | participants | one per (author, part, kind) |
 | `read_cursor.set` | `{seq}` | client key (`read:<seq>` recommended) | humans | monotonic, `<= last_seq` |
 | `title.set` | `{title}` | client key | members (group) | not for `dm`, `chief` |
-| `participants.add` | `{participant: user or chief}` | client key | members | a human may be added only when they share a team with the adder or already share a conversation with them; anyone else needs `invite.create`. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
+| `participants.add` | `{participant: user or chief}` | client key | members | 120 per hour per actor and `conversation.create` 60 per hour, checked before any reach lookup (section 9); a human may be added only when they share a team with the adder or are connected to them (a shared group is no connection), and their `allow_requests_from` allows it (section 16.10); anyone else needs `invite.create` (later a message request). A chief adds the humans its owner could add, under its owner's reach. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
 | `participants.remove` | `{participant}` | client key | self (leave), conversation owner, chief owner (for their chief) | removing the last human archives the conversation |
 | `invite.create` | `{invite_id, address, channel, display_name, locale, copy_variant}` | `invite_id` (the Worker derives it from the client key) | members | Worker first runs `address.ensure` and `invite.quota.take`; commit emits outbox `address.deliver` (send happens after commit); max 20 pending invites per conversation |
 | `invite.revoke` | `{invite_id}` | client key | inviter, conversation owner | pending only |
@@ -94,15 +94,16 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | Op | Params | Key | Callers | Rules |
 | --- | --- | --- | --- | --- |
 | `inbox.bump` | `{conversation, rev, kind, title, last_seq, last_at, preview, unread, mentions, dm_peer?, removed?}` | `bump:<conversation>:<rev>` | system (ConversationDO outbox) | applies only when `rev` is newer (max merge, so duplicates and reordering are harmless) |
-| `inbox.pin` | `{conversation, pinned, position?}` | client key | session, install | user-owned |
+| `inbox.reindex` | `{conversations[], done}` | `inbox-reindex:<sha256 of the batch>` | system (the UserDO itself) | one-time migration: writes the order rows of entries stored before `entry_order` existed and releases a peer row that points at a left DM to a live DM with that peer; an id that is not valid is skipped, so `done` always sets the head flag `ordered` |
+| `inbox.pin` | `{conversation, pinned, position?}` | client key | session, install | user-owned; a position (given or automatic) past 2^53 - 2 is `invalid_params` |
 | `inbox.mute` | `{conversation, until?}` | client key | session, install | approvals still notify (spec) |
 | `inbox.archive` | `{conversation, archived}` | client key | session, install | a new message un-archives (bump rule) |
 | `inbox.mark_unread` | `{conversation, unread}` | client key | session, install | flag only; the read cursor stays |
-| `inbox.list` (read) | `{after_rev?, limit}` | n/a | session, install | pinned first, then `last_at` desc |
+| `inbox.list` (read) | `{cursor?, limit, include_archived?}` | n/a | session, install | pinned first by position, then `last_at` desc, ties by conversation id; pages of at most 200 by a keyset `cursor` (the `next_cursor` of the previous page, null on the last); an index table `entry_order` keeps the order, so a page reads about one page of rows. Changes after a snapshot come from the `inbox:` stream (`after_seq`), not from this read, so the earlier `after_rev` param is dropped |
 | `chief.create` | `{name, parent?, avatar?, brain}` | client key | session | creates the agent principal, its grant (class `mux`), its `MuxDO` and its `chief` conversation (outbox, system ops with derived keys); the first chief is pinned |
 | `chief.update` / `chief.archive` | `{agent, ...}` | client key | session (owner) | archive keeps history read-only |
 | `invite.quota.take` | `{invite_id, channel}` | `quota:<invite_id>` | system (Worker on the inviter's behalf) | per-user windows (section 9); a refused take refuses the invite |
-| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_dm_from: anyone|teams|contacts}` | client key | session | |
+| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_requests_from?: anyone|teams|nobody, email_requests?}` | client key | session | at least one field. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`, `discoverable_by_phone: false`, `email_requests: true`. `allow_requests_from` limits `dm.open`, group creation and `participants.add` of this user (section 16.10): `anyone` = a shared team or a connection (interim, until message requests exist), `teams` = a shared team or a connection (a connected contact never needs a request), `nobody` = no new reach, also from contacts (an existing DM keeps working). `email_requests` is stored but not read yet (16.10 item 9) |
 
 ### 4.3 MuxDO, TeamDO, AddressDO
 
@@ -127,7 +128,8 @@ Send in a group (N humans, K chiefs):
 3. The outbox holds: one `inbox.bump` per human participant (coalesced: one per user per drain,
    latest `rev` wins), one `mux.wake` per chief that should wake (wake rules in home.md section 5),
    one `search.upsert` row, and nothing else. Push is decided by each UserDO from the bump (not
-   muted, not the author, an install with a push token, no foreground socket).
+   muted, not the author, an install with a push token, no foreground socket, Mac not active;
+   limits and follow-ups in section 9).
 4. Drains: DO-to-DO items go by RPC with the item key (at-least-once, idempotent at the target);
    Postgres items go through the existing `drainOutbox` (upserts guarded by `source_seq`).
 
@@ -253,9 +255,10 @@ CREATE INDEX home_invites_address ON home_invites (address_id, created_at DESC);
 ```
 
 Outbox kinds (drain statements in `projection.ts`): `home.conversation.upsert`,
-`home.participant.upsert`, `home.message.upsert`, `home.message.delete`, `home.invite.upsert`.
-A retraction or retention delete sends `home.message.delete`; an edit sends an upsert with the
-new body. No raw address, token or token hash is ever projected.
+`home.participant.upsert`, `home.message.upsert`, `home.message.delete`,
+`home.message.delete_through`, `home.invite.upsert`. A retraction sends `home.message.delete`; a
+retention sweep sends one `home.message.delete_through {conversation_id, seq}` per batch; an edit
+sends an upsert with the new body. No raw address, token or token hash is ever projected.
 
 ## 8. Search (Home messages only)
 
@@ -295,6 +298,29 @@ new body. No raw address, token or token hash is ever projected.
   all future sends.
 - Per conversation: 20 pending invites; 10 failed `invite.accept` attempts per hour lock invite
   acceptance for that conversation for an hour (secret guessing; secrets are 128-bit).
+- Reach (built 2026-10-04, `home-rate.ts`): `conversation.create` 60 per hour and
+  `participants.add` 120 per hour per acting principal (a user, or each of the user's chiefs),
+  counted in the user's UserDO (private table `home_rate`). The Worker takes the attempt before
+  the member check and before any reach RPC, so a flood never fans out to TeamDOs, other users'
+  UserDOs or ConversationDOs; every attempt counts, also a refused one. A spent budget is
+  `home.rate_limited`, retryable, `details.retry_after_ms` (until the oldest counted attempt
+  leaves the hour). Reach lookups are capped at 64 targets per op after the gate (TeamDO checks
+  the cap too). `dm.open` with a user peer spends the `conversation.create` budget.
+  All of an owner's chiefs together also share a total of 3x the per-actor limit per hour (180
+  and 360): every `agent_` actor counted in the owner's UserDO counts toward it, and the owner's
+  own budget is separate, so archiving and creating chiefs mints no fresh budget.
+  Before the budget, the Worker asks the target conversation whether the key is decided; a
+  decided key goes straight to the owner with the plain principal (no unit, no reach RPC) and the
+  exact frame the first call sent: its stored result, or `idempotency.conflict` for other params.
+  `dm.open` create params carry no display names (the owner takes them from the principal). A refused `dm.open` with a user peer still reopens the caller's existing DM
+  (inbox peer index, no charge; not for a chief). A caller whose UserDO never served them (no `user.ensure`) gets
+  `home.user_not_ready`, not retryable. A create the owner refuses (reach, policy) opens an empty
+  ConversationDO: the refusal is decided on the initial state and writes no storage or ledger.
+  Open follow-up: `conversation.import` with a new `local_id` and `dm.open` with an address peer
+  have no Worker budget yet (only the per-network limits below).
+  Open follow-up (accepted for now): with the budget spent, the DM reopen still lets a client
+  write one idempotency entry per new key into its own DM (the same size as an entry on the
+  budget path, and only in the caller's own DM). A chief never reopens through its owner's inbox.
 - Per network: Cloudflare rate limiting on `invite.create`, `dm.open` with an address, and
   `invite.preview`: 30 per minute per IP.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account
@@ -308,18 +334,129 @@ new body. No raw address, token or token hash is ever projected.
 - Every email has a one-click unsubscribe (List-Unsubscribe and List-Unsubscribe-Post headers)
   and a "report spam" link (routes `/u/<token>` and `/r/<token>` on the accept origin); the first
   SMS to a number carries "Reply STOP to opt out." before the link (D-H5); inbound STOP suppresses.
+- Home push (UserDO, decided from each `inbox.bump`, section 5 step 3). Accepted in review: a
+  plain push is also held while the user's Mac is active (FeedDO presence), in addition to "no
+  foreground socket"; this is the same rule as the feed's `feed.prefs.push_skip_when_mac_active`
+  (`user-do.ts` `homePushQuiet`). A held push is dropped after 30 minutes
+  (`FOREGROUND_MAX_WAIT_MS`), so a stale message never notifies later. Approvals bypass the hold
+  and the cap. Per-user cap: 60 plain pushes per hour (B10); an over-cap push waits for the
+  window. Known follow-ups: the cap counts a send before the APNs call, so an APNs
+  `retry_later` that is sent again counts twice (`recordSend` in `home-push-drain.ts`); collapsed or
+  capped pushes do not update the app badge (B10).
 
 ## 10. Retention
 
 - Messages: kept until the team policy `home.retention_days` (minimum 30) or user deletion;
-  default keep. The ConversationDO alarm deletes expired message rows in batches and emits
-  `home.message.delete` projection rows. Retraction removes the body at once (DO and search).
+  default keep. The ConversationDO alarm runs the system op `conversation.sweep`: it deletes
+  expired message rows oldest first, 500 per commit, and emits one `home.message.delete_through`
+  projection row per batch; when the newest message expires, inbox previews are cleared, and expired
+  messages a human had not read leave that human's unread and mention counts (read, retracted and
+  own messages never counted). A stored count can be a lower bound (a recount reads at most 1000
+  messages), so a lowered count is never below what one scan of at most 1000 remaining messages
+  holds. The stored counts of a human who left are dropped; a rejoin recounts from the remaining
+  messages. The same op expires pending invites past `expires_at`. Retraction removes the body at once (DO and search).
+- DM consent markers (2026-10-04, home-core `consent.ts`): retention deletes `msg` and `msgkey`
+  rows, but connection proof (16.7) must outlive the messages. Each human author of a DM has one
+  private `consent` row (key = author, `{at}`), written in the commit of their first message
+  there. No sweep, retention pass or purge deletes `consent` rows; they go only with the DO
+  storage when the conversation itself is deleted. Any commit in a DM that writes or deletes a
+  human author's `msgkey` row adds that author's missing marker in the same commit, so a
+  retention batch over a DM from before the markers leaves the markers behind (the sweep must
+  stay inside the wrapped domain reduce). The table is in `PRIVATE_TABLES` (never in
+  subscriber effects).
 - Ledger: 7 days (engine default). Events (`own_events`): keep the last 30 days or 10,000 events,
   whichever is more; older resumes take a snapshot (engine need E3).
 - Invites: pending ones expire after 14 days; records are kept 90 days, then reduced to counts.
 - Addresses: suppression is kept forever (a suppressed address must stay suppressed); the raw
   address is deleted after 180 days without an invite unless suppressed.
 - A conversation with no human participant for 30 days deletes its DO storage.
+
+### 10.1 Attachments (feat-cmux-next-home-attachments, revised after the backend lead's review, 2026-10-03)
+
+- Intent: `POST /v1/home/attachments/intent` (current participant; allow list jpeg, png, gif,
+  webp, heic, pdf, text/plain, markdown, csv, json, zip, mp4, mov, m4a, mp3, aac, wav; never svg,
+  html or xml; 100 MB per file; per user 300 intents and 2 GB declared per rolling day, 10 GB
+  stored; 60 intents per minute). It answers `exists` only for a hash the caller can already use
+  here, otherwise a single-use slot recorded in the ConversationDO.
+- Up to 32 MB the bytes stream through the Worker (`PUT /v1/home/attachments/upload/<conv>/<slot>.<kid>.<mac>`),
+  which hashes them. From 32 to 100 MB the client PUTs to a presigned R2 URL (15 min, signs
+  `content-length` and `x-amz-checksum-sha256`), then `POST /v1/home/attachments/commit`, which HEADs
+  size and checksum. Either way the object is usable only after verification; the recorded etag
+  pins downloads to that version.
+- Presigned overwrite (answered 2026-10-04): no. The presigned PUT signs `content-length`,
+  `x-amz-checksum-sha256` and `if-none-match: *`. R2 refuses bytes that do not match the signed
+  checksum, and refuses any PUT to a key that already holds an object (412), so once the bytes are
+  there (and so after commit) the URL cannot write again; a client that retries a PUT whose first
+  attempt landed gets 412 and calls commit. The header is signed, so the client cannot drop it.
+  Downloads also read only the etag recorded at commit. Stream slots are single use through the
+  Worker. The conditional PUT against real R2 is still to be checked on staging.
+- Video posters: one poster per video, part of the same attachment (never a separate part or
+  record). The intent of a video may declare `poster {sha256, byte_count, mime_type}` (image/jpeg
+  or image/webp, 2 MB; `attachment.poster_refused` for any other class, 415 for other types, 413
+  over the cap). The answer adds `poster_upload {method: PUT, upload_url, headers}`, always through
+  the Worker (`PUT /v1/home/attachments/poster/<conv>/<slot>.<kid>.<mac>`), which hashes the bytes
+  and stores them at `<object key>.poster`, a key derived from the slot. The poster PUT works once
+  while the slot is open; the video's own PUT or commit answers 409 `attachment.poster_missing`
+  until it is stored (the slot stays usable). Commit writes `poster {hash, mime_type, byte_count,
+  etag}` on the video's record and answers it; the slot's quota charge includes the poster bytes.
+  With an `exists` commit the first record wins, also for its poster. Expiry, refusals, the sweep
+  and conversation deletion delete the poster key with its object.
+- Image previews (Lawrence's decision, 2026-10-04): readers get small image previews through a
+  server preview variant, built on the poster machinery (one "derived image" per attachment, its
+  variant chosen by class: `poster` for a video, `preview` for an image). The intent of an image
+  may declare `preview {sha256, byte_count, mime_type}` (image/jpeg or image/webp, 512 KB,
+  `ATTACHMENT_LIMITS.previewMaxBytes`; `attachment.preview_refused` for any other class, so a
+  video uses `poster`, never `preview`). The answer adds `preview_upload`
+  (`PUT /v1/home/attachments/preview/<conv>/<slot>.<kid>.<mac>`, a token purpose of its own),
+  stored at `<object key>.preview`, hash-checked, once while the slot is open; the image's PUT or
+  commit answers 409 `attachment.preview_missing` until then. Commit writes `preview {hash,
+  mime_type, byte_count, etag}` on the image's record; quota, expiry, refusals, the sweep and
+  conversation deletion treat it exactly like a poster. The client makes the preview; the server
+  never decodes images. The derived PUT also checks that the slot's own type names the URL's
+  variant, behind the per-variant token purpose; a mismatch is 403 and stores nothing.
+- First upload wins, including its derived image; a client adopts the stored ref. An intent for a
+  hash already recorded here answers `exists` with the stored record as it is: when that record
+  has no preview (or poster), the answer has none and no `preview_upload` (`poster_upload`), and
+  the preview the new intent declared is dropped. No path attaches a derived image to an existing
+  record. The client uses the returned attachment (with or without a preview) as its part's ref.
+- Use in messages: `message.send`/`message.edit` accept a hash only when the author uploaded it
+  here or a message above the author's history floor references it; every other case is the same
+  `unknown_attachment`. A part's `poster` is valid only on a video part and its `preview` only on
+  an image part (`invalid_parts` otherwise); each must equal its record's (`attachment_mismatch`).
+- Downloads: `POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?, variant?}`
+  mints a 10-minute bearer-less URL bound to key id, method, conversation, object id, part,
+  variant, actor and expiry; each GET rechecks membership and floor; the file name comes from the
+  message part; text is served as `text/plain` attachments, only images inline; out-of-range
+  `Range` is 416. `variant: "poster"` signs the poster recorded on the video's record, for a video
+  record and, with `message_id`, a video part; `variant: "preview"` signs the preview recorded on
+  an image's record, for an image record and part (anything else is 400). Without one it is 404
+  `attachment.no_poster` or `attachment.no_preview`, never the original. The GET reads only the
+  record's derived key, type, size and etag (nothing from the request) and serves it inline; the
+  variant is part of the signature, with the same membership and floor checks.
+- No URL carries user content: object and slot ids are random; names stay in message parts.
+- Inbox: bumps carry `preview_attachments {kind: photo|video|audio|file, count}` (preview text
+  empty for attachment-only messages); clients localize.
+- Slots: every slot is charged its declared bytes at intent; its row lives until the alarm deletes
+  its object key at expiry (refunding a slot that never committed). An `exists` commit deletes the
+  slot's object at once and refunds; a presigned slot that did not keep its object stays a
+  tombstone until its URL expires, so a later PUT to the key is deleted too. A presigned URL ends
+  exactly at the slot's stored `expires_at`; presigned slots (open or tombstone) and `uploading`
+  slots are reaped only one hour (`UPLOADING_GRACE_MS`) after it, because S3 checks expiry only when
+  a PUT starts: one hour covers a 100 MB PUT down to about 230 kbit/s.
+- Retention: `attref` rows are written in each message's commit; the ConversationDO alarm sweeps
+  uploads unreferenced for 24 h in batches with a persistent (created_at, hash) cursor (a long run
+  of referenced records costs one pass, never a hot loop) and releases the uploader's stored bytes.
+  A batch holds a `running` mark until `markSwept`, so a retract or edit that lands while the batch
+  awaits its R2 delete queues another pass (due at once) instead of being cleared. Hooks for paths that do
+  not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
+  (conversation storage deletion; it drops open slots, so it schedules a second prefix delete at
+  the latest dropped slot's expiry plus `UPLOADING_GRACE_MS`, which removes a late presigned PUT). Attachments in `conversation.import` remain C-13.
+- Attachment drops (2026-10-04, `home-attachment-gc.ts`): a record the GC forgets waits in the
+  private `home_attachment_drops` table until its R2 delete and its uploader's stored-bytes release
+  succeed (30 s doubling backoff, at most 1 h). After 10 failed attempts (about 3 h) it is
+  dead-lettered: kept with `dead = 1`, no wake time, logged as the error event
+  `attachment.drop.dead_letter` with ids only. Follow-up (tracked): an admin op that lists the dead
+  drops of a conversation and resets them for another attempt.
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 
@@ -369,7 +506,9 @@ sends (it may import `deliverInvite` from `@cmux/home-core/invites`), the accept
 - WebSocket `cmux.wire/1`: the UserDO gateway carries `user:<user>` and `inbox:<user>` (inbox
   events: bump, pin, mute, archive); brain hosts subscribe to `mux:<agent>`; the open
   conversation uses `GET /v1/wire/conv/<id>` (snapshot with `tail`, resume with `after_seq`, events `message`, `message-updated`,
-  `read-cursor`, `conversation`, `typing`, `invite`).
+  `read-cursor`, `conversation`, `typing`, `invite`). Typing is the non-op frame
+  `{t: "typing", on, conversation?}` in and `{t: "conversation-typing", conversation, participant,
+  on}` out (home-core `typingGate` limits it per participant; never stored).
 - Generated clients: the TS client in `clients/ts/cloud` and the Swift client from the same
   catalog; the Swift Home client keeps the mirror + intent log from home.md section 3.
 
@@ -511,6 +650,14 @@ addee are connected or share an org where the adder's role may add people, read 
 UserDO projection (eventually consistent; a block takes effect at the pair owner at once and in
 projections within one drain).
 
+Built so far (2026-10-03, branch feat-cmux-next-home-reach): until pair state exists, "connected"
+means a DM where both are current participants and both gave consent (both sent a message there,
+or one accepted the other's one-to-one invite). "Both sent a message" is read from the DM's
+private consent markers (section 10), not from message rows, so a connection survives
+retention; a DM from before the markers falls back to its `msgkey` rows while they exist. The setting is `allow_requests_from:
+anyone|teams|nobody` plus `email_requests` (R2, default on, stored only); `allow_dm_from` is
+gone (section 16.10).
+
 ### 16.8 Migration from today
 
 `memberships.role` today is owner, admin or member; add `guest` and `billing` (expand
@@ -523,6 +670,39 @@ between two existing org members creates their relationship only when both send 
 - R1: the three primitives are accepted: Contacts (relationships), Grants, and Team with the roles guest, member, admin, owner and billing. The product and code keep the name "Team" (`team_` ids); "org" in this section only separates it from relationships.
 - R2: message requests from unrelated users show in Home AND send an email (on by default; the recipient can turn email off in `home.settings.set {email_requests}`).
 - R3: the address owner is `AddressDO`, participants `addr_<26>`, secret `HOME_ADDRESS_KEY` (backend and home-core renamed).
+
+### 16.10 Reach decisions (coordinator, 2026-10-03)
+
+1. Names are the 16.7 ones: `home.settings.set {allow_requests_from: anyone|teams|nobody,
+   email_requests}`. `allow_dm_from` is removed everywhere; `nobody` refuses all new reach.
+2. A shared group is no connection (16.3 stands).
+3. Interim rule, until message requests (16.4) exist: `anyone` reaches only people who share a
+   team with the caller or are connected to them; a stranger gets `not_reachable`, the same
+   answer as an unknown account. Target: a stranger's DM or add becomes a message request.
+4. The setting limits group adds too (`conversation.create` and `participants.add`): only people
+   the caller can reach are added; the client offers an invite (later a request) for the others.
+5. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`,
+   `discoverable_by_phone: false`.
+6. A chief adds the humans its owner could add, acting under its owner's reach: the Worker
+   resolves the reach facts for the chief's `owner_user` (the owner's teams, the owner's
+   connections, the target's setting checked against the owner) after the owner's UserDO
+   confirms the agent is one of the owner's active chiefs. Any other agent caller gets no facts,
+   so a cloud owner never re-adds a departed human through the stored record for an agent.
+   The owner's UserDO checks the agent class explicitly: only class `mux` (a chief) qualifies;
+   an automation run principal that carries a chief's id gets no facts. A chief never opens a
+   DM (DMs are between humans).
+7. Backend owner, 2026-10-04: a connected pair needs no request under `anyone` and `teams`, also
+   without a shared team (16.3). Under `nobody` the pair's existing DM keeps working (`dm.open`
+   reuses it), but a new group add by the contact or the contact's chief is refused.
+8. Rate limits before reach (section 9): `conversation.create` 60 per hour, `participants.add`
+   120 per hour, `home.rate_limited` with `retry_after_ms`.
+9. Follow-up, NOT built: the message-request path. There is no pending-request store, no
+   `relation.request` / accept / decline ops, and `email_requests` is stored by
+   `home.settings.set` but never read (no email is sent). Until it exists a stranger under
+   `anyone` is refused `not_reachable`, the same as under `teams`; so today `anyone` and `teams`
+   behave the same. Needed: the pair owner (16.7) holds `requested` state, the recipient's UserDO
+   lists requests in Home, accept makes the pair connected, decline and block are silent to the
+   sender, and the request email honors `email_requests` and the section 9 windows.
 
 ## 17. Engine and flow questions (answered by the backend lead, 2026-10-02)
 
@@ -653,9 +833,51 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   (`textAuthority`). Never in a text: secrets, tokens, passwords, codes, other people's invite
   secrets; anything that would show one opens the app. Strongest objection: with the full
   default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
-  DECISION (not built): require an in-app confirmation for destructive or irreversible actions
-  requested by text. RECOMMEND yes, because it closes the worst case of the full default at
-  the cost of one tap.
+  Decided (Lawrence, 2026-10-02) and built (`mux/text-confirm.ts`): an in-app confirmation for
+  destructive or irreversible actions requested by text.
+  Rule `needsConfirmation(level)` (levels decided 2026-10-02, `mux/confirm-level.ts`), one level
+  per user (UserDO, section 21), read by every chief as `chiefLevelOf`:
+  - `strict` (default): text requests that are `destructive`, `money`, `send-external` or
+    `access` (grants, installs, addresses, tokens, team invites, the text channel), or flagged
+    irreversible;
+  - `destructive-only`: `destructive` or flagged irreversible only;
+  - `off`: no confirmation.
+  A safer level applies at once; a riskier level needs Face ID or the device passcode and a
+  device proof the server checks; a team or MDM lock is a minimum (one slot per source, shown as
+  "Locked by <name>"; it can raise the level, never lower it); every change is audited and every lowering is announced to all of
+  the owner's devices and by email. Details and the client contract: section 21. The former
+  per-chief ops `mux.text_confirm.level.set|confirm|lock` are removed; per-chief values migrate
+  to the safest.
+  Settings copy (en; all 21 locales in `home-core/copy/text-confirm-levels.json`, ja written by
+  the agent, other locales `needs_review`):
+  - title: "Confirm risky actions asked by text"
+  - strict: "Strict (recommended): when a text asks Chief to delete something, spend money, send
+    something outside cmux, change who has access or do anything that cannot be undone, you
+    confirm it in the app first."
+  - destructiveOnly: "Destructive only: you confirm deletions and actions that cannot be undone.
+    Chief may spend money, send messages and change access from a text without asking you."
+  - off: "Off: Chief does everything a text asks without asking you."
+  - simSwapRisk (shown under every level): "Anyone who takes control of your phone number (a
+    stolen phone, a SIM swap or a recycled number) can text Chief as you. The less you confirm,
+    the more that person can do."
+  - raiseTitle, raiseBody, raiseConfirm (the second dialog): "Lower your protection?" / "With
+    this level, a person who takes over your phone number can do more as you. Continue only if
+    you accept that risk." / "Lower protection"
+  - lockedBy: "Locked by {name}"
+  - notices (feed and email): level.strict / level.destructiveOnly / level.off; lowered.title
+    "Text protection lowered", lowered.body "Confirmation for texts to Chief changed from {from}
+    to {to}. If you did not do this, open cmux on a trusted device and set it back to Strict.";
+    keyAdded.title and keyAdded.body for a new presence key.
+  Confirmation requests, MuxDO ops (idempotency keys from the caller): `mux.confirm.request {op, params_hash, risk, summary, source}` by the chief
+  (row in table `confirm`, at most 64 rows and 20 live pending); `mux.confirm.decide {confirm,
+  approve}` only by the owner's session or Mac, iPhone or web app install acting for no agent,
+  with origin `user` (never a text, a daemon or CLI install, the chief or another user);
+  `mux.confirm.consume {confirm, op, params_hash}` by the chief, once, for exactly the approved
+  op and params, all within 15 minutes of the request. Executor contract: the action's
+  idempotency key derives from the confirm id. Gap: the chief writes both the summary and the
+  params hash; the approval card must render the action from the op and params, not only the
+  summary. The adapter posts the request as an `approval` part in the chief
+  conversation and pushes it to the owner's devices.
 
 Decisions (Lawrence, 2026-10-02): T1 a texted Stack sign-in link (above), not reverse
 verification; T2 texts land in the main chief conversation marked `via: sms`; T3 full Chief
@@ -664,8 +886,15 @@ default (`?v=` keeps the others), `?s=square` renders 1200x1200.
 
 ## 20. One op vocabulary: reconciling home-core with `cmux-conversation`
 
-Contract: `backend/packages/home-core/conformance/conversation-cases.json` (64 cases) is the
-op-level contract both owners run; `conversation-cloud-cases.json` (84) covers cloud-only rules.
+Contract: `backend/packages/home-core/conformance/conversation-cases.json` (73 cases) is the
+op-level contract both owners run, and a REQUIRED check for the Rust owner (decision
+2026-10-02). Every head now carries `agent_text_streak` and `last_agent_text_at` (local heads
+too); the cases named "loop guard:" are the work-card bypass that a row window misses.
+`conversation-search-cases.json` (12 cases) is the contract for `conversation-search {query,
+limit 1-100} -> {hits: [{conversation, title, seq, message_id, author, created_at, snippet}]}`
+(read model `searchConversations`: current participants only, `since_join` honored, retracted
+messages never match, case-insensitive substring per code point, newest first, snippets of 120
+characters centered on the match); the cloud `home.search` returns the same hit shape. `conversation-cloud-cases.json` (84) covers cloud-only rules.
 The Rust owner adds a cargo test that replays the local file (on a testbox). Framing stays per
 transport (daemon line commands, `cmux.wire/1` frames); the op names, params, commits and reject
 reasons are the same.
@@ -677,10 +906,133 @@ reasons are the same.
 | 3 | Ledger scope | `op_ledger (conversation, idempotency_key)`: two actors with one key collide | engine ledger per (identity, key) inside the conversation's object | Rust adds the actor to the ledger key (bug: one participant can block another's `client_msg_id`) |
 | 4 | `client_msg_id == idempotency_key` | required | required when the engine passes the key (owner and own intent preview) | Same rule; corpus covers it |
 | 5 | Reject transport | `error_code: conversation_rejected`, reason in the message text | `code` = the reason | Rust adds a structured `reason` field (same 20 local codes); cloud keeps `code` = reason; corpus asserts reasons |
-| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1) | Rust adopts the head counters (fixes the loop bypass); the local corpus notes describe the two edge differences until then |
+| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1), in every head | Decided: Rust adopts the head counters; the local corpus now requires them |
 | 7 | Typing | `conversation-typing` command, ephemeral event | ConversationDO memory broadcast | One non-op frame `typing {conversation, on}` and event `conversation-typing` on both; never stored, not in the corpus |
 | 8 | Agent identity | `conversation-agent-token` + `conversation-bind` (local token) | principal from the Worker (agent token, grant) | Transport auth, not ops; stays local-only; not in the corpus |
 | 9 | Participants | `user_local`, `user_<id>`, `agent_<name>` | plus `addr_<26>` (kind `address`), roles, `joined_seq`, `left_at` | Local stays a subset; `conversation.promote` maps `user_local` to the account's `user_<id>` |
 | 10 | Message ids | ULID `msg_<26>` | engine `newId("msg")` | Both accept any `msg_` id; the corpus passes `new_message_id` |
 | 11 | Events | `conversation-changed {rev, transaction, change}` | engine event `{seq, tx, op, params, effects}` | Clients map both to the corpus `Change`; ConversationDO also returns `change` in the op result |
 | 12 | Summary owner | `"local"` | `"cloud"` | Keep; the client shows "this Mac only" for local |
+
+## 21. Lowering the text confirmation level: per user, with a server-checked device proof
+
+Decisions (Lawrence, 2026-10-02): the level is stored once per user in UserDO and every chief
+reads it; lowering it needs Face ID or the device passcode AND a device proof the server checks;
+every owner device and the owner's email are told. Code: `home-core/src/user/` (owner logic,
+proofs, notices) and `home-core/src/mux/level-projection.ts` (each chief's copy).
+
+Owner and ops (UserDO delegates to `reduceUserConfirm`; UserDO passes the user, `installActive`,
+the user's chiefs and the locale):
+
+| Op | Caller | Effect |
+| --- | --- | --- |
+| `user.text_confirm.level.set {level}` | owner's app (session or mac/ios/web install, no agent), origin `user` | safer: applies; riskier: `text_confirm.proof_required`; locked: no-op on the locked level, else `text_confirm.locked` |
+| `user.text_confirm.lower.challenge {level}` | owner's mac or ios install with an active presence key past its 24 h cooldown, origin `user` | returns `{sign: {op: "user.text_confirm.lower", user, install, new_level, nonce, expires_at}, message}` (`message` = the exact bytes to sign, base64url); 2 minutes; one live nonce per install |
+| `user.text_confirm.lower {level, nonce, presence_sig, app_attest?}` | the same install, origin `user` | spends the nonce on any attempt; checks install, level, expiry, active key, lock, still riskier, the presence signature and (iOS) the App Attest assertion with a growing counter; applies, audits, syncs every chief, notifies |
+| `user.text_confirm.lock {level or null, by: team_policy or mdm, name}` | system (Worker, from TeamPolicy or MDM) | one slot per source; a lock is a minimum: it raises the user's own level to at least its level (ratchet) and caps how far the owner can lower; it never makes the level riskier; unlock never lowers |
+| `user.text_confirm.migrate {level}` | system, only `system:mux:<agent>` of one of this user's chiefs | an unset level reads as strict, so migration never lowers; a user who had chiefs at off lowers again with a proof |
+| `user.presence_key.register {install, jwk, platform, app_attest?}` | system (Worker, after its checks below) | the platform must equal the install's registered kind; stores the key; usable after 24 h; notifies every device and email |
+| `user.presence_key.revoke {install}` | owner's app, or system (`install.revoke`, device loss) | key unusable at once; its nonces dropped |
+| `mux.text_confirm.level.sync {level, rev}` | only the owner's UserDO (`system:user:<user>`) | each chief keeps the newest rev; `chiefLevelOf` feeds `needsConfirmation` |
+| `mux.text_confirm.migrate {}` | system (one maintenance pass per chief) | sends the chief's former level to UserDO once |
+
+Device keys (presence keys):
+- One per device install, separate from the install's token key: a Secure Enclave P-256 key
+  created with an access control that requires user presence (Face ID, Touch ID or the device
+  passcode), so it cannot sign without the person.
+- Registration: the app calls a Worker route with its install token. macOS: the Worker checks
+  that the install is active and that the install key signed the registration. iOS: the app also
+  creates an App Attest key and sends the attestation (client data = the presence key's
+  thumbprint); the Worker verifies Apple's certificate chain, the app id and the counter, then
+  commits `user.presence_key.register` with the attested key. Owner: UserDO; principal: the
+  install.
+- Revocation: `install.revoke` (device lost, remote sign-out) also commits
+  `user.presence_key.revoke`; the domain also refuses when UserDO says the install is no longer
+  active. A new key is unusable for 24 hours and every device and the email are told, so a key
+  added by an intruder (a stolen install token) can be removed before it works.
+- iOS sends both proofs: App Attest proves the genuine app on a genuine device but not Face ID;
+  the presence signature proves a person unlocked the key.
+
+Presence-key registration route (built, backend lead, 2026-10-03):
+- `POST /v1/presence-key` with the install's own `Authorization: Bearer <install token>`.
+  Body: `{platform: "mac" | "ios", jwk, signature, attestation?, key_id?}`.
+- `jwk`: the presence key's P-256 public JWK (`kty`, `crv`, `x`, `y`).
+- `signature`: the install key (the token key, not the presence key) signs the UTF-8 string
+  `cmux-presence-key-v1\n<environment>\n<user>\n<install>\n<thumbprint>` with ES256; raw
+  r||s or DER; base64url. `environment` is the Worker ENVIRONMENT (`production`, `staging`,
+  `development`); `thumbprint` is the RFC 7638 thumbprint of `jwk`. Required on both platforms,
+  so a stolen bearer token alone cannot replace the key.
+- iOS also: `attestation` (base64url CBOR attestation object from App Attest) and `key_id` (the
+  App Attest key id, base64). The attestation's client data is the thumbprint string
+  (clientDataHash = sha256(thumbprint)). The Worker checks the chain to Apple's App Attestation
+  root, the nonce, the key id, the app id `IOS_APP_ID` (production `7WLXT3NR37.com.cmux.app`,
+  staging/development `7WLXT3NR37.dev.cmux.ios` with development keys allowed), counter 0 and
+  the AAGUID.
+- Answer: `{ok: true, value: {install, usable_from}}` (usable 24 h later) or
+  `{ok: false, error: {code, message}}` (403 for a refused signature or attestation).
+- Owner devices only: the install's registered kind must equal `platform`; sessions and agents
+  are refused.
+
+Client contract (iOS lane and the Mac Home lead):
+1. Settings shows the three levels with the section 19 copy, and the lock line when locked.
+2. A safer level: `user.text_confirm.level.set {level}`.
+3. A riskier level: show the raise dialog (raiseTitle, raiseBody, raiseConfirm), then call
+   `user.text_confirm.lower.challenge {level}`; sign the returned `message` bytes as they are
+   (never re-encode the JSON) with the presence key (the system Face ID or passcode prompt;
+   ES256; raw r||s, exactly 64 bytes; base64url); on iOS also generate an App Attest assertion
+   with clientDataHash = sha256 of the same bytes; send `user.text_confirm.lower
+   {level, nonce, presence_sig, app_attest?}` with a fresh idempotency key; read
+   `value.lowered` (a refused proof commits with `lowered: false` and a code).
+4. First run on a device: create and register the presence key (backend route); say that
+   lowering works after 24 hours.
+
+Backend lead (through the coordinator): the UserDO domain delegates the `user.text_confirm.*` and
+`user.presence_key.*` ops and keeps `UserConfirmState`; the MuxDO wire route resolves
+`install_kind`; the registration route verifies App Attest attestations; `install.revoke`
+revokes the presence key; one `mux.text_confirm.migrate` pass per existing chief; a mail path for
+outbox items `mail.security_notice` (target class `MailerDO`, which does not exist yet); the feed
+accepts `feed.post` notices from UserDO.
+
+Residual risks: a person with the phone and its passcode can still lower the level (the proof
+cannot tell the owner from someone who knows the passcode); the notices make it visible. On
+macOS there is no key attestation: the server cannot prove the presence key lives in the Secure
+Enclave with a presence requirement, so a stolen install key plus a modified client could
+register a software key, which works after the 24 h cooldown unless the owner acts on the
+notice. `origin: user` is claimed by the client and is not a control; the device proof is. The
+per-chief MDM or team locks of the old design are not carried by `mux.text_confirm.migrate`
+(only their level); the Worker must push the locks to UserDO again before the migrate pass.
+DECISION: may a team or MDM lock make the level riskier (force `off`), or only set a minimum?
+RECOMMEND only a minimum (built), because otherwise a team admin can turn protection off without
+the owner's device.
+node:crypto `createPublicKey` and `verify` inside workerd, and the App Attest attestation check,
+are UNVERIFIED until the backend lead runs them in the Worker.
+
+## 22. Promoting a Mac conversation: `conversation.import` (2026-10-03)
+
+For chief-mac.md P1 (`conversation.promote`); shape proposed by the backend lead, built in
+`home-core/src/conversation/import.ts`, corpus `conformance/conversation-import-cases.json`.
+- Owner: ConversationDO; caller: the promoting user (session or app install, never an agent).
+- Id: `importConversationId(user, source.host, source.local_id)` (`conv_` + sha256 base32), so an
+  import only creates its own object; the Worker computes it from the signed-in user and routes
+  the first call there (never from a client field) and adds `conversation.import` to the ops the
+  conversation socket refuses.
+- First call `{id, source {kind mac, host, local_id}, kind group|chief, title?, participants,
+  messages, read_cursors?}` creates state `importing`; `{id, after_seq, messages}` continues the
+  dense seq; `conversation.import.commit {id, last_seq}` opens normal ops. Before commit every
+  other op is refused (`importing`). Same source repeated: no-op returning `last_seq`; anything
+  else on an existing id: `conversation_exists`.
+- Participants: the importer as the only human, and agents the DO's reach policy says the
+  importer owns (owner and names stamped by the policy; the default policy refuses agents, so
+  ConversationDO must inject an owner-record policy before chief imports work). `chief` = the
+  owner and one owned `mux` agent. A local `user_local` must be mapped to the account's
+  `user_<id>` by the Mac before the call.
+- Messages: at most 500 and 1 MiB per batch; validated like `message.send`; ids, authors,
+  times, edits, retractions and reactions kept; times never go backwards or into the future;
+  replies point to earlier messages. Rows `msg` and `msgkey` (per author, so a later send with
+  the same author and client id is a conflict, as in the Rust owner's actor-keyed ledger).
+- The loop guard counters follow the imported history (retracted agent texts count); read
+  cursors are clamped to `last_seq` at commit. The engine ledger has no entries for imported
+  messages (the Mac's op ledger stays on the Mac).
+- Outbox: search rows per batch; one inbox bump per human at commit; no chief wakes for history.
+- The Rust owner is the source side only (the local conversation becomes read-only with a
+  pointer, home.md section 5); it never runs these cases.

@@ -49,7 +49,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusBrowserAddressBar",
                 title: String(localized: "action.focusBrowserAddressBar", defaultValue: "Focus Address Bar", bundle: .module),
-                keywords: ["browser", "url", "omnibox"], defaultShortcut: Shortcut("l", modifiers: [.command]),
+                keywords: ["browser", "url", "omnibox"],
                 category: .browser, symbol: "link.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser focus-address-bar"
             ),
@@ -137,10 +137,27 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
-                keywords: ["browser", "react", "inspect"],
-                defaultShortcut: Shortcut("g", modifiers: [.command, .shift]), category: .browser,
+                // No default chord: Shift-Cmd-G is Find Previous in a browser
+                // (R88); this action is not built yet.
+                keywords: ["browser", "react", "inspect"], category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
+            ),
+            // Single letters in a Chromium page with no text field focused
+            // (the page saw the key first): label the links on screen.
+            ActionDescriptor(
+                id: "browserLinkHints",
+                title: String(localized: "action.browserLinkHints", defaultValue: "Open Link by Hint", bundle: .module),
+                keywords: ["browser", "link", "hint", "vimium", "keyboard", "click"], defaultShortcut: Shortcut("f", modifiers: []),
+                category: .browser, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard],
+                requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints"
+            ),
+            ActionDescriptor(
+                id: "browserLinkHintsNewSplit",
+                title: String(localized: "action.browserLinkHintsNewSplit", defaultValue: "Open Link by Hint in New Split", bundle: .module),
+                keywords: ["browser", "link", "hint", "vimium", "keyboard", "split"], defaultShortcut: Shortcut("f", modifiers: [.shift]),
+                category: .browser, symbol: "rectangle.righthalf.inset.filled", surfaces: [.palette, .keyboard],
+                requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints-split"
             ),
             ActionDescriptor(
                 id: "splitBrowserRight",
@@ -192,6 +209,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 importCSV.isPersonOnly = true
                 return importCSV
             }(),
+            {
+                // The Passwords page (passwords.md 1.4). Person-only and no CLI verb or MCP tool:
+                // the page shows sites and usernames, which agents never see (decision P2).
+                var open = ActionDescriptor(
+                    id: "passwords.open",
+                    title: String(localized: "action.passwords.open", defaultValue: "Passwords", bundle: .module),
+                    keywords: ["passwords", "passkeys", "sign-in", "logins", "credentials", "keychain", "autofill"],
+                    category: .browser, symbol: "key", surfaces: [.palette],
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+                )
+                open.isPersonOnly = true
+                return open
+            }(),
             ActionDescriptor(
                 id: "palette.enableBrowser",
                 title: String(localized: "action.palette.enableBrowser", defaultValue: "Enable cmux Browser", bundle: .module),
@@ -203,13 +233,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.disableBrowser", defaultValue: "Disable cmux Browser", bundle: .module),
                 keywords: ["browser", "disable"], category: .browser, symbol: "globe.badge.chevron.backward",
                 surfaces: [.palette], targets: [.pane], cliName: "browser disable"
-            ),
-            ActionDescriptor(
-                id: "openLinkInNewTab",
-                title: String(localized: "action.openLinkInNewTab", defaultValue: "Open Link in New Tab", bundle: .module),
-                keywords: ["browser", "link"], category: .browser, symbol: "arrow.up.right.square",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser open-link-in-new-tab"
             ),
             ActionDescriptor(
                 id: "openLinkInDefaultBrowser",
@@ -271,21 +294,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.filePreviewRevealInFinder", defaultValue: "Reveal File in Finder", bundle: .module),
                 keywords: ["file", "finder"], category: .browser, symbol: "folder", surfaces: [.contextMenu],
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
-            ),
-            ActionDescriptor(
-                id: "openDiffViewer",
-                title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"],
-                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
-                defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
-                symbol: "plusminus", surfaces: [.palette, .keyboard], targets: [.pane],
-                cliName: "browser open-diff-viewer"
-            ),
-            ActionDescriptor(
-                id: "palette.openDirectoryDiffViewer",
-                title: String(localized: "action.palette.openDirectoryDiffViewer", defaultValue: "Open Directory Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"], category: .browser, symbol: "plus.forwardslash.minus",
-                surfaces: [.palette], targets: [.pane], cliName: "browser open-directory-diff-viewer"
             ),
             ActionDescriptor(
                 id: "diffViewerNextLine",
@@ -376,6 +384,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 keywords: ["vscode", "editor", "server"], category: .browser, symbol: "arrow.clockwise.circle",
                 surfaces: [.palette], targets: [.pane], cliName: "browser restart-vs-code-inline-server"
             ),
-        ]
+        ] + agentGuardDescriptors()
     }
 }

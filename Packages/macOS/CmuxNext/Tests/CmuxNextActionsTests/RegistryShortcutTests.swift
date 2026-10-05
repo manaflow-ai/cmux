@@ -18,22 +18,22 @@ import Testing
     }
 
     /// Cmd-[ is page Back only (plans/cmux-next/history.md 4.1); the
-    /// location trail's Go Back is Ctrl-Cmd-Left in every context.
+    /// location trail's Go Back is Ctrl-Minus in every context.
     @Test func bracketIsPageBackAndGoBackHasItsOwnChord() {
         let registry = ActionRegistry.standard()
         var hits: [String] = []
         registry.bind("focusHistoryBack") { hits.append("history") }
         registry.bind("browserBack") { hits.append("browser") }
         let cmdBracket = Shortcut("[", modifiers: [.command])
-        let goBack = Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command])
+        let goBack = Shortcut("-", modifiers: [.control])
 
-        #expect(registry.resolve(cmdBracket)?.id != "focusHistoryBack")
-        #expect(registry.resolve(goBack)?.id == "focusHistoryBack")
+        #expect(registry.keyWinner(cmdBracket)?.command != "focusHistoryBack")
+        #expect(registry.keyWinner(goBack)?.command == "focusHistoryBack")
         registry.context = [.browserFocused]
-        #expect(registry.resolve(cmdBracket)?.id == "browserBack")
-        #expect(registry.performShortcut(cmdBracket))
-        #expect(registry.resolve(goBack)?.id == "focusHistoryBack")
-        #expect(registry.performShortcut(goBack))
+        #expect(registry.keyWinner(cmdBracket)?.command == "browserBack")
+        #expect(registry.performKey(cmdBracket))
+        #expect(registry.keyWinner(goBack)?.command == "focusHistoryBack")
+        #expect(registry.performKey(goBack))
         #expect(hits == ["browser", "history"])
     }
 
@@ -52,12 +52,64 @@ import Testing
         let registry = ActionRegistry.standard()
         var selected: [String] = []
         registry.bind("selectWorkspaceByNumber", argumentHandler: { selected.append($0) }) {}
-        let resolved = registry.resolve(Shortcut("3", modifiers: [.command]))
-        #expect(resolved?.id == "selectWorkspaceByNumber")
+        let resolved = registry.keyWinner(Shortcut("3", modifiers: [.command]))
+        #expect(resolved?.command == "selectWorkspaceByNumber")
         #expect(resolved?.argument == "3")
-        #expect(registry.performShortcut(Shortcut("7", modifiers: [.command])))
+        #expect(registry.performKey(Shortcut("7", modifiers: [.command])))
         #expect(selected == ["7"])
         #expect(registry.shortcutDisplay(for: "selectWorkspaceByNumber") == "⌘1…9")
+    }
+
+    @Test func paneResizeUsesControlCommandArrowsAndVimKeys() {
+        let registry = ActionRegistry.standard()
+        for id: ActionID in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
+            registry.bind(id) {}
+        }
+        registry.bind("focusHistoryBack") {}
+        registry.bind("focusHistoryForward") {}
+
+        let expected: [(Shortcut, ActionID)] = [
+            (Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command]), "resizePaneLeft"),
+            (Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .command]), "resizePaneRight"),
+            (Shortcut(Shortcut.upArrowKey, modifiers: [.control, .command]), "resizePaneUp"),
+            (Shortcut(Shortcut.downArrowKey, modifiers: [.control, .command]), "resizePaneDown"),
+            (Shortcut("h", modifiers: [.control, .command]), "resizePaneLeft"),
+            (Shortcut("l", modifiers: [.control, .command]), "resizePaneRight"),
+            (Shortcut("k", modifiers: [.control, .command]), "resizePaneUp"),
+            (Shortcut("j", modifiers: [.control, .command]), "resizePaneDown"),
+        ]
+        for (shortcut, action) in expected {
+            #expect(registry.keyWinner(shortcut)?.command == action, "Expected \(shortcut.displayString) to resolve to \(action)")
+        }
+
+        for key in ["h", "j", "k", "l"] {
+            #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .shift])) == nil)
+        }
+
+        #expect(registry.keyWinner(Shortcut("-", modifiers: [.control]))?.command == "focusHistoryBack")
+        #expect(registry.keyWinner(Shortcut("-", modifiers: [.control, .shift]))?.command == "focusHistoryForward")
+    }
+
+    @Test func paneResizeAliasFollowsOverrideAndUnbindThroughTheTable() {
+        let registry = ActionRegistry.standard()
+        registry.bind("resizePaneLeft") {}
+        let arrow = Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command])
+        let vim = Shortcut("h", modifiers: [.control, .command])
+        let custom = Shortcut("h", modifiers: [.control, .option])
+        #expect(registry.keyWinner(arrow)?.command == "resizePaneLeft")
+
+        registry.setShortcutOverride(custom, for: "resizePaneLeft")
+        #expect(registry.keyWinner(arrow) == nil)
+        #expect(registry.keyWinner(vim) == nil)
+        #expect(registry.keyWinner(custom)?.command == "resizePaneLeft")
+
+        registry.setShortcutOverride(nil, for: "resizePaneLeft")
+        #expect(registry.keyWinner(arrow) == nil)
+        #expect(registry.keyWinner(custom) == nil)
+
+        registry.removeShortcutOverride(for: "resizePaneLeft")
+        #expect(registry.keyWinner(arrow)?.command == "resizePaneLeft")
+        #expect(registry.keyWinner(vim)?.command == "resizePaneLeft")
     }
 
     @Test func overridesDriveResolutionAndDisplay() {
@@ -66,8 +118,8 @@ import Testing
         #expect(registry.shortcutDisplay(for: "splitRight") == "⌘D")
 
         registry.setShortcutOverride(Shortcut("\\", modifiers: [.command]), for: "splitRight")
-        #expect(registry.resolve(Shortcut("\\", modifiers: [.command]))?.id == "splitRight")
-        #expect(registry.resolve(Shortcut("d", modifiers: [.command])) == nil)
+        #expect(registry.keyWinner(Shortcut("\\", modifiers: [.command]))?.command == "splitRight")
+        #expect(registry.keyWinner(Shortcut("d", modifiers: [.command])) == nil)
         #expect(registry.shortcutDisplay(for: "splitRight") == "⌘\\")
 
         registry.setShortcutOverride(nil, for: "splitRight")

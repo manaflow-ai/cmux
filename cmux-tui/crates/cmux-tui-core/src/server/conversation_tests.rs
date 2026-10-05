@@ -472,9 +472,9 @@ fn conversation_reject_reason_and_ledger_per_actor() {
     assert_eq!(response_error_code(&error).as_deref(), Some("conversation_rejected"));
 }
 
-/// `conversation-search`: every word matches as a prefix over committed text;
-/// an edit re-indexes and a retraction removes the message in the same
-/// commit; FTS5 operators are literal; limits are validated.
+/// `conversation-search`: the shared read model (case-insensitive substring,
+/// newest first, only the caller's conversations); an edit and a retraction
+/// change the results with their own commit; rejects carry the corpus reason.
 #[test]
 fn conversation_search_follows_edits_and_retractions() {
     let (mux, client) = conversation_mux();
@@ -486,104 +486,99 @@ fn conversation_search_follows_edits_and_retractions() {
             .unwrap()
             .clone()
     };
-    let deploy = run(&mux, client, send(&conversation, "s1", "The deploy failed on staging"))
+    let deploy = run(&mux, client, send(&conversation, "s1", "The deploy FAILED on staging"))
         .unwrap()["change"]["message"]["id"]
         .as_str()
         .unwrap()
         .to_string();
-    run(&mux, client, send(&conversation, "s2", "Lunch at noon?")).unwrap();
+    run(&mux, client, send(&conversation, "s2", "Lunch at noon? deploy later")).unwrap();
 
-    let hits = search("dep FAI");
+    let hits = search("Deploy F");
     assert_eq!(hits.len(), 1, "{hits:?}");
     assert_eq!(hits[0]["conversation"], conversation.as_str());
     assert_eq!(hits[0]["title"], "mux");
     assert_eq!(hits[0]["seq"], 1);
     assert_eq!(hits[0]["message_id"], deploy.as_str());
     assert_eq!(hits[0]["author"], "user_local");
-    assert!(hits[0]["snippet"].as_str().unwrap().contains("deploy failed"));
-    assert!(search("   ").is_empty());
-    assert!(search("deploy OR lunch").is_empty(), "OR must be a literal word");
-    assert!(search("\"deploy").len() == 1, "a quote must be literal");
+    assert_eq!(hits[0]["snippet"], "The deploy FAILED on staging");
+    // Newest first.
+    let both = search("deploy");
+    assert_eq!((both[0]["seq"].as_u64(), both[1]["seq"].as_u64()), (Some(2), Some(1)));
 
     let edit = json!({"cmd":"conversation-op","conversation":conversation,
         "idempotency_key":"s3","actor":"user_local",
         "op":{"kind":"message.edit","message_id":deploy,
               "parts":[{"type":"text","text":"The rollout passed"}]}});
     run(&mux, client, edit).unwrap();
-    assert!(search("deploy").is_empty());
+    assert!(search("failed").is_empty());
     assert_eq!(search("rollout").len(), 1);
-
     let retract = json!({"cmd":"conversation-op","conversation":conversation,
         "idempotency_key":"s4","actor":"user_local",
         "op":{"kind":"message.retract","message_id":deploy}});
     run(&mux, client, retract).unwrap();
     assert!(search("rollout").is_empty());
-    assert_eq!(search("lunch")[0]["seq"], 2);
 
-    for limit in [0, 101] {
-        let refused =
-            run(&mux, client, json!({"cmd":"conversation-search","query":"lunch","limit":limit}));
-        assert!(refused.is_err(), "limit {limit} must be refused");
+    // An agent that is not a participant sees nothing.
+    let other = agent_client(&mux, client, "agent_other");
+    let hidden =
+        run(&mux, other, json!({"cmd":"conversation-search","query":"lunch","limit":10})).unwrap();
+    assert_eq!(hidden["hits"], json!([]));
+
+    for (query, limit, reason) in [
+        ("   ", 10, "invalid_query"),
+        ("dep\u{7}loy", 10, "invalid_query"),
+        ("deploy", 0, "invalid_limit"),
+    ] {
+        let request = json!({"cmd":"conversation-search","query":query,"limit":limit});
+        let error = run(&mux, client, request).expect_err("the search must be refused");
+        assert_eq!(super::error_reason(&error).as_deref(), Some(reason), "{query:?} {limit}");
+        assert_eq!(response_error_code(&error).as_deref(), Some("conversation_rejected"));
     }
-    let long = "x".repeat(201);
-    assert!(
-        run(&mux, client, json!({"cmd":"conversation-search","query":long,"limit":1})).is_err()
-    );
 }
 
-/// A store written before the search index existed is indexed once at open.
+/// A store written by conversation-search-v1 (FTS5 index and triggers)
+/// opens with the index dropped and searches the shared way.
 #[test]
-fn conversation_search_indexes_an_older_store_at_open() {
+fn conversation_search_drops_the_v1_index() {
     let unique = crate::resource::WorkspacePublicId::random().unwrap();
     let root = std::env::temp_dir().join(format!("cmux-conversation-search-{unique}"));
     std::fs::create_dir_all(&root).unwrap();
+    let path = root.join(crate::conversation_store::CONVERSATIONS_FILE);
     {
-        let mut store =
+        let store =
             crate::conversation_store::ConversationStore::open(Some(root.as_path())).unwrap();
-        let participants: Vec<cmux_conversation::Participant> =
-            serde_json::from_value(participants()).unwrap();
-        let created = store.create("create-old", "user_local", "old", &participants).unwrap();
-        let op: cmux_conversation::Op = serde_json::from_value(json!({
-            "kind":"message.send","client_msg_id":"o1",
-            "parts":[{"type":"text","text":"archived release notes"}]}))
-        .unwrap();
-        store.apply_op(&created.summary.id, "o1", "user_local", &op).unwrap();
-    }
-    {
-        // A store from before the index: no search tables and no triggers.
-        let connection =
-            rusqlite::Connection::open(root.join(crate::conversation_store::CONVERSATIONS_FILE))
-                .unwrap();
+        drop(store);
+        let connection = rusqlite::Connection::open(&path).unwrap();
         connection
             .execute_batch(
-                "DROP TRIGGER message_search_insert; DROP TRIGGER message_search_update;
-                 DROP TABLE message_search; DROP TABLE message_search_row;",
+                "CREATE VIRTUAL TABLE message_search USING fts5(text);
+                 CREATE TABLE message_search_row (row INTEGER PRIMARY KEY);
+                 CREATE TRIGGER message_search_insert AFTER INSERT ON message BEGIN
+                   INSERT INTO message_search_row(row) VALUES(NEW.seq); END;",
             )
             .unwrap();
     }
     let mut store =
         crate::conversation_store::ConversationStore::open(Some(root.as_path())).unwrap();
-    let hits = store.search("release", 5).unwrap();
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].title, "old");
+    let participants: Vec<cmux_conversation::Participant> =
+        serde_json::from_value(participants()).unwrap();
+    let created = store.create("create-old", "user_local", "old", &participants).unwrap();
+    let op: cmux_conversation::Op = serde_json::from_value(json!({
+        "kind":"message.send","client_msg_id":"o1",
+        "parts":[{"type":"text","text":"archived release notes"}]}))
+    .unwrap();
+    store.apply_op(&created.summary.id, "o1", "user_local", &op).unwrap();
+    let input = cmux_conversation::SearchInput { query: "RELEASE".into(), limit: 5 };
+    assert_eq!(store.search("user_local", &input).unwrap().len(), 1);
     drop(store);
-    {
-        // A binary without search code rewrites the message: the triggers in
-        // the store file keep the index current.
-        let connection =
-            rusqlite::Connection::open(root.join(crate::conversation_store::CONVERSATIONS_FILE))
-                .unwrap();
-        connection
-            .execute(
-                "UPDATE message SET message_json =
-                   json_set(message_json, '$.parts[0].text', 'patched by an older binary')",
-                [],
-            )
-            .unwrap();
-    }
-    let mut store =
-        crate::conversation_store::ConversationStore::open(Some(root.as_path())).unwrap();
-    assert!(store.search("release", 5).unwrap().is_empty());
-    assert_eq!(store.search("patched binary", 5).unwrap().len(), 1);
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let left: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name LIKE 'message_search%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
     let _ = std::fs::remove_dir_all(&root);
 }

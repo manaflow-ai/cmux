@@ -9,16 +9,21 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, defaultBrowser, importData, theme, accounts
+        case role, firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts
     }
 
     public private(set) var step: Step
-    /// The steps of this flow (`accounts` only when the App supplies it).
+    /// The steps of this flow (`firstTask`, `chats` and `accounts` only when the App supplies them).
     public let steps: [Step]
     public let role: RoleStepModel
+    public let firstTask: FirstTaskStepModel
+    public let projects: ProjectsStepModel
+    public let classicSessions: ClassicSessionsStepModel
+    public let chats: ChatsStepModel
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
+    public let computerUse: ComputerUseStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the flow ended, so a second close does not report twice.
     public private(set) var ended = false
@@ -27,13 +32,28 @@ public final class OnboardingModel {
 
     public init(services: any OnboardingServices, start: Step? = nil) {
         self.services = services
-        let steps = Step.allCases.filter { $0 != .accounts || services.hasAccountsStep }
+        let computerUseSource = services.computerUsePermissions
+        let steps = Step.allCases.filter { step in
+            switch step {
+            // Resumed chats open as agent tabs, as the first task's chat does.
+            case .firstTask, .chats: services.canRunFirstTask
+            case .classicSessions: services.canImportClassicSessions
+            case .accounts: services.hasAccountsStep
+            case .computerUse: computerUseSource != nil
+            default: true
+            }
+        }
         self.steps = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         role = RoleStepModel(services: services)
+        firstTask = FirstTaskStepModel(services: services)
+        projects = ProjectsStepModel(services: services)
+        classicSessions = ClassicSessionsStepModel(services: services)
+        chats = ChatsStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
+        computerUse = ComputerUseStepModel(source: computerUseSource)
     }
 
     public var index: Int { steps.firstIndex(of: step) ?? 0 }
@@ -59,6 +79,9 @@ public final class OnboardingModel {
             importer.start()
             return
         case .role: role.commit()
+        case .projects: projects.commit()
+        case .classicSessions: classicSessions.commit()
+        case .chats: chats.commit()
         case .theme: theme.commit()
         default: break
         }
@@ -86,11 +109,19 @@ public final class OnboardingModel {
 
     /// Starts the step's lazy work (handler state, browser detection, theme files).
     public func stepDidAppear() {
+        if step != .computerUse { computerUse.stop() }
         switch step {
+        // The role step starts the project and chat scans, so their lists are ready.
+        case .role, .projects, .classicSessions, .chats:
+            projects.scan()
+            if steps.contains(.chats) { chats.scan() }
+            if steps.contains(.classicSessions) { classicSessions.scan() }
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
-        case .role, .accounts: break
+        case .firstTask: firstTask.refreshOutputs()
+        case .computerUse: computerUse.start()
+        case .accounts: break
         }
     }
 
@@ -99,7 +130,11 @@ public final class OnboardingModel {
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
+        projects.stop()
+        chats.stop()
+        computerUse.stop()
         if !completed, !theme.isCommitted { theme.revert() }
+        firstTask.stop()
         services.onboardingDidEnd(completed: completed)
         onEnd?(completed)
     }

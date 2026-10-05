@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts. The first `cargo run` below compiles the TUI and then starts it.
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty-next` and `ghostty` submodules (`git submodule update --init ghostty ghostty-next`). `ghostty-vt-sys` compiles `libghostty-vt.a` from `ghostty-next`, so an uninitialized submodule fails before the TUI starts; the shell-integration scripts come from `ghostty`. The first `cargo run` below compiles the TUI and then starts it.
 
 ## Local session
 

@@ -61,8 +61,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.next-route.outputs.macos || steps.detect.outputs.macos }}
-      cli: ${{ steps.next-route.outputs.cli || steps.detect.outputs.cli }}
-      claude_wrapper: ${{ steps.standalone.outputs.claude_wrapper }}
       browser: ${{ steps.standalone.outputs.browser }}
       remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
       remote_daemon_native: ${{ steps.standalone.outputs.remote_daemon_native }}
@@ -104,13 +102,13 @@ jobs:
       macos_pr_root_runner: ${{ steps.macos-pool.outputs.root_runner }}
       # Set only beside a root runner, when the pool has machines beyond its
       # root runners: glaeda-side-<class>-xcode-<version>, the minis' other
-      # runners. The side lanes in macos_pr_owned_jobs (claude-wrapper,
-      # remote-daemon) take it in place of the pool label, so they never hold
+      # runners. The side lanes in macos_pr_owned_jobs (remote-daemon,
+      # swift-package) take it in place of the pool label, so they never hold
       # a root runner.
       macos_pr_side_runner: ${{ steps.macos-pool.outputs.side_runner }}
       # Set only when some side lanes take the light minis' idle side runners
       # (pr_runner_pool.light_side_lanes()): glaeda-side-light-xcode-<version>,
-      # which the side lanes in macos_pr_light_side_jobs (" claude-wrapper ")
+      # which the side lanes in macos_pr_light_side_jobs (" swift-package ")
       # take in place of macos_pr_side_runner, one lane per idle runner.
       macos_pr_light_side_runner: ${{ steps.macos-pool.outputs.light_side_runner }}
       macos_pr_light_side_jobs: ${{ steps.macos-pool.outputs.light_side_jobs }}
@@ -219,7 +217,6 @@ jobs:
               echo "macos=true"
               echo "web=true"
               echo "agent_session_web=true"
-              echo "cli=true"
               echo "swift_packages=true"
               echo "release_build=true"
             } >> "$GITHUB_OUTPUT"
@@ -264,7 +261,6 @@ jobs:
                 echo "macos=false"
                 echo "web=false"
                 echo "agent_session_web=false"
-                echo "cli=false"
                 echo "swift_packages=false"
                 echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
@@ -278,17 +274,6 @@ jobs:
               registry_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-test-registry-base.XXXXXX")"
               if git show "$BASE_SHA:tests/test-execution.toml" > "$registry_base"; then
                 registry_base_args=(--test-registry-base "$registry_base")
-              fi
-            fi
-
-            # Most project.pbxproj edits wire app or test files. The detector
-            # compares the CLI route's targets with the base revision; without
-            # it, any project edit keeps the CLI lane.
-            xcode_project_base_args=()
-            if grep -Fxq 'cmux.xcodeproj/project.pbxproj' /tmp/cmux-ci-changed-files.txt; then
-              xcode_project_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-xcode-project-base.XXXXXX")"
-              if git show "$BASE_SHA:cmux.xcodeproj/project.pbxproj" > "$xcode_project_base"; then
-                xcode_project_base_args=(--xcode-project-base "$xcode_project_base")
               fi
             fi
 
@@ -352,7 +337,6 @@ jobs:
                 echo "macos=false"
                 echo "web=false"
                 echo "agent_session_web=false"
-                echo "cli=false"
                 echo "swift_packages=false"
                 echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
@@ -365,35 +349,6 @@ jobs:
             # inputs through the base classifier. Unknown scripts/ci inputs stay
             # in the list and therefore fail open.
             if [ "$ci_router_changed" = true ] || [ "$ci_workflow_changed" = true ]; then
-              # ci.yml is stripped below, but its `macos` job is the CLI lane's
-              # call site: it passes the `cli` route to compile admission and
-              # cli-product-tests. An edit to that job, or to the triggers and
-              # permissions before `jobs:` that it inherits, runs the lane.
-              cli_call_site_changed=false
-              if [ "$ci_workflow_changed" = true ]; then
-                if ! git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml \
-                  || ! python3 - /tmp/cmux-ci-base-workflow.yml .github/workflows/ci.yml <<'PY'
-          import re
-          import sys
-
-          def cli_call_site(path: str) -> tuple[str, str]:
-              text = open(path, encoding="utf-8").read()
-              preamble, marker, body = text.partition("\njobs:\n")
-              if not marker:
-                  raise SystemExit(1)
-              for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
-                  if block.partition(":")[0] == "macos":
-                      return preamble, block
-              return preamble, ""
-
-          raise SystemExit(0 if cli_call_site(sys.argv[1]) == cli_call_site(sys.argv[2]) else 1)
-          PY
-                then
-                  cli_call_site_changed=true
-                  echo "ci.yml's CLI lane call site changed; running the CLI lane."
-                fi
-              fi
-
               product_files=/tmp/cmux-ci-product-files.txt
               : > "$product_files"
               while IFS= read -r path; do
@@ -412,7 +367,6 @@ jobs:
                   echo "macos=false"
                   echo "web=false"
                   echo "agent_session_web=false"
-                  echo "cli=$cli_call_site_changed"
                   echo "swift_packages=false"
                   echo "release_build=false"
                 } >> "$GITHUB_OUTPUT"
@@ -466,11 +420,6 @@ jobs:
                 emit_all_areas
                 exit 0
               fi
-              # A trusted router that predates the project comparison keeps
-              # the CLI lane for every project edit, which is safe.
-              if [ "${#xcode_project_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--xcode-project-base'; then
-                xcode_project_base_args=()
-              fi
               # One that predates the job comparison keeps the Release build
               # for every ci-macos.yml edit, which is safe.
               if [ "${#macos_workflow_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--macos-workflow-base'; then
@@ -485,15 +434,10 @@ jobs:
                   --event-name "$EVENT_NAME" \
                   --files-from "$product_files" \
                   ${registry_base_args[@]+"${registry_base_args[@]}"} \
-                  ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
                   ${macos_workflow_base_args[@]+"${macos_workflow_base_args[@]}"} \
                   --github-output "$trusted_areas"
               )
-              if [ "$cli_call_site_changed" = true ]; then
-                sed 's/^cli=false$/cli=true/' "$trusted_areas" >> "$GITHUB_OUTPUT"
-              else
-                cat "$trusted_areas" >> "$GITHUB_OUTPUT"
-              fi
+              cat "$trusted_areas" >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
@@ -514,7 +458,6 @@ jobs:
               --event-name "$EVENT_NAME" \
               --files-from /tmp/cmux-ci-changed-files.txt \
               ${registry_base_args[@]+"${registry_base_args[@]}"} \
-              ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
               ${macos_workflow_base_args[@]+"${macos_workflow_base_args[@]}"} \
               ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
@@ -533,13 +476,32 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == pull_request && "$BASE_REF" == feat-cmux-next ]]; then
-            # The cmux-next workflow owns its Swift, Rust, CLI and web checks.
-            # Keep the generic changes job for shared web routing, but do not
-            # send a next-line PR through the deleted app-host product lanes.
-            echo "macos=false" >> "$GITHUB_OUTPUT"
-            echo "cli=false" >> "$GITHUB_OUTPUT"
-            echo "swift_packages=false" >> "$GITHUB_OUTPUT"
-            echo "release_build=false" >> "$GITHUB_OUTPUT"
+            # The cmux-next workflow owns its Swift, Rust, web and webview
+            # checks. Keep the generic changes job for shared web routing, but
+            # do not send a next-line PR through the legacy app-host suite.
+            package_route=false
+            cmuxnext_route=false
+            if [ -f /tmp/cmux-ci-changed-files.txt ]; then
+              if grep -q '^Packages/' /tmp/cmux-ci-changed-files.txt; then
+                package_route=true
+              fi
+              if grep -q '^Packages/macOS/CmuxNext/' /tmp/cmux-ci-changed-files.txt; then
+                cmuxnext_route=true
+              fi
+            fi
+            if [ "$package_route" = true ] && [ "$cmuxnext_route" = false ]; then
+              # The legacy reusable macOS workflow owns focused tests for the
+              # affected package. Keep that route instead of waking the full
+              # CmuxNext suite; its package lane runs beside compile admission
+              # and fails independently on the first package error.
+              echo "macos=false" >> "$GITHUB_OUTPUT"
+              echo "swift_packages=true" >> "$GITHUB_OUTPUT"
+              echo "release_build=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "macos=false" >> "$GITHUB_OUTPUT"
+              echo "swift_packages=false" >> "$GITHUB_OUTPUT"
+              echo "release_build=false" >> "$GITHUB_OUTPUT"
+            fi
             echo "full_suite=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -547,7 +509,6 @@ jobs:
         id: standalone
         run: |
           set -euo pipefail
-          claude_wrapper=false
           browser=false
           remote_daemon=false
           remote_daemon_native=false
@@ -560,11 +521,6 @@ jobs:
                   # that lane runs on Linux. The Mac lanes are judged below.
                   browser=true
                   ci_workflow_changed=true
-                  ;;
-                Resources/bin/cmux-claude-wrapper|tests/test_claude_wrapper_hooks.py|tests/node_runtime.py|scripts/ci/run_python_test_lane.py|scripts/ci/test_execution_registry.py)
-                  # Not tests/test-execution.toml: every new test registers
-                  # there, and the wrapper entry is pinned by a Linux guard.
-                  claude_wrapper=true
                   ;;
                 cmux-browser/*|.github/workflows/cmux-browser.yml)
                   browser=true
@@ -581,7 +537,6 @@ jobs:
               esac
             done < /tmp/cmux-ci-changed-files.txt
           else
-            claude_wrapper=true
             browser=true
             remote_daemon=true
             remote_daemon_native=true
@@ -616,7 +571,7 @@ jobs:
 
           (base_preamble, base_jobs), (head_preamble, head_jobs) = jobs(sys.argv[1]), jobs(sys.argv[2])
           alias = re.compile(r"(?m)(?:<<:|[:-])\s*\*[A-Za-z0-9_.-]+\s*$")
-          for job in ("claude-wrapper", "remote-daemon"):
+          for job in ("remote-daemon",):
               base_block, head_block = base_jobs.get(job, ""), head_jobs.get(job, "")
               if (
                   base_preamble != head_preamble
@@ -630,9 +585,6 @@ jobs:
               callers="$(tr '\n' ' ' < /tmp/cmux-ci-standalone-callers.txt)"
               echo "ci.yml changed; Mac lane callers that differ: ${callers:-none}"
               case " $callers " in
-                *" claude-wrapper "*) claude_wrapper=true ;;
-              esac
-              case " $callers " in
                 *" remote-daemon "*)
                   remote_daemon=true
                   remote_daemon_native=true
@@ -640,13 +592,11 @@ jobs:
               esac
             else
               echo "Could not compare ci.yml with its base; running the Mac standalone lanes."
-              claude_wrapper=true
               remote_daemon=true
               remote_daemon_native=true
             fi
           fi
           {
-            echo "claude_wrapper=$claude_wrapper"
             echo "browser=$browser"
             echo "remote_daemon=$remote_daemon"
             echo "remote_daemon_native=$remote_daemon_native"
@@ -740,8 +690,6 @@ jobs:
           # The run's machine count. A chosen label is never split.
           RUN_MACOS: ${{ steps.detect.outputs.macos }}
           RUN_FULL_SUITE: ${{ steps.suite.outputs.full_suite }}
-          RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
-          RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
           RUN_SWIFT_PACKAGES: ${{ steps.detect.outputs.swift_packages }}
           RUN_RELEASE_BUILD: ${{ steps.detect.outputs.release_build }}
@@ -1008,9 +956,6 @@ jobs:
       - name: Run the contributor static preflight
         run: python3 scripts/verify-local.py
 
-      - name: Check agent hook docs against the catalog
-        run: python3 scripts/check-agent-hook-docs.py
-
   guards:
     # Not after static-preflight: the guards are the last job
     # macos-admission-gate waits for (median ~110 s after changes), and the
@@ -1090,61 +1035,6 @@ jobs:
       macos: ${{ needs.changes.outputs.macos }}
       agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
 
-  claude-wrapper:
-    name: Claude wrapper regressions
-    needs: [changes, static-preflight]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-    # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
-    # processes, so a mini saturated by a compile beside it stretches it:
-    # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
-    # 2026-09-25). 15 minutes keeps that from failing a required check; the
-    # glaeda listener gate keeps new jobs off saturated minis.
-    timeout-minutes: 15
-    steps:
-      - name: Checkout wrapper and test inputs
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          # The lane reads only these: about 740 files instead of the whole
-          # 17,000-file tree, which took this Mac about 30 s to check out.
-          sparse-checkout: |
-            Resources/bin
-            scripts/ci
-            tests
-      - name: Find an existing Node runtime
-        id: node
-        run: |
-          python3 - <<'PYTHON'
-          import os
-          import sys
-          from pathlib import Path
-          if sys.version_info < (3, 9):
-              raise SystemExit("Claude wrapper tests require Python 3.9 or newer")
-          print(sys.version)
-          sys.path.insert(0, "tests")
-          from node_runtime import ensure_node_on_path
-          node = ensure_node_on_path()
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"available={'true' if node else 'false'}\n")
-          if node:
-              with open(os.environ["GITHUB_PATH"], "a") as path:
-                  path.write(str(Path(node).parent) + "\n")
-          PYTHON
-      - name: Install Node only when the runner has none
-        if: ${{ steps.node.outputs.available != 'true' }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "20"
-
-      - name: Run standalone Claude wrapper regressions
-        run: |
-          set -euo pipefail
-          # Missing Node must fail this required lane, never produce the
-          # legacy test script's successful SKIP result.
-          node --version
-          python3 scripts/ci/run_python_test_lane.py --lane macos-claude-wrapper
-
   # macOS compile admission starts as soon as `changes` and the static stage
   # pass, beside the fast Linux-only jobs instead of behind them. Over 75 gated
   # pull request runs (2026-09-24) those jobs finished a median 99 s (p90
@@ -1154,11 +1044,11 @@ jobs:
   # This gate still has its say over every Mac job that runs the product,
   # through ordinary job results: no sleep and no polling. It is every job
   # that needs nothing beyond changes/static-preflight and runs only on Linux;
-  # the workflow test derives the same list. Jobs with a Mac runner
-  # (claude-wrapper, remote-daemon) are already billed and slow, so
+  # the workflow test derives the same list. A job with a Mac runner
+  # (remote-daemon) is already billed and slow, so
   # waiting on them saves nothing. It finishes long before a compile does, and
   # compile admission's last step reads its result once: a declined gate
-  # fails admission, which skips the CLI product tests and Release lanes. Over those 75 runs it declined 5; each now spends one
+  # fails admission, which skips the shell regressions and Release lanes. Over those 75 runs it declined 5; each now spends one
   # compile admission (median 655 s) that it used to skip.
   #
   # A failed gate declines by failing this job rather than being skipped:
@@ -1174,7 +1064,7 @@ jobs:
       - browser
       - guards
       - web
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
@@ -1207,8 +1097,8 @@ jobs:
     # Packages/ still needs the package-test lane, which is not part of compile
     # admission and would otherwise be skipped whenever the app-host product is
     # already admitted or the macOS area is neutral (a Packages/iOS package
-    # outside the desktop closure). Other jobs retain their macos/cli gates.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (((needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
+    # outside the desktop closure). Other jobs retain their macos gates.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && ((needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
     permissions:
       actions: read
       id-token: write
@@ -1218,7 +1108,6 @@ jobs:
     uses: ./.github/workflows/ci-macos.yml
     with:
       macos: ${{ needs.changes.outputs.macos }}
-      cli: ${{ needs.changes.outputs.cli }}
       full_suite: ${{ needs.changes.outputs.full_suite }}
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
@@ -1312,11 +1201,8 @@ jobs:
           # own. Keep this in sync with the `macos` job's own `if:`.
           swift_packages = outputs.get("swift_packages") == "true"
           macos_work_required = swift_packages or (
-              (
-                  outputs.get("cli") == "true"
-                  or not (full_suite == "false" and compile_admitted == "true")
-              )
-              and (macos_route == "true" or outputs.get("cli") == "true")
+              not (full_suite == "false" and compile_admitted == "true")
+              and macos_route == "true"
           )
           if macos_work_required:
               if macos_result != "success":
@@ -1447,73 +1333,69 @@ jobs:
           PY
 
   dogfood-build:
-    # One sticky comment per app pull request with a link to a tagged dev build
-    # of this exact head, so anyone can try the change in one click. The build
-    # controller treats this job's success as the build request and verifies the
-    # pull request itself before building, so the job name is part of that
-    # contract. Not required and not in ci-status: a comment failure never
-    # blocks a merge.
-    # Opt-in: only pull requests labelled dev-build get it, on each push and
-    # when the label is added; app-free changes (docs, web) never do. The
-    # controller builds the newest head each time a worker frees up.
+    # Build one exact app pull-request head for trusted org members and hand
+    # the ZIP to the default-branch publisher. That publisher writes the
+    # private R2 object and keeps one short-lived signed link on the PR while
+    # the fleet controller is tailnet-only.
     name: "Dogfood build #${{ github.event.pull_request.number }}"
-    needs: changes
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') }}
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
-    timeout-minutes: 5
-    # A failed comment must not turn the run red; the controller acts only on success.
-    continue-on-error: true
+    needs: [changes, static-preflight]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    # This job is intentionally outside ci-status, so a build or publication
+    # failure is visible without becoming a merge requirement.
     permissions:
       contents: read
       pull-requests: write
     steps:
-      - name: Post the dogfood link
+      - name: Checkout the exact pull-request head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Download the pinned GhosttyKit
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Build and package the production-authenticated app
+        id: artifact
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          CMUX_GHOSTTYKIT_PREPROVISIONED: '1'
+          CMUX_SKIP_ZIG_BUILD: '1'
+          CMUX_SWIFT_FRONTEND_WORKAROUND: '1'
+          CMUX_DEV_CLOUD_ENABLED: '0'
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           tag="pr-$PR-${HEAD_SHA:0:8}"
-          marker='<!-- cmux:dogfood-build -->'
-          # One comment per pull request: edit ours in place on every push.
-          existing=$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
-          existing=${existing%%$'\n'*}
-          # The head the previous link named, so a regression can be bisected
-          # across the pushes the controller skipped (it builds the newest head).
-          previous=""
-          if [ -n "$existing" ]; then
-            previous=$(gh api "repos/$GH_REPO/issues/comments/$existing" --jq '.body' | grep -oE '^\*\*Dogfood build\*\* of `[0-9a-f]{40}`' | grep -oE '[0-9a-f]{40}' || true)
-          fi
-          range=""
-          if [ -n "$previous" ] && [ "$previous" != "$HEAD_SHA" ]; then
-            commits=$(gh api "repos/$GH_REPO/compare/$previous...$HEAD_SHA" --jq '.total_commits' 2>/dev/null) || true
-            [[ "$commits" =~ ^[0-9]+$ ]] || commits="?"
-            range="Covers \`${previous:0:8}..${HEAD_SHA:0:8}\` ([commits: $commits](https://github.com/$GH_REPO/compare/$previous...$HEAD_SHA)) since the previous link, [cmux DEV pr-$PR-${previous:0:8}.app](http://127.0.0.1:17320/pr-$PR-${previous:0:8}); if that push was skipped, its page names the newer build. To build a commit in between: \`cmux-ci build cmux --ref <sha> --tag bisect-<sha8> --workspace https://github.com/$GH_REPO/pull/$PR\`."
-          fi
-          cat > body.md <<EOF
-          $marker
-          **Dogfood build** of \`$HEAD_SHA\`
+          ./scripts/reload.sh --tag "$tag" --prod-auth --no-global-cli-links
+          app="$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d -path "*/Build/Products/Debug/cmux DEV $tag.app" -print -quit)"
+          test -d "$app"
+          archive="$RUNNER_TEMP/cmux-$tag.app.zip"
+          /usr/bin/ditto -c -k --keepParent "$app" "$archive"
+          digest="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          {
+            echo "archive=$archive"
+            echo "digest=$digest"
+            echo "tag=$tag"
+            echo "size=$(stat -f '%z' "$archive")"
+          } >> "$GITHUB_OUTPUT"
 
-          [cmux DEV $tag.app](http://127.0.0.1:17320/$tag)
-
-          The link opens this exact commit in the cmux dev menu bar app; the page waits until the build is ready. Builds run only while this PR has the \`dev-build\` label. Under load the fleet builds the newest push each time a worker frees up, so some pushes are skipped. It signs in against production, so Cloud or backend changes still need a tagged build with a development backend.
-
-          $range
-          EOF
-          if [ -n "$existing" ]; then
-            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@body.md >/dev/null
-          else
-            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F body=@body.md >/dev/null
-          fi
-          echo "Dogfood link for $tag posted on #$PR."
+      - name: Upload the exact app for the trusted publisher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        with:
+          name: dogfood-app-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ steps.artifact.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
 
   ci-status:
     needs:
       - changes
-      - claude-wrapper
       - static-preflight
       - guards
       - ghosttykit-release-check
@@ -1553,13 +1435,6 @@ jobs:
               if data["result"] not in allowed
           }
 
-          outputs = needs["changes"].get("outputs", {})
-          wrapper_required = outputs.get("claude_wrapper") == "true" or (
-              outputs.get("macos") == "true" and outputs.get("full_suite") == "true"
-          )
-          if wrapper_required and needs.get("claude-wrapper", {}).get("result") != "success":
-              bad["claude-wrapper"] = needs.get("claude-wrapper", {}).get("result", "missing")
-
           if bad:
               for name, result in bad.items():
                   print(f"{name}: {result}", file=sys.stderr)
@@ -1578,7 +1453,6 @@ jobs:
     name: CI timing
     needs:
       - changes
-      - claude-wrapper
       - static-preflight
       - guards
       - ghosttykit-release-check

@@ -6,17 +6,14 @@ import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
 
-/// Agent chat tabs (the React acpmux pane, CmuxNextAgentPane). cmux-tui has
-/// no agent tab kind yet, so like `LocalBrowserTab` they live only in this
-/// app session and are not restored after relaunch; the acpmux sessions they
-/// show are durable in acpmux. Ids carry `prefix` so every tab path can tell
-/// them from daemon tabs.
-enum LocalAgentTab {
-    static let prefix = "local-agent:"
-}
-
-/// Which agent tabs each pane lists, and their pane views. One acpmux host is
-/// shared by every tab, so opening several at once starts one daemon.
+/// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
+///
+/// An agent chat tab is a workspace store tab: a `conversation` tab whose source is an acpmux
+/// session (`agent-session-tabs-v1`, cmux-tui/spec/commands.md new-conversation-tab). The store owns which
+/// pane lists it, its order, and its session; it restores it after relaunch (R138) and moves,
+/// splits and closes it like any tab. This type owns only client view state, keyed by tab id
+/// (`TabModel.id`): the page views, a new chat's seed, the new tab page, link and turn requests.
+/// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     private let host: any AgentPaneHostProviding
     /// The page every agent tab loads: the bundled file, or in Debug builds
@@ -29,40 +26,107 @@ final class AgentTabStore {
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
     private let customization: AgentPaneCustomizationWatcher
-    private var tabsByPane: [String: [String]] = [:]
-    private var views: [String: AgentPaneView] = [:]
-    /// Session each tab last showed, kept across a web content crash or a
-    /// view rebuilt after the tab was released.
-    private var sessions: [String: String] = [:]
+    /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
+    /// (AppServices looks in every machine's tree).
+    var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
+    /// Every agent tab the trees list, with its record.
+    var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
+    /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
+    /// the pane's daemon). Returns it and the daemon event sequence read after the reply (nil
+    /// when the connection ended: the next snapshot holds the tab).
+    var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String) async throws
+        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _ in throw DaemonError.notConnected }
+    /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
+    var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
+    /// Sets tab `surface`'s session by compare-and-swap from `expected` (AppServices:
+    /// `bind-conversation-tab-session` on the tab's daemon): the store's answer and, when it took
+    /// it, the daemon event sequence read after the reply (nil when the connection ended).
+    var bind: @MainActor (_ key: String, _ surface: SurfaceID, _ expected: String?, _ session: String) async
+        -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _ in (.taken, nil) }
+    /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
+    var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
+    /// Tabs closed while the store was still creating them: closed when it answers.
+    var pendingCloses: [String: @MainActor (String) -> Void] = [:]
+    /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): at most
+    /// 255 bytes, no control characters (the store refuses others).
+    var localHostName: String? {
+        didSet { localHostName = localHostName.flatMap(Self.displayName) }
+    }
+    /// Reads this Mac's `install:<id>` (AppServices: the Cloud device id), on need.
+    var resolveLocalHost: @MainActor () -> String? = { nil }
+    private var resolvedLocalHost: String?
+    /// `install:<id>` of this Mac. Only that host attaches a tab to its acpmux; nil refuses new
+    /// tabs. Read again while it is nil (the id file could not be read yet).
+    var localHost: String? {
+        get {
+            if resolvedLocalHost == nil { resolvedLocalHost = resolveLocalHost() }
+            return resolvedLocalHost
+        }
+        set { resolvedLocalHost = newValue }
+    }
+    var views: [String: AgentPaneView] = [:]
+    /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
+    var notices: [String: AgentTabElsewhereView] = [:]
+    /// A provisional tab's id -> the store's id once the creation answered
+    /// (``AgentTabStore/rekey(_:to:)``): a page shown under either id is one page.
+    var aliases: [String: String] = [:]
+    /// Tabs a live tree has listed: only those can be gone from it.
+    var seenLive: Set<String> = []
+    /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
+    /// another client, its pane closing) lets its view state go once that tree is live without it.
+    var tabStores: [String: DaemonStore] = [:]
+    var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Chats outside any pane (onboarding's first task), weakly held, so
+    /// they get customization changes too.
+    let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
+    /// Takes back a closed, untouched new tab page as the pool's spare
+    /// (NewTabSparePool.recycle); false when the pool already has one.
+    var recycle: ((AgentPaneView) -> Bool)?
+    /// Closed pages leave the view tree at once; their teardown waits (R81).
+    let retirer = AgentPageRetirer()
+    /// The session each tab's page reported, ahead of the store's echo of the bind and across a
+    /// web content crash or a view rebuilt after the tab was released.
+    var sessions: [String: String] = [:]
+    /// Tabs opened as the new tab page, and what each does with the kind
+    /// the user picks there (``PaneController/newTabPage()``).
+    var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
-    private var seeds: [String: AgentPaneSeedSource] = [:]
-    /// The daemon tree each pane with agent tabs belongs to. It is watched,
-    /// so the tabs of a pane closed out of sight (its window showing another
-    /// workspace, its daemon away) close once the live tree drops the pane.
-    private var paneStores: [String: DaemonStore] = [:]
-    private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    var seeds: [String: AgentPaneSeedSource] = [:]
+    /// The tab resuming each outside chat (`harness:agentSessionId`), so
+    /// picking the same chat again shows that tab instead of a second one.
+    var adoptions: [String: String] = [:]
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?
-    private weak var actionRegistry: ActionRegistry?
-    private var checkpointFocusTab: String?
+    /// `labs.previewFeatures`, pushed to every page like the shortcuts.
+    private var previewFeatures = false
+    private var previewObservation: Task<Void, Never>?
+    weak var actionRegistry: ActionRegistry?
+    var checkpointFocusTab: String?
+    /// This build's URL scheme, handed to every page for the links it copies.
+    private let linkScheme: String?
+    /// Tabs a `cmux://session/<id>` link opened: their page refuses a
+    /// session the daemon does not have instead of falling back.
+    var linkedSessions: Set<String> = []
+    /// A link's turn for a tab whose view is not made yet.
+    var pendingTurns: [String: String] = [:]
+    /// The tabs' git reads on the local session host (AgentPaneGitReads.swift);
+    /// nil answers the page `native.not_connected`.
+    private let git: AgentPaneGitLink?
 
-    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// `settings`, when given, is followed for `labs.previewFeatures`
+    /// (AppDelegate makes it before any agent tab).
+    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
+         showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
-        if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
-            host = MockAgentPaneHost()
-        } else {
-            let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-            host = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
-        }
-        // Release loads only the bundled page; the dev server is for Debug
-        // and tagged builds (webviews/src/agent-session/acpmux/README.md).
-        #if DEBUG
-        let allowsDevServer = true
-        #else
-        let allowsDevServer = false
-        #endif
+        self.linkScheme = linkScheme
+        self.git = git
+        let (resolvedSource, resolvedHost) = Self.resolvePane(tag: tag, environment: environment, showcase: showcase)
+        host = resolvedHost
+        // Start acpmux while the first pane is loading. The page still owns
+        // the authenticated WebSocket handshake and session selection.
+        Task { try? await resolvedHost.prewarm() }
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
         case "1": renderRate = .full
@@ -72,15 +136,14 @@ final class AgentTabStore {
         #else
         renderRate = .adaptive
         #endif
-        source = AgentPaneSource.resolve(
-            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
-        )
+        source = resolvedSource
         customization = AgentPaneCustomizationWatcher(
             directory: AgentPaneCustomization.directory(configFile: CmuxConfigFile.defaultURL(environment: environment))
         )
         customization.onChange = { [weak self] value in
             guard let self else { return }
             for view in views.values { view.customization = value }
+            for view in standaloneViews.allObjects { view.customization = value }
         }
         shortcuts = AgentPaneShortcuts.read(registry)
         // Rebinds in Settings or cmux.json reach every open page.
@@ -89,63 +152,155 @@ final class AgentTabStore {
                 guard let self else { return }
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }
+                for view in standaloneViews.allObjects { view.shortcuts = value }
+            }
+        }
+        if let settings { follow(settings) }
+    }
+
+    /// Follows `labs.previewFeatures` in cmux.json.
+    func follow(_ settings: SettingsController) {
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        previewObservation = Task { [weak self] in
+            for await on in Observations({ settings.snapshot.previewFeatures }) {
+                guard let self else { return }
+                previewFeatures = on
+                for view in views.values { view.previewFeatures = on }
+                for view in standaloneViews.allObjects { view.previewFeatures = on }
             }
         }
     }
 
-    /// Adds a new chat tab to `paneKey`'s strip and returns its id.
-    ///
-    /// - Parameters:
-    ///   - paneKey: The pane's id (`PaneModel.id`).
-    ///   - store: The tree of the daemon that owns the pane.
-    ///   - after: The tab to place it after; nil appends it.
-    ///   - session: The acpmux session it shows; nil starts a new chat.
-    ///   - seed: What a new chat inherits (cwd, a draft); ignored with a session.
-    func open(in paneKey: String, of store: DaemonStore, after: String? = nil, session: String? = nil,
-              seed: AgentPaneSeedSource? = nil) -> String {
-        let key = LocalAgentTab.prefix + UUID().uuidString.lowercased()
-        var tabs = tabsByPane[paneKey] ?? []
-        if let after, let index = tabs.firstIndex(of: after) {
-            tabs.insert(key, at: index + 1)
-        } else {
-            tabs.append(key)
-        }
-        tabsByPane[paneKey] = tabs
-        sessions[key] = session
-        if session == nil { seeds[key] = seed }
-        paneStores[paneKey] = store
-        watch(store)
-        return key
+    /// True when `key` names an agent chat tab in a tree.
+    func isAgentTab(_ key: String) -> Bool { lookup(key) != nil }
+
+    /// True when a pane of `daemon` can get a new agent chat tab: this build has the page, this
+    /// Mac has an install id, and the daemon holds agent session tabs.
+    func canHost(on daemon: DaemonService) -> Bool {
+        canHostChat && localHost != nil && holdsTabs(daemon)
     }
 
-    /// Duplicate Tab: a new tab in `paneKey` after `key`, showing its session.
-    func duplicate(_ key: String, in paneKey: String, of store: DaemonStore) -> String {
-        open(in: paneKey, of: store, after: key, session: sessions[key])
+    /// The tab showing acpmux session `session` (`cmux://session/<id>`) of this Mac, if any.
+    func tab(showing session: String) -> String? {
+        let host = localHost
+        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session }?.key
     }
 
-    func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
-
-    func stripItem(_ key: String) -> StripTabItem {
-        StripTabItem(id: StripTabID(key), title: AgentPaneModel.tabTitle, subtitle: nil,
-                     icon: .symbol("bubble.left.and.text.bubble.right"), isBusy: false)
+    /// The acpmux session agent tab `key` shows; nil for a new chat.
+    func session(of key: String) -> String? {
+        let key = resolve(key)
+        return sessions[key] ?? lookup(key)?.record.session
     }
 
-    /// The tab's pane view, made on first show.
+    /// The store's id of `key` (a provisional id after its creation answered).
+    func resolve(_ key: String) -> String { aliases[key] ?? key }
+
+    /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
+    /// through its page, or with the handshake of a page not made yet.
+    func revealTurn(_ turn: String, in key: String) {
+        let key = resolve(key)
+        if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
+    }
+
+    /// The link turn tab `key`'s page has not been handed yet.
+    func pendingTurn(in key: String) -> String? {
+        let key = resolve(key)
+        return views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
+    }
+
+    /// The tab's pane view, made on first show. Nil for a tab whose session runs on another
+    /// machine's acpmux: this Mac does not attach to it.
     func view(for key: String) -> AgentPaneView? {
+        let key = resolve(key)
         if let view = views[key] { return view }
-        guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
-        let model = AgentPaneModel(host: host, sessionId: sessions[key], seed: seeds.removeValue(forKey: key))
-        model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
+        guard let (record, store) = lookup(key), record.host == localHost else { return nil }
+        let model = AgentPaneModel(
+            host: host,
+            sessionId: sessions[key] ?? record.session,
+            seed: seeds.removeValue(forKey: key),
+            newTab: newTabPages[key]?.page
+        )
+        model.sessionMustExist = linkedSessions.contains(key)
+        model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
+        wire(model, key: key)
+        guard let view = makeView(model) else { return nil }
+        views[key] = view
+        track(key, in: store)
+        return view
+    }
+
+    /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
+    /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
+    func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
+        guard let view = makeView(AgentPaneModel(host: host, newTab: page)) else { return nil }
+        standaloneViews.add(view)
+        return view
+    }
+
+    /// Tab `key`'s callbacks on its page's model.
+    /// Tab `key`'s callbacks on its page's model. Each resolves the tab's current id when it
+    /// runs, so a page made under a provisional id keeps working under the store's.
+    func wire(_ model: AgentPaneModel, key provisional: String) {
+        model.onSessionChange = { [weak self] session in
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.becameChat()
+            newTabPages[key] = nil
+            views[key]?.applyTheme() // now the agent chat surface (R55)
+            sessions[key] = session
+            sendSession(session, for: key)
+        }
+        model.onOpenTab = { [weak self] request in
+            BenchSpans.mark("bridge.tab.open")
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.open(key, request)
+        }
+        model.onTypeAhead = { [weak self] text in
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.typeAhead(key, text)
+        }
+        model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
+        model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
+        model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
+        model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
+        model.onRunAction = { [weak self] id in
+            _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+        }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
+        // A local session's folder is read by the local session host; the page refuses cloud sessions.
+        if let git { model.onGit = { request in try await git.read(request) } }
+    }
+
+    /// A pane view on this store's page and host, with the shared pushes.
+    private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
+        model.linkScheme = linkScheme
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
-        views[key] = view
+        view.previewFeatures = previewFeatures
         customization.start()
         return view
     }
 
-    func existingView(_ key: String) -> AgentPaneView? { views[key] }
+    func existingView(_ key: String) -> AgentPaneView? { views[resolve(key)] }
+
+    func newTabPage(_ key: String) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? { newTabPages[resolve(key)] }
+
+    /// The tab still shows the new tab page (it has not become a chat).
+    func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
+
+    /// A new chat outside any pane (onboarding's first task), on the same
+    /// daemon and page as the tabs. The caller owns it and closes it.
+    func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
+        guard let view = makeView(AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))) else { return nil }
+        standaloneViews.add(view)
+        return view
+    }
+
+    /// True when this build has the agent page (bundled or dev server).
+    var canHostChat: Bool { source != nil }
 
     /// Focus changes and the page's capability mirror update one registry fact.
     func setCheckpointFocus(_ key: String?) {
@@ -154,89 +309,42 @@ final class AgentTabStore {
     }
     private func publishCheckpointAvailability() {
         guard let registry = actionRegistry else { return }
-        let available = checkpointFocusTab.flatMap { views[$0] }?.model.checkpointAvailable == true
+        let available = checkpointFocusTab.flatMap { views[resolve($0)] }?.model.checkpointAvailable == true
         var next = registry.context
         if available { next.insert(.checkpointCaptureAvailable) }
         else { next.remove(.checkpointCaptureAvailable) }
         if next != registry.context { registry.context = next }
     }
 
-    /// The tab closed: stop its page and forget it.
-    func close(_ key: String) {
-        for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
-        tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
-        views.removeValue(forKey: key)?.close()
-        sessions[key] = nil
-        seeds[key] = nil
-        forgetUnusedStores()
-        stopCustomizationWhenUnused()
-    }
-
-    /// The pane closed: stop every agent tab it listed.
-    func closePane(_ paneKey: String) {
-        for key in tabsByPane.removeValue(forKey: paneKey) ?? [] {
-            views.removeValue(forKey: key)?.close()
-            sessions[key] = nil
-            seeds[key] = nil
-        }
-        forgetUnusedStores()
-        stopCustomizationWhenUnused()
-    }
-
-    /// Closes the agent tabs of every pane `store` no longer lists, once it
-    /// is connected with a live tree. While the daemon is away its panes
-    /// keep their tabs.
-    func closeGonePanes(in store: DaemonStore) {
-        guard let live = Self.livePanes(store) else { return }
-        for (paneKey, owner) in paneStores where owner === store && !live.contains(paneKey) {
-            closePane(paneKey)
-        }
-    }
-
-    private static func livePanes(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.id))
-    }
-
-    private func watch(_ store: DaemonStore) {
-        let id = ObjectIdentifier(store)
-        guard watches[id] == nil else { return }
-        // task-owner: stored in watches; cancelled once no pane of the store has agent tabs
-        watches[id] = Task { [weak self] in
-            for await live in Observations({ Self.livePanes(store) }) where live != nil {
-                guard let self else { return }
-                self.closeGonePanes(in: store)
-            }
-        }
-    }
-
-    private func forgetUnusedStores() {
-        paneStores = paneStores.filter { tabsByPane[$0.key] != nil }
-        let used = Set(paneStores.values.map { ObjectIdentifier($0) })
-        for id in watches.keys where !used.contains(id) {
-            watches.removeValue(forKey: id)?.cancel()
-        }
-    }
-
-    private func stopCustomizationWhenUnused() {
-        if views.isEmpty { customization.stop() }
+    func stopCustomizationWhenUnused() {
+        if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
     }
 }
 
-extension PaneController {
-    /// New Agent Chat: a new agent tab in this pane, selected. It inherits
-    /// the selected tab's context (`agentSeedFromSelectedTab`, #16620).
-    func newAgentTab() {
-        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, seed: agentSeedFromSelectedTab()))
-    }
+/// A store-committed agent chat tab: its tab id (`TabModel.id`) and surface.
+struct AgentTabCreated: Sendable, Equatable {
+    var key: String
+    var surface: SurfaceID
+}
 
-    /// Duplicate Tab on an agent tab: the same session, right after it.
-    func duplicateAgentTab(_ key: String) {
-        showAgentTab(services.agentTabs.duplicate(key, in: paneKey, of: daemon.store))
-    }
+/// What the store answered a session bind.
+enum AgentSessionBindOutcome: Equatable {
+    case taken
+    /// Another device changed the tab's chat first (`conversation_tab.session_conflict`).
+    case conflict
+    /// The bind did not reach the store or failed otherwise.
+    case failed
+}
 
-    private func showAgentTab(_ key: String) {
-        apply(snapshot())
-        select(StripTabID(key))
+extension AgentTabStore {
+    /// `name` without control characters, cut to 255 bytes on a character boundary; nil when empty.
+    static func displayName(_ name: String) -> String? {
+        var result = ""
+        for character in name where !character.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
+            guard result.utf8.count + String(character).utf8.count <= 255 else { break }
+            result.append(character)
+        }
+        let trimmed = result.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

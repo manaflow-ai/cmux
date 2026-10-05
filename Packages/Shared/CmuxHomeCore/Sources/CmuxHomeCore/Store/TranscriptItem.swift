@@ -19,6 +19,52 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var delivery: Delivery
     public var reactions: [Reaction]
     public var isRetracted: Bool
+    public var editedAt: Date?
+    public var replyTo: PartRef?
+    public var threadRoot: MessageID?
+    /// The owner's message id of a committed message (nil for a pending
+    /// send). Opaque to renderers: hosts pass it back in ops that name a
+    /// message (`addReaction`). Filled by the data side (HomeStore).
+    public var messageID: MessageID?
+    /// Local files for this row's attachment parts, by content hash, when
+    /// this client has them (my sends, before and after the echo). Empty
+    /// otherwise: fetch the bytes with `HomeStore.fetchAttachment`.
+    public var localAttachments: [String: LocalAttachmentFiles]
+    /// Upload progress (0...1) by content hash while this send uploads its
+    /// attachments. Empty once the uploads end (done or failed).
+    public var attachmentProgress: [String: Double]
+    /// A "Not Delivered" send that reached the owner and got no answer
+    /// after every resend: the owner may have committed it. The host says
+    /// "may not have been delivered" instead of "Not Delivered". Retry
+    /// sends it again under the same key (the owner applies it once), and
+    /// if it was committed the echo turns the row into the message, also
+    /// after the user discards it.
+    public var mayHaveBeenDelivered = false
+
+    public init(key: IdempotencyKey, seq: Seq?, author: ParticipantID, parts: [MessagePart], createdAt: Date,
+                delivery: Delivery, reactions: [Reaction] = [], isRetracted: Bool = false,
+                editedAt: Date? = nil, replyTo: PartRef? = nil, threadRoot: MessageID? = nil, messageID: MessageID? = nil,
+                localAttachments: [String: LocalAttachmentFiles] = [:], attachmentProgress: [String: Double] = [:]) {
+        self.key = key
+        self.seq = seq
+        self.author = author
+        self.parts = parts
+        self.createdAt = createdAt
+        self.delivery = delivery
+        self.reactions = reactions
+        self.isRetracted = isRetracted
+        self.editedAt = editedAt
+        self.replyTo = replyTo
+        self.threadRoot = threadRoot
+        self.messageID = messageID
+        self.localAttachments = localAttachments
+        self.attachmentProgress = attachmentProgress
+    }
+
+    /// Hashes of this row's attachment parts, in part order.
+    public var attachmentHashes: [String] {
+        parts.compactMap { if case .attachment(let ref) = $0 { ref.hash } else { nil } }
+    }
 
     public var id: IdempotencyKey { key }
 
@@ -37,7 +83,11 @@ extension TranscriptWindow {
                 createdAt: message.createdAt,
                 delivery: .committed,
                 reactions: message.reactions,
-                isRetracted: message.isRetracted
+                isRetracted: message.isRetracted,
+                editedAt: message.editedAt,
+                replyTo: message.replyTo,
+                threadRoot: message.threadRoot,
+                messageID: message.id
             )
         }
         let committedKeys = Set(items.map(\.key))
@@ -48,7 +98,7 @@ extension TranscriptWindow {
             } else {
                 .sending
             }
-            items.append(TranscriptItem(
+            var item = TranscriptItem(
                 key: entry.intent.key,
                 seq: nil,
                 author: me,
@@ -57,7 +107,9 @@ extension TranscriptWindow {
                 delivery: delivery,
                 reactions: [],
                 isRetracted: false
-            ))
+            )
+            item.mayHaveBeenDelivered = delivery != .sending && entry.mayHaveBeenDelivered
+            items.append(item)
         }
         return items
     }

@@ -15,6 +15,16 @@ extension AgentPaneModel {
     static var openFileFailedMessage: String {
         String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .module)
     }
+
+    /// The page's browser.open (a turn's local web page) was refused or failed.
+    static var openPreviewFailedMessage: String {
+        String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
+    }
+
+    /// A git read of the changes view failed or has no session host.
+    static var gitFailedMessage: String {
+        String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
+    }
 }
 
 extension AgentPaneView {
@@ -34,7 +44,10 @@ extension AgentPaneHostError {
     static func userMessage(for error: any Error) -> String {
         switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
-            String(localized: "agentPane.error.notFound", defaultValue: "acpmux was not found. Install acpmux or use a build that bundles it.", bundle: .module)
+            String(
+                format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
+                AcpmuxEnvironment.installDirectories.joined(separator: ", ")
+            )
         case .daemonFailed(let logPath):
             String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
         case .daemonStopped:

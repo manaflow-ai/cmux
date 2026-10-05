@@ -195,3 +195,171 @@ Debt removed on the way: in-app JSC engine (after 3), `registry.json` (after 3),
 | Remote desktop | host handles, a native streaming surface, input with origin user only, visible control indicator |
 
 Drag and drop: typed items `{kind: file|doc|diff|text|url|task, handle|value, display}`; targets declare accepted kinds; drops between hosts copy or move through `fs.copy` on the owners.
+
+### 12.5 Manifest v2 extensions (2026-10-03, names approved by the coordinator)
+
+The first-party apps found seven things v2 could not hold (`first-party-apps/*/README.md`, "Manifest v2"). The schema, the validator (`cmux-app-manifest`) and the fixtures now hold them; lane 3 restores the dropped behavior in each app.
+
+| Field | Shape | Validator rule |
+| --- | --- | --- |
+| Scopes | verbs `answer`, `control`, `input`, `keys` join `<family>:read|write|execute|external` (`feed:answer`, `host:control`, `terminal:input`, `coderouter:keys` for creating and revoking credentials of the family); fixed `embed:run`; server-only `process:spawn:<binary>` and `op:<op name>` in `server.scopes` | every scope has a risk class from `schema/v2/scope-classes.json` (standard, sensitive, restricted); server-only scopes outside `server.scopes` are errors; `process:spawn` needs a native server; restricted scopes in a non-first-party manifest are warnings (a Verified review must cover them) |
+| Restricted scopes | `feed:answer`, `terminal:input`, `fs:write`, `clipboard:write`, `mcp:expose`, `usage:read`, any `<family>:answer|input|keys`, `process:spawn:*` (Swift reads the same table: `AppScopeClassTable` over the bundled `scope-classes.json`; unknown scopes count as restricted) | sensitive: every write, execute, external and control verb, `actions:run`, `net:*`, `integration:*`, `op:*`; standard: every read verb, `storage:*`, `embed:run` |
+| Catalog op surfaces | `keyboard: [{key: "cmd+s", when}]`, `gesture: "required"|"optional"`, `palette: {title, when?, presets?: [{id, title, args, when?}]}` | `schema/v2/cmux-app-catalog.schema.json`; op owner is `app:<id>`, names are in the fragment's family, names and preset ids unique, `export` needs `runtime.main`, a shortcut bound twice for the same condition warns |
+| `requires` | `{hostCapabilities: ["power.assertion/1"], platforms: ["macos", "linux", "ios"]}` | unknown host capability is an error; the supervisor refuses to enable the app elsewhere |
+| `lifecycle` | `{onDisable, onUninstall}`: `release-owned` (default) or `keep` | the host releases resources the app owns (power assertions, watches, panes) |
+| `handles` | kinds `root`, `connection`, `credential`, `document`, `diff`, `image`, `terminal`, `task`; value is a reason or `{reason, max?, rights?: [read, write], kinds?}` | `host` is gone (14.1). There is no credential-connection kind: an app asks for a `connection` handle with `kinds` (for example `ssh`, `cloud-vm`) and, only when it needs the secret itself, a separate `credential` handle |
+| `documents` | `[{id, title, types?, extensions?, symbol?}]`, one owner per type | |
+| `openWith` | `[{interface, types, default: ask|never}]` | the interface must be in `implements` |
+| `notices` | `[{path, title?}]` | the file exists in the package and is in `files` |
+| `drag` / `drop` | `{provides: [kind]}` / `{accepts: [kind]}`; kinds `file`, `directory`, `text`, `url`, `image`, `document`, `diff`, `terminal`, `task`, `connection` | |
+| `consumes` | `{interfaces, ops, events, handles}` (the array form is removed) | interfaces must be known |
+| `implements.<interface>.server: true` | the app's top-level server block (native or js) implements the interface's methods over the provider channel, for example `{"cmux.fs.provider/1": {"server": true, "schemes": ["cloud-vm"]}}` (Cloud app lead, approved 2026-10-04) | exactly one of export, web, native, server; `implements.serverMissing` without a top-level server |
+| Terminal backends | `cmux.terminal.backend/1` (bytes mode: open, resume, write, resize, signal, close; events output, exit, lost) and `cmux.terminal.connector/1` (host mode: the far end runs a session host, the local host relays the viewer protocol); both take `options.kinds` (1-16 unique ids, default deny; registry ids `app:<app>/<kind>`); scope `terminal:backend` is restricted | shapes chosen by the ghostty-next lead (cloud-app.md); interface files are drafts until the Cloud and sample backends prove them |
+| Interface options | each interface file has an `options` JSON Schema (section: `defaultRegion`, `maxRows`; status: `placement`; editor: `capabilities`, `paneCommands`; diff renderer: `inputs`) | options on an interface without an options schema are errors |
+| Servers | unchanged | `cmux-notes` and `cmux-usage` declarations wait for the binaries; their scopes fit the grammar above |
+
+`validate_package_file(dir, "cmux-app.v2.json")` validates a package that still ships a v1 `cmux-app.json`, the catalog fragment included; a test runs it over every first-party app.
+
+## 13. Step 3 contract: the Rust app host (2026-10-02)
+
+Coordinator answers applied: default first-party apps come from a deployment list and get their required scopes without a consent sheet (visible and revocable in Settings); cards are the default store layout and section look; agents may hide and unhide apps, never install them until the actor stamp lands.
+
+### 13.1 Processes and owners
+- **App supervisor**: a module of the cmux daemon (`cmux-tui-core::apps`, new files only), capability `apps-v1`. Owns, per machine: the install mirror (local `apps.json` in the daemon state dir until the `UserDO` install record syncs down; same fields as V9), grants, scope checks against `scopes.json`, the app bundle cache, per-app KV storage (SQLite, one table per app), the egress gate for `net.fetch`, and the app host processes. It routes app calls to the daemon's own op dispatcher with `actor = app:<id>`, `on_behalf_of = <user>`, origin `script` (or `user` when a live gesture token is presented by a mutation).
+- **App host**: crate `cmux-app-host` (`cmux-tui/crates/cmux-app-host`, binary `cmux-app-host`), one process per running app, QuickJS-ng through rquickjs, embeds `js/dist/cmux-app-runtime.js`, implements the runtime ABI (`js/ABI.md`) natively. Spawned by the supervisor with one end of a socketpair (fd 3); JSON lines both ways; memory limit 32 MiB, interrupt deadline 250 ms per entry, at most 64 pending calls, drains the job queue after every entry point. macOS: `sandbox_init` profile denying network, exec and file reads outside the bundle; Linux: seccomp + Landlock. Idle stop after the last mount closes plus a one-shot timer (setting `apps.idleStopSeconds`, default 60).
+- **Clients** (macOS app, TUI later, iOS via relay): mirror installs and scene streams; render scenes natively and web panes; send user events. No engine, no registry, no grants in the client.
+
+### 13.2 Daemon commands (capability `apps-v1`)
+| cmd | params | result / events |
+| --- | --- | --- |
+| `apps-list` | `{}` | `{apps: [{id, version, tier, installed, enabled, hidden, hidden_access, source: default|user|bundled|local, grants: [scope], sandboxed, manifest}]}` |
+| `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; every change (including `hidden`) needs a verified cmux app connection (origin `user`) until P8 adds the verified-app path; agents must not change what the user sees (D55 as amended, request-origin.md) |
+| `apps-mount` | `{app, interface, mount_id, context}` | starts the host if needed; events `apps-scene {mount_id, ops}` then deltas; `apps-mount-failed {mount_id, reason}` |
+| `apps-unmount` | `{mount_id}` | — |
+| `apps-dispatch` | `{mount_id, node, event, payload}` | the supervisor mints the gesture token for user events from clients with origin `user` |
+| `apps-run` | `{app, op, args, idempotency_key}` | runs a catalog op of the app (palette, CLI `cmux apps run`, MCP); waits for the result |
+| `apps-logs` | `{app, follow?}` | log lines; follow streams `apps-log` events |
+| events | `apps-changed {revision}` (install mirror), `apps-host {app, state: running|stopped|crashed, reason?}` | |
+
+Every mutation carries an idempotency key and ends with `request-settled` like other daemon ops (OWNERSHIP-PRINCIPLES).
+
+### 13.3 What is deleted in the same step
+Swift: `AppEngine`, `AppGrants`, `AppRegistry`/`AppRegistryFile`, `AppOperationRouter` and the deferred sink, `AppManifestValidator*`, the JavaScriptCore watchdog; CmuxNextApps keeps the scene model and renderer, the App Store UI (over an `apps-v1` client), and the section provider. TypeScript: `tools/validate-manifest.ts`, `tools/json-schema.ts` (the Rust crate validates samples in its tests); the v1 schema and fixtures. Samples are rewritten on manifest v2 (`implements` `cmux.section/1`, `cmux.status/1`).
+
+## 14. Folded in: first-party apps round 2 and the file browser proposal (2026-10-02)
+
+Inputs: `first-party-apps.md` section 12 (open points against v2) and `finder.md` (what a third-party file browser needs). Coordinator answers: daemon requests get an actor field; the first-party apps lead moves `first-party-apps/` to manifest v2; the Rust lane's lifecycle choices are accepted; `cmux-app-host` packaging goes to the pin owner and PRs 16871 + 16872 merge together once the binary ships.
+
+### 14.1 Decided now (in the schema on this branch)
+- Connection handles are `conn_…`, not `host_…` (`host_…` is the public enrolled-host id, enumerable, not a capability; plain SSH targets have none). V6 handle kinds: `root`, `connection`, `credential`, `document`, `diff`, `image`.
+- Scope grammar: superseded by 12.5 (`<family>:answer|control|input`, `embed:run`; `power:read|write` and `account:read` are ordinary family scopes).
+- `untrack` is declared in `cmux-app.d.ts`; `files` is a category.
+
+### 14.2 Added to the order of work
+| Item | Owner | Step |
+| --- | --- | --- |
+| **Actor field on daemon requests**: every request carries `actor` (`user`, `app:<id>`, `agent:<id>`) stamped by the connection owner, never by the caller; the owner records it in the replay record; the supervisor stamps `app:<id>` on app calls | daemon (cmux-tui) + supervisor | 3b |
+| Gesture tokens for palette and keybinding invocations of app ops: the client mints the token for the user action and `apps-run` carries it, so user-only ops (export, import, answer) work from the palette | supervisor + Mac app | 3b |
+| Scene: `ScrollView`, semantic `List` with selection, focus, keyboard commands and `onVisibleRange`, `Table` with sortable and resizable columns, `Embed` node (embeds from scenes, not only web panes), `drag` / `drop` props with typed items, `tap {count, modifiers}`, `TextField` styles (`search`, `bordered`), `Image` accepting `img_…` handles | runtime + all renderers | 4 |
+| Pane plumbing: `app.pane.open {kind, input}` with a gesture, `ctx.size` + resize events, the terminal theme in the pane init, pane-routed commands (Cmd-S goes to the focused editor pane's `requestSave`) | supervisor + Mac app | 4 |
+| Web pane CSP default allows `style-src 'self' 'unsafe-inline'` (editors need it); scripts stay `'self'` | Mac app web pane host | 4 |
+| File system ops: `fs.roots.list/pick/release/watch`, `fs.list` with cursor batches and a window, `fs.watch` with revisions, `fs.stat/read`, `fs.mkdir/rename/copy/move/trash/delete/undo`, jobs (`fs.job.*`) with conflict answers, `fs.thumbnail` returning `img_…` | file system owner (session host; `cmux link` SFTP for SSH) | 6 |
+| Connections and credentials: `host.list/connect/disconnect/forget/watch` returning `conn_…`, host key verification sheet, `credential.request/release` returning `cred_…` | transport (lane 12) + credential broker | 6 |
+| Drag and drop targets: `terminal.drop` (local path or remote-safe reference), `agent.attach` (handle into the agent context, intersected with the dragger's grant), cross-host copy through `fs.copy` | session host, ACP owner, shell drag session | 6 |
+| One hunk-decide op for every diff producer (`diff.hunk.decide {diff, hunk, decision}` routed by the diff's producer) | diff producers | 5 |
+| `open.with.list` for the Open With menu | config layer | 4 |
+
+### 14.3 Open
+- Who builds `cmux link` SFTP and the host key sheet (transport lead, lane 12): questions in `finder.md` section 11 go there through the coordinator.
+
+### 14.4 Host capabilities (system features through host ops, never through app code)
+Apps reach system features only through ops owned by the native host of the machine; app code never spawns processes or calls system APIs.
+
+| Capability | Ops | Owner | Rules | Users |
+| --- | --- | --- | --- | --- |
+| Power assertions | `power.assertion.create {kinds: display|idle|disk|system|user, reason, until: {pid|terminal|task|deadline}}` -> `pwr_…`, `power.assertion.release {assertion|all}`, `power.assertion.list`, stream `power.assertion.watch` | the native host on that machine (IOKit power assertions; no process spawn) | scope `power:write` (list: `power:read`); an agent may bind an assertion only to its own terminal and for at most 4 h; `until-stopped` and releasing another actor's assertion need origin user; every assertion ends with its binding (pid exit, terminal idle, task done, deadline) | Caffeinate app (PR 16998), cmux server health, CLI `cmux power keep-awake\|list\|stop\|watch` (accepted by the Rust CLI owner: global `--session` routing, `$CMUX_TUI_TERMINAL_ID`, verbs generated from the catalog, `watch` CLI only, host checks origin user) |
+
+The app supervisor lane adds the power ops after PR 16872 lands; the catalog generates the CLI verbs and MCP tools.
+
+## 15. App Store backend: `cmux.apps.*` (R62 UI-STACK, 2026-10-04)
+
+The App Store page moves to React (webviews) with a Rust backend; the Swift App Store UI is deleted after parity and gets no new features. The app supervisor (apps-v1) owns these ops; they are Rust types with `schemars` in `cmux-tui-core/src/apps/store.rs` and enter the one IR through emit-ir (pane-protocol.md; one catalog for panes and apps, full names canonical, old wire names as `aliases`). The page, the CLI and MCP use the generated client.
+
+| Op | Scope | Rule |
+| --- | --- | --- |
+| `cmux.apps.catalog.list {query?, category?, tier?, cursor?, limit?}` | apps:read | bundled, sample, local and registry apps in one list, with install state and mirror revision |
+| `cmux.apps.catalog.get {app, version?}` | apps:read | detail: scopes with risk class (scope-classes.json) and reason, handles, notices, versions, interfaces |
+| `cmux.apps.asset.get {app, path}` | apps:read | only paths the manifest names (icon, screenshots, notices), as a byte stream; the page never reads bundle folders |
+| `cmux.apps.installed.list` | apps:read | installed, enabled, hidden, sandboxed, source (default, user, bundled, local), version, update, grants |
+| `cmux.apps.install {app, version?, grant_optional}` / `cmux.apps.uninstall {app}` | apps:write | origin user with a gesture; agents refused until the actor stamp |
+| `cmux.apps.set {app, enabled?, hidden?, sandboxed?}` | apps:write | origin user for every field, hidden included, until P8 adds the verified-app path (D55 as amended: agents must not change what the user sees); replaces the `app.hide`/`app.unhide` actions |
+| `cmux.apps.grants.get {app}` / `cmux.apps.grant.set {app, scope, granted}` | apps:read / apps:write | grant changes origin user with a gesture |
+| `cmux.apps.updates.list` / `cmux.apps.update {app}` | apps:read / apps:write | an update that adds scopes asks first; update origin user |
+| `cmux.apps.local.add {path}` / `cmux.apps.local.remove {app}` | apps:write | dev apps start sandboxed; origin user |
+| `cmux.apps.validate {path}` | apps:read | `cmux-app-manifest` issues |
+| `cmux.apps.logs {app, follow?}` | apps:read | stream of log lines |
+| `cmux.apps.watch` | apps:read | typed stream `{revision, app?}` so the page never polls |
+| `cmux.apps.open {app, as?: "screen"\|"tab", target?, command?, focus?}` | apps:write | `as` defaults to `presentation.screen` (section 16); `as: "screen"` calls the layout owner's `workspace.ensure_app {app, kind}`; `as: "tab"` opens a page tab, `target` = a tab drop zone; replaces the `app.open` action |
+
+Confirmation (coordinator decision, React UIs plan): install, uninstall, update and grant.set always show a native Swift confirmation sheet (app name, scopes with their risk class). Only that sheet stamps origin user; user activation in page JavaScript is not proof of a gesture. The supervisor asks the client that shows the page for the sheet and runs the op only after the user confirms there; a refusal answers `apps.confirmation_declined`.
+
+Icons: cmux never ships SF Symbols as web SVGs (Apple license). `cmux.apps.asset.get` renders a manifest symbol name to a PNG on a Mac host; other clients show a generic glyph. The validator warns (`icon.noImage`) when a manifest has no image icon.
+
+The CodeRouter entry needs no op of its own: a first-party listing plus `cmux.apps.open`. Third-party namespaces are `<publisher>.<name>` ('-' becomes '_'); the store registry (AppDO) keeps publisher ids unique.
+
+## 16. App screens: `presentation` for every app (R63/R64, spec app-screens.md 4)
+
+Every app, built-in or third-party, says how it appears with one manifest v2 block. Home, App Store and CodeRouter use the same fields (`first-party-apps/home`, `app-store`, `coderouter`); no code path reads them specially. A Gmail web app is a manifest with a top sidebar item, `screen: "app"`, a web URL and an icon (`schema/v2/fixtures/valid/gmail.json`).
+
+```json
+"presentation": {
+  "sidebarItem": {"section": "top", "title": "Gmail", "icon": "icon.png", "order": 130},
+  "screen": "app",
+  "tab": true,
+  "primaryInput": "div[role=search] input",
+  "web": {"url": "https://mail.google.com/mail/u/0/", "profile": "app", "origins": ["https://accounts.google.com"]}
+}
+```
+
+| Field | Meaning | Validator |
+| --- | --- | --- |
+| `sidebarItem {section, title?, icon?, order?}` | a sidebar item that opens the app; title and icon default to the app's; the user may hide or move it (R53) | `order` 0-99 is first-party only (`presentation.orderReserved`), so no app sits above Home (Home 0, App Store 10, CodeRouter 20) |
+| `screen` | `app` (the app fills the screen) or `appColumn` (a docked app column next to the normal columns, like Home) | |
+| `tab` | the app may also open as a page tab (Open as Tab, drag into a workspace) | |
+| `primaryInput` | where typing goes when nothing has focus: a CSS selector in a web page, or a scene node id | |
+| `web {url, profile?, origins?}` | a web app shown in the browser engine with its own profile (`app`: cookies stay per app) and the browser's network policy; the native install confirmation lists `url` and `origins` | `https` only; a sidebar item, screen or tab needs content: `implements["cmux.pane/1"]` or `web` (`presentation.noContent`); not both (`presentation.twoContents`) |
+
+A sidebar item and a screen need no scope. Owners: the layout lead implements the screen kinds from `screen`; the sidebar lead builds the top band from `sidebarItem` of the installed, visible apps (replacing the hard-coded default items); the App Store confirmation shows the web URL list.
+
+## 17. Toolbar items: `contributes.toolbarItems` (R69, spec titlebar-area.md 3)
+
+Apps add buttons, menu buttons and small views to the top-left toolbar band, and may offer an alternative behavior for a built-in item. Built-in items (`sidebar.toggle`, `nav.back`, `nav.forward`) are ordinary catalog entries.
+
+```json
+"contributes": {"toolbarItems": [
+  {"id": "compose", "kind": "button", "title": "Compose", "icon": {"symbol": "square.and.pencil"}, "action": {"op": "mail.compose"}, "order": 10},
+  {"id": "more", "kind": "menu", "title": "More", "items": [{"title": "Refresh", "action": {"op": "mail.refresh"}}]},
+  {"id": "meter", "kind": "view", "title": "Usage", "width": 120},
+  {"id": "back", "kind": "button", "title": "Back in Mail", "action": {"op": "mail.back"}, "overrides": "nav.back"}
+]}
+```
+
+| Rule | Where |
+| --- | --- |
+| `kind` button needs `action` (one of the app's catalog ops or a catalog action id, with `args`); menu needs `items` (at most 16); view needs `width` (16-160 pt) and `runtime.web` (the slot is rendered by `cmux-page://<app>/toolbar/<id>`) | schema; `toolbar.viewNeedsWeb` |
+| At most 4 items per app; the shell shows `TOOLBAR_VISIBLE_APP_ITEMS` (3) app items and puts the rest in the overflow menu | schema `maxItems`; shell |
+| No position field: app items always follow the built-in items, so none sits left of the sidebar toggle; `order` sorts app items only | schema (unknown keys refused) |
+| `overrides` names `nav.back` or `nav.forward` and only on a button; the user picks the alternative in Settings, never applied silently; `sidebar.toggle` cannot be overridden or removed | `toolbar.toggleFixed`, `toolbar.overrideUnknown`, `toolbar.overrideKind` |
+| An action op in the app's own catalog family must exist in its fragment; ids are unique | `toolbar.unknownOp`, `toolbar.duplicate` |
+
+Swift: `AppManifest.toolbarItems` (`AppToolbarItem`: kind, title, icon, action, menu items, width, order, when, overrides), read from first-party v2 manifests. Owners: the sidebar lead renders the band, the slots and the Settings rows; the app platform lead owns the fields and the validator.
+
+## 18. Third-party servers, elevated scopes, one id mapping (2026-10-04, approved by the coordinator)
+
+Gaps found by the Cloud lead's third-party SSH sample (manaflow-ai/ssh-terminal).
+
+- **Server kinds.** `server.kind` is `native`, `js` or `external`. First-party native servers ship inside cmux (`binaries`). A third-party native server is a signed download (`artifacts` per platform `{url, sha256, signature}`): the store listing pins the sha256, the registry checks the signature against the publisher key, and it runs only for Verified apps (`tier.nativeReview` warns), under the same OS sandbox as the app host, reached only over the provider channel. Unverified apps use `js` (QuickJS) or `external`: a process the user starts that connects to the router with an app credential the user approves in the native sheet, local only, with only its grants (pane protocol R60). Strongest objection to third-party native code: a signature proves who built it, not that it is harmless; hence Verified review, pinned hashes and the sandbox.
+- **Elevated scopes.** A fourth class next to standard, sensitive and restricted: never granted at install, never checked by default; any tier gets it only by an explicit user grant in the native confirmation sheet, with a warning, origin user (the A2 gate). `terminal:backend` is elevated, so an unverified app can bring a terminal backend only when the user grants it. Manifests declare elevated scopes in `optionalScopes` (`scope.elevatedOptional`).
+- **Namespaced families (coordinator decision from hq-48's IR work).** A third-party app's catalog family is its namespace, so its ops are `<namespace>.<verb>` and their scopes `<namespace>:<verb>` (`octo.ssh_terminal:read`); the validator refuses any other family (`catalog.namespace`, local dev apps included: `local.<name>`). Bare families (`git`, `fs`, `router`, `apps`, `cmux`, ...) are first-party only. Scope patterns accept dotted families, and `scope-classes.json` classes them by verb. Requesting another owner's scope (`git:read` to call cmux git ops) stays allowed; only defining a family is restricted.
+- **One id mapping.** A manifest app id `<publisher>/<name>` maps to exactly one pane-protocol namespace: `<publisher>.<name>` with `-` replaced by `_` (`octo/ssh-terminal` -> `octo.ssh_terminal`, `cmux/*` -> `cmux.*`). There is no other mapping; the registry keeps publisher ids unique, and the router refuses ops outside the namespace.
+- **Supervisor follow-ups (apps-v1, after the window).** Enforce elevated (no install grant; user grant only through the sheet) and `external` (credential admission); start an app's native server when the app is enabled (`server.lifecycle.start`), first user the cmux Cloud app's `cmux-cloud` server; verify the hosting app connection by its peer code signature (shared task, cmux-tui reviewer).

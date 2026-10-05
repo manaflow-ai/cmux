@@ -2,18 +2,18 @@
 
 Markdown notes inside cmux: a scratchpad per workspace, quick capture, pins, search, Markdown import and export, and tools so an agent can keep notes for you.
 
-Notes are documents owned by the notes server: `server {kind: native, binary: cmux-notes, args: [serve], instances: user, data: durable}`. One instance per user keeps every note (text, revision, title, pin, workspace), derives titles and previews, searches, stamps who wrote last (user, agent, app, automation, from the caller's principal), and streams typed changes on `note.watch`. It is also the document host of each note's document (`doc_…`): body edits are `document.edit {doc, base_revision, edits}`, a stale base is refused with `revision.conflict` and the current text, and the editor rebases. Its ops are the catalog fragment `catalog/notes-catalog.json` (family `note`, owner `app:cmux/notes`). The text is edited in a native editor pane; this app keeps the sidebar section as scene trees. Nothing implements the server or the pane yet: on today's runtime the section shows "Notes are not available yet".
+Notes are documents owned by the notes server: `server {kind: native, binary: cmux-notes, args: [serve], instances: user, data: durable}`. One instance per user keeps every note (text, revision, title, pin, workspace), derives titles and previews, searches, stamps who wrote last (user, agent, app, automation, from the caller's principal), and streams typed changes on `note.watch`. It is also the document host of each note's document (`doc_…`): body edits are `document.edit {doc, base_revision, edits}`, a stale base is refused with `revision.conflict` and the current text, and the editor rebases. Its ops are the catalog fragment `proposed/notes-server-catalog.json` (family `note`, owner `app:cmux/notes`). The text is edited in a native editor pane; this app keeps the sidebar section as scene trees. Nothing implements the server or the pane yet: on today's runtime the section shows "Notes are not available yet".
 
 This app keeps no copy of the notes and no storage of its own: it renders the server's summaries (`note.list`, then `note.watch`) and fetches the bodies a surface shows (`note.get`, again when a newer revision arrives). The earlier single-key local store and its fallback are removed.
 
-Build: `bun cmux-tui/crates/cmux-app-host/tools/pack.ts first-party-apps/notes`. Validate: `bun cmux-tui/crates/cmux-app-host/tools/validate-manifest.ts first-party-apps/notes`. Test: `bun test first-party-apps/notes/test` (FakeHost with the mock notes server and file broker in `test/mock-server.ts`). Preview fixtures: `bun first-party-apps/notes/test/fixtures.ts --write`. `cmux-app.v2.json` is the manifest v2 sketch.
+Build: `bun cmux-tui/crates/cmux-app-host/tools/pack.ts first-party-apps/notes`. Validate: `bun cmux-tui/crates/cmux-app-host/tools/validate-manifest.ts first-party-apps/notes`. Test: `bun test first-party-apps/notes/test` (FakeHost with the mock notes server and file broker in `test/mock-server.ts`). Preview fixtures: `bun first-party-apps/notes/test/fixtures.ts --write`. `cmux-app.v2.json` is the manifest v2 (section Manifest v2).
 
 ## Contributions
 
 | Kind | Id | What |
 | --- | --- | --- |
 | sidebar section | `notes` (`renderNotes`) | the main surface; design picked by the `variant` setting |
-| native pane (v2 sketch) | `editor` | the note's text, edited natively (contract below) |
+| native pane (proposed) | `editor` | the note's text, edited natively (contract below) |
 | commands, agent tools | `list {query?, workspace?, limit?}`, `read {id}`, `create {title?, body?, workspace?, pinned?}`, `append {id \| workspace, text}`, `capture {text, workspace?}`, `search {query, limit?}` | forward to `note.list`, `note.get`, `note.create`, `note.append`, `note.capture`, `note.search`. On manifest v2 these are the catalog ops themselves (MCP `default`) and the wrappers go away |
 | commands, palette only | `newNote`, `open {id}`, `exportNotes {id?}`, `importNotes`, `cycleVariant` | not MCP tools (`x-cmux-mcp: false`) |
 | MCP server | `notesTools` (`tools: "commands"`) | the agent tools above on today's runtime |
@@ -69,7 +69,7 @@ The app never sees or sends an absolute path; a handle reaches only what the use
 
 ## Proposed operations
 
-The note ops are in `catalog/notes-catalog.json`: `note.list`, `note.get`, `note.search`, `note.watch` (stream), `note.create`, `note.capture`, `note.append`, `note.update`, `note.delete`. Summary:
+The note ops are in `proposed/notes-server-catalog.json`: `note.list`, `note.get`, `note.search`, `note.watch` (stream), `note.create`, `note.capture`, `note.append`, `note.update`, `note.delete`. Summary:
 
 | Name | Params | Result | Owner | Risk | Scope | MCP |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -88,6 +88,19 @@ The note ops are in `catalog/notes-catalog.json`: `note.list`, `note.get`, `note
 | `fs.read` | `{root, path, max_bytes}` | `{text}` | native file broker | read | `fs:read` | never |
 | `app.pane.open` | `{contribution, input?, placement?}`, gesture required | `{tab_id}` | workspace store | mutate-own (focuses) | `workspace:write` | never |
 | `client.current` | `{}` | `{workspace, screen, pane, tab}` of the mounting client | the client | read | `workspace:read` | never |
+
+## Manifest v2
+
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.section/1` (`renderNotes`), handle `root` for import and export, and the catalog fragment `catalog/notes-catalog.json`. Every v1 command is one catalog op of family `notes` (owner `app:cmux/notes`, `export` names the JS function, CLI `apps run cmux/notes <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. The notes server (`server {kind: native, binary: cmux-notes, instances: user, data: durable}`): cmux ships no `cmux-notes` binary yet, so the manifest declares no server. Its op catalog (`note.*`) is kept as the proposal `proposed/notes-server-catalog.json`.
+2. `documents` (note document type, one owner): no manifest field.
+3. The native editor pane and `cmux.search.provider/1`: the app has no native view or search export yet, so it does not claim them.
+4. `consumes.ops` and `consumes.handles`: `consumes` lists interfaces only.
+
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
 
 ## Platform gaps (most important first)
 

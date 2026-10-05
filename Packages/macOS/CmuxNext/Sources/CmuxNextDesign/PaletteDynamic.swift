@@ -8,7 +8,7 @@ enum PaletteDynamic {
     static let sidebarBackground = token(\.sidebarBackground)
     static let contentBackground = token(\.contentBackground)
     static let pageBackground = token(\.contentBackground, opaque: true)
-    static let utilityWindowBackground = token(\.windowBackground, opaque: true)
+    static let surfaceBackground = token(\.surfaceBackground)
     static let chromeBackground = token(\.chromeBackground)
     static let elevatedBackground = token(\.elevatedBackground)
     static let stripBackground = token(\.stripBackground)
@@ -31,6 +31,8 @@ enum PaletteDynamic {
     static let attention = token(\.attention)
     static let danger = token(\.danger)
     static let success = token(\.success)
+    static let highlight = token(\.highlight)
+    static let highlightText = token(\.highlightText)
     static let textOnPrimary = token(\.contentBackground, opaque: true)
 
     private static func token(_ keyPath: any KeyPath<ThemeTokens, ThemeRGB> & Sendable, opaque: Bool = false) -> NSColor {

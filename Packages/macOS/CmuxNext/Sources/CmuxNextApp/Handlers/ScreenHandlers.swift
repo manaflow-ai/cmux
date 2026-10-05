@@ -55,6 +55,9 @@ enum ScreenHandlers {
             })
         }
         registry.bind("screen.reopenClosed", invoke: { _ in
+            if let entry = DaemonClosedHistory.entries([.screen], in: ctx.services).first {
+                return DaemonClosedHistory.reopen(entry, services: ctx.services)
+            }
             guard let record = ctx.services.closedScreens.popLatest(isLive: { ctx.services.workspace(id: $0) != nil })
                 ?? ctx.refuse(ScreenStrings.noClosedScreen) else { return }
             reopen(record, ctx)
@@ -94,7 +97,7 @@ enum ScreenHandlers {
 
     private static func adjacent(_ offset: Int, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let content = ctx.content(invocation) else { return }
-        guard content.layoutModel.screens.count > 1 else { return ctx.refuse(RefusalStrings.workspaceHasOneScreen) }
+        guard content.layoutModel.screens.count > 1 else { return ctx.refuseQuietly(RefusalStrings.workspaceHasOneScreen) }
         ScreenCommands.selectAdjacent(offset, in: content)
     }
 
@@ -107,6 +110,8 @@ enum ScreenHandlers {
                 ScreenCommands.move(ref.screen, to: target, daemon: ref.daemon)
             })
         }
+        // Moving a screen to another workspace has no daemon operation with
+        // the state resources; it shares the saved screen group gate.
         registry.bind("screen.moveToWorkspace", invoke: { invocation in
             guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return }
             guard let id = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue,

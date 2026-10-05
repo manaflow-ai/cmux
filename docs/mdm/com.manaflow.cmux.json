@@ -14,6 +14,18 @@
       "title" : "AllowedSignInMethods",
       "type" : "array"
     },
+    "announcements.enabled" : {
+      "default" : true,
+      "description" : "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.",
+      "title" : "Show Announcements",
+      "type" : "boolean"
+    },
+    "announcements.fetch" : {
+      "default" : true,
+      "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
+      "title" : "Download Announcements",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -26,8 +38,36 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "appearance.backdropArt" : {
+      "default" : "none",
+      "description" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.",
+      "enum" : [
+        "none",
+        "wheat-field-with-cypresses",
+        "met-saint-catherine-436908",
+        "met-woman-man-casement-436896",
+        "met-women-picking-olives-436536",
+        "met-sunflowers-436524"
+      ],
+      "title" : "Backdrop Art",
+      "type" : "string"
+    },
+    "appearance.background" : {
+      "default" : "none",
+      "description" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.",
+      "enum" : [
+        "none",
+        "wheat-field-with-cypresses",
+        "met-saint-catherine-436908",
+        "met-woman-man-casement-436896",
+        "met-women-picking-olives-436536",
+        "met-sunflowers-436524"
+      ],
+      "title" : "Background",
+      "type" : "string"
+    },
     "appearance.backgroundBlur" : {
-      "description" : "appearance.backgroundBlur",
+      "description" : "Unset, the window follows Ghostty's background-opacity and background-blur.",
       "enum" : [
         "frosted",
         "glass",
@@ -64,6 +104,12 @@
       "title" : "Density",
       "type" : "string"
     },
+    "appearance.experimentalControls" : {
+      "default" : false,
+      "description" : "Show the wallpaper grid and live appearance tuner while they are being integrated.",
+      "title" : "Experimental Appearance Controls",
+      "type" : "boolean"
+    },
     "appearance.focusIndicator" : {
       "default" : "both",
       "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
@@ -76,11 +122,56 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.glassTransparency" : {
+      "default" : 0,
+      "description" : "How much of the desktop or wallpaper shows through the glass.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Glass Transparency",
+      "type" : "number"
+    },
+    "appearance.hue" : {
+      "default" : 0.5,
+      "description" : "Shift the tint color around the hue wheel.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Hue",
+      "type" : "number"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
       "minimum" : 10,
       "title" : "Interface Size",
+      "type" : "number"
+    },
+    "appearance.metrics.columnGap" : {
+      "description" : "appearance.metrics.columnGap",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Column Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarWidth" : {
+      "description" : "appearance.metrics.sidebarWidth",
+      "maximum" : 420,
+      "minimum" : 160,
+      "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.titlebarHeight" : {
+      "description" : "appearance.metrics.titlebarHeight",
+      "maximum" : 56,
+      "minimum" : 24,
+      "title" : "Titlebar Height",
+      "type" : "number"
+    },
+    "appearance.saturation" : {
+      "default" : 1,
+      "description" : "Increase or reduce the tint color intensity.",
+      "maximum" : 2,
+      "minimum" : 0,
+      "title" : "Saturation",
       "type" : "number"
     },
     "appearance.statusIndicator.color" : {
@@ -123,15 +214,149 @@
       "title" : "Line Width",
       "type" : "number"
     },
-    "appearance.tabBarBackground" : {
-      "default" : "window",
-      "description" : "Window uses the window's own background around the tabs; Darker shades the tab bar.",
-      "enum" : [
-        "window",
-        "darker"
-      ],
-      "title" : "Tab Bar Background",
+    "appearance.surfaces.agentPane.color" : {
+      "description" : "appearance.surfaces.agentPane.color",
+      "title" : "Agent Chat Color",
       "type" : "string"
+    },
+    "appearance.surfaces.agentPane.opacity" : {
+      "description" : "appearance.surfaces.agentPane.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Agent Chat Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.browserChrome.color" : {
+      "description" : "appearance.surfaces.browserChrome.color",
+      "title" : "Browser Toolbar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.browserChrome.opacity" : {
+      "description" : "appearance.surfaces.browserChrome.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Browser Toolbar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.diff.color" : {
+      "description" : "appearance.surfaces.diff.color",
+      "title" : "Diff Viewer Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.diff.opacity" : {
+      "description" : "appearance.surfaces.diff.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Diff Viewer Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.docks.color" : {
+      "description" : "appearance.surfaces.docks.color",
+      "title" : "Docked Columns Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.docks.opacity" : {
+      "description" : "appearance.surfaces.docks.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Docked Columns Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.home.color" : {
+      "description" : "appearance.surfaces.home.color",
+      "title" : "Home Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.home.opacity" : {
+      "description" : "appearance.surfaces.home.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Home Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.internalPage.color" : {
+      "description" : "appearance.surfaces.internalPage.color",
+      "title" : "Internal Pages Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.internalPage.opacity" : {
+      "description" : "appearance.surfaces.internalPage.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Internal Pages Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.newTabPage.color" : {
+      "description" : "appearance.surfaces.newTabPage.color",
+      "title" : "New Tab Page Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.newTabPage.opacity" : {
+      "description" : "appearance.surfaces.newTabPage.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "New Tab Page Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.settings.color" : {
+      "description" : "appearance.surfaces.settings.color",
+      "title" : "Settings Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.settings.opacity" : {
+      "description" : "appearance.surfaces.settings.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Settings Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.sidebar.color" : {
+      "description" : "appearance.surfaces.sidebar.color",
+      "title" : "Sidebar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.sidebar.opacity" : {
+      "description" : "appearance.surfaces.sidebar.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Sidebar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.splitDivider.color" : {
+      "description" : "appearance.surfaces.splitDivider.color",
+      "title" : "Split Divider Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.splitDivider.opacity" : {
+      "description" : "appearance.surfaces.splitDivider.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Split Divider Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.tabBar.color" : {
+      "description" : "appearance.surfaces.tabBar.color",
+      "title" : "Tab Bar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.tabBar.opacity" : {
+      "description" : "appearance.surfaces.tabBar.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Tab Bar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.terminal.color" : {
+      "description" : "appearance.surfaces.terminal.color",
+      "title" : "Terminal Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.terminal.opacity" : {
+      "description" : "appearance.surfaces.terminal.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Terminal Opacity",
+      "type" : "number"
     },
     "appearance.theme" : {
       "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
@@ -176,6 +401,71 @@
       "title" : "Never Hibernate",
       "type" : "array"
     },
+    "browser.links.cmdClick" : {
+      "default" : "backgroundTab",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Command-Click",
+      "type" : "string"
+    },
+    "browser.links.cmdShiftClick" : {
+      "default" : "foregroundTab",
+      "description" : "Shift-middle-click does the same.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Command-Click",
+      "type" : "string"
+    },
+    "browser.links.middleClick" : {
+      "default" : "backgroundTab",
+      "description" : "Chromium tabs use the Command-Click setting.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Middle-Click",
+      "type" : "string"
+    },
+    "browser.links.optionClick" : {
+      "default" : "download",
+      "description" : "Chromium tabs always download.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Option-Click",
+      "type" : "string"
+    },
+    "browser.links.shiftClick" : {
+      "default" : "newWindow",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Click",
+      "type" : "string"
+    },
     "browser.newTabPage" : {
       "default" : "",
       "description" : "An address such as https://example.com. Empty opens a blank page.",
@@ -218,6 +508,48 @@
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
+      "type" : "string"
+    },
+    "feed.github.enabled" : {
+      "default" : false,
+      "description" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
+      "title" : "Connect GitHub",
+      "type" : "boolean"
+    },
+    "feed.github.pollIntervalSeconds" : {
+      "default" : 120,
+      "description" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately.",
+      "maximum" : 900,
+      "minimum" : 60,
+      "title" : "Refresh Interval",
+      "type" : "number"
+    },
+    "feed.mirrorNotifications.agents" : {
+      "default" : true,
+      "description" : "Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone.",
+      "title" : "Copy Agent Notifications to the Feed",
+      "type" : "boolean"
+    },
+    "feed.mirrorNotifications.terminal" : {
+      "default" : "off",
+      "description" : "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account.",
+      "enum" : [
+        "off",
+        "title",
+        "full"
+      ],
+      "title" : "Copy Terminal Notifications to the Feed",
+      "type" : "string"
+    },
+    "focus.inactiveTabStyle" : {
+      "default" : "fade",
+      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
+      "enum" : [
+        "fade",
+        "tonal",
+        "quiet"
+      ],
+      "title" : "Unfocused Pane Tabs",
       "type" : "string"
     },
     "focusRing.color" : {
@@ -273,6 +605,12 @@
       "title" : "Record Terminal Commands",
       "type" : "boolean"
     },
+    "labs.previewFeatures" : {
+      "default" : false,
+      "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+      "title" : "Show Preview Features",
+      "type" : "boolean"
+    },
     "layout.centerFocusedColumn" : {
       "default" : "never",
       "description" : "layout.centerFocusedColumn",
@@ -298,9 +636,32 @@
       "default" : 0.5,
       "description" : "A share of the window width, for Fixed Width new columns.",
       "maximum" : 1,
-      "minimum" : 0.10000000000000001,
+      "minimum" : 0.1,
       "title" : "Fixed Column Width",
       "type" : "number"
+    },
+    "layout.dockColumnEdge" : {
+      "default" : "nearest",
+      "description" : "layout.dockColumnEdge",
+      "enum" : [
+        "nearest",
+        "right",
+        "left",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Column Edge",
+      "type" : "string"
+    },
+    "layout.dockColumnMode" : {
+      "default" : "docked",
+      "description" : "layout.dockColumnMode",
+      "enum" : [
+        "docked",
+        "overlay"
+      ],
+      "title" : "Dock Column Mode",
+      "type" : "string"
     },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
@@ -375,6 +736,24 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.paneSeparation" : {
+      "default" : "borders",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "enum" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "title" : "Separation",
+      "type" : "string"
+    },
+    "layout.rows" : {
+      "default" : true,
+      "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
+      "title" : "Rows",
+      "type" : "boolean"
+    },
     "layout.splitSizing" : {
       "default" : "even",
       "description" : "Even gives every pane in the column the same size after a split.",
@@ -383,26 +762,6 @@
         "halve"
       ],
       "title" : "Split Sizing",
-      "type" : "string"
-    },
-    "layout.stickyColumnEdge" : {
-      "default" : "right",
-      "description" : "layout.stickyColumnEdge",
-      "enum" : [
-        "right",
-        "left"
-      ],
-      "title" : "Sticky Column Edge",
-      "type" : "string"
-    },
-    "layout.stickyColumnMode" : {
-      "default" : "docked",
-      "description" : "layout.stickyColumnMode",
-      "enum" : [
-        "docked",
-        "overlay"
-      ],
-      "title" : "Sticky Column Mode",
       "type" : "string"
     },
     "layout.stripScrollbar" : {
@@ -426,6 +785,23 @@
       "title" : "MinimumVersion",
       "type" : "string"
     },
+    "navigation.historyScope" : {
+      "default" : "workspace",
+      "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
+      "enum" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "title" : "Back and Forward",
+      "type" : "string"
+    },
+    "newTerminal.opensWorkspace" : {
+      "default" : false,
+      "description" : "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click.",
+      "title" : "New Terminal Opens a Workspace",
+      "type" : "boolean"
+    },
     "notifications.attention.blinkCount" : {
       "default" : 2,
       "description" : "notifications.attention.blinkCount",
@@ -443,7 +819,7 @@
       "default" : 3,
       "description" : "notifications.attention.duration",
       "maximum" : 30,
-      "minimum" : 0.29999999999999999,
+      "minimum" : 0.3,
       "title" : "Pulse Duration",
       "type" : "number"
     },
@@ -593,18 +969,195 @@
       "title" : "Timeout",
       "type" : "number"
     },
+    "palette.scopes.commands.prefix" : {
+      "default" : ">",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Commands Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.scopes.prefix" : {
+      "default" : "?",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Scope List Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.settings.prefix" : {
+      "default" : ",",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Settings Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.tabs.prefix" : {
+      "default" : "@",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Tabs Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.workspaces.prefix" : {
+      "default" : "#",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Workspaces Prefix",
+      "type" : "string"
+    },
+    "picker.pinned" : {
+      "default" : [
+
+      ],
+      "description" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Folders",
+      "type" : "array"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "sidebar.border" : {
+      "default" : false,
+      "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+      "title" : "Border",
+      "type" : "boolean"
+    },
+    "sidebar.borderWidth" : {
+      "description" : "sidebar.borderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
+    },
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,
       "description" : "The share of the sidebar the bottom sections fill before they scroll.",
-      "maximum" : 0.90000000000000002,
-      "minimum" : 0.10000000000000001,
+      "maximum" : 0.9,
+      "minimum" : 0.1,
       "title" : "Bottom Sections Height",
       "type" : "number"
+    },
+    "sidebar.minimalMode" : {
+      "default" : "bottom",
+      "description" : "Hides the chosen sections until the pointer is over the sidebar.",
+      "enum" : [
+        "off",
+        "bottom",
+        "top",
+        "both"
+      ],
+      "title" : "Minimal Mode",
+      "type" : "string"
+    },
+    "sidebar.pinnedBandsScroll" : {
+      "default" : true,
+      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+      "title" : "Scroll Tall Sections",
+      "type" : "boolean"
     },
     "sidebar.sectionLook" : {
       "default" : "quiet",
@@ -619,17 +1172,37 @@
       "title" : "Section Look",
       "type" : "string"
     },
-    "sidebar.stickyBandsScroll" : {
-      "default" : true,
-      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
-      "title" : "Scroll Tall Sections",
+    "sidebar.showWorkspaceTabs" : {
+      "default" : false,
+      "description" : "Lists tabs beneath each workspace in the sidebar.",
+      "title" : "Show Workspace Tabs",
       "type" : "boolean"
     },
+    "sidebar.side" : {
+      "default" : "left",
+      "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Sidebar Side",
+      "type" : "string"
+    },
+    "sidebar.spacesPosition" : {
+      "default" : "bottom",
+      "description" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Spaces Position",
+      "type" : "string"
+    },
     "sidebar.topBandMaxShare" : {
-      "default" : 0.33333333333333331,
+      "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",
-      "maximum" : 0.90000000000000002,
-      "minimum" : 0.10000000000000001,
+      "maximum" : 0.9,
+      "minimum" : 0.1,
       "title" : "Top Sections Height",
       "type" : "number"
     },
@@ -660,6 +1233,61 @@
       "description" : "status.runNotifyWhenVisible",
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
+    },
+    "tabs.barOrder" : {
+      "default" : "aboveToolbar",
+      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "enum" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "title" : "Tab Bar and Browser Toolbar",
+      "type" : "string"
+    },
+    "tabs.barPosition" : {
+      "default" : "top",
+      "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Tab Bar Position",
+      "type" : "string"
+    },
+    "tabs.newTabKind" : {
+      "default" : "page",
+      "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
+      "enum" : [
+        "same-kind",
+        "terminal",
+        "browser",
+        "agent",
+        "page",
+        "auto"
+      ],
+      "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.plusButton" : {
+      "default" : "hover",
+      "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "New Tab Button",
+      "type" : "string"
+    },
+    "tasks.layout" : {
+      "default" : "inbox",
+      "description" : "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
+      "enum" : [
+        "list",
+        "board",
+        "inbox"
+      ],
+      "title" : "Tasks Layout",
+      "type" : "string"
     },
     "terminal.fontFamily" : {
       "description" : "A monospaced font installed on this Mac.",
@@ -693,16 +1321,76 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
-    "window.rail" : {
-      "default" : "off",
-      "description" : "Shows the sidebar's pinned sections as a column of icons beside it.",
+    "updates.checkAutomatically" : {
+      "default" : true,
+      "description" : "updates.checkAutomatically",
+      "title" : "Check for Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.checkIntervalSeconds" : {
+      "default" : 3600,
+      "description" : "updates.checkIntervalSeconds",
+      "maximum" : 604800,
+      "minimum" : 900,
+      "title" : "Check Every",
+      "type" : "number"
+    },
+    "updates.downloadAutomatically" : {
+      "default" : true,
+      "description" : "Off: a found update waits, and one click downloads and installs it.",
+      "title" : "Download Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.installOnQuit" : {
+      "default" : true,
+      "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
+      "title" : "Install Updates When Quitting",
+      "type" : "boolean"
+    },
+    "updates.keepPreviousVersions" : {
+      "default" : 1,
+      "description" : "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
+      "maximum" : 5,
+      "minimum" : 0,
+      "title" : "Keep Previous Versions",
+      "type" : "number"
+    },
+    "updates.meteredNetwork" : {
+      "default" : "defer-low-data",
+      "description" : "While downloads wait, a found update shows as a card and one click downloads it.",
       "enum" : [
-        "off",
-        "leading",
-        "afterSidebar"
+        "defer-low-data",
+        "defer-expensive",
+        "download"
       ],
-      "title" : "Action Rail",
+      "title" : "On Metered Networks",
       "type" : "string"
+    },
+    "updates.notify" : {
+      "default" : "card",
+      "description" : "updates.notify",
+      "enum" : [
+        "card",
+        "badge",
+        "silent"
+      ],
+      "title" : "When an Update Is Ready",
+      "type" : "string"
+    },
+    "updates.quietHours" : {
+      "description" : "No update card between these times.",
+      "properties" : {
+        "end" : {
+          "title" : "end",
+          "type" : "string"
+        },
+        "start" : {
+          "title" : "start",
+          "type" : "string"
+        }
+      },
+      "title" : "Quiet Hours",
+      "type" : "object"
     },
     "window.titlebar" : {
       "default" : "minimal",
@@ -712,6 +1400,16 @@
         "standard"
       ],
       "title" : "Titlebar",
+      "type" : "string"
+    },
+    "window.titlebarButtons" : {
+      "default" : "hover",
+      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Titlebar Buttons",
       "type" : "string"
     }
   },

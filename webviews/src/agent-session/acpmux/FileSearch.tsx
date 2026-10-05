@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import {
-  failureCode,
+  failureReason,
   matchRuns,
   OUTSIDE_REPOSITORY,
   readFileSearch,
@@ -8,7 +8,7 @@ import {
   type FileSearchSource,
   type Run,
 } from "./fileSearchModel";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 /// How long typing settles before the palette asks again.
 const SEARCH_DEBOUNCE_MS = 80;
@@ -19,7 +19,7 @@ type State =
   | { kind: "done"; results: FileMatch[]; truncated: boolean }
   | { kind: "failed"; outside?: boolean };
 
-/// Codex's "Search files" palette (codex-atlas-clone reference command-menu-files-shortcut):
+/// The "Search files" palette:
 /// a field over the transcript that lists the session's files matching what is typed, best
 /// first, with the matched characters bold. Arrows move the highlight, Enter picks and Escape
 /// closes; picking hands the path back, and the composer mentions it.
@@ -35,6 +35,7 @@ export function FileSearch({
   /// Tests shorten it.
   debounceMs?: number;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
   const [active, setActive] = useState(0);
@@ -83,7 +84,7 @@ export function FileSearch({
         },
         (error: unknown) => {
           if (ask === generation.current)
-            setState({ kind: "failed", outside: failureCode(error) === OUTSIDE_REPOSITORY });
+            setState({ kind: "failed", outside: failureReason(error) === OUTSIDE_REPOSITORY });
         },
       );
     }, debounceMs);

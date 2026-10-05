@@ -1,9 +1,10 @@
 import type { Domain, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { checkAnswer, FeedAnswer, FeedArchive, FeedCancel, FeedPrefsSet, FeedRead, FeedSnooze, type FeedItem } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
-import { reduceAdopt, reducePost } from "./feed-post.ts"
+import { reduceAdopt, reduceAdoptCancel, reducePost } from "./feed-post.ts"
 import { matchesFilter, type FeedFilterValue } from "./feed-query.ts"
 import {
+  ADOPT_TOMBSTONE_MS,
   claimDedupe,
   initialFeedState,
   isActive,
@@ -212,14 +213,17 @@ const reduceSystem = (state: FeedState, op: string, params: unknown, ctx: Reduce
         const t = prunableAt(i)
         return t !== null && t - RETENTION_MS <= at
       })
-      if (gone.length === 0) return { ok: true, state, value: { items: [] }, changed: false }
+      const tombstones = Object.entries(state.adopt_cancelled ?? {})
+      const liveTombstones = tombstones.filter(([, t]) => t.at + ADOPT_TOMBSTONE_MS > at)
+      if (gone.length === 0 && liveTombstones.length === tombstones.length) return { ok: true, state, value: { items: [] }, changed: false }
       const items = { ...state.items }
       let dedupe = state.dedupe
       for (const i of gone) {
         dedupe = releaseDedupe(dedupe, i)
         delete items[i.id]
       }
-      return { ok: true, state: { ...state, items, dedupe }, value: { items: gone.map((i) => i.id) } }
+      const adopt_cancelled = liveTombstones.length === tombstones.length ? state.adopt_cancelled : Object.fromEntries(liveTombstones)
+      return { ok: true, state: { ...state, items, dedupe, ...(adopt_cancelled === undefined ? {} : { adopt_cancelled }) }, value: { items: gone.map((i) => i.id) } }
     }
     case "feed.push_due": {
       const v = params as { send?: unknown; skip?: unknown }
@@ -260,6 +264,8 @@ export const feedDomain: Domain<FeedState> = {
         return reducePost(state, params, ctx)
       case "feed.adopt":
         return reduceAdopt(state, params, ctx)
+      case "feed.adopt.cancel":
+        return reduceAdoptCancel(state, params, ctx)
       case "feed.answer":
         return reduceAnswer(state, params, ctx)
       case "feed.cancel":

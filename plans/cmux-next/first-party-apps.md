@@ -2,6 +2,8 @@
 
 Status: proposal 2, lane 3 lead, 2026-10-02. Inputs (binding): cmux-next-spec `spec/app-platform.md` (draft 1), decisions D50 (first-party apps), D51 (three tiers), D52 (security and complete sandboxing), P5 (no studied-product names in public repos), `spec/identity-and-permissions.md` (grants, approval modes), plans/cmux-next/app-platform.md (implementation plan), OWNERSHIP-PRINCIPLES.md, skills/cmux-next-feature. Only the coordinator writes the spec; this file is the lane 3 proposal ("spec proposal: first-party apps").
 
+PARKED 2026-10-02 (capacity): privacy fix draft PR 17063 (feat-cmux-next-acct-labels 94ec8d85c9d; focused tests green on nx-remote, 53 tests) needs a review subagent, check-action-surfaces and the merge; integrations to the backend's final contract is draft PR 17055 (feat-cmux-next-integrations-v2 f9c68ebf0ad; core done, app side half done); next after those: switch notes and inbox (and any other first-party app) from cmux.gesture() to ctx.gesture / ctx.cmux for PR 17008.
+
 ## 1. Summary for agents
 
 - Five first-party apps run on the app platform and use only the public app API (the generated `cmux` global, the view builders, the manifest): **search**, **inbox**, **notes**, **coderouter** (UI and onboarding for CodeRouter) and **usage** (plan usage and limits in the macOS menu bar). They are the platform's proof: anything they cannot do with the public API is a platform gap (section 3), never a private hook.
@@ -182,6 +184,23 @@ A root is a grant resource selector `{kind: "workspaceFolder", workspace}` or `{
 
 ## 7. Decisions for Lawrence (through the coordinator)
 
+Accepted by the coordinator on 2026-10-02:
+
+| # | Decision | In code |
+| --- | --- | --- |
+| A1 | Connection handles an app holds are `conn_…`; `host_…` stays the public registry id of an enrolled host | Finder app |
+| A2 | Built web bundles are committed for now (Monaco adds 3.98 MB) | CodeMirror, Monaco apps |
+| A3 | Web panes allow `style-src 'unsafe-inline'`; scripts stay `'self'` | editor apps' CSP |
+| A4 | CodeMirror is the default editor; Monaco is opt-in | Diffs embed default |
+| A5 | The integrations ingestion code (adapted from executor, MIT) lives in an MIT package outside `backend/`, which the backend depends on | integrations-core package PR |
+| A6 | Destructive integration tools default to Block (the backend lead confirms against the spec's "require approval") | integrations policy defaults |
+| A7 | The session host on each machine owns `agent_cli.*`, `skill.*`, `mcp_server.*` and `memory.*` | proposal (daemon not built) |
+| A8 | MCP servers of agents without an `enabled` flag are disabled by moving them to the sibling key `_cmuxDisabledMcpServers` | skills app reference merge |
+| A9 | Usage sends one notice per provider with no usable account, not per-account warnings | usage app |
+| A10 | The install-state owner keeps the "defaults offered" set forever | install-state reducer |
+
+Privacy rule (coordinator, 2026-10-02): account identities reach callers (socket, CLI, MCP, apps, op results) only as `acct_…` label handles (stable, opaque, per user: HMAC of provider and identity with a per-user salt) plus a redacted display label; never an email.
+
 See the lane 3 report; each has a recommendation.
 
 ## 8. Per-app results
@@ -201,6 +220,8 @@ Screenshots are in the private hq scratch (`.cmux-scratch/nx-apps/screens/<app>/
 | finder | https://github.com/manaflow-ai/cmux/pull/16868 | `listPreview`, `columns`, `dualPane` | the scene has no scroll, keyboard selection or multi-select, so the list pages 22 rows | 61 bun |
 | notes (server + native editor) and inbox (real feed API) | https://github.com/manaflow-ai/cmux/pull/16870 | notes: `scratchpad`, `list`, `editor`; inbox: unchanged variants | palette commands carry no gesture token, so Export/Import work only from the section menu | 26 + 29 bun |
 | install / enable / hide (Platform v2 V9 reference model) | https://github.com/manaflow-ai/cmux/pull/16838 | Installed list `cards` (default, Lawrence's store pick), `rows`; "Show Hidden Apps" sheet; "While Hidden" access in the permissions pane | cards use about 20% more height than rows | 42 Swift Testing (reducer, filter, wire codec, two-client convergence) |
+| caffeinate | https://github.com/manaflow-ai/cmux/pull/16998 | `menu` (menu-bar cup with the shortest time left, preset dropdown), `pane` (options with explanations and flags) | the dropdown does not show which assertion kinds a preset holds | 41 bun |
+| agents, skills, memory | https://github.com/manaflow-ai/cmux/pull/17022 | agents: `byCli`, `byMachine`, `matrix`; skills: `unified`, `byAgent`, `byScope`; memory: `files`, `entries`, `split` | an offline machine spreads over every block (agents); without a scroll view a large diff plan or file list pushes content down (skills, memory) | 40 + 61 + 59 bun |
 | permissions (sandbox UI and model) | https://github.com/manaflow-ai/cmux/pull/16806 | `grouped` (scopes grouped by axis with risk tones and reasons); `flat` (one list under a "Run sandboxed" master switch); `matrix` (scope by approval mode, reasons on hover) | the tallest variant (the Settings pane is 982 pt), and its profile switch is weaker than the master switch of `flat` | 24 Swift Testing (property tests, 300 seeds) |
 
 The permissions prototype is the Swift module `CmuxNextAppPermissions`: the pure model (`AppTier`, `AppSandboxProfile`, `AppGrant`, `AppPermissionPolicy.effectiveDecision`, `admit` for calls queued before a narrowing, `AppGrantReducer` where only the user widens and a team admin only narrows) and the three surfaces (install consent, Settings > Apps > Permissions, first-use prompt), with the DEV switch `apps.permissions.style`. Invariants checked by property tests: Complete sandbox never allows `net.*`, `fs.*` or a scope not turned on by hand; unverified never holds a restricted scope; no tier reaches an op outside the public scope table or on the never list; a narrowing never widens and voids older pending calls and session approvals; grant ∩ profile ⊆ grant. The app platform lead wires it: AppHost calls `effectiveDecision` before `AppScopeTable.refusal`, the App Store window shows the consent surface, Settings shows the permissions surface, Debug Settings gets `apps.permissions.style`.
@@ -259,3 +280,15 @@ The apps follow v2. Points where building them found a gap or a naming problem:
 - Scope grammar: `feed:answer`, `ui:embed`, `account:*` and `power:*` must be accepted by the manifest validator (the prototypes fell back to other names).
 - Missing from v2: an `Embed` scene node (embedding from a scene, not only from a web pane), a scroll view, drag and drop props on scene nodes, pane-routed commands (Cmd-S to the focused editor pane), the terminal theme in the pane init, a hunk-decide op that works for every diff producer, `fs.thumbnail`/image handles, and `app.pane.open` with a gesture.
 - Web pane CSP: editors need `style-src 'unsafe-inline'` (scripts stay `'self'`).
+
+## 13. Gaps found by Caffeinate and the agent tools (round 3)
+
+- Host capability `power.assertion.create/release/list/watch` (IOKit, no process spawn): terminal-bound assertions end with the command; agents bind only to their own terminal, at most 4 hours; `release {all: true}` because one gesture token covers one op; 8 per app, 32 per host. Spec in `first-party-apps/caffeinate/README.md`.
+- Commands do not get their caller (`ctx.invoker`), so per-caller rules (agent vs user) cannot be checked in app code; the host must enforce them.
+- A per-machine owner for agent configuration that several apps share (CLI versions and updates, skills, MCP servers, memory files). Recommendation: the session host on each machine owns `agent_cli.*`, `skill.*`, `mcp_server.*`, `memory.*`; objection: the daemon must then follow each agent's config format.
+- A "plan as diff" convention: mutating ops accept `dry_run` and return a diff resource (V5); applying accepts all files or none.
+- A host secure input that returns a credential handle for MCP server secrets; config previews mask secret values.
+- Account labels: an opaque `acct_…` handle and a label owner; the native detector currently exposes an email to its callers, which apps must never receive.
+- `machine.list` covers only local machines and has no `os` field; no `workspace.root`; `fs.trash` with an expected revision.
+- Scope grammar: `agent_cli`, `skill`, `mcp_server`, `memory`, `document`, `power` families.
+- Catalog fragments need a field that binds an op to a JS export; palette commands need gesture tokens and arguments.

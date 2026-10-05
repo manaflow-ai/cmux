@@ -192,16 +192,13 @@ describe("devbox image template", () => {
 
   test("the login banner is cmux's, offline, and installed everywhere the base motd was", () => {
     const motd = read("cmux-motd");
-    // The `cmux cloud` chevron logo from the CLI's cloud welcome
-    // (CLI/cmux.swift), same gradient and tagline.
+    // The `cmux cloud` chevron logo, gradient and tagline. The motd is the
+    // only copy now: the Swift CLI that also drew it was removed (#16174).
     expect(motd).toContain("persistent cloud VM");
     expect(motd).toContain("ready for coding agents");
     for (const rgb of ["0;212;255", "24;181;250", "48;150;245", "72;119;241", "96;88;239", "110;73;238", "124;58;237"]) {
       expect(motd).toContain(`38;2;${rgb}m`);
     }
-    expect(readFileSync(path.join(import.meta.dirname, "../../CLI/cmux.swift"), "utf8")).toContain(
-      "x cloud\\\\033[0m",
-    );
     // Seeds are readable by the work user (the seed pass runs as root and
     // ble.sh creates its cache dir 0700), and Ghostty's TERM is seeded too.
     expect(dockerfile).toContain("chmod -R a+rX /etc/cmux/blesh-cache-seed");

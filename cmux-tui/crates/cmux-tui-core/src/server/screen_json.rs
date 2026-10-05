@@ -1,5 +1,5 @@
-//! One screen of the tree JSON, including its viewport columns and their
-//! `sticky-columns-v1` flags.
+//! One screen of the tree JSON, including its viewport columns, their
+//! `dock-columns-v1` flags and their `rows-v1` rows.
 
 use super::*;
 
@@ -52,9 +52,24 @@ pub(super) fn screen_json(
                         "width": column.width,
                         "layout": node_json(&column.root, screen.active_pane),
                     });
-                    // `sticky-columns-v1`: omitted for a scrolling column.
-                    if let Some(sticky) = column.sticky {
-                        value["sticky"] = json!(sticky);
+                    // `dock-columns-v1`: every edge (top and bottom need
+                    // `edge-docks-v1` too) as one optional `dock`.
+                    if let Some(dock) = column.dock {
+                        value["dock"] = json!(dock);
+                    }
+                    // `rows-v1`: only for a column with two or more rows; its
+                    // `layout` above is their compat chain.
+                    let rows = column.row_trees();
+                    if !rows.is_empty() {
+                        value["rows"] = json!(
+                            rows.iter()
+                                .map(|(row, tree)| json!({
+                                    "id": row.id,
+                                    "height": row.height,
+                                    "layout": node_json(tree, screen.active_pane),
+                                }))
+                                .collect::<Vec<_>>()
+                        );
                     }
                     value
                 })

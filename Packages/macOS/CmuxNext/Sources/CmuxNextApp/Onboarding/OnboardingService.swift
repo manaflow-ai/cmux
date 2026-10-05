@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
@@ -19,6 +20,9 @@ final class OnboardingService {
     /// The role step's saved answer, read off the main thread at launch;
     /// "Onboarding…" opens the step with it.
     private(set) var profile: OnboardingProfile?
+    /// Background-discovered local folders offered by new agent tabs.
+    private(set) var projectFolders: [String] = []
+    private var projectScanTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
@@ -39,6 +43,31 @@ final class OnboardingService {
             let saved = await Task.detached { state.profile() }.value
             guard let self, profile == nil else { return }
             profile = saved
+        }
+        // Keep Cmd-T off the file system hot path. The scan is bounded and runs
+        // once in the background while the app is starting.
+        projectScanTask = Task { [weak self] in
+            let folders = await Task.detached {
+                var scan = AgentProjectScan.live()
+                scan.filesPerApp = 200
+                let agent = scan.run().map(\.id)
+                func classicDirectories(_ layout: ClassicSessionLayout) -> [String] {
+                    switch layout {
+                    case .pane(let pane): pane.tabs.compactMap(\.workingDirectory)
+                    case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
+                    }
+                }
+                let classic = (try? ClassicSessionImporter().read())?.flatMap { workspace in
+                    [workspace.workingDirectory] + classicDirectories(workspace.layout)
+                } ?? []
+                var seen = Set<String>()
+                return (agent + classic).compactMap { path in
+                    let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+                    return seen.insert(normalized).inserted ? normalized : nil
+                }
+            }.value
+            guard let self else { return }
+            projectFolders = folders
         }
     }
 
@@ -62,6 +91,18 @@ final class OnboardingService {
             await previous?.value
             do { try work() } catch { logger.error("\(label, privacy: .public): \(String(describing: error), privacy: .public)") }
         }
+    }
+
+    /// The first task's chat, kept while the window is open so the step
+    /// shows the same chat when the user comes back to it.
+    private var firstTask: (cwd: URL, prompt: String, view: AgentPaneView)?
+
+    func firstTaskView(cwd: URL, prompt: String) -> AgentPaneView? {
+        if let firstTask, firstTask.cwd == cwd, firstTask.prompt == prompt { return firstTask.view }
+        firstTask?.view.close()
+        let view = services.agentTabs.standaloneView(seed: AgentPaneSeed(cwd: cwd.path, prompt: prompt))
+        firstTask = view.map { (cwd, prompt, $0) }
+        return view
     }
 
     var isShowing: Bool { controller != nil }
@@ -109,6 +150,9 @@ final class OnboardingService {
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil
+            // The task's session stays in acpmux (the agent may still be working); only the page closes.
+            self?.firstTask?.view.close()
+            self?.firstTask = nil
         }
         self.controller = controller
         controller.present()

@@ -186,6 +186,11 @@ impl LockStats {
 
     pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        if waited >= Duration::from_micros(500) {
+            crate::debug_spans::mark_with(|| {
+                format!("lock.wait {}:{} {}us", site.file(), site.line(), waited.as_micros()).into()
+            });
+        }
         if waited >= LOCK_CONTENDED_THRESHOLD {
             self.contended.fetch_add(1, Ordering::Relaxed);
         }

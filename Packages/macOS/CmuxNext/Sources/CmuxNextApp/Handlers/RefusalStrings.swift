@@ -10,6 +10,9 @@ nonisolated enum RefusalStrings {
         String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
     }
 
+    /// A feature an administrator turned off (DisabledFeatures).
+    static var turnedOffByOrganization: String { text("refusal.policy.turnedOff", "Turned off by your organization") }
+
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: text(key, value), arguments: arguments)
     }
@@ -29,6 +32,13 @@ nonisolated enum RefusalStrings {
         text("handlers.refusal.incognitoMismatch", "Incognito and normal windows can't share workspaces, tabs or screens.")
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
+    static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    static var homeAttachNoHome: String {
+        text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
+    }
+    static func homeAttachNoFile(_ path: String) -> String {
+        String(format: text("handlers.refusal.homeAttachNoFile", "No file at “%@”."), path)
+    }
     static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }
@@ -70,6 +80,8 @@ nonisolated enum RefusalStrings {
     static var vaultPaneUnported: String { text("handlers.refusal.vaultPaneUnported", "needs the Vault panel as a pane (not in cmux-next yet)") }
     static var cloudPaneUnported: String { text("handlers.refusal.cloudPaneUnported", "needs the Cloud panel as a pane (not in cmux-next yet)") }
     static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
+    static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
+    static func noClosedItem(_ id: String) -> String { format("handlers.refusal.noClosedItem", "no recently closed item %@", id) }
     static var paneHasNoTabs: String { text("handlers.refusal.paneHasNoTabs", "the pane has no tabs") }
     static var tabArgumentRequired: String { text("handlers.refusal.tabArgumentRequired", "a tab argument is required") }
     static var tabAtEdge: String { text("handlers.refusal.tabAtEdge", "the tab is already at the edge") }
@@ -87,13 +99,17 @@ nonisolated enum RefusalStrings {
     static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
     static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
     static var audioMuteUnported: String { text("handlers.refusal.audioMuteUnported", "needs audio mute support in the cmux-next browser") }
-    static var deepLinksUnported: String { text("handlers.refusal.deepLinksUnported", "needs cmux-next deep link navigation (cmux:// handler)") }
     static func noColumnShown(_ id: String) -> String { format("handlers.refusal.noColumnShown", "no column %@ is shown", id) }
-    static var notColumnLayout: String { text("handlers.refusal.notColumnLayout", "the screen is not in column layout") }
+    static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
-    static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
-    static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
+    /// cmux.json `layout.rows` is false (plans/cmux-next/rows.md O2).
+    static var rowsTurnedOff: String { text("handlers.refusal.rowsTurnedOff", "Rows are turned off (layout.rows)") }
+    static var columnAlreadyDocked: String { text("handlers.refusal.columnAlreadyDocked", "the column is already docked there") }
+    static var columnNotDocked: String { text("handlers.refusal.columnNotDocked", "the column is not docked") }
+    /// Docking a tab whose kind cannot leave a fresh tab behind (an agent
+    /// chat, an incognito page) when it is the screen's only tab.
+    static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }
     static var lastScrollingColumn: String { text("handlers.refusal.lastScrollingColumn", "at least one column must scroll") }
     static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
     static func moveColumnUnsupported(_ capability: String, _ count: Int) -> String { format("handlers.refusal.moveColumnUnsupported", "needs daemon capability %1$@ (the column has %2$lld panes; swap-pane moves one)", capability, count) }

@@ -1,4 +1,4 @@
-import React, { createContext, memo, useContext, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import {
   groupMark,
   sessionMark,
@@ -9,21 +9,8 @@ import {
   type AcpmuxSessionEntry,
   type SessionMark,
 } from "./sessionList";
-import {
-  BranchIcon,
-  ChatsIcon,
-  ClockIcon,
-  CloudIcon,
-  DisconnectedIcon,
-  HomeIcon,
-  MoreIcon,
-  NeedsInputIcon,
-  NewChatIcon,
-  PullIcon,
-  SearchIcon,
-  WorkingIcon,
-  WorktreeIcon,
-} from "./sidebarIcons";
+import { Icon } from "./icons/Icon";
+import { rowIconSize } from "./icons/iconSize";
 
 const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
   input: "Needs input",
@@ -31,13 +18,23 @@ const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
   error: "Disconnected",
   unread: "New activity",
 };
+/** Sidebar rows set 13px text, so their icons draw at the registry's row size for it. */
+const ROW_ICON = rowIconSize(13);
+/** The rail's icon-only buttons keep the 18px glyphs' footprint: a 15px row crop inks about 14px. */
+const RAIL_ICON = 15;
 const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, React.ReactNode> = {
-  input: <NeedsInputIcon />,
-  running: <WorkingIcon />,
-  error: <DisconnectedIcon />,
+  input: <Icon name="status.needsinput" size={ROW_ICON} row />,
+  running: <Icon name="status.running" size={ROW_ICON} row />,
+  error: <Icon name="status.disconnected" size={ROW_ICON} row />,
   unread: null,
 };
-const PLACE_GLYPHS = { cloud: <CloudIcon />, worktree: <WorktreeIcon />, branch: <BranchIcon /> };
+/** Where a session runs is secondary to its title, so its glyph takes the caption size (11px text). */
+const PLACE_ICON = rowIconSize(11);
+const PLACE_GLYPHS = {
+  cloud: <Icon name="cloud" size={PLACE_ICON} row />,
+  worktree: <Icon name="git.worktree" size={PLACE_ICON} row />,
+  branch: <Icon name="git.branch" size={PLACE_ICON} row />,
+};
 const PLACE_LABELS = { cloud: "Runs on", worktree: "Worktree", branch: "Branch" };
 
 /** What the rail switches the list to. */
@@ -61,6 +58,7 @@ export function SessionSidebar({
   onSelect,
   onNewChat,
   account,
+  preview = false,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
@@ -69,8 +67,15 @@ export function SessionSidebar({
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
   account?: SidebarAccount;
+  /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
+  preview?: boolean;
 }) {
-  const [view, setView] = useState<SidebarView>("sessions");
+  const [picked, setView] = useState<SidebarView>("sessions");
+  // Pull requests turned off while shown falls back to the session list, and stays there.
+  const view = picked === "pulls" && !preview ? "sessions" : picked;
+  useEffect(() => {
+    if (!preview) setView((current) => (current === "pulls" ? "sessions" : current));
+  }, [preview]);
   // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -82,32 +87,29 @@ export function SessionSidebar({
     <OpenSessions.Provider value={openIds}>
       <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
         <div className="acpmux-rail">
-          <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon={<HomeIcon />} />
+          <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon="home" />
           <RailButton
             label="Sessions"
             current={view === "sessions"}
             dot={needsInput}
             onClick={() => setView("sessions")}
-            icon={<ChatsIcon />}
+            icon="agent.chat.list"
           />
-          <RailButton
-            label="History"
-            current={view === "history"}
-            onClick={() => setView("history")}
-            icon={<ClockIcon />}
-          />
-          <RailButton
-            label="Pull requests"
-            current={view === "pulls"}
-            onClick={() => setView("pulls")}
-            icon={<PullIcon />}
-          />
+          <RailButton label="History" current={view === "history"} onClick={() => setView("history")} icon="history" />
+          {preview && (
+            <RailButton
+              label="Pull requests"
+              current={view === "pulls"}
+              onClick={() => setView("pulls")}
+              icon="git.pullrequest"
+            />
+          )}
           <RailButton
             label="Closed sessions"
             title="More: closed sessions"
             current={view === "closed"}
             onClick={() => setView("closed")}
-            icon={<MoreIcon />}
+            icon="action.more"
           />
         </div>
         <div className="acpmux-sidebar-body">
@@ -152,7 +154,8 @@ function RailButton({
 }: {
   label: string;
   title?: string;
-  icon: React.ReactNode;
+  /** The registry name of the button's glyph. */
+  icon: string;
   current?: boolean;
   dot?: boolean;
   onClick?: () => void;
@@ -167,7 +170,7 @@ function RailButton({
       disabled={!onClick}
       onClick={onClick}
     >
-      {icon}
+      <Icon name={icon} size={RAIL_ICON} row selected={current} />
       {dot && <span className="acpmux-rail-dot" aria-hidden="true" />}
     </button>
   );
@@ -195,7 +198,7 @@ function SessionsView({
 }) {
   const newChat = onNewChat && (
     <button type="button" className="acpmux-sidebar-action" onClick={onNewChat}>
-      <NewChatIcon />
+      <Icon name="agent.chat.new" size={ROW_ICON} row />
       <span>New chat</span>
     </button>
   );
@@ -225,7 +228,7 @@ function SessionsView({
       {newChat}
       <search className="acpmux-sidebar-search">
         <label>
-          <SearchIcon />
+          <Icon name="search" size={ROW_ICON} row />
           <input
             type="search"
             aria-label="Search sessions"
@@ -277,7 +280,7 @@ function SessionsView({
                   className="acpmux-sidebar-project"
                   title={group.host ? `${group.cwd ?? ""} on ${group.host}` : group.cwd}
                 >
-                  <FolderIcon />
+                  <Icon name="folder" size={ROW_ICON} row />
                   <span>{group.label}</span>
                   {group.host && <small className="acpmux-sidebar-host">{group.host}</small>}
                   {mark && (
@@ -314,26 +317,6 @@ function SessionsView({
         </section>
       )}
     </>
-  );
-}
-
-/** The open-folder glyph, drawn in the muted text colour. */
-function FolderIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M1.4 11.7V4.3c0-.7.5-1.2 1.2-1.2h2.9l1.4 1.5h4.6c.7 0 1.2.5 1.2 1.2v.9" />
-      <path d="M1.5 12.3 3.3 7.6c.2-.5.6-.8 1.1-.8h9.5c.6 0 1 .6.8 1.1l-1.6 4.4c-.2.5-.6.7-1.1.7H2.4c-.5 0-.9-.3-.9-.7Z" />
-    </svg>
   );
 }
 

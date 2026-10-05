@@ -24,7 +24,17 @@ export const Origin = Schema.Literals(["user", "cli", "mcp", "script", "remote"]
 export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm"]).annotate({ identifier: "InstallKind" })
 export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "web"]).annotate({ identifier: "Platform" })
 
-export const OpClass = Schema.Literals(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"]).annotate({
+/**
+ * Grant classes. All but `cloud-link` are op risks. `cloud-link` (CLOUD-LINK-FOLLOWUPS 5) is a narrow
+ * grant class that no op declares as its risk: it covers only cloud.machine.link_token, so the
+ * iPhone app can dial its machines without general execute.
+ */
+/** The risk classes an op declares (what OpDef.risk and a feed approve item carry). */
+export const OP_RISKS = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
+export const OpRisk = Schema.Literals(OP_RISKS).annotate({ identifier: "OpRisk" })
+
+/** `vm-self` (VM install at bind, 2026-10-05): the VM daemon's own-machine ops (cloud.vm.*) only; no op declares it as its risk. */
+export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link", "vm-self"]).annotate({
   identifier: "OpClass"
 })
 
@@ -47,7 +57,13 @@ export const Install = Schema.Struct({
   thumbprint: Schema.String,
   grant: GrantId,
   created_at: Schema.Int,
-  revoked_at: Schema.NullOr(Schema.Int)
+  revoked_at: Schema.NullOr(Schema.Int),
+  /** The team whose TeamDO may revoke this install (a paired cmux server; plans/cmux-next/server.md 6.5). */
+  bound_team: Schema.optionalKey(TeamId),
+  /** The team whose SSO session registered this install (enterprise P17-4: sso.enforce keeps installs to SSO-registered ones). */
+  sso_team: Schema.optionalKey(TeamId),
+  /** A VM install (kind vm, made at bind): the one Cloud machine it speaks for. */
+  bound_machine: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)))
 }).annotate({ identifier: "Install" })
 
 export const Grant = Schema.Struct({
@@ -70,13 +86,30 @@ export const UserProfile = Schema.Struct({
   personal_team: TeamId
 }).annotate({ identifier: "UserProfile" })
 
+export const HostKind = Schema.Literals(["device", "server"]).annotate({ identifier: "HostKind" })
+export const WgPublicKey = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9+/]{43}=$/)).annotate({
+  identifier: "WgPublicKey",
+  description: "A WireGuard public key, standard base64 of 32 bytes."
+})
+/** Pairing code: 8 Crockford base32 symbols, shown as XXXX-XXXX (plans/cmux-next/server.md 6.2). */
+export const PairingCode = Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{8}$/)).annotate({
+  identifier: "PairingCode",
+  description: "A normalized pairing code: 8 Crockford base32 symbols, no hyphen."
+})
+
 export const Host = Schema.Struct({
   id: HostId,
   name: DisplayName,
   platform: Platform,
   owner_user: UserId,
   enrolled_by: InstallId,
-  enrolled_at: Schema.Int
+  enrolled_at: Schema.Int,
+  /** `server` when the owner turned on the server role set (plans/cmux-next/server.md 6); absent means a device. */
+  kind: Schema.optionalKey(HostKind),
+  /** The host's WireGuard public key (base64, 32 bytes), made on the host and never leaving it. */
+  wg_public_key: Schema.optionalKey(WgPublicKey),
+  /** Network policy tags, for example `tag:server`. */
+  tags: Schema.optionalKey(Schema.Array(Schema.String))
 }).annotate({ identifier: "Host" })
 
 export const TeamMember = Schema.Struct({

@@ -32,6 +32,15 @@ public final class HomeViewController: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The team refuses this app version: Home shows an update-required
+    /// banner naming the minimum version until this is nil again.
+    public var updateRequired: HomeUpdateRequired? {
+        didSet {
+            guard updateRequired != oldValue, isViewLoaded else { return }
+            list.setUpdateRequired(updateRequired)
+        }
+    }
+
     /// Applies new presentation options while Home is on screen.
     public func apply(_ options: HomeUIOptions) {
         guard options != self.options else { return }
@@ -52,6 +61,7 @@ public final class HomeViewController: UIViewController {
         list.onSelect = { [weak self] id in self?.openConversation(id, focus: nil) }
         performer.onFailure = { [weak self] rejection in self?.showFailure(rejection) }
 
+        list.setUpdateRequired(updateRequired)
         configureBarItems()
         configureSearch()
         compose.flow = options.composeFlow
@@ -65,6 +75,15 @@ public final class HomeViewController: UIViewController {
     override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         list.refreshVisibleContent()
+    }
+
+    /// First responder while nothing else is (no field editing), so the
+    /// hardware key commands work without a tap first.
+    override public var canBecomeFirstResponder: Bool { true }
+
+    override public func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !searchController.isActive { becomeFirstResponder() }
     }
 
     // MARK: Rendering
@@ -116,8 +135,8 @@ public final class HomeViewController: UIViewController {
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = HomeText.searchPlaceholder
         searchController.searchBar.tintColor = HomePalette.accent
-        searchResults.onOpen = { [weak self] conversation, key in
-            self?.openConversation(conversation, focus: key)
+        searchResults.onOpen = { [weak self] conversation, focus in
+            self?.openConversation(conversation, focus: focus)
         }
         navigationItem.searchController = searchController
         // Pull down to reveal; the list owns the screen until then.
@@ -125,18 +144,76 @@ public final class HomeViewController: UIViewController {
         definesPresentationContext = true
     }
 
+    // MARK: Hardware keyboard (plans/cmux-next/ios-keyboard.md K5)
+
+    /// Cmd-F searches and Cmd-N starts a new message: the same actions as
+    /// pulling down the search field and the compose menu's New Message.
+    /// Listed in the Command-key overlay; inactive while offline (as the buttons).
+    override public var keyCommands: [UIKeyCommand]? {
+        var commands = [UIKeyCommand(title: HomeText.searchCommand, action: #selector(searchCommand), input: "f",
+                                     modifierFlags: .command)]
+        if store.isOnline {
+            commands.append(UIKeyCommand(title: HomeText.newMessage, action: #selector(newMessageCommand), input: "n",
+                                         modifierFlags: .command))
+        }
+        return commands
+    }
+
+    @objc private func searchCommand() {
+        guard navigationController?.topViewController === self else { return }
+        searchController.isActive = true
+        searchController.searchBar.becomeFirstResponder()
+    }
+
+    @objc private func newMessageCommand() {
+        guard store.isOnline else { return }
+        compose.start(.newMessage)
+    }
+
     // MARK: Navigation
 
-    /// Pushes a conversation. `focus` scrolls to that message when it is loaded.
-    func openConversation(_ id: ConversationID, focus: IdempotencyKey?) {
-        guard let navigationController else { return }
+    /// Pushes a conversation. `focus` opens it scrolled to that message
+    /// (older pages load until it is there).
+    @discardableResult
+    func openConversation(_ id: ConversationID, focus: HomeTranscriptFocus?) -> ConversationViewController? {
+        guard let navigationController else { return nil }
         if searchController.isActive { searchController.isActive = false }
         let screen = ConversationViewController(store: store, conversation: id, focus: focus)
         if navigationController.topViewController !== self {
             navigationController.popToViewController(self, animated: false)
         }
         navigationController.pushViewController(screen, animated: !HomeMotion.reduceMotion)
+        return screen
     }
+
+    #if DEBUG
+    /// DEBUG ONLY (simulator screenshots): opens the first conversation whose
+    /// kind's name is `kind` (`chief`, `group`, `direct`) once the inbox has it.
+    /// `tapback` `open` then opens the tapback picker on the newest incoming
+    /// message; a tapback name (`love`, `like`, ...) sends that reaction.
+    public func debugOpenFirstConversation(kind: String, tapback: String? = nil) {
+        let store = self.store
+        Task { @MainActor [weak self] in
+            await HomeGallery.waitUntil(store) { store in store.rows.contains { "\($0.kind)" == kind } }
+            guard let id = store.rows.first(where: { "\($0.kind)" == kind })?.id else { return }
+            let screen = self?.openConversation(id, focus: nil)
+            guard let tapback, let screen else { return }
+            await screen.debugTapback(choose: Reaction.Tapback(rawValue: tapback))
+        }
+    }
+
+    /// DEBUG ONLY (simulator screenshots): searches Home for `query` and
+    /// opens hit number `index` (newest first) the way tapping it in the
+    /// search results does.
+    public func debugOpenSearchHit(query: String, index: Int) {
+        let store = self.store
+        Task { @MainActor [weak self] in
+            await HomeGallery.waitUntil(store) { $0.isOnline && !$0.rows.isEmpty }
+            guard let hits = try? await store.search(query), hits.indices.contains(index) else { return }
+            self?.openConversation(hits[index].conversation, focus: HomeTranscriptFocus(hits[index]))
+        }
+    }
+    #endif
 
     private func showFailure(_ rejection: HomeRejection) {
         let alert = UIAlertController(title: HomeText.actionFailedTitle, message: HomeText.explanation(for: rejection),

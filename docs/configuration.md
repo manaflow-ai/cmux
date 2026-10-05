@@ -27,7 +27,7 @@ configuration the same way as Reload Configuration (Cmd+Shift+,), about 300 ms a
 the last write. Atomic saves, Vim-style saves that move the old file aside, files
 created after launch, and newly added includes are all picked up. A save that leaves
 the contents unchanged, or a file cmux already reloaded itself (for example after
-`cmux themes set` or a `cmux themes` preview), does not trigger another reload. A save
+a theme change or theme preview in Settings), does not trigger another reload. A save
 made while a reload is still applying reloads once more after it. Themes bundled with cmux or Ghostty.app
 are not watched.
 
@@ -35,7 +35,7 @@ When Ghostty reports errors for the config (an unknown key, an invalid value, a 
 theme), cmux shows a notice in the corner of the window listing the first three, with a
 button that opens the file at the offending line. The notice appears once per distinct set
 of errors: reloads that keep the same errors stay quiet, fixing them hides the notice, and
-reintroducing an error shows it again. `cmux config doctor` validates `cmux.json` only.
+reintroducing an error shows it again.
 
 ## `mobile.artifactFolderAccess`
 
@@ -181,11 +181,11 @@ policy never caps memory use, caps the number of agents/panes/processes,
 throttles or blocks new work, or terminates active or visible work. Hibernated
 agents resume from their saved session exactly as routine Agent Hibernation does.
 
-Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux settings set terminal.agentHibernation.enabled true`.
 
 ## `sidebar.showAgentActivity`
 
-Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders (`cmux workspace loading on`).
+Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders.
 
 ```json
 {
@@ -207,7 +207,7 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 Puts the workspace's own status on one line, like the Claude desktop session list: one small colored glyph, then the title. Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"), and by default every one gets its own row under the workspace title, next to the branch and directory line and the pull request rows. With `compactAgentStatus` on, those rows fold into the glyph, along with the notification preview, the unread count badge and the loading spinner, and a long title stops wrapping. Hover the glyph for the agent, pull request, branch, and directory details, plus the config profile an agent launched under when it isn't the default (`CLAUDE_CONFIG_DIR=~/.claude-outlook` shows as `outlook`).
 
-Lines you added yourself stay where they are: the workspace description, your own `cmux set-status` keys, logs, progress, ports, the checklist, and a remote workspace's connection row with its Reconnect button. So `cmux set-status` under your own key is still the way to keep a line of your own in compact mode.
+Lines you added yourself stay where they are: the workspace description, your own status keys, logs, progress, ports, the checklist, and a remote workspace's connection row with its Reconnect button. The Rust `cmux` has no `set-status` verb yet, so scripts cannot add such a line from the CLI.
 
 ```json
 {
@@ -255,8 +255,8 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 ```
 
 - Default: `false`.
-- Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
-- The notification preview moves to the top of the tooltip too. Rows you added yourself (a workspace description, `cmux set-status` under other keys, logs, progress, ports) keep their lines.
+- Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status under any other key keeps its row.
+- The notification preview moves to the top of the tooltip too. Rows you added yourself (a workspace description, status under other keys, logs, progress, ports) keep their lines.
 - Workspace group headers show a glyph, after the group name, for the workspaces without a row of their own: the anchor workspace while the group is expanded, and every member once it is collapsed. Only states that ask for attention appear there (error, needs input, running, unread), the loudest first; hover it to see which workspace each comes from. It replaces the header's unread count.
 - The pulse is a Core Animation opacity loop capped at 30 Hz. It stops while the window is hidden or occluded, and Reduce Motion keeps the dot still.
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
@@ -281,6 +281,14 @@ When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.
 ## Search Tabs shortcut
 
 Cmd+Shift+A opens Search Tabs: every tab in every window, workspace, pane and connected machine, with recently closed tabs below. Type to match a tab's title, URL, folder or the agent running in it. Return focuses and reveals the tab (or reopens a closed one), and Cmd+W closes the selected tab, or removes a closed one from the list, without closing the search. Rebind or unbind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["tab.search"]`, for example `"tab.search": "cmd+shift+f"` or `"tab.search": null`. A focused Simulator keeps Cmd+Shift+A for its own Toggle Appearance. Focus TextBox moved to Cmd+Option+A so a terminal does not take the chord.
+
+## `palette.scopes.<scope>.prefix`
+
+The character that enters a built-in command palette scope when you type it into an empty query. Scopes: `tabs` (default `@`), `workspaces` (`#`), `commands` (`>`), `settings` (`,`) and `scopes` (`?`, the list of every scope). The value is one of `@ # > , ? ! / ; : % & + = ~ $ ^ * .`, or `"none"` to turn the prefix off. A prefix you assign moves from the built-in scope that has it by default. A keyword plus Tab (for example `tabs` Tab) enters a scope whatever its prefix.
+
+```json
+{ "palette": { "scopes": { "workspaces": { "prefix": "@" }, "tabs": { "prefix": "%" } } } }
+```
 
 ## `terminal.textBoxSubmitActions`
 
@@ -467,7 +475,7 @@ cmux also posts a notification when a workspace's status first reaches done, and
 
 ## `agents.launchers`
 
-cmux resolves resume commands for the wrapper launchers it owns (`cmux claude-teams`, `cmux codex-teams`, `cmux omo`, …). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided — account fallback, quota spreading, request logging — is gone from the restored pane.
+cmux resolves resume commands for the wrapper launchers it owns (Claude Teams and Codex Teams, started with `cmux agent launch-claude-teams` and `cmux agent launch-codex-teams`). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided (account fallback, quota spreading, request logging) is gone from the restored pane.
 
 Declare the wrapper here and cmux re-supplies it whenever that session resumes.
 
@@ -495,7 +503,7 @@ Declare the wrapper here and cmux re-supplies it whenever that session resumes.
 Behavior notes:
 
 - A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `id`. The project file is resolved from the agent session's directory, not from wherever a CLI process happened to start.
-- Only resume is wrapped. Fresh launches already run under the wrapper because you started them there, and `cmux restore <kind> <checkpoint-id>` in direct mode is left untouched.
+- Only resume is wrapped. Fresh launches already run under the wrapper because you started them there, and a direct-mode checkpoint restore is left untouched.
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
-- Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux hooks setup --agent claude`.
+- Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.

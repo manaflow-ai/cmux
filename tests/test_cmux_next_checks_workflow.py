@@ -180,5 +180,179 @@ class GodfileScopes(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
 
+class PathRoutingStructure(unittest.TestCase):
+    def test_path_route_gates_mac_jobs_and_keeps_webviews_on_one_compile(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        route = jobs["path_route"]
+        self.assertIn("native", route["outputs"])
+        self.assertIn("macos", route["outputs"])
+        self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
+        self.assertIn("needs.path_route.outputs.native", jobs["swift-test"]["if"])
+        self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
+        self.assertIn("needs.path_route.outputs.macos", jobs["cmux-scheme-compile"]["if"])
+        route_script = route["steps"][-1]["run"]
+        self.assertIn("webviews/*", route_script)
+        self.assertIn("web/*", route_script)
+        self.assertIn("Packages/macOS/CmuxNext/*", route_script)
+        self.assertIn("Packages/*", route_script)
+
+    def test_push_head_preflight_skips_superseded_macos_jobs(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        preflight = jobs["push-head-preflight"]
+        self.assertIn("github.sha", preflight["steps"][0]["env"]["SHA"])
+        self.assertIn("git", preflight["steps"][0]["run"])
+        self.assertIn("ls-remote", preflight["steps"][0]["run"])
+        self.assertIn("current", preflight["outputs"])
+        for job_id in ("macos-placement", "swift-test", "release-compile", "cmux-scheme-compile"):
+            job = jobs[job_id]
+            needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
+            with self.subTest(job=job_id):
+                self.assertIn("push-head-preflight", needs)
+                self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+
+    def test_current_feat_push_still_requests_nightly_next(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        nightly = jobs["request-nightly-next"]
+        self.assertEqual(nightly["needs"], "release-compile")
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
+        self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
+
+    def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
+        for filename, job_id in (("cmux-next.yml", "push-head-preflight"),
+                                 ("cmux-tui-artifacts.yml", "tree-preflight")):
+            document = yaml.safe_load((WORKFLOW.parent / filename).read_text())
+            script = document["jobs"][job_id]["steps"][-1]["run"]
+            with self.subTest(workflow=filename):
+                self.assertIn("Authorization: Basic", script)
+                self.assertIn("x-access-token:%s", script)
+                self.assertIn("timeout 15 git", script)
+                self.assertNotIn("Authorization: Bearer", script)
+
+
+class PushPreflightBehavior(unittest.TestCase):
+    """Execute the workflow shell with bounded fake network and git responses."""
+
+    def run_preflight(self, *, artifacts=False, event="push", ref="refs/heads/feat-cmux-next",
+                      remote="a" * 40, published=False, fork=False):
+        filename = "cmux-tui-artifacts.yml" if artifacts else "cmux-next.yml"
+        workflow = yaml.safe_load((WORKFLOW.parent / filename).read_text())
+        job_id = "tree-preflight" if artifacts else "push-head-preflight"
+        script = workflow["jobs"][job_id]["steps"][-1]["run"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            git = root / "git"
+            git.write_text('''#!/bin/bash
+case "$*" in
+  *ls-remote*) [[ -z "$REMOTE_SHA" ]] && exit 1; printf '%s\\trefs/heads/feat-cmux-next\\n' "$REMOTE_SHA" ;;
+  *rev-parse*) printf '%040d\\n' 1 ;;
+  *mktree*) cat >/dev/null; printf '%040d\\n' 2 ;;
+  *) exit 1 ;;
+esac
+''')
+            git.chmod(0o755)
+            curl = root / "curl"
+            curl.write_text('''#!/bin/bash
+[[ "$PUBLISHED" == true ]] || exit 22
+printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
+''')
+            curl.chmod(0o755)
+            output = root / "output"
+            env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
+                   "GITHUB_OUTPUT": str(output), "EVENT_NAME": event, "REF": ref,
+                   "SHA": "a" * 40, "SOURCE_COMMIT": "a" * 40,
+                   "REMOTE_SHA": remote, "PUBLISHED": str(published).lower(),
+                   "HEAD_REPOSITORY": "outside/fork" if fork else "manaflow-ai/cmux",
+                   "REPOSITORY": "manaflow-ai/cmux", "SERVER_URL": "https://github.com",
+                   "GH_TOKEN": "fixture", "RUN_ID": "123"}
+            result = subprocess.run(["bash", "-c", script], env=env, text=True,
+                                    capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_current_push_keeps_native_compile(self):
+        self.assertEqual(self.run_preflight()["current"], "true")
+
+    def test_superseded_push_skips_native_compile(self):
+        self.assertEqual(self.run_preflight(remote="b" * 40)["current"], "false")
+
+    def test_ref_lookup_failure_keeps_current_compile_enabled(self):
+        self.assertEqual(self.run_preflight(remote="")["current"], "true")
+
+    def test_pr_and_dispatch_are_never_superseded(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.run_preflight(event=event, remote="b" * 40)["current"], "true")
+
+    def test_published_tree_skips_mac_build_and_daemon_tests(self):
+        output = self.run_preflight(artifacts=True, published=True)
+        self.assertEqual(output["tree_ready"], "true")
+        self.assertEqual(output["run_macos"], "false")
+
+    def test_new_tree_schedules_mac_build_and_daemon_tests(self):
+        self.assertEqual(self.run_preflight(artifacts=True)["run_macos"], "true")
+
+    def test_superseded_push_does_not_build_even_a_missing_tree(self):
+        output = self.run_preflight(artifacts=True, remote="b" * 40)
+        self.assertEqual(output["run_macos"], "false")
+        self.assertEqual(output["superseded"], "true")
+
+    def test_main_keeps_commit_and_latest_publication(self):
+        self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/main",
+                                            published=True)["run_macos"], "true")
+
+    def test_manual_republish_keeps_commit_artifacts_enabled(self):
+        self.assertEqual(self.run_preflight(artifacts=True, event="workflow_dispatch",
+                                            ref="refs/heads/cmux-tui-pin-repair",
+                                            published=True)["run_macos"], "true")
+
+    def test_pin_push_keeps_commit_artifacts_enabled(self):
+        self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/cmux-tui-pin-repair",
+                                            published=True)["run_macos"], "true")
+
+    def test_fork_never_schedules_trusted_build(self):
+        self.assertEqual(self.run_preflight(artifacts=True, event="pull_request_target",
+                                            fork=True)["run_macos"], "false")
+
+
+RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
+
+
+def can_run_on_owned_runner(job: dict) -> bool:
+    """A runs-on that reads a repository variable can resolve to a mini (glaeda-*)."""
+    return "vars." in str(job.get("runs-on", ""))
+
+
+class ReusedWorkspaceSubmodules(unittest.TestCase):
+    """A reused mini workspace keeps the previous job's submodule checkouts.
+
+    actions/checkout with `submodules: false` moves the superproject but leaves
+    ghostty at the last branch's commit, so pin-cmux-tui.sh fetch saw ` M ghostty`
+    and refused the checkout (run 37198483749). Every such checkout on a job
+    that can run on a mini is followed at once by the reset step.
+    """
+
+    def test_every_submodule_free_checkout_on_an_owned_runner_resets_submodules(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        checked = []
+        for job_id, job in jobs.items():
+            if not can_run_on_owned_runner(job):
+                continue
+            job_steps = job.get("steps", [])
+            for index, step in enumerate(job_steps):
+                if not str(step.get("uses", "")).startswith("actions/checkout@"):
+                    continue
+                if str(step.get("with", {}).get("submodules", False)).lower() in ("true", "recursive"):
+                    continue
+                checked.append(job_id)
+                with self.subTest(job=job_id):
+                    following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
+                    self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
+                                  "the step after checkout must drop stale submodule checkouts")
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "swift-test"])
+
+
 if __name__ == "__main__":
     unittest.main()

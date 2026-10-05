@@ -18,11 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import product_input_identity as product_inputs  # noqa: E402
 
-SCHEME_OUTPUTS = {
-    # cmuxCLITests has no app host: its bundle is loaded by the platform's own
-    # xctest agent, so the manifest names no product as its test host.
-    "cmux-cli-tests": "CMUX_CLI_TESTS_XCTESTRUN",
-}
+# The GITHUB_ENV variable each test scheme's relocated manifest is published
+# under. Empty while product_input_identity.TEST_SCHEMES is: the product holds
+# only the app, so stamp and restore check and relocate the receipt alone.
+SCHEME_OUTPUTS: dict[str, str] = {}
 RECEIPT = "cmux-test-products.json"
 
 

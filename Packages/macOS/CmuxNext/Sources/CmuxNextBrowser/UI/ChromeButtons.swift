@@ -72,6 +72,12 @@ final class ChromeIconButton: NSButton {
         didSet { updateFill() }
     }
 
+    /// A toggle that is on (design mode, open DevTools) keeps the pressed
+    /// fill; the app accent is a neutral gray, so a tint would not read.
+    var isOn = false {
+        didSet { if isOn != oldValue { updateFill() } }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
@@ -123,7 +129,7 @@ final class ChromeIconButton: NSButton {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
-            } else if isHighlighted {
+            } else if isHighlighted || isOn {
                 Palette.selectionFill
             } else if isHovering {
                 Palette.hoverFill

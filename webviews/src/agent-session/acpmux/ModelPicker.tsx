@@ -15,10 +15,16 @@ export function ModelPicker(props: ModelPickerProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const handle = useRef<MenuHandle | undefined>(undefined);
-  const openChange = useCallback((next: boolean) => {
-    setOpen(next);
-    setLayout(undefined);
-  }, []);
+  const { onHarnessHint } = props;
+  const openChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      setLayout(undefined);
+      // A closed menu rests on no harness: a hint still waiting is dropped.
+      if (!next) onHarnessHint?.(undefined);
+    },
+    [onHarnessHint],
+  );
   const close = useCallback(() => openChange(false), [openChange]);
   const { catalog, harness, measureRoom = menuRoom } = props;
   useLayoutEffect(() => {

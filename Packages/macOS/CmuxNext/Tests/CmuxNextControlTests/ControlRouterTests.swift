@@ -5,13 +5,18 @@ import Testing
 
 @Suite struct ControlRouterTests {
     func makeRouter(_ executor: RecordingExecutor = RecordingExecutor(), settings: (any ControlSettingsStore)? = nil) -> ControlRouter {
-        let router = ControlRouter(identity: testIdentity(), executor: executor, settings: settings)
+        let router = ControlRouter(identity: testIdentity(), executor: executor, settings: settings, configuration: .loadTolerant)
         router.updateCatalog(sampleCatalog())
         return router
     }
 
+    /// `action.run` here tests validation and forwarding, so it answers once
+    /// the handler ran (`wait: false`); waiting is ActionRunContractTests'.
+    /// The main thread is shared with suites that stall it on purpose.
     func call(_ router: ControlRouter, _ method: String, _ params: [String: JSONValue] = [:]) async -> Result<JSONValue, ControlError> {
-        await router.handle(ControlRequest(id: "1", method: method, params: params))
+        var params = params
+        if method == "action.run", params["wait"] == nil { params["wait"] = false }
+        return await router.handle(ControlRequest(id: "1", method: method, params: params))
     }
 
     @Test func listAndDescribe() async throws {

@@ -1,0 +1,27 @@
+{
+  "name": "@cmux/integrations-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Generic integration ingestion (OpenAPI 3, GraphQL introspection, MCP tools/list) per-tool policy defaults, egress pre-checks and MCP tool naming for cmux. Adapted in part from executor (MIT).",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./policy": "./src/policy.ts",
+    "./catalog": "./src/catalog.ts",
+    "./auth": "./src/auth.ts",
+    "./egress": "./src/egress.ts",
+    "./mcp-names": "./src/mcp-names.ts",
+    "./text": "./src/text.ts",
+    "./openapi": "./src/openapi.ts",
+    "./openapi-paths": "./src/openapi-paths.ts",
+    "./openapi-auth": "./src/openapi-auth.ts",
+    "./graphql": "./src/graphql.ts",
+    "./mcp": "./src/mcp.ts"
+  },
+  "files": ["src/", "LICENSE", "NOTICE", "README.md"],
+  "scripts": {
+    "test": "bun test test"
+  }
+}

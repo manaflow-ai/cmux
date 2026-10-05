@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto"
-import type { Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
+import type { OpFrame, OwnerFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
 import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
+import { afterCreate } from "./domains/scheduler-policy.ts"
+import { codeRefOf, precheckCodeOp } from "./code-check.ts"
+import type { CodeStorageError } from "./code-storage.ts"
 import type { Env } from "./env.ts"
 import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
@@ -27,6 +30,10 @@ export interface RunReport {
 }
 
 const MAX_RETRY_MS = 5 * 60_000
+/** Retry delay after a run limit refused a fire or a delivery (the bucket refills 5 tokens a second). */
+const RATE_RETRY_MS = 1000
+/** Deferred provider deliveries one team may hold. */
+const MAX_DEFERRED = 1000
 /** How long a delivery id is remembered for dedupe (longer than any provider's redelivery window). */
 export const DELIVERY_RETENTION_MS = 30 * 24 * 3600_000
 /** Trigger payloads kept for a run's input; larger ones are replaced by a truncation marker. */
@@ -46,12 +53,14 @@ const alreadyExists = (e: unknown) => /already exists|already_exists|duplicate/i
 export class SchedulerDO extends OwnerDO<SchedulerState> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, schedulerDomain, "scheduler", (p) => ({
-      identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
+      identity: p.kind === "system" || (p.kind === "agent" && p.identity.startsWith("automation:")) ? p.identity : (p.install ?? `user:${p.user}`),
       ...(p.kind ? { kind: p.kind } : {}),
       ...(p.user ? { user: p.user } : {}),
       ...(p.team ? { team: p.team } : {}),
       ...(p.install ? { install: p.install } : {}),
-      ...(p.display_name ? { display_name: p.display_name } : {})
+      ...(p.display_name ? { display_name: p.display_name } : {}),
+      // Automation principals: mirrors replay automation.run with the same chain rules (review P2).
+      ...(p.kind === "agent" && p.identity.startsWith("automation:") ? { agent: p.agent, run: p.run } : {})
     }))
     // Trigger payloads wait here between the delivery and the Workflow start. They are
     // inputs, not entity state: never in events, snapshots or the ledger.
@@ -63,6 +72,9 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS seen_deliveries (key TEXT PRIMARY KEY, run TEXT, at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS seen_deliveries_at ON seen_deliveries (at)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS run_inputs (run TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL)`)
+    // Provider events refused by the team's run limits: providers do not redeliver after a 2xx, so the
+    // owner keeps them and retries from its alarm (same ledger key, so a later success replays once).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS deferred_deliveries (key TEXT PRIMARY KEY, automation TEXT NOT NULL, trigger TEXT NOT NULL, delivery TEXT NOT NULL, input TEXT NOT NULL, at INTEGER NOT NULL)`)
   }
 
   protected read(state: SchedulerState, op: string, params: unknown, principal: Principal): ReadResult {
@@ -133,6 +145,59 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     this.ctx.storage.sql.exec(`DELETE FROM retry_state WHERE key = ?`, key)
   }
 
+  /** A run limit (not a failure): try again in a second, without backoff or an error log. */
+  private retrySoon(key: string, now: number) {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO retry_state (key, attempts, at) VALUES (?, 0, ?) ON CONFLICT (key) DO UPDATE SET at = excluded.at`,
+      key,
+      now + RATE_RETRY_MS
+    )
+  }
+
+  /**
+   * One event delivery for one trigger. "limited" when the team's run limits refused it (the
+   * caller defers it); "done" otherwise (started, replayed, stale or skipped).
+   */
+  private deliverOne(automation: string, trigger: string, delivery: string, input: string): "started" | "done" | "limited" {
+    const key = deliverKey(automation, trigger, delivery)
+    if (this.seen(key)) return "done"
+    const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, key)
+    const out = res.frames.find((f): f is ResultFrame => f.t === "result")
+    // Rate limits and a policy not loaded yet are temporary: the event waits; a deny drops it.
+    if (!out) return rejected(res)?.code === "rate.limited" || rejected(res)?.code === "policy.pending" ? "limited" : "done"
+    const value = out.value as { id?: string; state?: string; stale?: boolean } | undefined
+    if (!value?.stale) this.remember(key, value?.id)
+    if (out.replayed || !value?.id || value.stale || value.state === "skipped") return "done"
+    this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, input, Date.now())
+    return "started"
+  }
+
+  private defer(automation: string, trigger: string, delivery: string, input: string, now: number) {
+    const count = Number(this.ctx.storage.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM deferred_deliveries`).toArray()[0]?.n ?? 0)
+    if (count >= MAX_DEFERRED) {
+      console.error(JSON.stringify({ msg: "deferred delivery dropped: too many waiting", stream: this.boundEngine?.stream, automation, trigger }))
+      return
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO deferred_deliveries (key, automation, trigger, delivery, input, at) VALUES (?, ?, ?, ?, ?, ?)`,
+      deliverKey(automation, trigger, delivery), automation, trigger, delivery, input, now + RATE_RETRY_MS
+    )
+  }
+
+  /** Retries deferred deliveries that are due, oldest first, until the limits refuse again. */
+  private retryDeferred(now: number) {
+    const due = this.ctx.storage.sql.exec<{ key: string; automation: string; trigger: string; delivery: string; input: string }>(
+      `SELECT key, automation, trigger, delivery, input FROM deferred_deliveries WHERE at <= ? ORDER BY at LIMIT 50`, now
+    ).toArray()
+    for (const d of due) {
+      if (this.deliverOne(d.automation, d.trigger, d.delivery, d.input) === "limited") {
+        this.ctx.storage.sql.exec(`UPDATE deferred_deliveries SET at = ? WHERE at <= ?`, now + RATE_RETRY_MS, now)
+        return
+      }
+      this.ctx.storage.sql.exec(`DELETE FROM deferred_deliveries WHERE key = ?`, d.key)
+    }
+  }
+
   /** Inputs of runs that are gone or finished, and stale backoff rows, leave with the replay window. */
   protected override onPrune(before: number): void {
     const runs = this.boundEngine?.currentState.runs ?? {}
@@ -158,6 +223,8 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       }
     }
     for (const r of dispatchable(state)) take(this.retryAt(dispatchKey(r.id)) ?? now)
+    const deferred = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM deferred_deliveries`).toArray()[0]?.at
+    if (deferred !== null && deferred !== undefined) take(Number(deferred))
     const oldestSeen = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM seen_deliveries`).toArray()[0]?.at
     if (oldestSeen !== null && oldestSeen !== undefined) take(Number(oldestSeen) + DELIVERY_RETENTION_MS)
     // One wake per open run at its deadline; a run that reports its end never causes it.
@@ -212,13 +279,17 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const engine = this.boundEngine
     if (!engine) return
     await this.enforceDeadlines(now)
+    await this.ensureRunPolicy(engine.currentState.owner ?? engine.stream.slice("scheduler:".length))
     for (const f of dueFires(engine.currentState, now)) {
       const key = fireKey(f.automation, f.trigger, f.scheduled_at)
       if ((this.retryAt(key) ?? 0) > now) continue
       const r = rejected(this.submitSystem("automation.fire", f, key))
-      if (r) this.failed(key, now, `${r.code}: ${r.message}`)
+      // A run limit or a policy not loaded yet is temporary: retry in a second, no backoff, no error log.
+      if (r?.code === "rate.limited" || r?.code === "policy.pending") this.retrySoon(key, now)
+      else if (r) this.failed(key, now, `${r.code}: ${r.message}`)
       else this.succeeded(key)
     }
+    this.retryDeferred(now)
     for (const run of dispatchable(engine.currentState)) {
       const key = dispatchKey(run.id)
       if ((this.retryAt(key) ?? 0) > now) continue
@@ -240,6 +311,13 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
           continue
         }
       }
+      // The create awaited: a policy deny, disable or delete may have cancelled the run meanwhile.
+      // Its Workflow must not run on: terminate it now (run.report also stops it, see reportRun).
+      if (afterCreate(engine.currentState, run.id) === "terminate") {
+        await this.terminateInstance(run.id)
+        this.succeeded(key)
+        continue
+      }
       const r = rejected(this.submitSystem("run.dispatched", { run: run.id }, key))
       if (r) this.failed(key, now, `${r.code}: ${r.message}`)
       else {
@@ -255,7 +333,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
    * replay. Never creates storage for a team that has no scheduler yet.
    */
   async deliverWebhook(entity: string, trigger: string, delivery: string, input: unknown): Promise<DeliverResult> {
-    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "unknown" }
     const engine = this.bind(entity)
     const a = Object.values(engine.currentState.automations).find((x) => x.triggers.some((t) => t.id === trigger && t.spec.type === "webhook"))
@@ -263,9 +341,13 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const key = deliverKey(a.id, trigger, delivery)
     const prior = this.seen(key)
     if (prior) return { status: "duplicate", ...(prior.run ? { run: prior.run } : {}) }
+    await this.ensureRunPolicy(entity)
     const res = this.submitSystem("automation.deliver", { automation: a.id, trigger, delivery_id: delivery }, key)
     const out = res.frames.find((f): f is ResultFrame => f.t === "result")
-    if (!out) return { status: "disabled" }
+    if (!out) {
+      const code = rejected(res)?.code
+      return { status: code === "rate.limited" ? "rate_limited" : code === "policy.denied" ? "policy_denied" : code === "policy.pending" ? "policy_pending" : "disabled" }
+    }
     const value = out.value as { id?: string; state?: string; stale?: boolean }
     if (value.stale) return { status: "disabled" }
     this.remember(key, value.id)
@@ -285,32 +367,102 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     entity: string,
     ev: { connection: string; sharing: "private" | "team"; created_by: string; provider: string; event: string; delivery_id: string; payload: unknown }
   ): Promise<{ runs: number }> {
-    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { runs: 0 }
     const engine = this.bind(entity)
+    await this.ensureRunPolicy(entity)
     let runs = 0
+    const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
+    const input = new TextEncoder().encode(text).byteLength <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
+    const now = Date.now()
     for (const { automation, trigger } of matchingEventTriggers(engine.currentState, ev)) {
       const delivery = `${ev.connection}:${ev.delivery_id}`
-      const key = deliverKey(automation, trigger, delivery)
-      if (this.seen(key)) continue
-      const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, key)
-      const out = res.frames.find((f): f is ResultFrame => f.t === "result")
-      const value = out?.value as { id?: string; state?: string; stale?: boolean } | undefined
-      if (out && !value?.stale) this.remember(key, value?.id)
-      if (!out || out.replayed || !value?.id || value.stale || value.state === "skipped") continue
-      runs++
-      const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
-      const input = new TextEncoder().encode(text).byteLength <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
-      this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, input, Date.now())
+      const r = this.deliverOne(automation, trigger, delivery, input)
+      if (r === "started") runs++
+      if (r === "limited") this.defer(automation, trigger, delivery, input, now)
     }
+    this.scheduleAlarm()
     return { runs }
   }
 
-  /** RPC from a run's Workflow. One key per (run, state, step): a retried step replays. */
-  async reportRun(entity: string, report: RunReport): Promise<{ ok: boolean; code?: string }> {
+  /**
+   * Ops that pin automation code (create, update, deploy with a code body): the commit and its
+   * bundle must exist in this team's repository before the reducer sees the op. Replays and
+   * denied ops skip the check (OwnerEngine.gate), so a decided key always gets its original
+   * answer. The check awaits code.storage; if the automation's path changed meanwhile, the op is
+   * refused as retryable instead of pinning a path that was never checked.
+   */
+  async submitCode(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult | { readonly refusal: CodeStorageError }> {
+    const engine = this.bind(entity)
+    if (codeRefOf(frame.op, frame.params) && engine.gate(principal, frame) === undefined) {
+      const pathOf = (id: string) => {
+        const b = engine.currentState.automations[id]?.body
+        return b?.type === "code" ? b.ref.path : undefined
+      }
+      const id = (frame.params as { automation?: unknown } | null)?.automation
+      const before = typeof id === "string" ? pathOf(id) : undefined
+      const refusal = await precheckCodeOp(this.env, entity, frame.op, frame.params, async (a) => engine.currentState.automations[a])
+      // The await lets other requests in: a same-key twin may have committed meanwhile; then replay it.
+      if (refusal && engine.gate(principal, frame) !== "replay") return { refusal }
+      if (typeof id === "string" && pathOf(id) !== before) return { refusal: { code: "code.unavailable", message: "the automation changed during the code check; retry", retryable: true } }
+    }
+    return this.submit(entity, principal, frame)
+  }
+
+  /** RPC from TeamDO: the run class of agents.allowedClasses at a policy version (newest wins). */
+  async applyRunPolicy(entity: string, policy: { version: number; runs_allowed: boolean }): Promise<{ ok: boolean; message?: string }> {
     this.bind(entity)
+    const r = rejected(this.submitSystem("scheduler.run_policy", policy, `run-policy:${policy.version}:${policy.runs_allowed ? 1 : 0}`))
+    return r ? { ok: false, message: `${r.code}: ${r.message}` } : { ok: true }
+  }
+
+  /** RPC from a run's Workflow. One key per (run, state, step): a retried step replays. */
+  async reportRun(entity: string, report: RunReport): Promise<{ ok: boolean; code?: string; stopped?: boolean }> {
+    const engine = this.bind(entity)
+    // A run that ended here (cancelled by a policy deny, disable or delete) stops its Workflow.
+    const before = engine.currentState.runs[report.run]
+    if (before && TERMINAL.has(before.state) && !TERMINAL.has(report.state)) return { ok: true, stopped: true }
     const r = rejected(this.submitSystem("run.report", report, `report:${report.run}:${report.state}:${report.step}`))
     return r ? { ok: false, code: r.code } : { ok: true }
+  }
+
+  /** Stops a run's Workflow instance; a missing or finished instance is fine. */
+  private async terminateInstance(run: string) {
+    try {
+      await (await this.env.AUTOMATION_RUN.get(run)).terminate()
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "terminate refused", stream: this.boundEngine?.stream, run, error: String(e) }))
+    }
+  }
+
+  /**
+   * Fail closed (scheduler-policy.ts): before work that can create runs, a scheduler without the
+   * team's run policy asks TeamDO for it once. A failure leaves runs refused (policy.pending,
+   * retryable); TeamDO's own push also delivers it later.
+   */
+  private async ensureRunPolicy(entity: string): Promise<void> {
+    const engine = this.boundEngine
+    if (!engine || engine.currentState.run_policy !== undefined) return
+    try {
+      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { runPolicy(e: string): Promise<{ version: number; runs_allowed: boolean }> }
+      const p = await team.runPolicy(entity)
+      this.submitSystem("scheduler.run_policy", p, `run-policy:${p.version}:${p.runs_allowed ? 1 : 0}`)
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "run policy pull failed", stream: engine.stream, error: String(e) }))
+    }
+  }
+
+  /** HTTP ops: a manual run pulls the run policy first, so the first run is not refused as pending. */
+  override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    this.bind(entity)
+    if (frame.op === "automation.run") await this.ensureRunPolicy(entity)
+    return super.submit(entity, principal, frame)
+  }
+
+  /** Any path (wire, HTTP) refused as policy.pending: pull the policy so the client's retry passes. */
+  protected override afterOp(_principal: Principal, _op: string, frames: ReadonlyArray<OwnerFrame>) {
+    const entity = this.boundEngine?.currentState.owner
+    if (entity && frames.some((f) => f.t === "reject" && f.code === "policy.pending")) this.ctx.waitUntil(this.ensureRunPolicy(entity))
   }
 }
 

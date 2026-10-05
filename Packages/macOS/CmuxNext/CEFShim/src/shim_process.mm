@@ -135,13 +135,20 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   }
   CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ContextHandler(cache_path));
   contexts[cache_path] = context;
+  // cmux-page:// pages added so far (each profile has its own factories).
+  RegisterPageSchemes(context);
   return context;
 }
 
 void ReleaseRequestContext(const std::string& key) {
+  ForgetPreferenceWatches(key);
   request_contexts().erase(key);
   initialized_contexts().erase(key);
   ForgetContextProxy(key);
+}
+
+void ForEachRequestContext(const std::function<void(CefRefPtr<CefRequestContext>)>& body) {
+  for (auto& [key, context] : request_contexts()) body(context);
 }
 
 CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path) {
@@ -183,6 +190,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_go_to_offset, "cmux_tab_go_to_offset");
   CMUX_BIND(password_import, "cmux_password_import");
   CMUX_BIND(tab_set_password_fill, "cmux_tab_set_password_fill");
+  CMUX_BIND(tab_duplicate, "cmux_tab_duplicate");
   CMUX_BIND(tab_window_id, "cmux_tab_window_id");
   CMUX_BIND(ext_actions, "cmux_ext_actions");
   CMUX_BIND(ext_action_run, "cmux_ext_action_run");
@@ -218,6 +226,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(side_panel_watch, "cmux_side_panel_watch");
   CMUX_BIND(side_panel_state, "cmux_side_panel_state");
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
+  CMUX_BIND(profile_passkeys_list, "cmux_profile_passkeys_list");
+  CMUX_BIND(profile_passkey_delete, "cmux_profile_passkey_delete");
 #undef CMUX_BIND
 }
 
@@ -380,7 +390,11 @@ void cmux_shim_shutdown(void) {
     fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
   }
   host() = Host();
+  // Preference observer registrations go before their contexts.
+  ReleasePreferenceWatches();
   request_contexts().clear();
+  // Download callbacks hold Chromium objects: release them first.
+  ForgetDownloads();
   CefShutdown();
 }
 

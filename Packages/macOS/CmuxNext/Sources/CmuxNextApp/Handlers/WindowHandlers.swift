@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
@@ -14,12 +15,15 @@ enum WindowHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let keepAwake = KeepAwake()
+        // Settings and Debug Settings open as internal page tabs.
+        context.services.pages.register(context.services.settingsWindow)
+        context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
             let link = SettingsDeepLink(invocation)
-            try context.services.settingsWindow.show(section: link.section, setting: link.setting)
+            try context.services.settingsWindow.show(section: link.section, setting: link.setting, focus: invocation.allowsViewChange)
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
-        registry.bind("openDebugSettings", run: { _ in try context.services.debugSettings.show() })
+        registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
         registry.bind("about", run: { _ in
             context.activateApp()
             NSApp.orderFrontStandardAboutPanel(nil)

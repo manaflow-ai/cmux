@@ -107,6 +107,11 @@ final class HistoryService {
         return query.apply(to: all)
     }
 
+    /// The entry with `id` among every owner's current entries, or nil when it is gone.
+    func entry(id: String) async -> HistoryEntry? {
+        await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
+    }
+
     func locationEntries() -> [HistoryEntry] {
         let trail = services.locationTrail
         return trail.trail.entries.enumerated().map { index, entry in
@@ -119,7 +124,28 @@ final class HistoryService {
     }
 
     func closedEntries() -> [HistoryEntry] {
-        closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries()
+        closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries() + daemonClosedEntries()
+    }
+
+    /// Closed tabs, screens and workspaces a daemon records
+    /// (`closed-history-v1`); the app's own trackers skip those daemons.
+    private func daemonClosedEntries() -> [HistoryEntry] {
+        DaemonClosedHistory.entries([.tab, .screen, .workspace], in: services).map { entry in
+            let item = entry.item, tab = item.tabs.first
+            let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
+            case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
+            case .screen: .screen
+            case .workspace: .workspace
+            }
+            let title = item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+            let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
+                                                    machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.url)
+            let local = entry.daemon.machineID == MachineRegistry.localID
+            return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
+                                time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
+                                detail: tab?.url ?? tab?.cwd, machineName: local ? nil : entry.daemon.machineID,
+                                payload: .closed(closed))
+        }
     }
 
     private func closedScreenEntries() -> [HistoryEntry] {
@@ -198,6 +224,8 @@ final class HistoryService {
         case .location(let location, _):
             services.locationTrail.remove(location.key)
         case .closed(let item):
+            // The daemon owns its closed history; the entry ages out there.
+            guard DaemonClosedHistory.daemonID(fromHistoryID: item.id) == nil else { break }
             switch item.kind {
             case .terminalTab, .browserTab: _ = services.closedTabs?.take(item.id)
             case .screen: _ = services.closedScreens.take(id: item.id)

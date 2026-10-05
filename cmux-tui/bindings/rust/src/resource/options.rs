@@ -342,6 +342,17 @@ pub struct SplitRatioOptions {
     pub ratio: f64,
 }
 
+/// `column.update`: set `dock`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `dock` is `Some(true)`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ColumnUpdateOptions {
+    pub dock: Option<bool>,
+    pub edge: Option<String>,
+    pub mode: Option<String>,
+    pub width: Option<f64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewportWidthOptions {
     pub columns: u16,

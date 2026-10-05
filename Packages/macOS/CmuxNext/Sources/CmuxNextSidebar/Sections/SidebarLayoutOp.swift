@@ -125,6 +125,10 @@ public nonisolated enum SidebarLayoutReject: String, Error, Hashable, Sendable, 
     case invalidTitle = "invalid_title"
     /// L4: outside 1...50.
     case invalidMaxRows = "invalid_max_rows"
+    /// An app section needs a contribution `<app id>#<section id>`.
+    case invalidContribution = "invalid_contribution"
+    /// Items go only into items sections (not an app section).
+    case itemsNotAllowed = "items_not_allowed"
     /// L4: gap outside 0...32 or columns outside 1...12.
     case invalidArrangement = "invalid_arrangement"
     /// L4: over 32 sections or 200 items.

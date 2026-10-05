@@ -20,3 +20,12 @@ public protocol FeedSource: AnyObject {
     func send(_ intent: FeedIntent)
     func stop()
 }
+
+/// A local feed owner can accept integration posts in addition to user
+/// intents. The poster never writes the model directly: the owner applies its
+/// normal dedupe and event rules, then the existing source mirror delivers the
+/// result to `FeedModel`.
+@MainActor
+public protocol FeedPostingSource: FeedSource {
+    func post(_ item: FeedItem)
+}

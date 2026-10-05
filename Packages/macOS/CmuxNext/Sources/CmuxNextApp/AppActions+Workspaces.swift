@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextSidebar
 
@@ -25,17 +26,46 @@ extension AppActions {
                 services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
             }
         })
-        registry.bind("nextSidebarTab") { selectWorkspace(services, offset: 1) }
-        registry.bind("prevSidebarTab") { selectWorkspace(services, offset: -1) }
+        // Next / previous item in the current sidebar section; in the workspaces list, the workspaces (R119).
+        registry.bind("nextSidebarTab") { stepSidebar(services, offset: 1) }
+        registry.bind("prevSidebarTab") { stepSidebar(services, offset: -1) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
-            // Sidebar order across every machine section.
-            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
-            guard !all.isEmpty else { return }
-            let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
+            // Home is 1, then the visible rows top to bottom across every machine section (R119).
+            let all = services.windows.active?.sidebar.model.visibleWorkspaceIDs ?? []
+            guard let pick = SidebarNumbering(home: services.home.homeWorkspace?.id, workspaces: all).pick(number) else { return }
             services.windows.show(workspaceID: pick, in: state)
         })
-        registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
+        // Home is the store's home workspace (home.md 7): shown like any
+        // workspace, from any origin (a focus action), or refused with why.
+        registry.bind("home.show") {
+            guard let home = services.home.homeWorkspace else {
+                services.registry.refuse(RefusalStrings.homeNotReady)
+                return
+            }
+            if let state = services.windows.active?.state {
+                services.windows.show(workspaceID: home.id, in: state)
+            } else {
+                services.windows.reveal(workspaceID: home.id)
+            }
+        }
+        // The composer's attach button as an action (home.attachFiles): a path
+        // goes to the shown Home composer through its own intake (as a drop);
+        // without one the shown composer opens its file picker.
+        registry.bind("home.attachFiles", invoke: { invocation in
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.canAttach else {
+                services.registry.refuse(RefusalStrings.homeAttachNoHome)
+                return
+            }
+            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+                view.pickFiles()
+                return
+            }
+            if view.attachFiles(paths: [path], via: .drop) == .missingFile {
+                services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
+            }
+        })
+                registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
@@ -48,6 +78,7 @@ extension AppActions {
         let spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
+
         let windows = services.windows!
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
@@ -87,9 +118,17 @@ extension AppActions {
         windows.didActivate(controller)
     }
 
+    private static func stepSidebar(_ services: AppServices, offset: Int) {
+        let window = services.windows.active
+        let shownPage = window?.focus.state.resolved.tab.flatMap(LocalPageTab.page(of:))
+        if let sidebar = window?.sidebar,
+           SidebarItemStepper.step(sidebar, by: offset, shownWorkspace: { window?.state.workspaceID }, shownPage: shownPage) { return }
+        selectWorkspace(services, offset: offset)
+    }
+
     private static func selectWorkspace(_ services: AppServices, offset: Int) {
         guard let state = services.windows.active?.state else { return }
-        let ids = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+        let ids = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
         guard !ids.isEmpty else { return }
         let current = state.workspaceID.flatMap(ids.firstIndex(of:)) ?? 0
         services.windows.show(workspaceID: ids[(current + offset + ids.count) % ids.count], in: state)

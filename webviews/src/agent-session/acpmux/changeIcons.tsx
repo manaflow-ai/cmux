@@ -22,9 +22,31 @@ export const ChevronDown = (p: P) => (
     <path d="M4 6l4 4 4-4" />
   </svg>
 );
+export const OpenTab = (p: P) => (
+  <svg {...line(16)} {...p}>
+    <path d="M7 3H4.6A1.6 1.6 0 0 0 3 4.6v6.8A1.6 1.6 0 0 0 4.6 13h6.8a1.6 1.6 0 0 0 1.6-1.6V9" />
+    <path d="M9.5 3H13v3.5M13 3L8 8" />
+  </svg>
+);
+export const Code = (p: P) => (
+  <svg {...line(16)} strokeWidth={1.45} {...p}>
+    <path d="M4.6 5.2L2.2 8l2.4 2.8M11.4 5.2L13.8 8l-2.4 2.8M9 4.9L7 11.1" />
+  </svg>
+);
 export const Check = (p: P) => (
   <svg {...line(14)} {...p}>
     <path d="M3.5 8.5l3 3 6-7" />
+  </svg>
+);
+export const ArrowRight = (p: P) => (
+  <svg {...line(12)} {...p}>
+    <path d="M3 8h10M9 4l4 4-4 4" />
+  </svg>
+);
+export const AlertCircle = (p: P) => (
+  <svg {...line(17)} {...p}>
+    <circle cx="8" cy="8" r="6.25" />
+    <path d="M8 4.75v3.75M8 11.1v.15" />
   </svg>
 );
 export const ChevronLeft = (p: P) => (

@@ -6,9 +6,9 @@ import Testing
 struct AppStoreModelTests {
     private func model() async throws -> AppStoreModel {
         let root = FileManager.default.temporaryDirectory.appending(path: "cmux-apps-store-\(UUID().uuidString)")
-        let registry = AppRegistry(directory: root)
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
         await registry.load()
-        let model = AppStoreModel(catalog: BundledAppStoreCatalog.scanned(), registry: registry,
+        let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry,
                                   host: AppHost(sink: AppPreviewSink(), clock: ManualAppClock()),
                                   previewHost: AppHost(sink: AppPreviewSink(), clock: ManualAppClock()))
         model.refresh()
@@ -55,5 +55,15 @@ struct AppStoreModelTests {
         #expect(removed == ["cmux/github-prs"])
         try await model.install("cmux/github-prs")
         #expect(model.state(of: "cmux/github-prs")?.isActive == true)
+    }
+
+    /// Opening the store does no disk I/O: the catalog lists what the registry's launch scan found, nothing before it.
+    @Test func catalogReadsTheRegistryScanAndNeverScansItself() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cmux-apps-store-\(UUID().uuidString)")
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
+        let catalog = RegistryAppStoreCatalog(registry: registry)
+        #expect(try await catalog.search(query: "", category: nil).isEmpty)
+        await registry.load()
+        #expect(try await catalog.search(query: "", category: nil).count == 3)
     }
 }

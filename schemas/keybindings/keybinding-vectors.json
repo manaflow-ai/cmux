@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "description": "Conformance vectors for cmux key binding resolution (R59). Every client (the Mac key router, the GPUI and browser clients) resolves each vector with the default table of the action catalog, every action runnable where its catalog context holds, plus the vector's own user entries and removals. keys: one stroke per array element in keybindings.json syntax (cmd, ctrl, opt, shift; tab, pagedown, right, escape, f1...). context: the live context keys (bool, string or number values). expect: {\"action\": id, \"args\": {...}} when the last key runs an entry, {\"armed\": true} when the chord waits for more keys, {\"none\": true} when a key completes nothing. Rules: plans/cmux-next/keybindings.md section 8.",
+  "vectors": [
+    {
+      "name": "Ctrl-Tab in an agent chat changes tabs",
+      "context": {"surfaceKind": "agent", "agentPaneFocused": true},
+      "keys": ["ctrl+tab"],
+      "expect": {"action": "nextSurface"}
+    },
+    {
+      "name": "Ctrl-Shift-Tab in Settings changes tabs",
+      "context": {"surfaceKind": "settings"},
+      "keys": ["ctrl+shift+tab"],
+      "expect": {"action": "prevSurface"}
+    },
+    {
+      "name": "Ctrl-PageDown in Home changes tabs",
+      "context": {"surfaceKind": "home"},
+      "keys": ["ctrl+pagedown"],
+      "expect": {"action": "nextSurface"}
+    },
+    {
+      "name": "Ctrl-Tab in a terminal stays with Ghostty (K-T1)",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["ctrl+tab"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "Ctrl-Tab in terminal copy mode changes tabs",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "terminal.copyMode": true},
+      "keys": ["ctrl+tab"],
+      "expect": {"action": "nextSurface"}
+    },
+    {
+      "name": "Cmd-Shift-] in a web page is the next tab",
+      "context": {"surfaceKind": "page", "browserFocused": true},
+      "keys": ["cmd+shift+]"],
+      "expect": {"action": "nextSurface"}
+    },
+    {
+      "name": "Cmd-R in a web page reloads",
+      "context": {"surfaceKind": "page", "browserFocused": true},
+      "keys": ["cmd+r"],
+      "expect": {"action": "browserReload"}
+    },
+    {
+      "name": "Cmd-R in a terminal renames the tab",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["cmd+r"],
+      "expect": {"action": "renameTab"}
+    },
+    {
+      "name": "Cmd-J arms the leader",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["cmd+j"],
+      "expect": {"armed": true}
+    },
+    {
+      "name": "Cmd-J then J scrolls to the selection in a terminal",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["cmd+j", "j"],
+      "expect": {"action": "terminal.scrollToSelection"}
+    },
+    {
+      "name": "Cmd-J then an unbound key completes nothing",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["cmd+j", "q"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A user entry wins over a more specific default on the same key",
+      "context": {"surfaceKind": "page", "browserFocused": true},
+      "bindings": [{"key": "cmd+r", "command": "toggleSidebar"}],
+      "keys": ["cmd+r"],
+      "expect": {"action": "toggleSidebar"}
+    },
+    {
+      "name": "A three-key user chord arms twice, then runs",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "bindings": [{"key": "ctrl+k ctrl+x y", "command": "toggleSidebar", "when": "surfaceKind == terminal"}],
+      "keys": ["ctrl+k", "ctrl+x", "y"],
+      "expect": {"action": "toggleSidebar"}
+    },
+    {
+      "name": "A user chord prefix waits for more keys",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "bindings": [{"key": "ctrl+k ctrl+x y", "command": "toggleSidebar"}],
+      "keys": ["ctrl+k", "ctrl+x"],
+      "expect": {"armed": true}
+    },
+    {
+      "name": "A user chord whose when is false does not arm",
+      "context": {"surfaceKind": "page", "browserFocused": true},
+      "bindings": [{"key": "ctrl+k ctrl+x y", "command": "toggleSidebar", "when": "surfaceKind == terminal"}],
+      "keys": ["ctrl+k"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A four-key user chord runs on its fourth key",
+      "context": {"surfaceKind": "agent", "agentPaneFocused": true},
+      "bindings": [{"key": "ctrl+k a b c", "command": "toggleSidebar"}],
+      "keys": ["ctrl+k", "a", "b", "c"],
+      "expect": {"action": "toggleSidebar"}
+    },
+    {
+      "name": "A longer chord wins over a shorter one with the same keys",
+      "context": {"surfaceKind": "agent", "agentPaneFocused": true},
+      "bindings": [
+        {"key": "ctrl+k a", "command": "toggleSidebar"},
+        {"key": "ctrl+k a b", "command": "toggleRightSidebar"}
+      ],
+      "keys": ["ctrl+k", "a"],
+      "expect": {"armed": true}
+    },
+    {
+      "name": "Arguments travel with the entry",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "bindings": [{"key": "ctrl+k t", "command": "terminal.setTheme", "args": {"theme": "Builtin Dark"}}],
+      "keys": ["ctrl+k", "t"],
+      "expect": {"action": "terminal.setTheme", "args": {"theme": "Builtin Dark"}}
+    },
+    {
+      "name": "A removal takes out the Ctrl-Tab default outside a terminal",
+      "context": {"surfaceKind": "agent", "agentPaneFocused": true},
+      "removals": [{"key": "ctrl+tab", "command": "nextSurface", "when": "surfaceKind != terminal"}],
+      "keys": ["ctrl+tab"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A removal with another when leaves the default",
+      "context": {"surfaceKind": "agent", "agentPaneFocused": true},
+      "removals": [{"key": "ctrl+tab", "command": "nextSurface", "when": "surfaceKind == agent"}],
+      "keys": ["ctrl+tab"],
+      "expect": {"action": "nextSurface"}
+    },
+    {
+      "name": "A removal keeps the action's other keys",
+      "context": {"surfaceKind": "agent", "agentPaneFocused": true},
+      "removals": [{"key": "ctrl+tab", "command": "nextSurface"}],
+      "keys": ["ctrl+pagedown"],
+      "expect": {"action": "nextSurface"}
+    }
+  ]
+}

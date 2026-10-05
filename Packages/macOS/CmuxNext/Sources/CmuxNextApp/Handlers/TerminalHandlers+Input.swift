@@ -12,7 +12,7 @@ extension TerminalHandlers {
         registry.bind("find", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             switch content {
-            case .agent:
+            case .agent, .page, .conversation:
                 return ctx.refuse(RefusalStrings.notATerminal)
             case .browser:
                 guard let window = ctx.services.windowController(showing: pane) else { return }
@@ -24,7 +24,7 @@ extension TerminalHandlers {
                 let seed = invocation["text"]?.stringValue ?? (find.query.isEmpty ? selection(of: entry) : nil)
                 // A socket or CLI run shows the bar without taking the keyboard.
                 find.open(seed: seed, takeFocus: invocation.allowsViewChange)
-            case .placeholder:
+            case .placeholder, .notice:
                 return
             }
         })
@@ -46,7 +46,7 @@ extension TerminalHandlers {
     private static func navigate(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
         guard let (_, content) = ctx.visibleContent(invocation) else { return }
         switch content {
-        case .agent:
+        case .agent, .page, .conversation:
             return ctx.refuse(RefusalStrings.notATerminal)
         case .browser(let entry):
             entry.chrome.perform(forward ? .findNext : .findPrevious)
@@ -56,7 +56,7 @@ extension TerminalHandlers {
             guard entry.session.find.navigate(direction, takeFocus: invocation.allowsViewChange) else {
                 return ctx.refuse(RefusalStrings.noActiveFind)
             }
-        case .placeholder:
+        case .placeholder, .notice:
             return
         }
     }

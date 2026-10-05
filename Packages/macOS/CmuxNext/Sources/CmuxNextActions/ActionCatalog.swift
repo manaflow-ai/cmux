@@ -20,6 +20,11 @@ public nonisolated enum ActionCatalog {
         "tab.previous": "prevSurface",
         "view.toggleSidebar": "toggleSidebar",
         "palette.show": "commandPalette",
+        // Go to Tab… became Search Tabs (one tab list); with a tab target it
+        // still focuses that tab.
+        "palette.goToTab": "tab.search",
+        // The link menu's Open Link in New Tab (R123): keybindings and scripts keep working.
+        "openLinkInNewTab": "browser.link.openInNewTab",
         // Browser profile placeholders from before browser profiles existed.
         "browserNewProfile": "browserProfile.new",
         "browserRenameProfile": "browserProfile.rename",
@@ -72,11 +77,16 @@ public nonisolated enum ActionCatalog {
         PaneActionCatalog.self,
         TabActionCatalog.self,
         ResourceActionCatalog.self,
+        HomeActionCatalog.self,
         TabGroupActionCatalog.self,
         ScreenActionCatalog.self,
         ScreenGroupActionCatalog.self,
         TerminalActionCatalog.self,
         BrowserActionCatalog.self,
+        BrowserToolbarActionCatalog.self,
+        BrowserChromeActionCatalog.self,
+        BrowserHitActionCatalog.self,
+        ViewerActionCatalog.self,
         PageInfoActionCatalog.self,
         ExtensionActionCatalog.self,
         BrowserProfileActionCatalog.self,
@@ -93,11 +103,24 @@ public nonisolated enum ActionCatalog {
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
+        TasksActionCatalog.self,
+        LinkActionCatalog.self,
+        ServerActionCatalog.self,
+        MarkdownPageActionCatalog.self,
+        ListActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
-        return ActionSurfaceCatalog.apply(to: all)
+        for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
+        return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
+    }
+}
+
+extension ActionRegistry {
+    /// A registry seeded with the full cmux catalog and legacy aliases.
+    public static func standard() -> ActionRegistry {
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
     }
 }

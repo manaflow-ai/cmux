@@ -15,6 +15,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+mod response;
+pub(crate) use response::ensure_success;
+
 pub type Result<T> = std::result::Result<T, CmuxError>;
 
 #[derive(Clone, Debug)]
@@ -679,22 +682,6 @@ fn request_envelope<Request: Serialize>(
     fields.insert("id".to_string(), id);
     fields.insert("cmd".to_string(), Value::String(command.to_string()));
     Ok(Value::Object(fields))
-}
-
-pub(crate) fn ensure_success(command: &str, response: &Value) -> Result<()> {
-    if response.get("ok") == Some(&Value::Bool(true)) {
-        return Ok(());
-    }
-    let message = response
-        .get("error")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown command error")
-        .to_string();
-    Err(CmuxError::Command {
-        command: command.to_string(),
-        message,
-        id: response.get("id").cloned(),
-    })
 }
 
 fn decode_response<Response: DeserializeOwned>(command: &str, response: Value) -> Result<Response> {

@@ -14,6 +14,18 @@ public protocol OnboardingServices: AnyObject {
     /// Keeps the role step's answer (the onboarding state file).
     func saveProfile(_ profile: OnboardingProfile)
 
+    // First task
+    /// Whether the App can run an agent chat in the window (the first-task step).
+    var canRunFirstTask: Bool { get }
+    /// Where the first task runs.
+    var firstTaskFolder: FirstTaskFolder { get }
+    /// A new agent chat in `cwd` that sends `prompt` once it connects, or
+    /// nil. Asked again when the step is shown again: the App returns the
+    /// same chat for the same folder and prompt.
+    func makeFirstTaskView(cwd: URL, prompt: String) -> NSView?
+    /// Selects `url` in a Finder window.
+    func revealInFinder(_ url: URL)
+
     // Theme
     /// The colors of the user's own Ghostty config (the default choice).
     var ghosttyTheme: ThemeInput { get }
@@ -27,6 +39,25 @@ public protocol OnboardingServices: AnyObject {
     func loadThemeChoices() async -> [ThemeChoice]
     /// Writes the theme (nil: back to the Ghostty config) and density.
     func applyAppearance(themeName: String?, density: Density)
+
+    // Projects
+    /// The folders the user's coding agents worked in, best first (`AgentProjectScan`).
+    func scanAgentProjects() async -> [AgentProject]
+    /// A folder from the open panel, or nil when the user cancels.
+    func chooseFolder() async -> URL?
+    /// Opens each folder as a workspace, in order.
+    func openProjects(_ folders: [URL])
+    /// The Claude Code and Codex chats cmux can resume, newest first (`AgentChatScan`).
+    func scanAgentChats() async -> [AgentChat]
+    /// Resumes each chat in an agent tab of its folder's workspace: the one
+    /// `openProjects` opened, else a new one. A chat already open is shown.
+    func resumeChats(_ chats: [AgentChat])
+    // Classic cmux session import
+    var canImportClassicSessions: Bool { get }
+    func scanClassicSessions() async -> [ClassicSessionWorkspace]
+    func importClassicSessions(_ workspaces: [ClassicSessionWorkspace])
+    /// The user's home folder (where the privacy-guarded folders are).
+    var homeDirectory: URL { get }
 
     // Import
     func detectBrowsers() async -> [BrowserSource]
@@ -42,6 +73,11 @@ public protocol OnboardingServices: AnyObject {
     var defaultApps: any DefaultAppRegistering { get }
     /// Opens a URL with the system (System Settings panes).
     func openExternal(_ url: URL)
+
+    // Computer use
+    /// The helper app's grants, or nil when this build has no computer use
+    /// (the step is left out then).
+    var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
 
     // Accounts
     /// Whether the App supplies the accounts step (`makeAccountsStepView`).
@@ -62,12 +98,28 @@ public protocol OnboardingServices: AnyObject {
 public extension OnboardingServices {
     var savedProfile: OnboardingProfile? { nil }
     func saveProfile(_ profile: OnboardingProfile) {}
+    var canRunFirstTask: Bool { false }
+    var firstTaskFolder: FirstTaskFolder { .live() }
+    func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? { nil }
+    func revealInFinder(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
+    var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func makeAccountsStepView() -> NSView? { nil }
     func variantID(for step: OnboardingModel.Step) -> String? { nil }
     func setVariantID(_ id: String?, for step: OnboardingModel.Step) {}
+    func scanAgentProjects() async -> [AgentProject] { [] }
+    func chooseFolder() async -> URL? { nil }
+    func openProjects(_ folders: [URL]) {}
+    func scanAgentChats() async -> [AgentChat] { [] }
+    func resumeChats(_ chats: [AgentChat]) {}
+    var canImportClassicSessions: Bool { false }
+    func scanClassicSessions() async -> [ClassicSessionWorkspace] {
+        await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
+    }
+    func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {}
+    var homeDirectory: URL { FileManager.default.homeDirectoryForCurrentUser }
 }
 
 /// System Settings deep links.

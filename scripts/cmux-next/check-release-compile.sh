@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile the cmux-next package (scheme CmuxNext: CmuxNextApp and everything
+# Compile the cmux-next package (scheme CmuxNextApp and everything
 # it links) in the Release configuration with the Xcode the nightly uses, the
 # way the nightly app build compiles it: xcodebuild, -O, whole-module.
 #
@@ -39,15 +39,10 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-if [[ ! -e "$repo_root/GhosttyKit.xcframework" ]]; then
-  echo "check-release-compile: $repo_root/GhosttyKit.xcframework is missing; run scripts/download-prebuilt-ghosttykit.sh or scripts/ensure-ghosttykit.sh" >&2
-  exit 2
-fi
-
 echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')"
 cd "$repo_root/Packages/macOS/CmuxNext"
 exec "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-  xcodebuild -scheme CmuxNext -configuration Release \
+  xcodebuild -scheme CmuxNextApp -configuration Release \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$derived_data" \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
