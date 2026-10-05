@@ -247,3 +247,7 @@ mod keys_tests;
 #[cfg(test)]
 #[path = "frontend_browser_reuse_tests.rs"]
 mod reuse_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_activate_tests.rs"]
+mod activate_tests;
