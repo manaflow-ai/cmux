@@ -151,7 +151,10 @@ const bareHttpsOrigin = (name: string) => z.string().url().superRefine((value, c
   }
 });
 const publicationAuthOrigin = bareHttpsOrigin("CMUX_VM_PUBLICATION_AUTH_ORIGIN");
-const publicationForwardAuthOrigin = bareHttpsOrigin("CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN");
+const publicationForwardAuthOrigin = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  bareHttpsOrigin("CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN").optional(),
+);
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
