@@ -496,3 +496,54 @@ async fn a_pool_claim_in_a_mode_that_does_not_ask_refuses_a_web_prompt() {
         .await;
     assert_eq!(local["stopReason"], "end_turn", "{local}");
 }
+
+/// ACP-REMOTE-GUARD B1, the Claude backend's claim path (`claude_state`):
+/// a pooled Claude session whose profile pins `--permission-mode
+/// bypassPermissions` (the fake reports the pinned mode, as Claude Code
+/// does) is claimed in that mode, and a Web prompt is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let mut daemon = Daemon::new("claudepool", 0);
+    daemon.write_config(&json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude, "--permission-mode", "bypassPermissions"],
+    }));
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/shutdown", json!({})).await;
+    daemon.wait_exit();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &claimed), "the session came from the pool");
+    let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
+    assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
+    let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
+    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
+        "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
+    ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
+    let reply = loop {
+        let frame = tokio::time::timeout(Duration::from_secs(20), ws.next())
+            .await
+            .expect("a reply")
+            .expect("open")
+            .unwrap();
+        let Frame::Text(t) = frame else { continue };
+        let v: Value = serde_json::from_str(&t).unwrap();
+        if v.get("id") == Some(&json!(1)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["error"]["data"]["reason"], "remote.mode_not_asking", "{reply}");
+    assert_eq!(reply["error"]["data"]["mode"], "bypassPermissions", "{reply}");
+}
