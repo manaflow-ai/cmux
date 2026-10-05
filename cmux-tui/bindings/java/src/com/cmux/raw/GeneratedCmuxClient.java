@@ -63,6 +63,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final BrowserHostProviderResult browserHostProvider() throws CmuxException {
+        Object result = execute(Commands.BROWSER_HOST_PROVIDER, Map.of());
+        return BrowserHostProviderResult.fromWire(result);
+    }
+
     public final EmptyResult browserInsertText(BrowserInsertTextRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_INSERT_TEXT, request.toWire());
         return EmptyResult.fromWire(result);
@@ -950,6 +955,15 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult swapPane(SwapPaneRequest request) throws CmuxException {
         Object result = execute(Commands.SWAP_PANE, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final TerminalClipboardReplyResult terminalClipboardReply(TerminalClipboardReplyRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_CLIPBOARD_REPLY, request.toWire());
+        return TerminalClipboardReplyResult.fromWire(result);
+    }
+
+    public final CmuxStream<ProtocolEvent> terminalClipboardSubscribe(TerminalClipboardSubscribeRequest request) throws CmuxException {
+        return openStream(Commands.TERMINAL_CLIPBOARD_SUBSCRIBE, request.toWire());
     }
 
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {

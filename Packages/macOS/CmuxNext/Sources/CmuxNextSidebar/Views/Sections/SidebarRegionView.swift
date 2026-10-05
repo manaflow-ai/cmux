@@ -78,7 +78,7 @@ final class SidebarRegionView: NSView {
         let shown = displayed(content)
         layoutResult = Self.layout(shown, width: width)
         guard animated else { return apply(shown) }
-        Motion.animate(.move) {
+        Motion.animate(.move, in: self) {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false

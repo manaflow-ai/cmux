@@ -7,6 +7,7 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterBindings,
   identity,
+  isReadOnly,
   keyMatches,
   normalizeWhen,
   reconcileSelection,
@@ -198,7 +199,7 @@ export class KeybindingsStore {
   // Inline `when` editor.
 
   editWhen(binding: Binding): void {
-    if (binding.removed) return;
+    if (isReadOnly(binding)) return;
     this.set({ editing: identity(binding), selection: identity(binding) });
   }
 
@@ -227,7 +228,7 @@ export class KeybindingsStore {
 
   /** "Change keybinding": the recorded strokes become this row's new keys. */
   async changeKeybinding(binding: Binding): Promise<void> {
-    if (binding.removed) return;
+    if (isReadOnly(binding)) return;
     if (this.snapshot.recording) this.endRecording();
     const row = identity(binding);
     this.set({ editing: undefined, selection: row });
@@ -279,7 +280,7 @@ export class KeybindingsStore {
   // Writes.
 
   remove(binding: Binding): Promise<void> {
-    if (binding.removed) return Promise.resolve();
+    if (isReadOnly(binding)) return Promise.resolve();
     return this.write(KeybindingOps.remove, {
       command: binding.command,
       key: binding.key,

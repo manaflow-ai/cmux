@@ -76,6 +76,28 @@ import Testing
         #expect(scripts.isEmpty)
     }
 
+    /// The user's registry.js runs through evaluateJavaScript, as on the old host: the page's CSP
+    /// (script-src 'self') refuses a script element the page makes, and a script the host evaluates
+    /// is not subject to it. The style and layout still arrive as an event. A new subscriber (the
+    /// page loading again) runs the registry again.
+    @Test func theRegistryRunsAsAHostScriptNotAPageEvent() async throws {
+        let (view, _) = try pageView()
+        defer { view.close() }
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        let page = try #require(view.page)
+        let received = await subscribe(page)
+        let before = received().count
+        view.customization = AgentPaneCustomization(themeCSS: "a{}", registryJS: "window.registered = 1;")
+        let registry = "(function () {\nwindow.registered = 1;\n})();"
+        #expect(scripts == [registry])
+        #expect(received().dropFirst(before).compactMap { $0["kind"]?.stringValue } == ["customization"])
+        scripts.removeAll()
+        let again = await subscribe(page)
+        #expect(scripts == [registry])
+        #expect(!again().contains { $0["kind"] == "registry" })
+    }
+
     /// Loopback preview frames stay allowed and clicked web links open outside, as on the old host.
     @Test func navigationKeepsTheOldHostsRules() throws {
         let (view, _) = try pageView()

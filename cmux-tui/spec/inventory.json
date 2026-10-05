@@ -400,6 +400,8 @@
       "url-open-subscribe",
       "url-open-claim",
       "url-open-result",
+      "terminal-clipboard-subscribe",
+      "terminal-clipboard-reply",
       "snapshot-request"
     ],
     "local-admin": [
@@ -419,7 +421,8 @@
       "conversation-op",
       "conversation-typing",
       "conversation-bind",
-      "conversation-agent-token"
+      "conversation-agent-token",
+      "browser-host-provider"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -743,6 +746,18 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read-cancelled",
       "streams": [
         "control"
       ]
@@ -1577,6 +1592,8 @@
         "TerminateAck": 21,
         "DetachAck": 22,
         "InputAck": 23,
+        "ClipboardReadRequest": 24,
+        "ClipboardReadCancel": 25,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -1588,7 +1605,8 @@
         "SetCellPixelSize": 108,
         "SetKittyGraphicsLimits": 109,
         "Activate": 110,
-        "Detach": 111
+        "Detach": 111,
+        "ClipboardReadReply": 112
       }
     },
     "machine_provider_v1": {

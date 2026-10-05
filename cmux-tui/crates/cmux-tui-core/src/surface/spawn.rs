@@ -98,6 +98,7 @@ impl Surface {
                     }
                 }
             })),
+            on_clipboard_read: None,
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;

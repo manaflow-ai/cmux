@@ -326,27 +326,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "d7f8fd06326fb236daf8b4983065239b7b11e900",
-      "url": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "a049cc61e64b7ce3028fe70643555e86184648cedd8007a2c5d2a9e51430738b",
-      "size": 42320288,
+      "version": "4fd459691fe0b69d69e73d48035983e7ffe7f3fa",
+      "url": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "53a8847fbe080a56d56f60c1463a0bd3b23316130e35aef998f3688250cf31f8",
+      "size": 66801184,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/manifest.json"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "d7f8fd06326fb236daf8b4983065239b7b11e900",
-      "url": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "3bdcb75bc74b8e917a71a7b4cb17f09bf9663f07c4bd60dbb85f550bf19556f2",
-      "size": 3052288,
+      "version": "4fd459691fe0b69d69e73d48035983e7ffe7f3fa",
+      "url": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "60c5e7de26ff01e3ed55e6d37c01f1476ab9e7bb05362e0ac142fb12732d8771",
+      "size": 3456568,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/manifest.json"
     },
     {
       "name": "coderouter",
@@ -439,21 +439,6 @@
       "bin": { "juicefs": "juicefs" },
       "versionArgs": ["version"],
       "expect": "1.4.1"
-    },
-    {
-      "name": "cmux-cua",
-      "version": "0.8.2",
-      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/cmux-cua-0.8.2-linux-x86_64.tar.gz",
-      "sha256": "25e73e5bf0eb8a91808c003dc36254c1759f9640ca86ffac2470f505e9463b5b",
-      "size": 8705573,
-      "format": "tar.gz",
-      "bin": { "cmux-cua": "cmux-cua-0.8.2-linux-x86_64/cmux-cua" },
-      "versionArgs": ["--version"],
-      "expect": "cmux-cua 0.8.2",
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/checksums.txt",
-      "checksumsName": "cmux-cua-0.8.2-linux-x86_64.tar.gz",
-      "roles": ["cua"],
-      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.2 (pre-release, 2026-10-04), debian:11 glibc 2.31 build; needs libX11 (base), libXi and libxkbcommon (display role)"
     }
   ],
   "roles": {

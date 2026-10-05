@@ -52,31 +52,8 @@ impl LocalAppAuth {
     /// 0600 in a private `run` directory. `page_origins` are the bundled
     /// page's origin and the explicit `--allow-dev-origin` values.
     pub fn create(home: &Path, page_origins: &[String]) -> anyhow::Result<Self> {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
         let path = token_path(home);
-        let dir = home.join("run");
-        crate::agent_host::ensure_private_dir(&dir)?;
-        match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
-        }
-        let mut bytes = [0u8; 32];
-        {
-            use std::io::Read;
-            std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-        }
-        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)
-            .map_err(|e| anyhow::anyhow!("create {}: {e}", path.display()))?;
-        f.write_all(token.as_bytes())?;
-        f.sync_all()?;
+        let token = create_secret(&path)?;
         let page_origins =
             page_origins.iter().filter_map(|o| cmux_local_auth::parse_origin(o)).collect();
         Ok(Self { token, page_origins, path })
@@ -105,6 +82,39 @@ impl LocalAppAuth {
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+/// Write a new 32-byte random token to `path` (in `home/run`, a private
+/// directory): remove any file a previous launch left (never following a
+/// link), then create it with `O_EXCL`, `O_NOFOLLOW` and mode 0600. Returns
+/// the token as hex.
+pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    if let Some(dir) = path.parent() {
+        crate::agent_host::ensure_private_dir(dir)?;
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
+    }
+    let mut bytes = [0u8; 32];
+    {
+        use std::io::Read;
+        std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    }
+    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| anyhow::anyhow!("create {}: {e}", path.display()))?;
+    f.write_all(token.as_bytes())?;
+    f.sync_all()?;
+    Ok(token)
 }
 
 /// `frame` without the token field, so the token never reaches the

@@ -25,6 +25,8 @@ on:
       - web/**
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
@@ -33,12 +35,16 @@ on:
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/bundle-ghostty-resources.sh
+      - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_stale_pcm_cleanup.sh
+      - tests/test_check_app_personalities.sh
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -62,6 +68,8 @@ on:
       - web/**
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
@@ -70,12 +78,16 @@ on:
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/bundle-ghostty-resources.sh
+      - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_stale_pcm_cleanup.sh
+      - tests/test_check_app_personalities.sh
   workflow_dispatch:
 
 permissions:
@@ -340,6 +352,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: Stale scheme PCM cleanup
+        id: stale-pcm-cleanup
+        continue-on-error: true
+        run: bash tests/test_cmux_next_stale_pcm_cleanup.sh
+
       # Behavior tests of the build scripts: pin-cmux-tui.sh fetch on a stale
       # --ref mirror and on a reused runner workspace, embed-cef.sh reaching
       # ensure-cef.sh under set -u, and ensure-cef.sh's controller artifact
@@ -352,15 +369,29 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
+          bash scripts/cmux-next/tests/tree-key-v2.test.sh
+          bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-action-surfaces-fleet-only.test.sh
+          bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
+          bash scripts/cmux-next/tests/swift-test-summary.test.sh
           bash scripts/cmux-next/tests/cef-license.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
           bash scripts/cmux-next/tests/cef-build-flags.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
           bash scripts/cef/tests/test-embedder-step.test.sh
+
+      # The app's Ghostty shell integration comes from ghostty-next (the
+      # Ghostty of GhosttyNextKit and libghostty-vt): the bundle phase output
+      # must equal its source tree.
+      - name: Ghostty resources bundle
+        id: ghostty-resources-bundle
+        continue-on-error: true
+        run: |
+          git submodule update --init --depth 1 --filter=blob:none ghostty-next
+          bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
 
       - name: Checks job structure
         id: checks-structure
@@ -379,7 +410,9 @@ jobs:
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
+            ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
+            ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
@@ -454,30 +487,21 @@ jobs:
         working-directory: cmux-tui
         run: cargo test -p cmux-layout-reducer --locked
 
-      # The reducer test harness may create the isolated FFI crate's lockfile
-      # while exercising the shared sources. It is generated state, not a
-      # pinned source input, and must not make the reused checkout dirty before
-      # the release pin check.
-      - name: Clean generated layout-reducer FFI lockfile
-        if: ${{ always() }}
-        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+      # Package.swift links the app FFI from one pinned release; the pin must
+      # match these sources and the release must be built from them.
+      - name: Check the app FFI pin
+        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
 
-      - name: Build sidebar layout reducer FFI
-        env:
-          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
-        run: scripts/cmux-next/build-layout-reducer-ffi.sh
-
-      - name: Enable sidebar layout reducer FFI for SwiftPM
-        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
-
-      # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
+      # macOS-only script behavior tests (PlistBuddy, plutil, lipo): the "Bundle
       # server helper" phase writes the server helper and agent plists without
       # the app's processed Info.plist, and release signing signs every
-      # libexec helper and restamps the plists from the final bundle id.
+      # libexec helper and restamps the plists from the final bundle id; the
+      # app personality check reads the bundle's Info.plist.
       - name: Script tests (bundle-server-helper)
         run: |
           bash scripts/cmux-next/tests/bundle-server-helper.test.sh
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
+          bash tests/test_check_app_personalities.sh
 
       - name: Build package and tests
         id: build-tests
@@ -512,6 +536,12 @@ jobs:
       # cmux-tui artifacts workflow builds, tests and publishes that tree.
       # The capability check then fails the job when that daemon does not
       # serve a capability the app relies on.
+      # Building the package's reducer FFI can recreate the isolated crate's
+      # workspace lockfile after the initial reducer test. Remove generated
+      # state immediately before pin-cmux-tui validates the checkout.
+      - name: Clean generated layout-reducer FFI lockfile
+        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
@@ -535,7 +565,14 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests
+          # At most 6 Swift Testing tests run at once. A test's time limit
+          # counts from its start, and Swift Testing otherwise starts all
+          # ~5,900 at once: on a mini shared with Xcode compiles, tests used
+          # their 60 s waiting for the main actor (18 to 73 time-limit
+          # failures per push run; 0 on an idle worker, where width 6 costs
+          # 117 s -> 141 s). Xcode 26.6's Swift Testing reads this variable.
+          SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests --skip OmnibarTypingTests --skip BranchStateResourcesTests
 
       # Like the steps below, runs whenever the build succeeded, even after a
       # failed test step, so one red step does not hide the others.
@@ -558,6 +595,17 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'ActionRunWaitTests|DaemonClosedHistoryTests|EphemeralWorkspaceTests|StateMutationRoutingTests|CLISurfaceParityTests'
+
+      # The real field editor and state-resource event round trips need their
+      # own process: unrelated UI suites can change focus or delay callbacks
+      # beyond these tests' existing deadlines. Every test still runs.
+      - name: Run field-editor and state-resource regressions
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "480"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'OmnibarTypingTests|BranchStateResourcesTests'
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
       # deadlines through main-actor navigation callbacks. They run in a
@@ -619,17 +667,6 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
-
-      - name: Install Rust (sidebar layout reducer)
-        run: ./scripts/install-rust-ci.sh
-
-      - name: Build sidebar layout reducer FFI
-        env:
-          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
-        run: scripts/cmux-next/build-layout-reducer-ffi.sh
-
-      - name: Enable sidebar layout reducer FFI for SwiftPM
-        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
 
       - name: Release compile
         run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
@@ -749,14 +786,6 @@ jobs:
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
 
-      - name: Build sidebar layout reducer FFI
-        env:
-          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
-        run: scripts/cmux-next/build-layout-reducer-ffi.sh
-
-      - name: Enable sidebar layout reducer FFI for SwiftPM
-        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
-
       - name: Build in-tree acpmux for the app bundle
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64
@@ -781,3 +810,6 @@ jobs:
             derived_data="$RUNNER_TEMP/cmux-scheme-compile"
           fi
           scripts/cmux-next/check-cmux-scheme-compile.sh "$derived_data"
+          # The app links C++, iroh-ffi and CCmuxAppFFI; compact unwind holds
+          # three personality routines (decision 2026-10-05).
+          scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"

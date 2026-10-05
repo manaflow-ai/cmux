@@ -116,6 +116,25 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         }
     }
 
+    /// Applies the owner's Kitty image replay on Ghostty's trusted replay
+    /// path (`ghostty_surface_apply_kitty_replay`: its own parser, no PTY
+    /// writes; the private replay keys work only here), in stream order.
+    func applyKittyReplay(_ data: Data) {
+        guard !data.isEmpty else { return }
+        backlog.withLock { $0.bytes += data.count }
+        queue.async { [self] in
+            defer { parsed(data.count) }
+            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            let applied = data.withUnsafeBytes { buffer -> Bool in
+                guard let base = buffer.bindMemory(to: UInt8.self).baseAddress else { return false }
+                return ghostty_surface_apply_kitty_replay(surface, base, buffer.count)
+            }
+            if !applied {
+                Self.logger.error("kitty replay skipped part of \(data.count) bytes")
+            }
+        }
+    }
+
     /// Returns once the unparsed backlog is at or below `highWater` (or the
     /// lane closed). The caller then queues its next chunk.
     func waitForCapacity() async {

@@ -1,5 +1,5 @@
 {
-  "commit": "bbb7320b451edb0ca0eee898c6bc4a8a15a5705d",
+  "commit": "3320bd06ec13ca5479ef842372be1736d9cdfecf",
   "dwarfdump": "Ubuntu LLVM version 18.1.3",
   "flags": [
     "-Demit-lib-vt=true",
@@ -13,7 +13,7 @@
   "targets": {
     "aarch64-linux-musl": {
       "generated_files": 30,
-      "ghostty_files": 199,
+      "ghostty_files": 200,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
@@ -29,7 +29,7 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
         "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
       ],
-      "source_paths": 669,
+      "source_paths": 678,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 4,
@@ -42,13 +42,13 @@
         "include": 20,
         "libc": 38,
         "libcxx": 66,
-        "std": 92,
+        "std": 100,
         "ubsan_rt.zig": 1
       }
     },
     "aarch64-macos": {
       "generated_files": 27,
-      "ghostty_files": 200,
+      "ghostty_files": 201,
       "names": {
         "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
@@ -64,7 +64,7 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
         "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
       ],
-      "source_paths": 756,
+      "source_paths": 765,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 6,
@@ -77,46 +77,11 @@
         "include": 14,
         "libc": 137,
         "libcxx": 66,
-        "std": 87,
+        "std": 95,
         "ubsan_rt.zig": 1
       }
     },
     "x86_64-linux-musl": {
-      "generated_files": 30,
-      "ghostty_files": 199,
-      "names": {
-        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
-        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
-        "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7": "uucode"
-      },
-      "package_files": {
-        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": 7,
-        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": 1,
-        "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7": 1
-      },
-      "packages": [
-        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
-        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
-        "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
-      ],
-      "source_paths": 679,
-      "unattributed": [],
-      "vendored": {
-        "pkg/highway": 6,
-        "pkg/simdutf": 2,
-        "pkg/wuffs": 4
-      },
-      "zig_lib": {
-        "compiler_rt": 201,
-        "compiler_rt.zig": 1,
-        "include": 26,
-        "libc": 38,
-        "libcxx": 71,
-        "std": 91,
-        "ubsan_rt.zig": 1
-      }
-    },
-    "x86_64-macos": {
       "generated_files": 30,
       "ghostty_files": 200,
       "names": {
@@ -134,7 +99,42 @@
         "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
         "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
       ],
-      "source_paths": 773,
+      "source_paths": 688,
+      "unattributed": [],
+      "vendored": {
+        "pkg/highway": 6,
+        "pkg/simdutf": 2,
+        "pkg/wuffs": 4
+      },
+      "zig_lib": {
+        "compiler_rt": 201,
+        "compiler_rt.zig": 1,
+        "include": 26,
+        "libc": 38,
+        "libcxx": 71,
+        "std": 99,
+        "ubsan_rt.zig": 1
+      }
+    },
+    "x86_64-macos": {
+      "generated_files": 30,
+      "ghostty_files": 201,
+      "names": {
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs",
+        "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7": "uucode"
+      },
+      "package_files": {
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": 7,
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": 1,
+        "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7": 1
+      },
+      "packages": [
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
+        "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
+      ],
+      "source_paths": 782,
       "unattributed": [],
       "vendored": {
         "pkg/highway": 6,
@@ -147,8 +147,38 @@
         "include": 24,
         "libc": 133,
         "libcxx": 72,
-        "std": 89,
+        "std": 97,
         "ubsan_rt.zig": 1
+      }
+    },
+    "x86_64-windows-gnu": {
+      "generated_files": 7,
+      "ghostty_files": 172,
+      "names": {
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs"
+      },
+      "package_files": {
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": 4,
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": 1
+      },
+      "packages": [
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI"
+      ],
+      "source_paths": 463,
+      "unattributed": [],
+      "vendored": {
+        "pkg/highway": 5,
+        "pkg/simdutf": 2,
+        "pkg/wuffs": 3
+      },
+      "zig_lib": {
+        "compiler_rt": 199,
+        "compiler_rt.zig": 1,
+        "include": 1,
+        "libcxx": 9,
+        "std": 59
       }
     }
   },

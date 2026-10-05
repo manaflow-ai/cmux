@@ -9,6 +9,7 @@ class FakeHost implements PageClient {
   text: string;
   hash: string;
   saves: Array<{ text: string; baseHash: string | null }> = [];
+  edits: Array<{ path: string; text: string; baseHash: string | null }> = [];
   readOnly = false;
   private onChange: ((change: MarkdownChange, seq: number) => void) | null = null;
   constructor(text: string) {
@@ -27,6 +28,10 @@ class FakeHost implements PageClient {
       this.text = text;
       this.hash = `h:${text}`;
       return { hash: this.hash } as R;
+    }
+    if (op === "cmux.markdown.edited") {
+      this.edits.push(params as { path: string; text: string; baseHash: string | null });
+      return {} as R;
     }
     throw pageError("cmux.protocol.unknown_op", op);
   }
@@ -179,5 +184,28 @@ describe("MarkdownStore", () => {
     expect(host.text).toBe("# Source\n");
     store.setMode("rich");
     expect(editor.text).toBe("# Source\n");
+  });
+
+  test("the first edit reports its text to the host at once (the quit hook's dirty state)", async () => {
+    const { host, store, editor } = setup();
+    await store.start();
+    editor.text = "# B\n";
+    store.edited();
+    expect(host.edits).toEqual([{ path: "/w/a.md", text: "# B\n", baseHash: "h:# A\n" }]);
+  });
+
+  test("the host's flush saves pending edits and says what is left", async () => {
+    const { host, store, editor } = setup();
+    await store.start();
+    editor.text = "# B\n";
+    store.edited();
+    expect(await store.flush()).toEqual({ dirty: false });
+    expect(host.saves).toEqual([{ text: "# B\n", baseHash: "h:# A\n" }]);
+    host.diskWrite("# C\n");
+    editor.text = "# D\n";
+    store.edited();
+    host.text = "# E\n";
+    host.hash = "h:# E\n";
+    expect(await store.flush()).toEqual({ dirty: true });
   });
 });

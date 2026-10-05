@@ -51,6 +51,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_back(const BrowserBackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_forward(const BrowserForwardRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_frame_presented(const BrowserFramePresentedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserHostProviderResult> browser_host_provider(const BrowserHostProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_insert_text(const BrowserInsertTextRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_key(const BrowserKeyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_key_press(const BrowserKeyPressRequest& request, RequestOptions options = {});
@@ -229,6 +230,8 @@ public:
     [[nodiscard]] Result<SurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalClipboardReplyResult> terminal_clipboard_reply(const TerminalClipboardReplyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});

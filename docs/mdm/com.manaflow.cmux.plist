@@ -82,7 +82,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>page</string>
+			<string>agent</string>
 			<key>pfm_description</key>
 			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
 			<key>pfm_name</key>
@@ -249,6 +249,18 @@
 			<string>Focus After Closing a Pane</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Hold Command or Control for 0.30 seconds to show shortcut hints.</string>
+			<key>pfm_name</key>
+			<string>shortcuts.showModifierHoldHints</string>
+			<key>pfm_title</key>
+			<string>Show Shortcuts When Holding a Modifier</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -1402,6 +1414,46 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.markdown.color</string>
+			<key>pfm_title</key>
+			<string>Markdown Editor Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.markdown.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Markdown Editor Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.editor.color</string>
+			<key>pfm_title</key>
+			<string>Code Editor Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.editor.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Code Editor Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>arc</string>
 			<key>pfm_description</key>
@@ -1494,6 +1546,87 @@
 			<string>Show After</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>unified</string>
+			<key>pfm_name</key>
+			<string>diff.layout</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>split</string>
+				<string>unified</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Layout</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>bars</string>
+			<key>pfm_name</key>
+			<string>diff.diffIndicators</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>bars</string>
+				<string>classic</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Change Markers</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.wordWrap</string>
+			<key>pfm_title</key>
+			<string>Wrap Lines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.wordDiffs</string>
+			<key>pfm_title</key>
+			<string>Highlight Word Changes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>diff.lineNumbers</string>
+			<key>pfm_title</key>
+			<string>Line Numbers</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>diff.showBackgrounds</string>
+			<key>pfm_title</key>
+			<string>Change Backgrounds</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.expandUnchanged</string>
+			<key>pfm_title</key>
+			<string>Expand Unchanged Lines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -1769,6 +1902,89 @@
 			<string>Open localhost on the Workspace's Machine</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>google</string>
+			<key>pfm_description</key>
+			<string>The address bar searches here and asks it for suggestions.</string>
+			<key>pfm_name</key>
+			<string>browser.searchEngine</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>google</string>
+				<string>duckduckgo</string>
+				<string>bing</string>
+				<string>brave</string>
+				<string>kagi</string>
+				<string>custom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Search Engine</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.</string>
+			<key>pfm_name</key>
+			<string>browser.customSearchEngine.search</string>
+			<key>pfm_title</key>
+			<string>Custom Search Address</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text.</string>
+			<key>pfm_name</key>
+			<string>browser.customSearchEngine.suggest</string>
+			<key>pfm_title</key>
+			<string>Custom Suggestions Address</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.remoteSuggestions</string>
+			<key>pfm_title</key>
+			<string>Search Suggestions</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Completes a site you typed before or visit often.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.inlineAutocomplete</string>
+			<key>pfm_title</key>
+			<string>Complete Addresses Inline</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>8</integer>
+			<key>pfm_name</key>
+			<string>browser.omnibar.maxRows</string>
+			<key>pfm_range_max</key>
+			<real>15</real>
+			<key>pfm_range_min</key>
+			<real>3</real>
+			<key>pfm_title</key>
+			<string>Suggestions Shown</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

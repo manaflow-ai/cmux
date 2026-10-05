@@ -146,6 +146,9 @@ jobs:
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
 
+      - name: Test and check the seven SDK capability descriptors
+        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
+
       - name: Test deterministic SDK generator
         env:
           PYTHONPATH: cmux-tui/bindings

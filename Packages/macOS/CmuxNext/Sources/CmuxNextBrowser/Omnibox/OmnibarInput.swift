@@ -80,6 +80,9 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
 
     /// Results of the query with `generation`.
     case suggestions(generation: UInt64, rows: [BrowserSuggestion])
+    /// Late (phase B) rows of the query with `generation`, merged into the
+    /// card without moving what is on screen (`OmniboxMerge`).
+    case moreSuggestions(generation: UInt64, rows: [BrowserSuggestion], capacity: Int)
 
     case pageURLChanged(URL?)
     case searchEngineChanged
@@ -99,6 +102,9 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     case ended(OmnibarEndReason)
     /// Shift-Delete removed this history row: forget the page.
     case deleteSuggestion(URL)
+    /// Enter loaded the typed text as a URL (what-you-typed or its inline
+    /// completion): the visit counts as typed (Chromium `PAGE_TRANSITION_TYPED`).
+    case typedNavigation(URL)
     /// An extension keyword session started (`chrome.omnibox.onInputStarted`).
     case keywordStarted(extensionID: String)
     /// The session's text changed; answer with `.suggestions(generation:)`.

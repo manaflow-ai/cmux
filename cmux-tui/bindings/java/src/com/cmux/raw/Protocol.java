@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47";
+    public static final String IR_SHA256 = "5de21219cdefd725a855d27e4a1958bb298685a08a022e39e04aecb18e404b52";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -62,6 +62,8 @@ public final class Protocol {
             case "tab-changed" -> TabChangedEvent.fromWire(value);
             case "tab-closed" -> TabClosedEvent.fromWire(value);
             case "tab-renamed" -> TabRenamedEvent.fromWire(value);
+            case "terminal-clipboard-read" -> TerminalClipboardReadEvent.fromWire(value);
+            case "terminal-clipboard-read-cancelled" -> TerminalClipboardReadCancelledEvent.fromWire(value);
             case "terminal-reaped" -> TerminalReapedEvent.fromWire(value);
             case "terminal-registry-changed" -> TerminalRegistryChangedEvent.fromWire(value);
             case "title-changed" -> TitleChangedEvent.fromWire(value);

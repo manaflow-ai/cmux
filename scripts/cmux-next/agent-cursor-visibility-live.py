@@ -234,6 +234,19 @@ try:
         sys.exit("this build has no debug.agent_cursor (needs feat-cmux-next after the visibility resolver)")
     window1 = (windows() or [{}])[0].get("id")
 
+    # A fresh tag's first window shows the Home workspace, which the sidebar
+    # lists as the Home item, not a workspace row. The run builds its tabs in
+    # a workspace of its own (`newTab` is New Workspace), so every step tests
+    # an ordinary workspace.
+    def shown_workspaces():
+        return {w.get("id"): w.get("selected") for w in (rpc("debug.windows").get("windows") or [])}
+    home = ((rpc("debug.home").get("home_workspace") or {}).get("workspace"))
+    before = shown_workspaces()
+    action("newTab")
+    if not wait(lambda: any(ws and ws != home and ws != before.get(wid) for wid, ws in shown_workspaces().items()), 30):
+        raise RuntimeError("New Workspace did not show a new workspace")
+    report["own_workspace"] = {"home": home, "windows": shown_workspaces()}
+
     # Window 1: target tab plus a second tab in the same pane.
     target = open_tab("target")
     other = open_tab("other")
