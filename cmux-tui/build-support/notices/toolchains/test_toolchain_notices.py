@@ -57,7 +57,7 @@ class Fixture:
                  "toolchain_files": ["Native/DiffSidecar/rust-toolchain.toml"], "binaries": "bin/cmux-diff-sidecar"},
             ],
             "zig": [
-                {"version": "0.16.0", "file": "zig-0.16.0/LICENSE", "sha256": sha(self.files["zig-0.16.0/LICENSE"]),
+                {"version": "0.16.0", "ci_version": "0.16.0", "file": "zig-0.16.0/LICENSE", "sha256": sha(self.files["zig-0.16.0/LICENSE"]),
                  "source": "fixture", "ghostty_sources": ["ghostty", "ghostty-next"], "binaries": "bin/ghostty"},
             ],
         }
@@ -95,6 +95,15 @@ class ToolchainNoticesTest(unittest.TestCase):
         [problem] = tn.repo_problems(self.fx.load(), self.fx.root)
         self.assertIn("ghostty-next/build.zig.zon", problem)
         self.assertIn("0.17.0", problem)
+
+    def test_the_exact_ci_zig_version_must_be_recorded_and_match(self) -> None:
+        self.fx.manifest["zig"][0]["ci_version"] = "0.16.1"
+        [problem] = tn.repo_problems(self.fx.load(), self.fx.root)
+        self.assertIn("ci_version", problem)
+        self.assertIn("0.16.1", problem)
+        del self.fx.manifest["zig"][0]["ci_version"]
+        with self.assertRaises(tn.ManifestError):
+            self.fx.load()
 
     def test_a_missing_ghostty_manifest_fails_instead_of_passing(self) -> None:
         (self.fx.root / "ghostty/build.zig.zon").unlink()
@@ -193,6 +202,7 @@ class ToolchainNoticesTest(unittest.TestCase):
         self.assertEqual(rust["1.95.0"].sha256, "90567e2718bf7fd65a71a3a43c5596488e80e5f51ed02bfea6fec54458b5f3d1")
         [zig] = manifest.zig
         self.assertEqual(zig.version, "0.16.0")
+        self.assertEqual(zig.ci_version, "0.16.0")
         self.assertEqual(sorted(zig.ghostty_sources), ["ghostty", "ghostty-next"])
 
     def test_shipped_rust_ties_hold_for_this_checkout(self) -> None:

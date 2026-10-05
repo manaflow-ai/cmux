@@ -116,6 +116,11 @@ impl Hub {
             }
             _ => {}
         }
+        drop(m);
+        // Default deny on drift: also a mode the harness changes by itself.
+        if matches!(kind, "current_mode_update" | "config_option_update") {
+            self.note_mode(session, false);
+        }
     }
 
     pub(super) async fn on_agent_request(

@@ -130,7 +130,7 @@ export function splitSshdBakeOutput(out: string): { effective: string; ss: strin
  * on the clone and is removed, and the trust files are emptied again.
  */
 export function sshdCertSmokeCommand(workUser: string): string {
-  const ssh = "ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5";
+  const ssh = "ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5";
   const scp = "scp -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5";
   const id = `-i "$d/user" -o CertificateFile="$d/user-cert.pub"`;
   const target = `${workUser}@127.0.0.1`;
@@ -145,7 +145,9 @@ export function sshdCertSmokeCommand(workUser: string): string {
     `cp "$d/ca.pub" ${SSH_CA_FILE} && printf '%s\n' ${workUser} > ${SSH_PRINCIPALS_DIR}/${workUser}`,
     `test "$(${ssh} ${id} ${target} echo cert-ok)" = cert-ok && echo "PASS certificate login"`,
     `head -c 1048576 /dev/urandom > "$d/blob" && ${scp} ${id} "$d/blob" ${target}:/tmp/cmux-scp-smoke && cmp "$d/blob" /tmp/cmux-scp-smoke && echo "PASS scp 1 MiB"`,
-    `if ${ssh} -i "$d/user" ${target} true 2>/dev/null; then echo "FAIL plain key login"; exit 1; fi; echo "PASS plain key refused"`,
+    // The client loads <identity>-cert.pub on its own, so the plain-key attempt uses a copy with no certificate beside it.
+    `install -d -m 0700 "$d/plain" && cp "$d/user" "$d/user.pub" "$d/plain/"`,
+    `if ${ssh} -o IdentitiesOnly=yes -i "$d/plain/user" ${target} true 2>/dev/null; then echo "FAIL plain key login"; exit 1; fi; echo "PASS plain key refused"`,
     `printf 'id: cmux-smoke\n' > "$d/krl-spec" && ssh-keygen -q -k -u -f ${SSH_KRL_FILE} -s "$d/ca.pub" "$d/krl-spec"`,
     `if ${ssh} ${id} ${target} true 2>/dev/null; then echo "FAIL revoked certificate login"; exit 1; fi; echo "PASS revoked certificate refused"`,
   ].join("\n");

@@ -3,11 +3,14 @@
 // (window.__cmuxStrings). The page then parses two small tables instead of all 21 (R82 first-open
 // speed). Used by scripts/cmux-next/build-pages-web.sh for the pages in SPLIT_STRINGS.
 //
-//   node scripts/pages/split-strings.mjs <strings.json> <out-dir>   # writes <out-dir>/<locale>.js
+//   node scripts/pages/split-strings.mjs <strings.json> <out-dir> [global]   # writes <out-dir>/<locale>.js
+// `global` names the window property the scripts fill (default __cmuxStrings; the agent pane uses
+// __cmuxPaneStrings).
 import fs from "node:fs";
 import path from "node:path";
 
-const [, , input, outDir] = process.argv;
+const [, , input, outDir, global = "__cmuxStrings"] = process.argv;
+if (!/^[A-Za-z_$][\w$]*$/.test(global)) throw new Error(`not a property name: ${global}`);
 const table = JSON.parse(fs.readFileSync(input, "utf8"));
 const locales = Object.keys(table);
 fs.mkdirSync(outDir, { recursive: true });
@@ -15,7 +18,7 @@ for (const locale of locales) {
   const body = JSON.stringify(table[locale]).replace(/<\/script/gi, "<\\/script");
   fs.writeFileSync(
     path.join(outDir, `${locale}.js`),
-    `(window.__cmuxStrings = window.__cmuxStrings || {})[${JSON.stringify(locale)}] = ${body};\n`,
+    `(window.${global} = window.${global} || {})[${JSON.stringify(locale)}] = ${body};\n`,
   );
 }
 

@@ -108,6 +108,44 @@ describe("ui wrapper", () => {
     expect(await chordsPass(root.querySelector('input[type="radio"]')!)).toEqual(ALL_CHORDS);
   });
 
+  test("combobox rows show the suggestion text unless the caller renders them", async () => {
+    // Every existing caller passes no renderItem: each row is the suggestion text, as before.
+    const plain = await render(
+      <Combobox
+        suggestions={["#a", "#b"]}
+        onQuery={() => {}}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+        label="URL"
+        inline
+      />,
+    );
+    expect([...plain.querySelectorAll('[role="option"]')].map((row) => row.innerHTML)).toEqual(["#a", "#b"]);
+    // A caller that renders rows (a project name over its path) keeps the value it submits.
+    const submitted: string[] = [];
+    const rich = await render(
+      <Combobox
+        suggestions={["/src/cmux"]}
+        renderItem={(value) => (
+          <>
+            <b>cmux</b>
+            <i>{value}</i>
+          </>
+        )}
+        onQuery={() => {}}
+        onSubmit={(value) => submitted.push(value)}
+        onCancel={() => {}}
+        label="Folder"
+        inline
+      />,
+    );
+    const row = rich.querySelector<HTMLElement>('[role="option"]')!;
+    expect(row.querySelector("b")?.textContent).toBe("cmux");
+    expect(row.querySelector("i")?.textContent).toBe("/src/cmux");
+    await act(async () => row.click());
+    expect(submitted).toEqual(["/src/cmux"]);
+  });
+
   test("the listbox moves with arrows, Home and End, and jumps by typed letters", async () => {
     const opened: string[] = [];
     const root = await render(

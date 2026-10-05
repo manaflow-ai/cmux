@@ -83,7 +83,6 @@ pub(super) async fn check(
     }
     if web {
         web_only(m, params)?;
-        web_starts_asking(hub, m, params).await?;
     }
     let folders = matches!(
         m,
@@ -127,23 +126,76 @@ pub(super) async fn check(
             params["additionalDirectories"] = Value::Array(out);
         }
     }
+    // After the folder checks: what the request starts from, and its mode.
+    if web {
+        web_starts_asking(hub, m, params).await?;
+    }
     Ok(())
 }
 
-/// The only harness modes a Web connection may pick: modes shown to ask
-/// before they act. Everything else, unknown names included, is refused.
-const ASKING_MODES: &[&str] = &[
-    // Claude Code "default": "Standard behavior - prompts for permission on
-    // first use of each tool" (https://docs.anthropic.com/en/docs/claude-code/iam#permission-modes).
-    // acpmux's own Claude backend offers it as "Normal" and answers each
-    // permission prompt through its policy (claude_stdio/mod.rs `MODES`,
-    // claude_stdio/outbound.rs `supportedDialogKinds: ["permission"]`).
-    "default",
-    // Claude Code "plan": "Claude can analyze but not modify files or execute
-    // commands" (same page); opencode's plan agent sets file edits and bash to
-    // "ask" (https://opencode.ai/docs/agents/#plan).
-    "plan",
-];
+/// The asking modes for `family`: the merged table (`web_modes.rs`).
+async fn asking_modes(hub: &std::sync::Arc<crate::hub::Hub>, family: &str) -> Vec<String> {
+    hub.web_modes().modes(family).to_vec()
+}
+
+fn family_of(m: &crate::store::SessionMeta) -> String {
+    crate::web_modes::family_of(m)
+}
+
+/// Whether a session's mode asks: none reported, or listed for its family.
+async fn mode_asks(hub: &std::sync::Arc<crate::hub::Hub>, m: &crate::store::SessionMeta) -> bool {
+    hub.web_modes().session_asks(m)
+}
+
+/// After a request ran: every reply to a non-unix connection is redacted
+/// (only the unix socket reads a token back), and a mode or option set
+/// re-checks the session's Web control (a set from the unix socket or the
+/// local app to an asking mode restores it; any set that leaves the table
+/// ends it).
+pub(super) fn after(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    origin: super::Origin,
+    m: &str,
+    key: Option<&str>,
+    reply: &mut Result<Value, RpcError>,
+) {
+    if matches!(m, method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION)
+        && reply.is_ok()
+        && let Some(s) = key.and_then(|k| hub.resolve(k).ok())
+    {
+        hub.note_mode(&s, origin != super::Origin::Web);
+    }
+    if origin != super::Origin::Local
+        && let Ok(v) = reply
+    {
+        super::redact::redact_for_remote(m, v);
+    }
+}
+
+/// A new Web session in a mode that does not ask is moved to its family's
+/// asking default; a family with none (unknown) is ended and refused.
+pub(super) async fn settle_web_session_mode(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    s: &std::sync::Arc<crate::hub::Session>,
+) -> Result<(), RpcError> {
+    if mode_asks(hub, &s.meta()).await {
+        return Ok(());
+    }
+    let refuse = || {
+        RpcError::invalid_params(
+            "this harness has no reviewed asking mode for a remote WebSocket connection",
+        )
+    };
+    let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
+        let _ = hub.kill(s, true).await;
+        return Err(refuse());
+    };
+    if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta()).await {
+        let _ = hub.kill(s, true).await;
+        return Err(refuse());
+    }
+    Ok(())
+}
 
 /// Config options a Web connection may set to any value: they choose a model
 /// or how hard it thinks, never what runs without asking.
@@ -217,40 +269,12 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
         method::MUX_SET_RULES if !rules_cannot_auto_approve(params.get("rules")) => {
             Err(refused("a permission rule that could auto-approve"))
         }
-        method::SESSION_SET_MODE => {
-            let mode = params.get("modeId").and_then(Value::as_str);
-            if mode.is_some_and(|m| ASKING_MODES.contains(&m)) {
-                Ok(())
-            } else {
-                Err(refused("a mode other than default or plan"))
-            }
-        }
-        method::SESSION_SET_CONFIG_OPTION => {
-            let id = params.get("configId").and_then(Value::as_str).unwrap_or_default();
-            if FREE_CONFIG_OPTIONS.contains(&id) {
-                return Ok(());
-            }
-            let value = params.get("value").and_then(Value::as_str);
-            if id == "mode" && value.is_some_and(|v| ASKING_MODES.contains(&v)) {
-                Ok(())
-            } else {
-                Err(refused("this config option or value"))
-            }
-        }
         "_acpmux/directories" => Err(RpcError::method_not_found(
             "_acpmux/directories (not served to a remote WebSocket connection)",
         )),
         _ => Ok(()),
     }
 }
-
-/// Harness modes known to skip the harness's own asks. A Web request never
-/// loads, resumes, forks or hands off from a session in one of them; this is
-/// a deny list on purpose: an allow list here would lock the Web out of every
-/// session whose harness starts in its own default mode (a Web connection
-/// still only SETS modes from `ASKING_MODES`).
-const KNOWN_PERMISSIVE_MODES: &[&str] =
-    &["bypassPermissions", "acceptEdits", "dontAsk", "yolo", "full-access", "auto"];
 
 fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
     matches!(p, crate::config::PermissionPolicy::Ask | crate::config::PermissionPolicy::DenyAll)
@@ -282,20 +306,75 @@ async fn web_starts_asking(
             | method::SESSION_RESUME
             | method::MUX_HANDOFF_PREPARE
     );
-    let key = params.get("sessionId").and_then(Value::as_str);
-    if let (true, Some(key)) = (copies, key)
-        && let Ok(s) = hub.resolve(key)
+    let sets_mode = matches!(m, method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION);
+    if copies
+        && MODE_FIELDS.iter().any(|f| {
+            params.get(*f).is_some() || params.pointer(&format!("/_meta/acpmux/{f}")).is_some()
+        })
     {
-        let meta = s.meta();
-        let default = hub.config.read().await.permission_policy;
-        let policy =
-            meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
-        let mode = meta.modes.as_ref().and_then(|v| v.get("currentModeId")).and_then(Value::as_str);
-        if !asking_policy(policy) || mode.is_some_and(|x| KNOWN_PERMISSIVE_MODES.contains(&x)) {
-            return Err(RpcError::invalid_params(format!(
-                "{m} from a remote WebSocket connection is refused: the session's policy or mode does not ask"
-            )));
+        return Err(RpcError::invalid_params(format!(
+            "{m} from a remote WebSocket connection is refused: it carries a mode field"
+        )));
+    }
+    // Web CONTROL of a session (not reads) ends when its mode leaves the
+    // asking table (`hub/web_control.rs`).
+    let controls = matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::MUX_PERMISSION_RESPOND
+            | method::MUX_PERMISSION_GROUP_RESPOND
+    );
+    if !(copies || sets_mode || controls) {
+        return Ok(());
+    }
+    // A prompt or answer for a session not held here (a peer's) goes to that
+    // peer, whose own guard checks this Web connection's control there.
+    if controls && !sets_mode {
+        return match super::session_key(params).and_then(|key| hub.resolve(key)) {
+            Ok(s) => hub.web_control_check(&s),
+            Err(_) => Ok(()),
+        };
+    }
+    // The handler's own resolution; a source it cannot resolve (unknown, or
+    // an ambiguous prefix) is refused for the Web, never passed unchecked.
+    let s = super::session_key(params).and_then(|key| hub.resolve(key)).map_err(|e| {
+        RpcError::invalid_params(format!(
+            "{m} from a remote WebSocket connection is refused: the session cannot be resolved ({})",
+            e.message
+        ))
+    })?;
+    if sets_mode {
+        hub.web_control_check(&s)?;
+    }
+    let meta = s.meta();
+    if sets_mode {
+        let id = params.get("configId").and_then(Value::as_str);
+        if m == method::SESSION_SET_CONFIG_OPTION
+            && id.is_some_and(|i| FREE_CONFIG_OPTIONS.contains(&i))
+        {
+            return Ok(());
         }
+        let value = if m == method::SESSION_SET_MODE {
+            params.get("modeId").and_then(Value::as_str)
+        } else if id == Some("mode") {
+            params.get("value").and_then(Value::as_str)
+        } else {
+            None
+        };
+        let allowed = asking_modes(hub, &family_of(&meta)).await;
+        return match value {
+            Some(v) if allowed.iter().any(|a| a == v) => Ok(()),
+            _ => Err(RpcError::invalid_params(format!(
+                "{m}: this mode or option is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
+            ))),
+        };
+    }
+    let default = hub.config.read().await.permission_policy;
+    let policy = meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
+    if !asking_policy(policy) || !mode_asks(hub, &meta).await {
+        return Err(RpcError::invalid_params(format!(
+            "{m} from a remote WebSocket connection is refused: the session's policy or mode does not ask"
+        )));
     }
     Ok(())
 }
