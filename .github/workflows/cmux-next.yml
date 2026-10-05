@@ -435,8 +435,12 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Install Rust (sidebar layout reducer)
-        run: ./scripts/install-rust-ci.sh
+      - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust targets (sidebar layout reducer)
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Test sidebar layout reducer
         working-directory: cmux-tui
