@@ -31,32 +31,32 @@ struct CloudTreeCreationRevealTests {
                 remoteWorkspaceID: remoteWorkspaceID, remoteTabID: "tab_\(remoteWorkspaceID)"
             )
         }
-        let makeInputs: (UUID) -> CloudTreeBuildInputs = { focused in
+        let makeInputs: (UUID, String) -> CloudTreeBuildInputs = { focused, suffix in
             .init(
                 machines: [], snapshot: snapshot,
                 localWorkspaces: [
                     .init(id: first, title: "first", isSelected: focused == first),
                     .init(id: second, title: "second", isSelected: focused == second),
-                    .init(id: unprojected, title: "unprojected", isSelected: focused == unprojected),
+                    .init(id: unprojected, title: "unprojected\(suffix)", isSelected: focused == unprojected),
                 ], source: .cloud
             )
         }
 
-        fixture.coordinator.update(inputs: makeInputs(first))
+        fixture.coordinator.update(inputs: makeInputs(first, ""))
         let outline = try #require(fixture.coordinator.outlineView)
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == fixture.folderID("ws_1"))
 
-        fixture.coordinator.update(inputs: makeInputs(second))
+        fixture.coordinator.update(inputs: makeInputs(second, ""))
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == fixture.folderID("ws_2"))
 
-        fixture.coordinator.update(inputs: makeInputs(unprojected))
+        fixture.coordinator.update(inputs: makeInputs(unprojected, ""))
         #expect(outline.selectedRow == -1)
 
         let machineCandidate = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first(where: \.isMachineRow)
         let machine = try #require(machineCandidate)
         let machineRow = outline.row(forItem: machine)
         outline.selectRowIndexes(IndexSet(integer: machineRow), byExtendingSelection: false)
-        fixture.coordinator.update(inputs: makeInputs(unprojected))
+        fixture.coordinator.update(inputs: makeInputs(unprojected, " refreshed"))
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == machine.id)
     }
 

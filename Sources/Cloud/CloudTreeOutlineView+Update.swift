@@ -56,7 +56,7 @@ extension CloudTreeOutlineView.Coordinator {
         }?.id
     }
 
-    /// The representable and native tests enter through the same update boundary.
+    /// Applies a catalog snapshot and reconciles native selection with focus.
     func update(inputs: CloudTreeBuildInputs, now: Date = .now) {
         guard let nodes = nodeCache.nodes(ifChanged: inputs, now: now) else { return }
         let focusedWorkspaceID = inputs.localWorkspaces.first(where: \.isSelected)?.id
@@ -80,10 +80,11 @@ extension CloudTreeOutlineView.Coordinator {
         }
     }
 
+    /// Selects the focused workspace row, expanding ancestors and scrolling it into view.
     private func selectFocusedCloudWorkspaceRow(_ nodeID: String) {
         guard let outlineView,
-              let node = CloudTreeNode.path(to: nodeID, in: nodes)?.last else { return }
-        let path = CloudTreeNode.path(to: nodeID, in: nodes) ?? []
+              let path = CloudTreeNode.path(to: nodeID, in: nodes),
+              let node = path.last else { return }
         for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
             expansionStore.setExpanded(true, node: ancestor)
             outlineView.expandItem(ancestor)
