@@ -16,13 +16,30 @@ echo "rustup $*" >>"$CALLS"
 case "$1" in
   component) [[ "$2" == list ]] && echo "rustfmt-aarch64-apple-darwin"; exit "${RUSTUP_RC:-0}" ;;
   show) echo "1.95.0-aarch64-apple-darwin (overridden by rust-toolchain.toml)" ;;
+  which) echo "$TOOLCHAIN_BIN/$2" ;;
 esac
 S
 cat >"$work/bin/cargo" <<'S'
 #!/usr/bin/env bash
+echo "path-cargo $*" >>"$CALLS"
+S
+# The pinned toolchain's own bin dir (cargo, cargo-fmt, cargo-clippy). A cargo
+# that is not the rustup proxy finds `cargo-fmt` only on PATH (2026-10-05:
+# step fafed265 on cmux7 had rustfmt installed and still got "no such command").
+mkdir -p "$work/toolchain/bin"
+cat >"$work/toolchain/bin/cargo" <<'S'
+#!/usr/bin/env bash
 echo "cargo $*" >>"$CALLS"
 S
-chmod +x "$work/bin/"*
+# The step's checkout has empty submodules (2026-10-05, step ee99e05f:
+# ghostty-vt-sys found no build.zig in ghostty-next).
+cat >"$work/bin/git" <<'S'
+#!/usr/bin/env bash
+echo "git $*" >>"$CALLS"
+exit "${GIT_RC:-0}"
+S
+chmod +x "$work/bin/"* "$work/toolchain/bin/cargo"
+export TOOLCHAIN_BIN="$work/toolchain/bin"
 run() { # rc out
   : >"$work/calls"
   set +e
@@ -34,12 +51,22 @@ fail() { echo "FAIL: $*" >&2; echo "$out" >&2; cat "$work/calls" >&2; exit 1; }
 
 run "$script" fmt
 [[ $rc -eq 0 ]] || fail "fmt: rc=$rc"
-[[ "$(head -1 "$work/calls")" == "rustup component add clippy rustfmt" ]] || fail "components not installed first"
-grep -q "^cargo fmt --all --check$" "$work/calls" || fail "cargo fmt not run"
+add_line="$(grep -n "^rustup component add clippy rustfmt$" "$work/calls" | cut -d: -f1)"
+first_cargo="$(grep -n "^cargo " "$work/calls" | head -1 | cut -d: -f1)"
+[[ -n "$add_line" && "$add_line" -lt "$first_cargo" ]] || fail "components not installed before cargo"
+grep -q "^cargo fmt --all --check$" "$work/calls" || fail "cargo fmt not run with the toolchain's own cargo"
+! grep -q "^path-cargo" "$work/calls" || fail "a cargo from PATH ran instead of the toolchain's"
 grep -q "1.95.0-aarch64-apple-darwin" <<<"$out" || fail "active toolchain not printed"
+sub_line="$(grep -n "^git -C $work/src submodule update --init --depth 1 ghostty ghostty-next$" "$work/calls" | cut -d: -f1)"
+cargo_line="$(grep -n "^cargo " "$work/calls" | head -1 | cut -d: -f1)"
+[[ -n "$sub_line" && "$sub_line" -lt "$cargo_line" ]] || fail "submodules not initialized before cargo"
+
+GIT_RC=1 run "$script" fmt
+[[ $rc -ne 0 ]] || fail "a failed submodule update must fail the step"
+! grep -q "cargo " "$work/calls" || fail "cargo ran after a failed submodule update"
 
 RUSTUP_RC=1 run "$script" fmt
 [[ $rc -ne 0 ]] || fail "a failed component install must fail the step"
-! grep -q "^cargo" "$work/calls" || fail "cargo ran after a failed component install"
+! grep -q "cargo " "$work/calls" || fail "cargo ran after a failed component install"
 
-echo "ok: 2 rust-check cases"
+echo "ok: 3 rust-check cases"

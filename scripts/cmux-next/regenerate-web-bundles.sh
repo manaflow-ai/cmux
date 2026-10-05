@@ -15,6 +15,7 @@ ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 APP="Resources/markdown-viewer/webviews-app"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
+RANKER="Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js"
 # build-pages-web.sh also regenerates each page's strings table from the xcstrings catalogs.
 PAGE_STRINGS="webviews/src/pages/*/generated/strings.json"
 
@@ -24,11 +25,12 @@ cd "$ROOT/webviews"
 bun install --frozen-lockfile
 cd "$ROOT"
 "$ROOT/scripts/cmux-next/build-agent-pane-web.sh"
+"$ROOT/scripts/cmux-next/build-palette-ranker.sh"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh"
 "$ROOT/scripts/build-webviews-app.sh"
 "$ROOT/scripts/cmux-next/build-pages-web.sh"
 # -A also stages chunks the new build dropped, which resolves a delete/modify
 # conflict the driver cannot.
 ACTIVITY="Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
-git add -A -- "$PANE" "$ACTIVITY" "$APP" "$PAGES" ":(glob)$PAGE_STRINGS"
-git status --short -- "$PANE" "$ACTIVITY" "$APP" "$PAGES" ":(glob)$PAGE_STRINGS"
+git add -A -- "$PANE" "$ACTIVITY" "$APP" "$PAGES" "$RANKER" ":(glob)$PAGE_STRINGS"
+git status --short -- "$PANE" "$ACTIVITY" "$APP" "$PAGES" "$RANKER" ":(glob)$PAGE_STRINGS"

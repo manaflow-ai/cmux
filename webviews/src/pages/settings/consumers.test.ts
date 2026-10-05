@@ -22,7 +22,11 @@ describe("consumers", () => {
     expect(schema.rows.filter((row) => !shown(row.key)).map((row) => row.key)).toEqual([]);
     expect([...rowsByKey.keys()].filter((key) => !shown(key))).toEqual([]);
     for (const section of sections) {
-      expect(rowsInSection(section.id).filter((row) => !shown(row.key)).map((row) => row.key)).toEqual([]);
+      expect(
+        rowsInSection(section.id)
+          .filter((row) => !shown(row.key))
+          .map((row) => row.key),
+      ).toEqual([]);
     }
     for (const query of ["toolbar", "omnibox", "workspace icons", "traffic light", "strip margin", "presets"]) {
       const found = searchRows(query, () => undefined).flatMap((group) => group.rows);
