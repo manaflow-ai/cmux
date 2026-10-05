@@ -11,6 +11,8 @@ pub(crate) mod spawn;
 use spawn::{LocalLaunch, LocalSpawn};
 #[cfg(unix)]
 mod clipboard_read;
+#[cfg(all(unix, test))]
+pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
 #[cfg(unix)]
 mod host_frames;
 #[cfg(unix)]

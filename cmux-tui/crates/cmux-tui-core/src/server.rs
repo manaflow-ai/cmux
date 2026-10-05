@@ -113,6 +113,7 @@ mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
+mod clipboard_read;
 mod close_tabs_command;
 mod conversation_tabs_wire;
 mod conversations;

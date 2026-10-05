@@ -40,3 +40,47 @@ impl Surface {
             .unwrap_or(Ok(false))
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_fixture {
+    use std::os::unix::net::UnixStream;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::super::{HostedSurfaceLaunch, PtyLifetime};
+    use super::Surface;
+    use crate::resource::TerminalPublicId;
+    use crate::{Mux, SurfaceOptions};
+
+    /// A hosted surface for `terminal` on a negotiated fake host connection,
+    /// and the host's end of it.
+    pub(crate) fn hosted_surface_for_clipboard_test(
+        mux: &Arc<Mux>,
+        terminal: TerminalPublicId,
+    ) -> (Arc<Surface>, UnixStream) {
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        attachment.negotiate_clipboard_reads_for_test();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: Some(terminal),
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+        host.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+        (surface, host)
+    }
+}

@@ -1,14 +1,14 @@
 //! Hosted surface side of the clipboard-read broker: a negotiated host's
-//! `ClipboardReadRequest` becomes the surface's pending read, and the reply
-//! goes back on the owner connection once.
+//! `ClipboardReadRequest` goes to the daemon broker, and its one answer goes
+//! back on the owner connection. With no frontend to ask (these surfaces
+//! have no public terminal id), the broker refuses at once.
 
 use super::*;
 use crate::terminal_host_protocol::{MAX_FRAME_PAYLOAD, read_frame, write_frame};
-use ghostty_vt::{ClipboardLocation, ClipboardReadRequest};
 use std::os::unix::net::UnixStream;
 
 #[test]
-fn hosted_clipboard_read_is_pending_until_one_reply_is_sent() {
+fn a_read_nobody_can_answer_is_refused_at_once() {
     let mux = Mux::new_for_test("hosted-clipboard-read", SurfaceOptions::default());
     let workspace = mux.create_empty_workspace(None, None, None).unwrap();
     let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
@@ -41,14 +41,6 @@ fn hosted_clipboard_read_is_pending_until_one_reply_is_sent() {
     let mut payload = 7u64.to_le_bytes().to_vec();
     payload.push(2);
     write_frame(&mut host, &Frame::new(MessageKind::ClipboardReadRequest, payload)).unwrap();
-    let expected = ClipboardReadRequest { token: 7, location: ClipboardLocation::Primary };
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while surface.pending_clipboard_read() != Some(expected) {
-        assert!(Instant::now() < deadline, "the request never reached the surface");
-        std::thread::sleep(Duration::from_millis(1));
-    }
-
-    assert!(surface.complete_clipboard_read(7, Some(b"hi".to_vec())).unwrap());
     let reply = loop {
         let frame = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
         if frame.kind == MessageKind::ClipboardReadReply {
@@ -56,9 +48,9 @@ fn hosted_clipboard_read_is_pending_until_one_reply_is_sent() {
         }
     };
     assert_eq!((reply.request_id, reply.sequence, reply.flags), (0, 0, 0));
-    let mut expected_payload = 7u64.to_le_bytes().to_vec();
-    expected_payload.extend_from_slice(&[1, 2, 0, 0, 0, b'h', b'i']);
-    assert_eq!(reply.payload, expected_payload);
+    let mut refusal = 7u64.to_le_bytes().to_vec();
+    refusal.extend_from_slice(&[0, 0, 0, 0, 0]);
+    assert_eq!(reply.payload, refusal);
     assert_eq!(surface.pending_clipboard_read(), None);
     assert!(!surface.complete_clipboard_read(7, None).unwrap(), "a read completes once");
 }
@@ -96,13 +88,6 @@ fn a_cancel_after_the_reply_is_ignored() {
         payload.push(0);
         write_frame(host, &Frame::new(MessageKind::ClipboardReadRequest, payload)).unwrap();
     };
-    let wait_pending = |token: u64| {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while surface.pending_clipboard_read().map(|read| read.token) != Some(token) {
-            assert!(Instant::now() < deadline, "read {token} never reached the surface");
-            std::thread::sleep(Duration::from_millis(1));
-        }
-    };
     let next_reply_token = |host: &mut UnixStream| loop {
         let frame = read_frame(host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
         if frame.kind == MessageKind::ClipboardReadReply {
@@ -111,8 +96,6 @@ fn a_cancel_after_the_reply_is_ignored() {
     };
 
     request(&mut host, 7);
-    wait_pending(7);
-    assert!(surface.complete_clipboard_read(7, Some(b"hi".to_vec())).unwrap());
     assert_eq!(next_reply_token(&mut host), 7);
     write_frame(
         &mut host,
@@ -120,7 +103,6 @@ fn a_cancel_after_the_reply_is_ignored() {
     )
     .unwrap();
     request(&mut host, 8);
-    wait_pending(8);
-    assert!(surface.complete_clipboard_read(8, None).unwrap());
     assert_eq!(next_reply_token(&mut host), 8, "no second reply for the cancelled read");
+    assert!(!surface.complete_clipboard_read(8, None).unwrap(), "the broker answered it");
 }
