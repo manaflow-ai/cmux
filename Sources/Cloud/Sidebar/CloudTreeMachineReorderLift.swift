@@ -35,6 +35,10 @@ final class CloudTreeMachineReorderLift: NSObject {
         let scrollBefore: CGFloat
         /// Machines closed for the drag, opened again when it ends.
         let collapsedIDs: [String]
+        /// Section headers are structural anchors for the right sidebar. They
+        /// must never inherit a workspace or machine translation when AppKit
+        /// reuses a row view during a drag.
+        let anchoredIDs: Set<String>
         var placement: CloudTreeReorderLiftLayout.Placement
         /// The translation each row was last sent toward, so a row only
         /// starts a new glide when its target flips.
@@ -46,6 +50,9 @@ final class CloudTreeMachineReorderLift: NSObject {
     }
 
     private var session: Session?
+    /// Retained through `finish`, whose model mutation clears `session` before
+    /// the final landing animation runs.
+    private var anchoredIDs: Set<String> = []
     /// The row being lifted while `begin` closes rows and scrolls, before
     /// the session exists, so hover stays on it through those layouts.
     private var liftingID: String?
@@ -140,10 +147,19 @@ final class CloudTreeMachineReorderLift: NSObject {
         outline.layoutSubtreeIfNeeded()
         // Every position from before, in the outline as it now scrolls.
         let scrolled = scrollOffset() - scrollBefore
+        let sectionIDs = Set((0..<outline.numberOfRows).compactMap { row in
+            guard let node = outline.item(atRow: row) as? CloudTreeNode else { return nil }
+            switch node.kind {
+            case .cloudMachinesSection, .devicesSection, .devicesEmpty: return node.id
+            default: return nil
+            }
+        })
+        anchoredIDs = sectionIDs
         session = Session(
             sequence: sequence, sourceID: source.id, layout: layout, sourceRows: sourceRows,
             sourceTop: sourceTop, grabOffset: grabOffset, scrollBefore: scrollBefore,
             collapsedIDs: closing.map(\.id),
+            anchoredIDs: sectionIDs,
             placement: layout.placement(dragOffset: 0)
         )
         self.onLeave = onLeave
@@ -188,6 +204,14 @@ final class CloudTreeMachineReorderLift: NSObject {
         let placement = session.layout.placement(dragOffset: pointerY - session.grabY)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         outline.enumerateAvailableRowViews { rowView, row in
+            if let node = outline.item(atRow: row) as? CloudTreeNode,
+               session.anchoredIDs.contains(node.id) {
+                // A reused row view may carry a transform from a previous
+                // occupant. Clear it without participating in the lift.
+                rowView.layer?.removeAnimation(forKey: Self.shiftKey)
+                if let layer = rowView.layer { Self.setShift(0, on: layer); layer.zPosition = 0 }
+                return
+            }
             rowView.wantsLayer = true
             guard let layer = rowView.layer else { return }
             touched.add(rowView)
@@ -274,6 +298,7 @@ final class CloudTreeMachineReorderLift: NSObject {
             scroll(to: session.scrollBefore, borrowing: false)
         }
         session = nil
+        anchoredIDs.removeAll()
         resetTouched()
         leave?()
     }
@@ -364,11 +389,13 @@ final class CloudTreeMachineReorderLift: NSObject {
             MainActor.assumeIsolated {
                 guard let self, self.session == nil else { return }
                 for rowView in self.touched.allObjects { rowView.layer?.zPosition = 0 }
+                self.anchoredIDs.removeAll()
             }
         }
         defer { CATransaction.commit() }
         outline.enumerateAvailableRowViews { rowView, row in
             guard let node = outline.item(atRow: row) as? CloudTreeNode, node.id != excludedID else { return }
+            if anchoredIDs.contains(node.id) { return }
             rowView.wantsLayer = true
             guard let layer = rowView.layer else { return }
             let top = outline.rect(ofRow: row).minY
