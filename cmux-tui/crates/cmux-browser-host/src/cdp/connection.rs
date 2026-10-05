@@ -439,6 +439,42 @@ mod tests {
         assert_eq!(later.code, ErrorCode::Closed);
     }
 
+    /// A detached session never answers: its pending calls fail at once
+    /// (Closed), not at their deadline; other sessions' calls stay pending.
+    #[test]
+    fn a_detached_session_fails_its_pending_calls_at_once() {
+        let (conn, wire) = connection();
+        let call_on = |session: &'static str| {
+            let conn = conn.clone();
+            thread::spawn(move || {
+                let started = std::time::Instant::now();
+                let result = conn.call(
+                    Some(session),
+                    "Runtime.evaluate",
+                    json!({}),
+                    Duration::from_secs(20),
+                );
+                (result, started.elapsed())
+            })
+        };
+        let detached = call_on("S1");
+        wait_for_sent(&wire, 1);
+        let other = call_on("S2");
+        let sent = wait_for_sent(&wire, 2);
+        conn.receive(
+            &json!({"method": "Target.detachedFromTarget", "params": {"sessionId": "S1"}})
+                .to_string(),
+        );
+        let (result, took) = detached.join().unwrap();
+        let error = result.unwrap_err();
+        assert_eq!(error.code, ErrorCode::Closed, "{error}");
+        assert!(took < Duration::from_secs(10), "it waited for its deadline: {took:?}");
+        let other_id = sent.iter().find(|m| m["sessionId"] == "S2").unwrap()["id"].clone();
+        assert_eq!(conn.pending.lock().unwrap().len(), 1, "the other session's call is pending");
+        conn.receive(&json!({"id": other_id, "result": {"ok": true}}).to_string());
+        assert_eq!(other.join().unwrap().0.unwrap(), json!({"ok": true}));
+    }
+
     #[test]
     fn calls_time_out_and_forget_the_waiter() {
         let (conn, _wire) = connection();
