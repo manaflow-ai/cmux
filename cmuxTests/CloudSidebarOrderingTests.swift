@@ -243,7 +243,7 @@ final class CloudSidebarOrderingFixture {
             machineActions: MachineRowActions(
                 openShell: { _ in }, openDesktop: { _ in },
                 runCommand: { _, _ in }, confirmDelete: { _ in },
-                promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+                promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
                 navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),

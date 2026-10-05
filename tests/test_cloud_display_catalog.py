@@ -271,17 +271,219 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertIs(service.named_processes[number]["openbox"], replacement)
         service.shutdown.set()
 
+    def fake_proc(self, processes):
+        proc = self.root / "proc"
+        for pid, argv in processes.items():
+            entry = proc / str(pid)
+            entry.mkdir(parents=True)
+            (entry / "cmdline").write_bytes(b"\0".join(arg.encode() for arg in argv) + b"\0")
+        return proc
+
     def test_recovery_adopts_display_scoped_processes_by_full_command(self):
+        """Recovery matches exact argv; the pgrep patterns it replaced were
+        rejected by pgrep's regex dialect, so nothing was ever adopted."""
         service = display.DisplayService(self.catalog(), self.root / "runtime")
+        runtime = self.root / "runtime" / "2"
+        proc = self.fake_proc({
+            12345: [str(runtime / "bin" / "cmux-display-2-openbox")],
+            12346: [str(self.root / "runtime" / "3" / "bin" / "cmux-display-3-openbox")],
+            22222: ["/usr/bin/Xvnc", ":2", "-geometry", "1440x900", "-rfbport", "5902", "-localhost"],
+            33333: ["/usr/bin/Xvnc", ":3", "-rfbport", "5903"],
+        })
+        real = display.matching_pids
+        with mock.patch.object(service, "matching_pids",
+                               side_effect=lambda predicate: real(predicate, proc=proc)):
+            service.recover_processes(2, runtime, {"DISPLAY": ":2"})
+        self.assertEqual(service.named_processes[2]["openbox"].pid, 12345)
+        self.assertEqual(service.named_processes[2]["xvnc"].pid, 22222)
 
-        def pgrep(command, **_options):
-            if "cmux\\-display\\-2\\-openbox" in command[-1]:
-                return "12345\n"
-            raise display.subprocess.CalledProcessError(1, command)
+    def rfb_server(self, script):
+        """A one-shot loopback RFB peer driven by `script(connection)`."""
+        import socket
+        import threading
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        received = []
 
-        with mock.patch.object(display.subprocess, "check_output", side_effect=pgrep):
-            service.recover_processes(2, self.root / "runtime" / "2", {"DISPLAY": ":2"})
-        self.assertIn("openbox", service.named_processes[2])
+        def serve():
+            connection, _ = listener.accept()
+            with connection:
+                script(connection, received)
+            listener.close()
+
+        threading.Thread(target=serve, daemon=True).start()
+        return listener.getsockname()[1] - 5900, received
+
+    def test_health_probe_completes_authentication_instead_of_black_marking(self):
+        """An aborted handshake is a black mark; Xvnc then refused every
+        websockify viewer with "Too many security failures"."""
+        def script(connection, received):
+            connection.sendall(b"RFB 003.008\n")
+            received.append(display.recv_exact(connection, 12))
+            connection.sendall(bytes([1, 1]))
+            received.append(display.recv_exact(connection, 1))
+            connection.sendall(b"\x00\x00\x00\x00")
+
+        number, received = self.rfb_server(script)
+        self.assertTrue(display.rfb_ready(number))
+        self.assertEqual(received, [b"RFB 003.008\n", b"\x01"])
+
+    def test_black_listing_server_is_alive_so_the_session_is_kept(self):
+        def script(connection, _received):
+            connection.sendall(b"RFB 003.003\n\x00\x00\x00\x00\x00\x00\x00\x1aToo many security failures")
+
+        number, _ = self.rfb_server(script)
+        self.assertTrue(display.rfb_ready(number))
+
+    def test_additional_displays_disable_rfb_black_listing(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        launched = []
+
+        class Process:
+            def terminate(self):
+                pass
+
+            def poll(self):
+                return None
+
+        def popen(command, **_options):
+            launched.append(command)
+            return Process()
+
+        runtime = self.root / "runtime" / "2"
+        runtime.mkdir(parents=True)
+        with mock.patch.object(display, "ready", return_value=False), \
+             mock.patch.object(display, "rfb_ready", return_value=False), \
+             mock.patch.object(display, "novnc_ready", return_value=True), \
+             mock.patch.object(display.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"), \
+             mock.patch.object(display.subprocess, "Popen", side_effect=popen), \
+             mock.patch.object(service, "wait_for_port", return_value=True), \
+             mock.patch.object(service, "start_dbus"), \
+             mock.patch.object(service, "start_session_components"), \
+             mock.patch.object(service, "set_wallpaper"), \
+             mock.patch.object(service, "terminate_untracked_websockify"):
+            service.start_components(2, {"DISPLAY": ":2"}, runtime)
+        xvnc = next(command for command in launched if command[0].endswith("Xvnc"))
+        self.assertIn("-UseBlacklist=0", xvnc)
+        service.shutdown.set()
+
+    def standby_service(self, occupied=lambda _: False):
+        """A service whose display starts are recorded and complete at once."""
+        service = display.DisplayService(self.catalog(occupied=occupied), self.root / "runtime")
+        started = []
+
+        def start(number):
+            started.append(number)
+            service.states[number] = "running"
+            finished = display.threading.Event()
+            finished.set()
+            service.jobs[number] = finished
+            return finished
+
+        service.start = start
+        return service, started
+
+    def test_new_display_takes_the_running_standby_and_warms_the_next(self):
+        """New Display hands over an already-running desktop instead of
+        starting Xvnc and a session while the user waits."""
+        service, started = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            listed = service.handle({"action": "list"})
+            self.assertEqual(service.standby, 2)
+            self.assertEqual([d["id"] for d in listed["displays"]], ["display:1"],
+                             "the standby is not a display until it is requested")
+            created = service.handle({"action": "create", "request": str(uuid.uuid4())})
+        self.assertEqual(created["created"], "display:2")
+        self.assertEqual(service.catalog.numbers(), [2])
+        self.assertEqual(service.standby, 3)
+        self.assertEqual(started, [2, 2, 3])
+        service.shutdown.set()
+
+    def test_retried_create_keeps_its_display_and_the_standby(self):
+        service, _ = self.standby_service()
+        request = str(uuid.uuid4())
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            first = service.handle({"action": "create", "request": request})
+            again = service.handle({"action": "create", "request": request})
+        self.assertEqual(first["created"], again["created"])
+        self.assertEqual(service.catalog.numbers(), [2])
+        self.assertEqual(service.standby, 3)
+        service.shutdown.set()
+
+    def test_standby_does_not_consume_display_capacity(self):
+        service, _ = self.standby_service()
+        for _ in range(display.MAX_DISPLAYS - 2):
+            service.catalog.allocate(str(uuid.uuid4()))
+        with mock.patch.object(display, "ready", return_value=True):
+            listed = service.handle({"action": "list"})
+        self.assertTrue(listed["canCreate"])
+        self.assertEqual(service.standby, display.MAX_DISPLAYS)
+        with mock.patch.object(display, "ready", return_value=True):
+            created = service.handle({"action": "create", "request": str(uuid.uuid4())})
+        self.assertEqual(created["created"], f"display:{display.MAX_DISPLAYS}")
+        self.assertIsNone(service.standby, "no slot remains for another standby")
+        self.assertFalse(created["canCreate"])
+        service.shutdown.set()
+
+    def test_failed_standby_is_retired_not_handed_over(self):
+        service, _ = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            service.states[2] = "unavailable"
+            created = service.handle({"action": "create", "request": str(uuid.uuid4())})
+        self.assertNotEqual(created["created"], "display:2")
+        self.assertNotIn(2, service.catalog.numbers())
+        self.assertNotIn(service.standby, (None, 2))
+        service.shutdown.set()
+
+    def test_launching_standby_number_is_never_recorded_for_another_request(self):
+        catalog = self.catalog()
+        self.assertEqual(catalog.allocate(str(uuid.uuid4()), reserved={2}), 3)
+        self.assertEqual(catalog.free_number(reserved={4}), 2)
+
+    def test_concurrent_creates_keep_one_standby_outside_the_catalog(self):
+        service, _ = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+                created = list(pool.map(
+                    lambda _: service.handle({"action": "create", "request": str(uuid.uuid4())})["created"],
+                    range(6)))
+        numbers = service.catalog.numbers()
+        self.assertEqual(len(set(created)), 6)
+        self.assertEqual(len(numbers), 6)
+        self.assertIsNotNone(service.standby)
+        self.assertNotIn(service.standby, numbers)
+        service.shutdown.set()
+
+    def test_number_recorded_after_probe_never_becomes_the_standby(self):
+        """A create can record the probed number between the unlocked probe and
+        the locked assignment; that display must not also become the standby."""
+        service, started = self.standby_service()
+        raced = {}
+        real_free_number = service.catalog.free_number
+
+        def free_number(reserved=()):
+            number = real_free_number(reserved=reserved)
+            raced["number"] = service.catalog.allocate(str(uuid.uuid4()))
+            return number
+
+        service.catalog.free_number = free_number
+        service.ensure_standby()
+        self.assertEqual(raced["number"], 2)
+        self.assertIsNone(service.standby)
+        self.assertEqual(started, [])
+        service.shutdown.set()
+
+    def test_restarted_service_adopts_the_running_standby(self):
+        service, started = self.standby_service()
+        service.catalog.allocate(str(uuid.uuid4()))
+        service.adopt_standby(is_display_server=lambda number: number == 4)
+        self.assertEqual(service.standby, 4)
+        self.assertEqual(started, [4])
+        service.shutdown.set()
 
     def test_additional_desktop_clients_use_display_scoped_process_names(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")

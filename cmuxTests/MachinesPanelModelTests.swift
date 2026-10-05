@@ -11,6 +11,29 @@ import XCTest
 @testable import cmux
 #endif
 final class MachinesPanelModelTests: XCTestCase {
+    @MainActor
+    func testLocalWorkspaceProjectionRefreshesWithoutCatalogPoll() {
+        let first = UUID()
+        let second = UUID()
+        var selected = first
+        let model = MachinesPanelViewModel(
+            client: nil,
+            isCloudEnabled: { false },
+            localWorkspacesProvider: {
+                [
+                    CloudTreeLocalWorkspace(id: first, title: "first", isSelected: selected == first),
+                    CloudTreeLocalWorkspace(id: second, title: "second", isSelected: selected == second),
+                ]
+            }
+        )
+
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
+        XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, first)
+        selected = second
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
+        XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, second)
+    }
+
     func testSnapshotMapsSummaryFields() {
         let summary = VMSummary(
             id: "noble-wren",
@@ -1102,7 +1125,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     @Test func emptyDecisionMatchesWhatTheTreeRenders() {
         let localOnly = SurfaceCatalogSnapshot(machines: [info(.local)], resources: [terminal(.local, "AAA")], projections: [])
         #expect(
-            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).isEmpty,
+            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).withoutCoderouterSection.isEmpty,
             "precondition: the cloud-only tree renders nothing for a local-only catalog"
         )
         #expect(
