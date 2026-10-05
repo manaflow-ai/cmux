@@ -126,6 +126,16 @@ cancel, shutdown clear, popup match), in this order:
 5. A test that checks the Swift copies of the shim event numbers and
    function prototypes against `cmux_cef_shim.h`.
 
+## CEF pin cmux.19 (API 19) lane plan (no change until the pin moves)
+
+1. `cmux_set_webauthn_keychain_access_group` returns int, not void: 1 before
+   `CefInitialize`, 0 after (a late call is refused). The shim calls it
+   before `CefInitialize`, checks the result, and logs 0 as a startup bug.
+   An old shim that ignores the result still works.
+2. cmux.19 fixes a cmux.18 bug: password export followed a symlink at the
+   chosen path. If cmux exposes password export, the path comes only from a
+   save panel, never from a typed or page-supplied path.
+
 ## Order (app-level items)
 
 P1 omnibar dispositions, R101 chrome spacing, P2 Shift-Cmd-G, P3 page chords
