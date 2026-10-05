@@ -35,6 +35,9 @@ struct SidebarProviderMenuRegressionTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let selection = CmuxExtensionSidebarSelection.self
+        #expect(selection.isCortexBundle("com.cmuxterm.app.debug.cortex.management.sessions", hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
+        #expect(!selection.isCortexBundle("com.cmuxterm.app.debug.other.sessions", hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
+        #expect(!selection.isCortexBundle("com.cmuxterm.app.sessions", hostBundleID: "com.cmuxterm.app"))
         selection.setProviderId(selection.defaultProviderId, defaults: defaults)
         #expect(!selection.toggleCortexSidebar(enabledBundleIDs: [], extensionsEnabled: true, defaults: defaults))
         #expect(defaults.string(forKey: selection.defaultsKey) == selection.defaultProviderId)
@@ -76,6 +79,23 @@ struct SidebarProviderMenuRegressionTests {
         #expect(!selection.isCortexBundle(id, hostBundleID: nil))
         #expect(!selection.isCortexBundle("fr.yoyaku.cortex.sessions.dogfood.Cortex-management", hostBundleID: "com.cmuxterm.app.debug.Cortex.management"))
         #expect(!selection.isCortexBundle("fr.yoyaku.cortex.sessions.dogfood.cortex.management", hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
+    }
+
+    @Test
+    func selectedWorkspaceChangesInvalidateTheHostedSidebarOnce() {
+        let first = UUID()
+        let second = UUID()
+        let selection = CurrentValueSubject<UUID?, Never>(first)
+        var invalidations = 0
+        let cancellable = SidebarSelectedWorkspaceRefresh.events(from: selection).sink { _ in
+            invalidations += 1
+        }
+
+        selection.send(second)
+        selection.send(second)
+
+        #expect(invalidations == 1)
+        withExtendedLifetime(cancellable) {}
     }
 
     @Test
