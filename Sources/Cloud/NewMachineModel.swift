@@ -76,7 +76,7 @@ struct MachineSizeOption: Equatable, Sendable {
 @MainActor
 @Observable
 final class NewMachineModel {
-    enum BaseImage: Equatable {
+    enum BaseImage: Hashable {
         case defaultImage
         case machine(VMSummary)
 
@@ -94,6 +94,16 @@ final class NewMachineModel {
             case (.defaultImage, .defaultImage): return true
             case (.machine(let left), .machine(let right)): return left.id == right.id
             default: return false
+            }
+        }
+
+        func hash(into hasher: inout Hasher) {
+            switch self {
+            case .defaultImage:
+                hasher.combine(0)
+            case .machine(let machine):
+                hasher.combine(1)
+                hasher.combine(machine.id)
             }
         }
     }
