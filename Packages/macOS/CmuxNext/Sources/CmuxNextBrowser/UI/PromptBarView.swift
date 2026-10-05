@@ -130,11 +130,18 @@ final class PromptBarView: NSView {
             case .camera: Strings.permissionCamera(prompt.origin)
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
+            case .automaticDownloads: Strings.permissionAutomaticDownloads(prompt.origin)
             }
-            // Permission prompt answers: never, this time, while visiting.
-            addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
-            addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
-            addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
+            if kind == .automaticDownloads {
+                // Chrome's question: Block or Allow, remembered for the site.
+                addButton(PageInfoStrings.block, prominent: false, response: .deny)
+                addButton(PageInfoStrings.allow, prominent: true, response: .allow)
+            } else {
+                // Permission prompt answers: never, this time, while visiting.
+                addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
+                addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
+                addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
+            }
         case .alert(let message):
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             addButton(Strings.ok, prominent: true, response: .accept)

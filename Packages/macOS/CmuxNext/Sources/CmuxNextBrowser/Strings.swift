@@ -68,6 +68,9 @@ nonisolated enum Strings {
     static func permissionCameraAndMicrophone(_ origin: String) -> String {
         String(localized: "browser.permission.cameraAndMicrophone", defaultValue: "\(origin) wants to use your camera and microphone.", bundle: .module)
     }
+    static func permissionAutomaticDownloads(_ origin: String) -> String {
+        String(localized: "browser.permission.automaticDownloads", defaultValue: "\(origin) wants to download multiple files.", bundle: .module)
+    }
     static func dialogFrom(_ origin: String) -> String {
         String(localized: "browser.dialog.from", defaultValue: "\(origin) says", bundle: .module)
     }

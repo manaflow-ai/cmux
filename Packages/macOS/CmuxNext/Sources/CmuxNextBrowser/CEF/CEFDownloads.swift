@@ -57,6 +57,10 @@ final class CEFDownloads {
     var directory: () -> URL = { DownloadDestination.defaultDirectory }
     /// Names running downloads hold (shared with WebKit's downloads).
     var reservations: BrowserDownloadReservations = .shared
+    /// Whether a download page `browser` started may go ahead (the tab's
+    /// `AutomaticDownloadGate`); calls `decide` once. Downloads cmux starts
+    /// itself (`download`, `save`) never ask.
+    var admit: (_ browser: Int32, _ decide: @escaping (Bool) -> Void) -> Void = { _, decide in decide(true) }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
