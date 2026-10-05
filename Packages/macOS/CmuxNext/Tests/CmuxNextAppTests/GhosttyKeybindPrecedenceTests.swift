@@ -74,4 +74,42 @@ struct GhosttyKeybindPrecedenceTests {
         let entries = RegistryKeyBindings(services.registry).table.entries
         #expect(entries.contains { $0.command == "splitDown" && $0.keys == [Shortcut("d", modifiers: [.command])] })
     }
+
+    // MARK: R88 with Ghostty entries (regression lock, coordinator 2026-10-05: option A)
+
+    /// A cmux entry whose `when` is false does not match: the user's Ghostty
+    /// keybind on the same chord gets the key (Cmd-Y is Show History only in
+    /// a page; in a terminal the user's `super+y=toggle_split_zoom` wins).
+    @Test func aCmuxEntryWhoseWhenIsFalseLetsTheGhosttyKeybindHaveTheKey() throws {
+        let zoom = GhosttyHostKeybind(key: .unicode(121), modifiers: [.command], action: .toggleSplitZoom)
+        let services = Self.services(user: [zoom], defaults: [])
+        let candidate = try #require(services.keyRouter.candidate(for: try K.key("y", keyCode: 16, [.command]), focus: M.terminal))
+        #expect(candidate.id == "toggleSplitZoom")
+        #expect(candidate.source == .ghostty(arguments: [:]))
+    }
+
+    /// The table rule both cases rest on: a `when`-false cmux entry lets the
+    /// Ghostty entries below it win; a cmux entry whose `when` holds but
+    /// whose action cannot run stops the search (R88), so no Ghostty entry
+    /// runs and the dispatcher delivers the key to the focused surface.
+    @Test func aBlockedCmuxEntryStopsTheSearchBeforeTheGhosttyEntries() {
+        let key = Shortcut("y", modifiers: [.command])
+        let terminal = KeyContext([KeyContext.surfaceKind: .string("terminal")])
+        let table = KeyBindingTable([
+            KeyBinding(keys: [key], command: "fallback", source: .ghosttyFallback),
+            KeyBinding(keys: [key], command: "cmux", when: .equals(KeyContext.surfaceKind, .string("page"))),
+            KeyBinding(keys: [key], command: "ghostty", when: GhosttyKeyBindingLayer.terminalFocused, source: .ghostty),
+        ])
+        let whenFalse = table.resolve([key], in: KeyContext([KeyContext.surfaceKind: .string("sidebar")])) { _ in true }
+        #expect(whenFalse.winner?.command == "fallback")
+        #expect(whenFalse.candidates.map(\.verdict) == [.whenFalse, .whenFalse, .won])
+        #expect(table.resolve([key], in: terminal) { _ in true }.winner?.command == "ghostty")
+
+        let blocked = KeyBindingTable([
+            KeyBinding(keys: [key], command: "fallback", source: .ghosttyFallback),
+            KeyBinding(keys: [key], command: "cmux", when: .equals(KeyContext.surfaceKind, .string("terminal"))),
+        ]).resolve([key], in: terminal) { $0 != "cmux" }
+        #expect(blocked.winner == nil)
+        #expect(blocked.candidates.map(\.verdict) == [.notRunnable, .shadowed])
+    }
 }
