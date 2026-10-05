@@ -303,3 +303,6 @@ mod mint_after_defaults;
 
 #[path = "mint_errors.rs"]
 mod mint_errors;
+
+#[path = "shared_endpoint_dir.rs"]
+mod shared_endpoint_dir;
