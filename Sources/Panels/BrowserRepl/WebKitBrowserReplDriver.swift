@@ -2786,6 +2786,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
+        // Refused here: printPDF falls back to a one-page PDF on any error.
+        _ = try BrowserReplCapture.pdfLayout(options: params)
         let frameGate = self.frameGate
         let data: Data = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { [self] webView, _ in
             // A PDF cannot blank a frame: any frame whose marked document
