@@ -97,12 +97,12 @@ import { HostError } from "./HostError";
 import { SwitchNotice } from "./SwitchNotice";
 import { ContinueMenu } from "./handoff/ContinueMenu";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
-import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
+import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import type { PermissionDecision } from "./permissions/protocol";
-import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
+import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 
@@ -932,8 +932,8 @@ function AcpmuxPane() {
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
   );
-  const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
-  const [checkpointLabels, setCheckpointLabels] = useState(checkpointStrings);
+  const handoffLabels = useMemo(() => handoffStrings(t), [t]);
+  const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
   const checkpoints = useCheckpoints({
     request: callNative,
@@ -1466,8 +1466,6 @@ function AcpmuxPane() {
           harness?: string;
           adopt?: unknown;
           account?: unknown;
-          handoffStrings?: unknown;
-          checkpointStrings?: unknown;
           surface?: unknown;
           linkScheme?: unknown;
           sessionMustExist?: boolean;
@@ -1486,8 +1484,6 @@ function AcpmuxPane() {
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
-        setHandoffLabels(localizedHandoffStrings(host.handoffStrings));
-        setCheckpointLabels(localizedCheckpointStrings(host.checkpointStrings));
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;

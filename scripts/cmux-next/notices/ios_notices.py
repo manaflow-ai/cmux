@@ -99,6 +99,20 @@ FREETYPE_YEARS = {
     # deps.files.ghostty.org/freetype-1220b81f6ecf...tar.gz = FreeType 2.13.2 (Copyright 1996-2023)
     "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b": ("2.13.2", 2023),
 }
+# GhosttyNextKit's Termio inlines std.math.cbrt (Zig: "Ported from musl") into
+# terminal.color.LAB.fromRgb; the macOS and iOS apps link it (machine-code match in
+# nightly-next 3728109721001 and cmux-ci job a9f238cb599baeb9b17f8ff4). Both carry musl's COPYRIGHT:
+# the pane from the reviewed file, THIRD_PARTY_LICENSES.md from the hand-written section.
+PACKAGE_NOTICES = ROOT / "cmux-tui/dist/notices/package-notices.json"
+MUSL_TITLE = "musl (in the Zig standard library)"
+FREETYPE_TITLE = "FreeType"
+MUSL_INTRO = (
+    "GhosttyNextKit (Ghostty's terminal library in this app) contains code from the Zig standard library "
+    "that Zig ported from musl: std.math.cbrt (musl src/math/cbrtf.c and src/math/cbrt.c), which Ghostty's "
+    "terminal I/O uses to generate its 256-color palette. musl is licensed under the MIT license. The text "
+    "below is the COPYRIGHT file of musl 1.2.5 (https://musl.libc.org/releases/musl-1.2.5.tar.gz), the musl "
+    "release that Zig 0.16.0 bundles."
+)
 FTL_CREDIT = """This software is based in part on the work of the FreeType Team (FreeType {version}, \
 https://freetype.org). Portions of this software are copyright \u00a9 {year} The FreeType Project \
 (www.freetype.org).  All rights reserved."""
@@ -221,8 +235,9 @@ def macos_link_errors(links: dict) -> list[str]:
     return []
 
 
-def check_macos(tree: Path, links: dict, pin: dict) -> list[str]:
-    """Every package that the macos slice links has a license in the ghostty-next tree at the pin."""
+def check_macos(tree: Path, links: dict, pin: dict, hand: str | None = None) -> list[str]:
+    """Every package that the macos slice links has a license in the ghostty-next tree at the pin,
+    and a linked FreeType's FTL credit in hand-written.md names that FreeType's version."""
     manifest = json.loads((tree / "SOURCE-MANIFEST.json").read_text())
     if manifest["ghostty_revision"] != pin["ghostty_revision"]:
         return [f"license tree is for Ghostty {manifest['ghostty_revision'][:11]}, the GhosttyNextKit pin is {pin['ghostty_revision'][:11]}"]
@@ -231,7 +246,22 @@ def check_macos(tree: Path, links: dict, pin: dict) -> list[str]:
         texts = _tree_texts(tree, manifest, set(packages))
     except NoticeError as error:
         return [f"macOS GhosttyNextKit: {error}"]
-    return [f"macOS GhosttyNextKit links {package} but the license tree has no text for it" for package in packages if package not in texts]
+    errors = [f"macOS GhosttyNextKit links {package} but the license tree has no text for it" for package in packages if package not in texts]
+    if "freetype" in packages and "freetype" in texts:
+        license_text = next((text for label, text in texts["freetype"] if label.endswith("LICENSE.TXT")), None)
+        digest = hashlib.sha256(license_text.encode()).hexdigest() if license_text is not None else None
+        if digest not in FREETYPE_YEARS:
+            errors.append(f"freetype: LICENSE.TXT sha256 {digest} is not in FREETYPE_YEARS; review the FreeType version and add its year")
+        else:
+            version, year = FREETYPE_YEARS[digest]
+            hand = HAND_WRITTEN.read_text() if hand is None else hand
+            credit = FTL_CREDIT.format(version=version, year=year)
+            if credit not in hand_written_section(FREETYPE_TITLE, hand):
+                errors.append(
+                    f"the macos slice links FreeType {version}: put its FTL credit into hand-written.md section "
+                    f"{FREETYPE_TITLE!r} and regenerate THIRD_PARTY_LICENSES.md:\n{credit}"
+                )
+    return errors
 
 
 # ---------------------------------------------------------------- app link (the real link)
@@ -461,6 +491,43 @@ def write_or_check(result: dict, committed_path: Path, out: Path, check: bool) -
 
 # ---------------------------------------------------------------- pane
 
+def musl_text() -> str:
+    entry = json.loads(PACKAGE_NOTICES.read_text())["musl"]
+    data = (PACKAGE_NOTICES.parent / entry["file"]).read_bytes()
+    if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+        raise NoticeError(f"{entry['file']}: sha256 differs from package-notices.json")
+    return data.decode()
+
+
+def mac_notice_errors(hand: str | None = None) -> list[str]:
+    """The macOS app's hand-written notices carry what GhosttyNextKit's macos slice needs
+    beyond the license tree: musl's COPYRIGHT (std.math.cbrt)."""
+    hand = HAND_WRITTEN.read_text() if hand is None else hand
+    errors = []
+    try:
+        section = hand_written_section(MUSL_TITLE, hand)
+        if MUSL_INTRO not in section or f"```text\n{musl_text().rstrip(chr(10))}\n```" not in section:
+            errors.append(
+                f"hand-written.md section {MUSL_TITLE!r} must hold MUSL_INTRO and, in a text block, the reviewed musl "
+                "COPYRIGHT (cmux-tui/dist/notices/package-notices.json musl) unchanged"
+            )
+    except NoticeError as error:
+        errors.append(str(error))
+    # The FreeType License credit; check_macos checks its version against the license tree.
+    links = json.loads(MACOS_LINK_SET.read_text()) if MACOS_LINK_SET.is_file() else {}
+    if "zig-package:freetype" in links.get("dwarf_owners", []):
+        try:
+            section = hand_written_section(FREETYPE_TITLE, hand)
+        except NoticeError as error:
+            return errors + [f"the macos slice links FreeType: {error}"]
+        if not any(FTL_CREDIT.format(version=version, year=year) in section for version, year in FREETYPE_YEARS.values()):
+            errors.append(
+                f"the macos slice links FreeType, but hand-written.md section {FREETYPE_TITLE!r} has no FTL credit "
+                "(FTL_CREDIT with a FREETYPE_YEARS version)"
+            )
+    return errors
+
+
 def hand_written_section(title: str, text: str) -> str:
     match = re.search(rf"^### {re.escape(title)}\n(.*?)(?=^#{{2,3}} |\Z)|^## {re.escape(title)}\n(.*?)(?=^## |\Z)", text, re.S | re.M)
     if not match:
@@ -594,6 +661,7 @@ def build_pane(tree: Path, links: dict, pin: dict) -> dict:
             body += "\n\n" + Z2D_OFFER.format(url=url, revision=pin["ghostty_revision"])
         group("Ghostty (license, embedded fonts)" if package == GHOSTTY_OWN else f"{package} (in Ghostty)", body)
     group(f"Zig {zig['version']} (compiler_rt and standard library)", zig_text)
+    group(MUSL_TITLE, MUSL_INTRO + "\n\n" + musl_text())
     group(
         "Build record",
         f"GhosttyNextKit {pin['url']} sha256 {pin['sha256']}; Ghostty {pin['ghostty_revision']}; "
@@ -621,6 +689,7 @@ def check_repo() -> list[str]:
             "`generate --ghostty-tree <ghostty-next-licenses from that run>`"
         )
     errors += macos_link_errors(json.loads(MACOS_LINK_SET.read_text())) if MACOS_LINK_SET.is_file() else [f"{MACOS_LINK_SET.relative_to(ROOT)} is missing"]
+    errors += mac_notice_errors()
     record = links.get("app_link")
     if not record or record.get("pin_sha256") != pin["sha256"]:
         errors.append(

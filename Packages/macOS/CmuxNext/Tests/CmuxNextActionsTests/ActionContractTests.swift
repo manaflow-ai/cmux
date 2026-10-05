@@ -34,10 +34,14 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == ["browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+            == (["browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "commandPaletteNext", "commandPalettePrevious", "history.goTo", "list.next", "list.previous",
-                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"])
+                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"]
+            + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
+               "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
+               "paletteKey.escape", "paletteKey.enterRow", "paletteKey.leaveLevel", "paletteKey.back",
+               "paletteKey.filterDeleteBackward", "paletteKey.closeItem"]).sorted())
     }
 
     @Test func shortcutIDsAreUniqueAndDefaultsDoNotCollide() {

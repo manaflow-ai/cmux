@@ -172,7 +172,7 @@ impl Hub {
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
         if steer_now {
-            self.web_control_check(session, control)?;
+            self.check_steer(session, control)?;
             // A running turn has a live agent.
             let child = self.child_for(session).await?;
             let agent_sid = session
@@ -231,21 +231,7 @@ impl Hub {
                 json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
             );
         }
-        // Checked again at dispatch, under the meta lock every mode write
-        // takes: the mode may have changed since the guard ran, or while
-        // this prompt waited in the queue. A refused prompt never reaches
-        // the harness.
-        let refused = {
-            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            self.web_control_verdict(session, &m, control).err()
-        };
-        if let Some(e) = refused {
-            self.append(
-                session,
-                "mux",
-                "prompt_refused",
-                json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data}),
-            );
+        if let Err(e) = self.check_dispatch(session, control, &prompt_id, &turn_id, client) {
             drop(guard);
             return Err(e);
         }
@@ -268,6 +254,7 @@ impl Hub {
             turn_id: turn_id.clone(),
             prompt_id: prompt_id.clone(),
             turn_seq: 0,
+            control,
         });
         self.reset_stream(session);
         self.append(

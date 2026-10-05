@@ -36,7 +36,8 @@ for arch in $(lipo -archs "$binary"); do
   fi
   echo "$(basename "$binary") $arch: $count personality routine(s) (limit $limit)"
   (( count > 0 )) && checked=1
-  sed -n '/Personality functions:/,/^$/p' <<<"$info" | head -n 8
+  # awk stops reading by itself: no `| head` (SIGPIPE under pipefail).
+  awk '/Personality functions:/ { show = 1 } show && shown < 8 { print; shown++ }' <<<"$info"
   if (( count > limit )); then
     echo "error: $(basename "$binary") $arch has $count personality routines; compact unwind holds $limit. Join new Rust C ABIs to cmux-tui/crates/cmux-app-ffi instead of linking another Rust static library (decision 2026-10-05)." >&2
     status=1

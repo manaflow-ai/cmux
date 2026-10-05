@@ -1,4 +1,4 @@
-// l10n-allow-file: wire validators; their "Invalid ..." errors name a malformed host reply, a host bug
+import { type StringKey, translate } from "../i18n";
 import { servesOperation } from "../operations";
 
 export const PERMISSION_GROUP_OPS = {
@@ -63,32 +63,33 @@ export function supportsPermissionGroups(initialized: unknown): boolean {
   return Object.values(PERMISSION_GROUP_OPS).every((operation) => servesOperation(initialized, operation));
 }
 
-function record(value: unknown, message = "Invalid permission response."): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
+function record(value: unknown, message: StringKey = "error.invalid.permissionResponse"): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(translate(message));
   return value as Record<string, unknown>;
 }
 
 function nonemptyText(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`Invalid permission ${field}.`);
+  if (typeof value !== "string" || value.length === 0)
+    throw new Error(translate("error.invalid.permissionField", { field }));
   return value;
 }
 
 function integer(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
-    throw new Error(`Invalid permission ${field}.`);
+    throw new Error(translate("error.invalid.permissionField", { field }));
   return value;
 }
 
 function decision(value: unknown): PermissionDecision {
   if (value !== "allow_once" && value !== "allow_chat" && value !== "deny")
-    throw new Error("Invalid permission decision.");
+    throw new Error(translate("error.invalid.permissionDecision"));
   return value;
 }
 
 function uniqueDecisions(value: unknown): PermissionDecision[] {
-  if (!Array.isArray(value)) throw new Error("Invalid permission decisions.");
+  if (!Array.isArray(value)) throw new Error(translate("error.invalid.permissionDecisions"));
   const choices = value.map(decision);
-  if (new Set(choices).size !== choices.length) throw new Error("Invalid permission decisions.");
+  if (new Set(choices).size !== choices.length) throw new Error(translate("error.invalid.permissionDecisions"));
   return choices;
 }
 
@@ -96,16 +97,16 @@ function group(value: unknown): PermissionGroup {
   const raw = record(value);
   const state = raw.state;
   if (!(["collecting", "pending", "resolved", "cancelled"] as const).includes(state as PermissionGroupState))
-    throw new Error("Invalid permission group state.");
-  if (!Array.isArray(raw.items)) throw new Error("Invalid permission group items.");
+    throw new Error(translate("error.invalid.permissionGroupState"));
+  if (!Array.isArray(raw.items)) throw new Error(translate("error.invalid.permissionGroupItems"));
   const items = raw.items.map((entry) => {
-    const item = record(entry, "Invalid permission item.");
+    const item = record(entry, "error.invalid.permissionItem");
     const itemState = item.state;
     if (!(["pending", "resolved", "cancelled"] as const).includes(itemState as PermissionItemState))
-      throw new Error("Invalid permission item state.");
+      throw new Error(translate("error.invalid.permissionItemState"));
     return {
       permissionId: nonemptyText(item.permissionId, "permission id"),
-      request: record(item.request, "Invalid permission request."),
+      request: record(item.request, "error.invalid.permissionRequest"),
       state: itemState as PermissionItemState,
     };
   });
@@ -128,18 +129,18 @@ export function permissionGroup(value: unknown): PermissionGroup {
 
 export function permissionGroups(value: unknown): PermissionGroupList {
   const raw = record(value);
-  if (!Array.isArray(raw.groups)) throw new Error("Invalid permission groups.");
-  const allowance = record(raw.chatAllowance, "Invalid permission allowance.");
+  if (!Array.isArray(raw.groups)) throw new Error(translate("error.invalid.permissionGroups"));
+  const allowance = record(raw.chatAllowance, "error.invalid.permissionAllowance");
   if (typeof allowance.active !== "boolean" || allowance.expires !== "session_stop_or_daemon_restart")
-    throw new Error("Invalid permission allowance.");
-  const coverage = record(raw.coverage, "Invalid permission coverage.");
+    throw new Error(translate("error.invalid.permissionAllowance"));
+  const coverage = record(raw.coverage, "error.invalid.permissionCoverage");
   if (
     coverage.label !== "acp_requests_only" ||
     coverage.isolation !== "unverified" ||
     typeof coverage.detail !== "string"
   )
-    throw new Error("Invalid permission coverage.");
-  const batching = record(raw.batching, "Invalid permission batching.");
+    throw new Error(translate("error.invalid.permissionCoverage"));
+  const batching = record(raw.batching, "error.invalid.permissionBatching");
   return {
     groups: raw.groups.map(group),
     chatAllowance: { active: allowance.active, expires: allowance.expires },
@@ -155,13 +156,13 @@ export function permissionGroups(value: unknown): PermissionGroupList {
 
 export function permissionGroupReceipt(value: unknown): PermissionGroupReceipt {
   const raw = record(value);
-  if (typeof raw.replayed !== "boolean") throw new Error("Invalid permission receipt.");
+  if (typeof raw.replayed !== "boolean") throw new Error(translate("error.invalid.permissionReceipt"));
   return { group: group(raw.group), replayed: raw.replayed };
 }
 
 export function permissionChatRevokeReceipt(value: unknown): PermissionChatRevokeReceipt {
   const raw = record(value);
-  if (raw.active !== false) throw new Error("Invalid permission revoke receipt.");
+  if (raw.active !== false) throw new Error(translate("error.invalid.permissionRevokeReceipt"));
   return { active: false };
 }
 
@@ -200,7 +201,7 @@ export class PermissionRpcError extends Error {
           ? raw.message
           : typeof data?.message === "string"
             ? data.message
-            : "Permission request failed",
+            : translate("error.permissionFailed"),
     );
     this.name = "PermissionRpcError";
     this.code =

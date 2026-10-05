@@ -108,6 +108,7 @@ public nonisolated enum ActionCatalog {
         ServerActionCatalog.self,
         MarkdownPageActionCatalog.self,
         ListActionCatalog.self,
+        PaletteKeyActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

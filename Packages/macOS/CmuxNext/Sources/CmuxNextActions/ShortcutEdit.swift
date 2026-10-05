@@ -51,7 +51,12 @@ extension ActionRegistry {
         guard !shortcut.modifiers.isDisjoint(with: [.command, .control]) else { return .refused(.needsModifier) }
         if let name = SystemReservedShortcuts.shared.table[shortcut] { return .refused(.reservedByMacOS(name: name)) }
         let scope = WhenClause.requiring(descriptor(for: id)?.requires ?? [])
-        let entries = RegistryKeyBindings(self).table.entries.filter { $0.keys == [shortcut] && $0.command != id }
+        // The palette resolves only its own entries while it has the keyboard, and the
+        // app never sees them (PaletteKeyMap): the two key spaces cannot collide.
+        let inPalette = descriptor(for: id)?.requires.contains(.paletteOpen) == true
+        let entries = RegistryKeyBindings(self).table.entries.filter {
+            $0.keys == [shortcut] && $0.command != id && Self.isPaletteKeySpace($0.when) == inPalette
+        }
         let sameScope = { (entry: KeyBinding) in entry.when == scope }
         let familyEntries = entries.filter { $0.argument != nil }
         if let family = familyEntries.first(where: sameScope) { return .refused(.numberedFamily(family.command)) }
@@ -67,6 +72,15 @@ extension ActionRegistry {
         let layered = keyBindingLayers.app + keyBindingLayers.user
         let canReplace = familyEntries.isEmpty && !entries.contains { layered.contains($0) }
         return .conflict(owners: owners, canKeepBoth: !entries.contains(where: sameScope), canReplace: canReplace, notes: notes)
+    }
+
+    /// An entry only the open palette resolves: its `when` requires `paletteOpen`.
+    nonisolated static func isPaletteKeySpace(_ when: WhenClause?) -> Bool {
+        switch when {
+        case .has("paletteOpen")?: true
+        case .and(let clauses)?: clauses.contains { isPaletteKeySpace($0) }
+        default: false
+        }
     }
 
     /// Where the key router puts `id`'s chord relative to a page and a

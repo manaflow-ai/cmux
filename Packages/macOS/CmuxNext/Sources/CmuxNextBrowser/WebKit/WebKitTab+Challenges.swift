@@ -14,11 +14,6 @@ extension WebKitTab: BrowserCertificateBypassing {
         WebKitChallengeDecision(method: method, failures: failures, trusted: trusted, excepted: excepted)
     }
 
-    /// Whether the user proceeded past `host`'s certificate in this profile.
-    func isCertificateExcepted(_ host: String) -> Bool {
-        engine?.certificateExceptions[profileID]?.contains(host) ?? false
-    }
-
     /// Every challenge but server trust (`webView(_:didReceive:completionHandler:)`,
     /// WebKitTab+PageInfo.swift): HTTP authentication asks in the prompt bar.
     func answer(_ challenge: URLAuthenticationChallenge,
@@ -43,9 +38,15 @@ extension WebKitTab: BrowserCertificateBypassing {
 
     public func proceedPastCertificateError() {
         guard let url = state.loadError?.failingURL, let host = url.host() else { return }
-        engine?.certificateExceptions[profileID, default: []].insert(host)
+        engine?.allowCertificateException(host: host, profile: profileID)
         load(url)
     }
+}
+
+/// Page Info's "Turn on warnings" (WebKitEngine+CertificateWarnings.swift).
+extension WebKitTab: BrowserCertificateWarningRevoking {
+    public var certificateWarningsTurnedOff: Bool { engine?.certificateWarningsTurnedOff(self) ?? false }
+    public func turnOnCertificateWarnings() async -> Bool { engine?.turnOnCertificateWarnings(self) ?? false }
 }
 
 /// What a WebKit tab does with an authentication challenge.

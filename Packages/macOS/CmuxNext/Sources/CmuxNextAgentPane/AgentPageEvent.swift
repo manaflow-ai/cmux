@@ -35,13 +35,12 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
 
-    /// The user's `registry.js` (when it has one), then `{themeCSS, layout}`. A missing theme sends
-    /// `""`, which clears the style a deleted `theme.css` left; a bad layout sends `{}`.
+    /// `{themeCSS, layout}`. A missing theme sends `""`, which clears the style a deleted `theme.css`
+    /// left; a bad layout sends `{}`. The user's `registry.js` is not an event: the view evaluates it
+    /// (``AgentPaneCustomization/registryScript``), since the page's CSP refuses a script the page
+    /// makes itself.
     public static func customization(_ customization: AgentPaneCustomization) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
-        if let registry = customization.registryJS, !registry.isEmpty {
-            events.append(AgentPageEvent(kind: "registry", value: .string(registry)))
-        }
         var layout = JSONValue.object([:])
         if let text = customization.layoutJSON, let parsed = try? JSONValue.parse(Data(text.utf8)), case .object = parsed {
             layout = parsed

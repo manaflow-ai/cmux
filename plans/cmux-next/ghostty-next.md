@@ -221,8 +221,13 @@ request file `terminal-snapshot-history.md`.
   without history, counts local_history_mismatch and sends snapshot-request
   (reason gap). A behind viewer, attach, overflow and request keep READY +
   history. 100k lines: 2.58 MB -> 60 KB base64 per settled resize.
-- Kitty images on screen are lost after a snapshot until S3k (the host
-  replays on-screen images after READY).
+- S3k (terminal-snapshot-images-v1): after the history of every plain READY
+  the host sends the libghostty-vt Kitty replay of that cut as `snapshot
+  {phase: "images"}` chunks; the viewer applies them with
+  ghostty_surface_apply_kitty_replay, the only path where the private replay
+  keys (E, J, B, L, R, M) work. No images follow a local READY: a match keeps
+  the viewer's images, a mismatch asks for a plain READY. Cap 32 MiB of
+  decoded pixels per READY (`skipped_images`).
 
 ## 3. Manual IO mode
 

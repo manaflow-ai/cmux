@@ -37,6 +37,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_LIST,
     method::MUX_STATUS,
     method::MUX_SESSIONS,
+    method::MUX_WEB_MODES,
     method::MUX_HARNESSES,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
@@ -381,6 +382,7 @@ async fn dispatch_request(
         // ------------------------------------------------ acpmux extensions
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
+        method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WARM => {
             let requested: Vec<String> = params
                 .get("sessionIds")

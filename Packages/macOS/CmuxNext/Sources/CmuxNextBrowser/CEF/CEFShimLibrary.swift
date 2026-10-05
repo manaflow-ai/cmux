@@ -140,6 +140,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let passkeyDelete: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    /// Clears the profile's certificate error decisions and connections.
+    let clearCertificateExceptions: @convention(c) (Int32, Int32) -> Int32
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
@@ -291,6 +293,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passkeysList = try r("cmux_shim_passkeys_list")
         passkeyDelete = try r("cmux_shim_passkey_delete")
         sslStatus = try r("cmux_shim_ssl_status")
+        clearCertificateExceptions = try r("cmux_shim_clear_certificate_exceptions")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
         setContextProxy = try r("cmux_shim_set_context_proxy")

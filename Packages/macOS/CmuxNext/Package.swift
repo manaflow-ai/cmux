@@ -100,8 +100,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-40cd86303a2d616cbdcc31a843c03a1b3f8b6a41/CCmuxAppFFI.xcframework.zip",
-    checksum: "10a70e1ef5df827839333144fee8b87f02713d7077070672125d4583fc499e9f"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-455c421e76961dce25d93c8d3036f3dffcb1914a/CCmuxAppFFI.xcframework.zip",
+    checksum: "e9da46a8ff31ec4d14fb83641177641c081185e228e1c454aed858522b1c1c4f"
 )
 
 let package = Package(
@@ -377,12 +377,12 @@ let package = Package(
         // resolver and the layer host.
         .target(
             name: "CmuxNextAgentCursor",
-            dependencies: [.product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            dependencies: ["CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextAgentCursorTests",
-            dependencies: ["CmuxNextAgentCursor", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            dependencies: ["CmuxNextAgentCursor", "CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
             swiftSettings: uiSwiftSettings
         ),
         // Agent cursor visibility (agent-cursor.md section 3, decisions
@@ -491,7 +491,7 @@ let package = Package(
         // `remote_view` tabs (cmux://remote-view records, development builds).
         .target(
             name: "CmuxNextRemoteView",
-            dependencies: ["CmuxNextDesign", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups", "CCmuxAppFFI"],
             exclude: ["README.md"],
             resources: [
                 .process("Resources"),

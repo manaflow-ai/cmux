@@ -9,7 +9,13 @@ import Testing
 /// live window (mouse events through the sidebar, the bridge selecting the
 /// pressed workspace), Alpha must draw in its moved slot, never as an empty
 /// row. Windows never go on screen.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct SidebarLiveReorderTests {
+///
+/// The row moves are AppKit `animator()` frame animations, which advance only
+/// in a GUI session with a display: on a display-less host (the EC2 fleet
+/// Macs, `NSScreen.screens` empty) they never run and the row keeps its old
+/// frame. Skipped there (cmux-ci 75001ce577efbc629038d12d fails both tests
+/// alone on aws-m4pro; triage-live-f56c5cc7 passes 3 of 3 on a mini).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .requiresGUISession) struct SidebarLiveReorderTests {
     static let keys = ["0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a01", "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a02", "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a03"]
     static let names = ["Alpha", "Beta", "Gamma"]
 

@@ -1647,7 +1647,7 @@ fn cleared_history_stays_cleared_after_daemon_reconnect() {
     let host_pid = records[0].1.host_pid as libc::pid_t;
     // SAFETY: the durable record identifies this harness's live terminal host.
     assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
-    std::thread::sleep(Duration::from_millis(50));
+    wait_until_stopped(host_pid);
     let resume_host = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(250));
         // SAFETY: this resumes the same host stopped immediately above.

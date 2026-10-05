@@ -97,6 +97,13 @@ mark {
   padding: 14px 10px;
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  transition: border-color var(--motion-hover);
+}
+
+/* nxdog41: while the window's sidebar is hidden (the host sets data-app-sidebar), the section
+   list's edge fades out and comes back while the pointer is over the list. */
+:root[data-app-sidebar="hidden"] .sidebar:not(:hover) {
+  border-right-color: transparent;
 }
 
 .content {

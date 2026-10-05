@@ -30,6 +30,8 @@ nonisolated enum PageInfoStrings {
     static func showCertificateIssuedBy(_ issuer: String) -> String {
         String(localized: "pageInfo.certificate.showIssuedBy", defaultValue: "Show certificate (issued by \(issuer))", table: "PageInfo", bundle: .module)
     }
+    static var certificateWarningsTurnedOff: String { String(localized: "pageInfo.security.warningsTurnedOff", defaultValue: "You have chosen to turn off security warnings for this site.", table: "PageInfo", bundle: .module) }
+    static var turnOnCertificateWarnings: String { String(localized: "pageInfo.security.turnOnWarnings", defaultValue: "Turn on warnings", table: "PageInfo", bundle: .module) }
     static var showCertificate: String { String(localized: "pageInfo.certificate.show", defaultValue: "Show certificate", table: "PageInfo", bundle: .module) }
 
     // Identity lines for non-web pages

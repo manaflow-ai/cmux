@@ -333,6 +333,23 @@ jobs:
             cargo build --bin cmux-cloud --release --locked --target "$CLOUD_SERVER_TARGET"
           fi
 
+      - name: Build cmux-browser-host
+        # The browser host (cmux-tui crate cmux-browser-host) runs beside the
+        # daemon, which finds it as the sibling of its own executable. The Mac
+        # app bundles it as Contents/Resources/bin/cmux-browser-host, so macOS
+        # only for now, like cmux-cloud.
+        if: runner.os == 'macOS'
+        env:
+          BROWSER_HOST_TARGET: ${{ matrix.build_target }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `cmux-browser-host version` reports this commit.
+          CMUX_BUILD_SHA="$(git -C .. rev-parse HEAD)"
+          export CMUX_BUILD_SHA
+          cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$BROWSER_HOST_TARGET"
+
       - name: Build agent screen-detection plugin
         if: inputs.build_agent_plugin && runner.os != 'Windows'
         env:
@@ -381,6 +398,13 @@ jobs:
             cloud_server_binary="dist/cmux-tui-cloud-server-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-cloud" "$cloud_server_binary"
           fi
+          # The browser host rides the same way as cmux-tui-browser-host-<target>
+          # and installs as cmux-browser-host beside cmux-tui. macOS only for now.
+          browser_host_binary=""
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            browser_host_binary="dist/cmux-tui-browser-host-${{ matrix.target }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$browser_host_binary"
+          fi
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           # acpmux rides in the cmux-tui artifact group (like cmux-tui-hook) so
@@ -398,6 +422,9 @@ jobs:
             cp "$app_host_binary" "dist/cmux-tui-app-host-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             if [[ -n "$cloud_server_binary" ]]; then
               cp "$cloud_server_binary" "dist/cmux-tui-cloud-server-${{ matrix.compatibility_target }}"
+            fi
+            if [[ -n "$browser_host_binary" ]]; then
+              cp "$browser_host_binary" "dist/cmux-tui-browser-host-${{ matrix.compatibility_target }}"
             fi
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
@@ -679,6 +706,12 @@ jobs:
         with:
           name: cmux-tui-x86_64-pc-windows-gnu
           path: dist/binaries
+
+      # The Darwin notices carry no musl text: the real Darwin link has no
+      # musl-derived Zig code (package-notices.json darwin.review). A binary
+      # that gains some, or loses the symbols that show it, fails here.
+      - name: Verify the Darwin binaries link no musl-derived code
+        run: python3 cmux-tui/dist/scripts/package_notices.py check-darwin-binary dist/binaries/*-apple-darwin
 
       # The Windows notice covers the static mingw-w64 and GCC runtime of one
       # reviewed toolchain (package-notices.json windows_gnu); a binary linked
