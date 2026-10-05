@@ -108,6 +108,9 @@ class RepositoryManifestTest(unittest.TestCase):
                     "pkg/freetype": "pinned:fira-code"}
         for key, covered_by in expected.items():
             self.assertEqual(MANIFEST["vendored"][key]["covered_by"], covered_by, key)
+        glad = {item["filename"] for item in MANIFEST["packages"]["glad"]["files"]}
+        self.assertEqual(glad, {"glad-LICENSE.txt", "glad-khrplatform-NOTICE.txt"})
+        self.assertIn("LINKED", MANIFEST["vendored"]["vendor/glad"]["note"])
         simdutf = {item["filename"] for item in MANIFEST["packages"]["simdutf"]["files"]}
         self.assertEqual(simdutf, {"simdutf-LICENSE-APACHE.txt", "simdutf-LICENSE-MIT.txt", "simdutf-isadetection-PyTorch-NOTICE.txt"})
 
