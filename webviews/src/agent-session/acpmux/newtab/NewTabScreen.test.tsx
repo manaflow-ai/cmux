@@ -94,7 +94,7 @@ async function mount(extra: Record<string, unknown> = {}) {
 test("the field has the keyboard when the screen appears, and the cards show recent chats", async () => {
   const { container, root, field } = await mount();
   expect(dom.window.document.activeElement).toBe(field);
-  expect(field.placeholder).toBe("Search or type a URL");
+  expect(field.placeholder).toBe("Ask an agent, search, or type a URL");
   const cards = [...container.querySelectorAll(".nt-card")];
   expect(cards.map((card) => card.querySelector(".nt-card-title")!.textContent)).toEqual(["Fix upload", "Billing"]);
   expect(cards[0]!.querySelector(".nt-card-message")!.textContent).toBe("Done, tests pass.");

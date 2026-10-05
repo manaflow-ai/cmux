@@ -5,7 +5,7 @@
 import { currentLanguage, type PaneLanguage, usePaneLanguage } from "../i18n";
 
 const en = {
-  placeholder: "Search or type a URL",
+  placeholder: "Ask an agent, search, or type a URL",
   suggestions: "Suggestions",
   "row.search": "Search the web",
   "row.open": "Open",
@@ -28,7 +28,7 @@ const en = {
 export type NewTabStringKey = keyof typeof en;
 
 const ja: Record<NewTabStringKey, string> = {
-  placeholder: "検索またはURLを入力",
+  placeholder: "エージェントに質問、検索、またはURLを入力",
   suggestions: "候補",
   "row.search": "ウェブを検索",
   "row.open": "開く",
