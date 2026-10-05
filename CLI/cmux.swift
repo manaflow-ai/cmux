@@ -6271,7 +6271,11 @@ struct CMUXCLI {
                         """)
                 }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
-                let targetWorkspace = workspaceOpt.map { try normalizeWorkspaceHandle($0, client: client) }
+                let targetWorkspace: String? = if let workspaceOpt {
+                    try normalizeWorkspaceHandle(workspaceOpt, client: client)
+                } else {
+                    nil
+                }
                 var params: [String: Any] = [
                     "id": vmId,
                     "idempotency_key": UUID().uuidString.lowercased(),
