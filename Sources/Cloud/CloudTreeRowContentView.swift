@@ -55,12 +55,23 @@ struct CloudTreeRowContentView: View {
         case .coderouterProviderGroup(let provider, _):
             groupRow(title: provider.title)
         case .coderouterAccount(let account):
+            // Accounts carry no icon: the email starts under the group's "+",
+            // and usage never truncates, the email does.
             CloudTreeLeafRow(
                 style: style,
                 icon: "",
                 tint: .clear,
                 title: account.title,
-                detail: Self.usageDetail(for: account)
+                reservesIconSlot: false,
+                accessories: {
+                    if let usage = Self.usageDetail(for: account) {
+                        Text(usage)
+                            .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
             )
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
@@ -259,6 +270,8 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
     var detail: String?
+    /// False starts the title in the icon column, under a sibling create row's "+".
+    var reservesIconSlot = true
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @ViewBuilder var accessories: () -> Accessories
 
@@ -271,6 +284,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
         detail: String? = nil,
+        reservesIconSlot: Bool = true,
         @ViewBuilder accessories: @escaping () -> Accessories
     ) {
         self.style = style
@@ -281,12 +295,13 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
         self.detail = detail
+        self.reservesIconSlot = reservesIconSlot
         self.accessories = accessories
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
-            if style.iconSlot > 0 {
+            if reservesIconSlot, style.iconSlot > 0 {
                 CloudTreeRowIcon(
                     style: style,
                     systemName: icon,
