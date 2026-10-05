@@ -6,5 +6,8 @@ import CmuxNextTerminal
 struct TerminalHooks {
     weak var services: AppServices?
 
-    func install() {}
+    func install() {
+        GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
+        TerminalKeyEquivalent.menuMayClaim = { [weak services] in services?.keyRouter.menuMayClaim($0) ?? true }
+    }
 }

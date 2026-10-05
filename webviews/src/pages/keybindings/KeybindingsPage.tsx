@@ -129,7 +129,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           >
             {t("keybindings.page.conflictsOnly")}
           </button>
-          {snap.recording && <span className="keys-hint">{t("keybindings.page.recordHint")}</span>}
+          {snap.recording && (
+            <span className="keys-hint">
+              {t(snap.recording.target === "row" ? "keybindings.page.recordRowHint" : "keybindings.page.recordHint")}
+            </span>
+          )}
           <span className="keys-spacer" />
           <button
             type="button"
