@@ -776,6 +776,37 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(fs.perform("stat", arguments: ["path": String(repeating: "b", count: 255)]).failureCode == "ENOENT")
     }
 
+    /// copyFile writes a staging entry next to the destination and renames
+    /// it in. Another session sharing the directory can list it and put a
+    /// link in its place (fs.rename keeps a link a link) while the copy
+    /// runs; publishing must check the entry is still the file the copy
+    /// wrote, while no REPL rename (and so no browser root grant) runs.
+    @Test("copyFile never publishes a link swapped in for its staging file")
+    func copyNeverPublishesSwappedStagingEntry() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try Data(count: 3 * BrowserReplFileSystem.chunkBytes).write(to: URL(fileURLWithPath: scratch.root + "/source.bin"))
+        let root = scratch.root
+        let outside = scratch.outside
+        let swapped = BrowserReplRaceFlag()
+        // Between two chunks of the copy, the staging entry becomes a link.
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: {
+            if !swapped.isSet,
+               let staging = (try? FileManager.default.contentsOfDirectory(atPath: root))?.first(where: { $0.contains(".cmux-copy-") }),
+               unlink(root + "/" + staging) == 0, symlink(outside, root + "/" + staging) == 0 {
+                swapped.set()
+            }
+            return false
+        })
+
+        let copied = fs.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"])
+
+        #expect(swapped.isSet, "the copy never wrote a second chunk")
+        #expect(copied.failureCode != "ok")
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: root + "/copy.bin")) == nil, "the copy published the swapped-in link")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root) == ["source.bin"])
+    }
+
     @Test("copyFile copies the bytes, the mode and replaces the destination")
     func copyKeepsBytesAndMode() throws {
         let scratch = try Scratch()
