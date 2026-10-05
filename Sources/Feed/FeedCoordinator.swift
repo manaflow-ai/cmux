@@ -877,8 +877,6 @@ extension FeedCoordinator {
             }
             guard ownsSurface else { continue }
 
-            attentionState.optimisticallyRunning = true
-
             owner.setAgentLifecycle(
                 key: target.statusKey,
                 panelId: target.panelId,
@@ -895,6 +893,20 @@ extension FeedCoordinator {
                 key: target.statusKey,
                 panelId: target.panelId
             )
+            if let baseStatusKey = Self.baseStatusKey(forAttentionStatusKey: target.statusKey) {
+                owner.setAgentLifecycle(key: baseStatusKey, panelId: target.panelId, lifecycle: .running)
+                owner.setStatusEntry(
+                    SidebarStatusEntry(
+                        key: baseStatusKey,
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: "bolt.fill",
+                        color: CmuxAccentColor.builtInAgentStatusHex,
+                        timestamp: at
+                    ),
+                    key: baseStatusKey,
+                    panelId: target.panelId
+                )
+            }
             #if DEBUG
             cmuxDebugLog(
                 "feed.attention.input surface=\(surfaceID.uuidString.prefix(8)) "
@@ -940,26 +952,6 @@ extension FeedCoordinator {
         }
         pendingAttentionStates.removeValue(forKey: target)
         let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
-
-        // A reply can arrive before Claude or Codex emits its next lifecycle
-        // hook. Preserve the optimistic running state on the agent-owned slot
-        // while removing the Feed overlay, so the sidebar does not flash back
-        // to Needs input between those two events.
-        if attentionState.optimisticallyRunning,
-           let baseStatusKey = Self.baseStatusKey(forAttentionStatusKey: target.statusKey) {
-            owner.setAgentLifecycle(key: baseStatusKey, panelId: target.panelId, lifecycle: .running)
-            owner.setStatusEntry(
-                SidebarStatusEntry(
-                    key: baseStatusKey,
-                    value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                    icon: "bolt.fill",
-                    color: CmuxAccentColor.builtInAgentStatusHex,
-                    timestamp: Date()
-                ),
-                key: baseStatusKey,
-                panelId: target.panelId
-            )
-        }
 
         // Lifecycle is per-panel, so clearing this Feed-owned slot is safe even
         // if another panel or the agent's own slot still needs input.
@@ -1144,7 +1136,6 @@ extension FeedCoordinator {
 private final class AttentionOverlayState {
     var count: Int
     var fallbackOwner: ControlSidebarPanelOwner
-    var optimisticallyRunning = false
 
     init(owner: ControlSidebarPanelOwner) {
         self.count = 0

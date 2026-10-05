@@ -191,6 +191,8 @@ struct PiFeedDockOwnershipTests {
 
             #expect(workspace.agentLifecycleStatesByPanelId[panel.id]?[Self.attentionStatusKey] == .running)
             #expect(workspace.statusEntries[Self.attentionStatusKey]?.value == "Running")
+            #expect(workspace.agentLifecycleStatesByPanelId[panel.id]?["pi"] == .running)
+            #expect(workspace.statusEntries["pi"]?.value == "Running")
 
             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
 
