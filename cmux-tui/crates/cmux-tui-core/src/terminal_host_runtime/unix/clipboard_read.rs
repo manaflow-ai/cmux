@@ -26,7 +26,14 @@ use super::*;
 use ghostty_vt::{
     ClipboardLocation, ClipboardReadFn, ClipboardReadRequest, MAX_CLIPBOARD_READ_BYTES,
 };
-use std::sync::MutexGuard;
+use std::sync::{MutexGuard, PoisonError};
+
+/// A poisoned lock still guards consistent broker state (every critical
+/// section leaves it whole), so the broker keeps working instead of
+/// panicking on it.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// How long the user has to answer one read.
 pub(super) const CLIPBOARD_READ_TIMEOUT: Duration = Duration::from_secs(60);
@@ -137,7 +144,7 @@ impl ClipboardClock for SystemClock {
         state: MutexGuard<'a, ClipboardReadState>,
         timeout: Duration,
     ) -> MutexGuard<'a, ClipboardReadState> {
-        changed.wait_timeout(state, timeout).unwrap().0
+        changed.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner).0
     }
 }
 
@@ -191,7 +198,7 @@ impl ClipboardReads {
     /// The terminal callback: it runs inside `vt_write`, so it only queues.
     pub(super) fn callback(&self) -> ClipboardReadFn {
         let queued = self.queued.clone();
-        Box::new(move |request| queued.lock().unwrap().push(request))
+        Box::new(move |request| lock(&queued).push(request))
     }
 
     /// Starts the timeout worker. It blocks until the earliest deadline or a
@@ -209,14 +216,14 @@ impl ClipboardReads {
 
     #[cfg(test)]
     pub(super) fn notify_timer(&self) {
-        let _state = self.shared.state.lock().unwrap();
+        let _state = lock(&self.shared.state);
         self.shared.changed.notify_all();
     }
 
     /// Parser thread, terminal locked, right after `vt_write`: asks the
     /// newest owner about the first read, refuses the rest.
     pub(super) fn dispatch(&self, term: &mut Terminal, broadcast_lock: &Mutex<()>) {
-        let requests = std::mem::take(&mut *self.queued.lock().unwrap());
+        let requests = std::mem::take(&mut *lock(&self.queued));
         for request in requests {
             if !self.open(request, broadcast_lock) {
                 term.complete_clipboard_read(request.token, None);
@@ -225,7 +232,7 @@ impl ClipboardReads {
     }
 
     fn open(&self, request: ClipboardReadRequest, broadcast_lock: &Mutex<()>) -> bool {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = lock(&self.shared.state);
         if state.ended || state.open.is_some() {
             return false;
         }
@@ -236,7 +243,7 @@ impl ClipboardReads {
         // Same serialization as other targeted frames: never between a
         // legacy Output/Resized and its Colors.
         if !{
-            let _broadcast = broadcast_lock.lock().unwrap();
+            let _broadcast = lock(broadcast_lock);
             owner.tap.try_send(frame)
         } {
             return false;
@@ -250,8 +257,8 @@ impl ClipboardReads {
     /// A connection granted `CLIPBOARD_READ` joined: reads are deferred
     /// from now on and asked of it.
     pub(super) fn register_owner(&self, term: &Mutex<Terminal>, client: u64, tap: HostTap) {
-        let mut term = term.lock().unwrap();
-        let mut state = self.shared.state.lock().unwrap();
+        let mut term = lock(term);
+        let mut state = lock(&self.shared.state);
         if state.ended {
             return;
         }
@@ -263,11 +270,11 @@ impl ClipboardReads {
     /// caller refuses on the parser thread. The last owner turns deferral
     /// off, so reads are ignored again.
     fn unregister_owner(&self, term: &Mutex<Terminal>, client: u64) -> Option<u64> {
-        if !self.shared.state.lock().unwrap().owners.iter().any(|owner| owner.client == client) {
+        if !lock(&self.shared.state).owners.iter().any(|owner| owner.client == client) {
             return None;
         }
-        let mut term = term.lock().unwrap();
-        let mut state = self.shared.state.lock().unwrap();
+        let mut term = lock(term);
+        let mut state = lock(&self.shared.state);
         state.owners.retain(|owner| owner.client != client);
         if state.owners.is_empty() {
             term.set_clipboard_reads_deferred(false);
@@ -278,7 +285,7 @@ impl ClipboardReads {
     }
 
     fn take_open(&self, client: u64, token: u64) -> bool {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = lock(&self.shared.state);
         let taken = state.open.take_if(|open| open.client == client && open.token == token);
         self.shared.changed.notify_all();
         taken.is_some()
@@ -288,9 +295,9 @@ impl ClipboardReads {
     /// read and stops the timer.
     pub(super) fn end(&self, term: &mut Terminal) {
         let mut tokens: Vec<u64> =
-            std::mem::take(&mut *self.queued.lock().unwrap()).iter().map(|r| r.token).collect();
+            std::mem::take(&mut *lock(&self.queued)).iter().map(|r| r.token).collect();
         {
-            let mut state = self.shared.state.lock().unwrap();
+            let mut state = lock(&self.shared.state);
             state.ended = true;
             state.owners.clear();
             tokens.extend(state.open.take().map(|open| open.token));
@@ -305,13 +312,13 @@ impl ClipboardReads {
 
 impl ClipboardReadsShared {
     fn run_timer(&self, parser_commands: &SyncSender<ParserCommand>) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = lock(&self.state);
         loop {
             if state.ended {
                 return;
             }
             let Some(deadline) = state.open.as_ref().map(|open| open.deadline) else {
-                state = self.changed.wait(state).unwrap();
+                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
                 continue;
             };
             let now = self.clock.now();
@@ -325,7 +332,7 @@ impl ClipboardReadsShared {
                 let _ = parser_commands
                     .send(ParserCommand::ClipboardReadComplete { token, text: None });
             }
-            state = self.state.lock().unwrap();
+            state = lock(&self.state);
         }
     }
 }
@@ -405,19 +412,19 @@ impl ControlResponses {
         let Ok(request) = decode_clipboard_read_request(&frame.payload) else {
             return false;
         };
-        *self.clipboard_reads.pending.lock().unwrap() = Some(request);
+        *lock(&self.clipboard_reads.pending) = Some(request);
         true
     }
 
     pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
-        *self.clipboard_reads.pending.lock().unwrap()
+        *lock(&self.clipboard_reads.pending)
     }
 
     fn take_clipboard_read(&self, token: u64) -> bool {
         self.clipboard_reads
             .pending
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .take_if(|pending| pending.token == token)
             .is_some()
     }

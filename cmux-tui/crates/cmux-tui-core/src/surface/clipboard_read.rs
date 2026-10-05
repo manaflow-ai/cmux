@@ -11,7 +11,7 @@ use crate::terminal_host_runtime::HostAttachment;
 impl Surface {
     fn with_host<T>(&self, f: impl FnOnce(&HostAttachment) -> T) -> Option<T> {
         let pty = self.as_pty()?;
-        let runtime = pty.runtime.lock().unwrap();
+        let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match &*runtime {
             PtyRuntime::Hosted(host) => Some(f(host)),
             _ => None,
