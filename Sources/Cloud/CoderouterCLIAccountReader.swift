@@ -11,7 +11,7 @@ enum CoderouterCLIAccountReader {
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty,
               let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName) else {
-            logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(cmuxTeamName, privacy: .public)")
+            logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
             throw accountError("The selected cmux team is not mapped to a CodeRouter organization.")
         }
 
