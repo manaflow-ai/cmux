@@ -459,10 +459,12 @@ struct CloseTabConfirmationPolicyTests {
     @Test func agentDontAskAgainDoesNotDisableOrdinaryTabWarning() {
         let defaults = makeScratchDefaults()
         let store = CloseTabWarningStore(defaults: defaults)
-        store.disableWarnings(.agentSession)
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+        store.disableWarnings([.agentSession, .tabCloseButton])
 
         #expect(!store.warnsBeforeClosingAgentSession)
         #expect(store.warnsBeforeClosingTab)
+        #expect(store.warnsBeforeClosingTabXButton)
         #expect(store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
         #expect(!store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
     }
