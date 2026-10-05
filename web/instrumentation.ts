@@ -27,6 +27,7 @@ function prewarmDevCloudRoutes(): void {
       "/api/vm",
       "/api/vm/network-presets",
       "/api/vm/__prewarm__/stats",
+      "/api/vm/tunnel",
     ].map(async (path) => {
       try {
         await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
