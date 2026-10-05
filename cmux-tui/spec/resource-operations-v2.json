@@ -8282,6 +8282,33 @@
         "extra": false
       }
     },
+    "terminal_host.unavailable": {
+      "retryable": true,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "terminal_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          },
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "timeout",
+                "disconnected"
+              ]
+            },
+            "description": "timeout: the terminal host did not answer within the daemon's control deadline. disconnected: the daemon's connection to the host ended before the answer (the host stopped, was replaced, or refused the request by closing the connection)."
+          }
+        },
+        "extra": false
+      }
+    },
     "transport.closed": {
       "retryable": true,
       "details": {
@@ -17716,11 +17743,13 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "terminal_host.unavailable",
         "transport.closed",
         "validation.invalid"
       ],
       "constraints": [
         "The returned token is a connection-bound, one-use renderer capability and expires after ttl_ms.",
+        "A terminal host that does not answer the mint fails it with retryable terminal_host.unavailable; the message keeps the root cause.",
         "SDK Debug, toString, exception, and log rendering redacts the token."
       ]
     },

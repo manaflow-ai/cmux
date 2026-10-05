@@ -38,6 +38,9 @@ use crate::terminal_host_protocol::{
     wait_for_native_child_status_with_reap_result, write_frame,
 };
 
+mod grant_failure;
+pub use grant_failure::{RendererGrantFailure, RendererGrantUnavailable};
+
 const HOST_RECORD_VERSION: u32 = 4;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
@@ -844,6 +847,7 @@ mod unix {
     mod clipboard_read;
     mod control_responses;
     mod host_parser;
+    mod renderer_grant;
     mod standby;
     pub(crate) use clipboard_read::ClipboardReadSignal;
     use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
@@ -851,6 +855,7 @@ mod unix {
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
     use host_parser::{ParserSignals, run_host_parser};
+    use renderer_grant::ControlRequestUnanswered;
     pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
 
     pub(crate) struct InputAckReceipt {
@@ -1781,38 +1786,11 @@ mod unix {
                     if disconnect_on_timeout {
                         self.disconnect();
                     }
-                    Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                        "terminal host did not acknowledge {request_kind:?}: {error}"
-                    )))
+                    Err(ClearHistoryFailure::ambiguous(
+                        ControlRequestUnanswered { request_kind, cause: error }.into(),
+                    ))
                 }
             }
-        }
-
-        pub fn mint_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
-            if ttl.is_zero() || ttl > MAX_RENDERER_CAPABILITY_TTL {
-                anyhow::bail!("renderer capability TTL must be between 1ms and 60s");
-            }
-            let ttl_ms = u32::try_from(ttl.as_millis())
-                .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
-            let mut payload = Vec::with_capacity(8);
-            payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
-            payload.extend_from_slice(&ttl_ms.to_le_bytes());
-            let payload = self
-                .send_control_request(MessageKind::MintCapability, MessageKind::Capability, payload)
-                .map_err(ClearHistoryFailure::into_error)
-                .context("terminal host did not mint renderer grant")?;
-            if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
-                self.disconnect();
-                anyhow::bail!("terminal host returned a malformed renderer capability");
-            }
-            Ok(RendererGrant {
-                endpoint: self.record.endpoint.clone(),
-                terminal_id: self.record.terminal_id.clone(),
-                incarnation: self.record.incarnation.clone(),
-                token: encode_hex(&payload),
-                rights: CapabilityRights::RENDERER,
-                protocol_version: self.protocol_version,
-            })
         }
 
         pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {

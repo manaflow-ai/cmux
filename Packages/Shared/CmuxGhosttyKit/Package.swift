@@ -17,6 +17,7 @@ import PackageDescription
 // (ghostty_surface_apply_kitty_replay; PR 24), keeps images across a
 // local-history restore with no frame between its swaps (PR 26), and fetches
 // its build dependencies from our release mirror (PR 25).
+// Since 3320bd06e the Apple slices contain no GNU libintl (i18n off; PR 27).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -41,8 +42,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-94fe869496857eb5d70fcf870554deb1480a7aa3-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "736e8f05256b6453ef2dd05c58eff3088cfc1eda7ae748c041e877c8a66741ba"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-3320bd06ec13ca5479ef842372be1736d9cdfecf-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "788fe6a6e42fc0062007cf7292992dd3bb770cbce7a33f5040d5180e40150bc1"
         ),
     ]
 )

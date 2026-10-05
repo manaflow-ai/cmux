@@ -192,6 +192,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "selector.not_found",
     "selector.wrong_parent",
     "terminal.closed",
+    "terminal_host.unavailable",
     "transport.closed",
     "validation.invalid",
 ];
