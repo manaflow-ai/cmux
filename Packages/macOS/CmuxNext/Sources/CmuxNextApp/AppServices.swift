@@ -180,6 +180,8 @@ final class AppServices {
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
+    /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
+    private(set) lazy var clipboardReads = TerminalClipboardReadService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
@@ -288,6 +290,7 @@ final class AppServices {
         previews = TabPreviewSource(cache: cache)
         remoteTerminals = RemoteTerminalService(services: self)
         remoteTerminals.start()
+        clipboardReads.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
