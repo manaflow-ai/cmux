@@ -35,7 +35,14 @@ pub(super) struct Features {
 
 impl Default for Features {
     fn default() -> Self {
-        Self { cursor: true, sudo: false, title: true, ssh_env: false, ssh_terminfo: false, path: true }
+        Self {
+            cursor: true,
+            sudo: false,
+            title: true,
+            ssh_env: false,
+            ssh_terminfo: false,
+            path: true,
+        }
     }
 }
 
@@ -88,11 +95,9 @@ impl Settings {
     /// `GHOSTTY_SHELL_FEATURES` as Ghostty's `setupFeatures` writes it:
     /// enabled names sorted, `cursor` with its blink state; empty when none.
     pub(super) fn env_value(&self) -> String {
-        if self.cursor_blink != Some(true) || self.cursor_blink.is_none() {
-            return "cursor:blink,path,title".to_string();
-        }
         let f = self.features;
-        let blink = if self.cursor_blink.unwrap_or(true) { "cursor:blink" } else { "cursor:steady" };
+        let blink =
+            if self.cursor_blink.unwrap_or(true) { "cursor:blink" } else { "cursor:steady" };
         [
             (f.cursor, blink),
             (f.path, "path"),
@@ -124,10 +129,6 @@ pub(super) fn read(lookup: &dyn Fn(&str) -> Option<String>) -> Settings {
 
 /// `files` in order, then their `config-file` includes.
 pub(super) fn read_files(files: &[PathBuf], home: Option<&str>) -> Settings {
-    // Red: not read yet (DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES).
-    if files.len() < usize::MAX {
-        return Settings::default();
-    }
     let mut reader = Reader { settings: Settings::default(), includes: Vec::new(), home };
     for file in files {
         if let Ok(text) = fs::read_to_string(file) {

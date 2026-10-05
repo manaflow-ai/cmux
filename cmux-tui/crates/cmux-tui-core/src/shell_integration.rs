@@ -64,10 +64,6 @@ const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";
 /// without it the title is whatever the user's own hooks set.
 const FEATURES_ENV: &str = "GHOSTTY_SHELL_FEATURES";
 
-/// Ghostty's default `shell-integration-features` (cursor, path, title) with
-/// its default blinking cursor, in its sorted order.
-const DEFAULT_FEATURES: &str = "cursor:blink,path,title";
-
 /// The scripts' ssh wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`.
 const GHOSTTY_BIN_DIR_ENV: &str = "GHOSTTY_BIN_DIR";
 
@@ -176,16 +172,15 @@ fn apply(
     // The daemon integrates this shell, so it owns the Ghostty integration
     // keys: a caller value for one of them never reaches the shell.
     crate::daemon_env::warn_dropped(&crate::daemon_env::strip_integration_owned(&mut env));
-    // A caller (or daemon) value is the user's resolved feature set.
+    // A caller (or daemon) value is the user's resolved feature set; with
+    // none, the user's Ghostty config files give it, then Ghostty's defaults
+    // (DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES).
     let cli_dir = ghostty_cli_dir(lookup);
-    match lookup(FEATURES_ENV) {
-        None => env.push((FEATURES_ENV.into(), DEFAULT_FEATURES.into())),
-        Some(features) => {
-            let usable = usable_features(&features, cli_dir.is_some());
-            if usable != features {
-                env.push((FEATURES_ENV.into(), usable));
-            }
-        }
+    let given = lookup(FEATURES_ENV);
+    let features = given.clone().unwrap_or_else(|| ghostty_files::read(lookup).env_value());
+    let usable = usable_features(&features, cli_dir.is_some());
+    if given.as_deref() != Some(usable.as_str()) {
+        env.push((FEATURES_ENV.into(), usable));
     }
     if let Some(GhosttyCliDir::FromBinary(dir)) = cli_dir {
         env.push((GHOSTTY_BIN_DIR_ENV.into(), dir));
@@ -598,8 +593,11 @@ mod tests {
         };
         let in_xdg = [("XDG_CONFIG_HOME", xdg), ("HOME", "/home/me")];
         assert_eq!(
-            features("shell-integration-features = no-title,sudo\ncursor-style-blink = false\n", &in_xdg)
-                .as_deref(),
+            features(
+                "shell-integration-features = no-title,sudo\ncursor-style-blink = false\n",
+                &in_xdg
+            )
+            .as_deref(),
             Some("cursor:steady,path,sudo")
         );
         assert_eq!(features("shell-integration-features = false\n", &in_xdg).as_deref(), Some(""));
@@ -609,9 +607,17 @@ mod tests {
             "no Ghostty CLI: the ssh wrapper goes"
         );
         let caller = [("XDG_CONFIG_HOME", xdg), (FEATURES_ENV, "path")];
-        assert_eq!(features("shell-integration-features = false\n", &caller).as_deref(), Some("path"), "the caller's value stays");
-        let app_file = [("CMUX_NEXT_GHOSTTY_CONFIG", config.to_str().unwrap()), ("HOME", "/home/me")];
-        assert_eq!(features("shell-integration-features = no-path\n", &app_file).as_deref(), Some("cursor:blink,title"));
+        assert_eq!(
+            features("shell-integration-features = false\n", &caller).as_deref(),
+            Some("path"),
+            "the caller's value stays"
+        );
+        let app_file =
+            [("CMUX_NEXT_GHOSTTY_CONFIG", config.to_str().unwrap()), ("HOME", "/home/me")];
+        assert_eq!(
+            features("shell-integration-features = no-path\n", &app_file).as_deref(),
+            Some("cursor:blink,title")
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
