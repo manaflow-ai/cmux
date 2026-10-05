@@ -101,7 +101,7 @@ pub(super) fn advertised_capabilities(
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
-    capabilities.extend(crate::apps::advertised());
+    capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
     capabilities
