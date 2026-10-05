@@ -5,15 +5,28 @@ import CmuxNextDesign
 final class SidebarRegionDrag {
     let subject: SidebarRegionDragSubject
     let lift: DragLiftView
-    let grabOffsetY: CGFloat
+    /// Where the pointer grabbed the card, from its origin.
+    let grab: CGPoint
+    /// The card follows the pointer sideways too (an item of a flowed section).
+    let followsBothAxes: Bool
     /// The subject's own views, hidden under the card until it lands.
     let hidden: [NSView]
 
-    init(subject: SidebarRegionDragSubject, lift: DragLiftView, grabOffsetY: CGFloat, hidden: [NSView]) {
+    init(subject: SidebarRegionDragSubject, lift: DragLiftView, grab: CGPoint, followsBothAxes: Bool, hidden: [NSView]) {
         self.subject = subject
         self.lift = lift
-        self.grabOffsetY = grabOffsetY
+        self.grab = grab
+        self.followsBothAxes = followsBothAxes
         self.hidden = hidden
+    }
+
+    /// Whether a drag of `subject` moves on both axes: an item whose
+    /// section flows (tiles, a grid, one line) has neighbors beside it, so
+    /// its card follows the pointer sideways; list rows and section
+    /// headers only move up and down.
+    static func followsBothAxes(_ subject: SidebarRegionDragSubject, sections: [LayoutSection], look: SectionsLookVariant) -> Bool {
+        guard case let .item(id) = subject, let (s, _) = SidebarLayoutReducer.locate(id, in: sections) else { return false }
+        return SectionFlow.mode(sections[s], look: look) != nil
     }
 }
 
@@ -43,15 +56,22 @@ extension SidebarRegionView {
         let hidden = views(of: subject)
         for view in hidden { view.alphaValue = 0 }
         let lift = SidebarReorderLift.lift(card, frame: frame, in: self)
-        reorder = SidebarRegionDrag(subject: subject, lift: lift, grabOffsetY: point.y - frame.minY, hidden: hidden)
+        let both = SidebarRegionDrag.followsBothAxes(subject, sections: content.sections, look: content.look)
+        reorder = SidebarRegionDrag(subject: subject, lift: lift, grab: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY),
+                                    followsBothAxes: both, hidden: hidden)
         reorderSections = content.sections
     }
 
     func updateDrag(to point: NSPoint) {
         guard let drag = reorder, let sections = reorderSections else { return }
-        SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
+        if drag.followsBothAxes {
+            SidebarReorderLift.follow(drag.lift, origin: CGPoint(x: point.x - drag.grab.x, y: point.y - drag.grab.y), visible: visibleRect)
+        } else {
+            SidebarReorderLift.follow(drag.lift, top: point.y - drag.grab.y, visible: visibleRect)
+        }
         // The card's middle decides (as the list, nxdog30): what it covers more than half of makes way.
-        let probe = CGPoint(x: point.x, y: drag.lift.frame.midY)
+        // Sideways, the card's middle decides too, so a tile makes way when the card covers half of it.
+        let probe = CGPoint(x: drag.followsBothAxes ? drag.lift.frame.midX : point.x, y: drag.lift.frame.midY)
         guard let moved = SidebarRegionReorder.move(drag.subject, at: probe, display: layoutResult, sections: sections) else { return }
         reorderSections = moved
         relayout(animated: true)
