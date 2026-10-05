@@ -99,16 +99,6 @@ extension ActionRegistry {
                     index.chords[chord.first, default: [:]][chord.second, default: []].append(id)
                 }
             }
-
-            // Some actions intentionally expose a second default key in
-            // addition to their catalog shortcut. Keep the direct resolver
-            // (used by tests and non-window callers) in sync with the full
-            // binding table. A user override or chord replaces all defaults.
-            guard !shortcutOverrides.keys.contains(id), chordOverrides[id] == nil else { continue }
-            for alias in KeyBindingDefaults.paneResizeAliases where alias.command == id {
-                guard let key = alias.keys.first else { continue }
-                index.byShortcut[key, default: []].append(id)
-            }
         }
         shortcutIndex = index
         return index

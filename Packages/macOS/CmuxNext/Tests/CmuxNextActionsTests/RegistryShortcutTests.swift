@@ -79,15 +79,15 @@ import Testing
             (Shortcut("j", modifiers: [.control, .command]), "resizePaneDown"),
         ]
         for (shortcut, action) in expected {
-            #expect(registry.resolve(shortcut)?.id == action, "Expected \(shortcut.displayString) to resolve to \(action)")
+            #expect(registry.keyWinner(shortcut)?.command == action, "Expected \(shortcut.displayString) to resolve to \(action)")
         }
 
         for key in ["h", "j", "k", "l"] {
-            #expect(registry.resolve(Shortcut(key, modifiers: [.control, .shift])) == nil)
+            #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .shift])) == nil)
         }
 
-        #expect(registry.resolve(Shortcut("-", modifiers: [.control]))?.id == "focusHistoryBack")
-        #expect(registry.resolve(Shortcut("-", modifiers: [.control, .shift]))?.id == "focusHistoryForward")
+        #expect(registry.keyWinner(Shortcut("-", modifiers: [.control]))?.command == "focusHistoryBack")
+        #expect(registry.keyWinner(Shortcut("-", modifiers: [.control, .shift]))?.command == "focusHistoryForward")
     }
 
     @Test func overridesDriveResolutionAndDisplay() {
