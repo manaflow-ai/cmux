@@ -24,6 +24,9 @@ export interface RawCloudDriver {
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
   create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
   delete(id: string): Promise<void>
+  /** Pause (memory kept) or start a VM (Freestyle `POST /v5/vms/{id}/pause` and `/start`). */
+  pause(id: string): Promise<void>
+  start(id: string): Promise<void>
   /** Writes one small file into the VM (atomic, verified by sha256; Freestyle `PUT /v5/vms/{id}/fs/write`). */
   writeFile(id: string, path: string, content: string, mode: number): Promise<void>
   /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
@@ -142,6 +145,15 @@ export class GuardedCloudDriver {
       if (vms.length === 0 || offset >= total) break
     }
     return out
+  }
+
+  /** Pauses or starts our VM under `name` (metadata checked); a missing VM fails final. */
+  async power(name: string, tag: VmTag, action: "pause" | "start"): Promise<void> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) throw new DriverError("cloud.provider.vm_missing", `${action} VM: no VM under the recorded name`, true)
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    await (action === "pause" ? this.raw.pause(found.id) : this.raw.start(found.id))
   }
 
   /** Deletes the VM under `name`; no VM there is success. */
@@ -270,6 +282,18 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     if (r.status === 404 || (r.status >= 200 && r.status < 300)) return
     this.fail(r.status, r.json, "delete VM")
   }
+
+  async pause(id: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
+    if (r.status >= 200 && r.status < 300) return
+    this.fail(r.status, r.json, "pause VM")
+  }
+
+  async start(id: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/start`)
+    if (r.status >= 200 && r.status < 300) return
+    this.fail(r.status, r.json, "start VM")
+  }
 }
 
 /**
@@ -279,7 +303,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
 export class FakeCloudDriver implements RawCloudDriver {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
   }
@@ -324,6 +348,16 @@ export class FakeCloudDriver implements RawCloudDriver {
     this.maybeFail()
     const gone = this.sql.exec<{ name: string }>(`DELETE FROM cloud_fake_vm WHERE id = ? RETURNING name`, id)
     if (gone.length) this.sql.exec(`UPDATE cloud_fake_ctl SET deletes = deletes + 1 WHERE id = 1`)
+  }
+
+  async pause(_id: string) {
+    this.maybeFail()
+    this.sql.exec(`UPDATE cloud_fake_ctl SET pauses = pauses + 1 WHERE id = 1`)
+  }
+
+  async start(_id: string) {
+    this.maybeFail()
+    this.sql.exec(`UPDATE cloud_fake_ctl SET starts = starts + 1 WHERE id = 1`)
   }
 }
 

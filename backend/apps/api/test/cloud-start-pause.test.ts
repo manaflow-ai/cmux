@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createdAndBound, ensureUser, frame, person, reply } from "./cloud-bind-support.ts"
+import { createdAndBound, ensureUser, frame, installOf, person, reply } from "./cloud-bind-support.ts"
 
 /**
  * cloud.machine.pause and cloud.machine.start (state-placement.md 7 item 4): ledger-backed provider
@@ -15,12 +15,15 @@ describe("pause and start", { timeout: 60_000 }, () => {
     const { machine } = await createdAndBound(x)
     const pauseKey = crypto.randomUUID()
     const paused = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine }, pauseKey)))
-    expect(paused, JSON.stringify(paused)).toMatchObject({ t: "result", value: { machine: { id: machine, status: "paused" } } })
+    // The answer is the intent (pausing, like create answers provisioning); the call's outcome lands as cloud.machine.upsert.
+    expect(paused, JSON.stringify(paused)).toMatchObject({ t: "result", value: { machine: { id: machine, status: "pausing" } } })
+    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "paused" } })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine }, pauseKey)))).toMatchObject({ t: "result", replayed: true })
     const plan = await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})
     expect(plan.value.usage.active).toBe(0)
     const started = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))
-    expect(started).toMatchObject({ t: "result", value: { machine: { id: machine, status: "running" } } })
+    expect(started).toMatchObject({ t: "result", value: { machine: { id: machine, status: "starting" } } })
+    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "running" } })
     const ctl = (await x.stub.fakeControl({})) as unknown as { pauses: number; starts: number }
     expect([ctl.pauses, ctl.starts]).toEqual([1, 1])
   })
@@ -32,5 +35,21 @@ describe("pause and start", { timeout: 60_000 }, () => {
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))).toMatchObject({ t: "reject", code: "cloud.machine.not_paused" })
     reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject" })
+  })
+
+  it("a paused machine answers connect_info with state paused, and link_token refuses with cloud.machine.paused (coordinator decision)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine, host } = await createdAndBound(x)
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))
+    expect(await x.stub.readOp(x.team, installOf(x.p), "cloud.machine.connect_info", { machine })).toMatchObject({ ok: true, value: { state: "paused" } })
+    expect(await x.stub.mintLinkToken(x.team, installOf(x.p), { host, services: ["ssh"] })).toMatchObject({ ok: false, code: "cloud.machine.paused", details: { machine, state: "paused" } })
+  })
+
+  it("pause and start need a signed-in person (money ops): an install is refused", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
   })
 })

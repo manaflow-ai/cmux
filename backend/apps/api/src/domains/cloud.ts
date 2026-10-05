@@ -6,6 +6,7 @@ import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { applyVmStatus } from "./cloud-vm-status.ts"
+import { powerIntent, powerResult } from "./cloud-power.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
 
 /**
@@ -76,7 +77,7 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
 
 export interface LedgerRow {
   readonly key: string
-  readonly op: "create" | "delete"
+  readonly op: "create" | "delete" | "pause" | "start"
   readonly machine: string
   readonly provider_name: string
   readonly state: "pending" | "done" | "failed" | "cancelled" | "abandoned"
@@ -110,7 +111,7 @@ export const ledgerKey = (identity: string, idempotencyKey: string) => `${identi
 const COUNTED: ReadonlySet<string> = new Set(["provisioning", "starting", "running", "pausing"])
 const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 /** What a machine row counts against max_active: its status, or 1 after a failed delete (N2). */
-const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
+export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
   const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, ...machine } = row
@@ -120,24 +121,26 @@ export const publicMachine = (row: MachineRow): CloudMachineView => {
 export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undefined
 
 /** Creator or team admin (all teams are personal today: the personal team's user is its admin). */
-const mayManage = (p: Principal, row: MachineRow) => p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
+export const mayManage = (p: Principal, row: MachineRow) => p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
 
 const decodeInternal = <T>(schema: Schema.Top, params: unknown): { ok: true; value: T } | ReturnType<typeof reject> => {
   const exit = Schema.decodeUnknownExit(schema as Schema.Codec<T, unknown>)(params ?? {})
   return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : reject("validation.invalid", "invalid params", String(exit.cause))
 }
 
-const machineRow = (rows: RowReader | undefined, id: string) => rows?.get<MachineRow>(TABLE_MACHINE, id)
-const ledgerRow = (rows: RowReader | undefined, key: string) => rows?.get<LedgerRow>(TABLE_LEDGER, key)
+export const machineRow = (rows: RowReader | undefined, id: string) => rows?.get<MachineRow>(TABLE_MACHINE, id)
+export const ledgerRow = (rows: RowReader | undefined, key: string) => rows?.get<LedgerRow>(TABLE_LEDGER, key)
 
 /** A changing commit: one more revision, and the machine it changed (or none). */
-const next = (state: CloudState, patch: Partial<CloudState>, changed: CloudState["changed"] = null): CloudState => ({ ...state, ...patch, rev: state.rev + 1, changed })
+export const next = (state: CloudState, patch: Partial<CloudState>, changed: CloudState["changed"] = null): CloudState => ({ ...state, ...patch, rev: state.rev + 1, changed })
 const noChange = (state: CloudState, value: unknown): ReduceResult<CloudState> => ({ ok: true, state, value, changed: false })
-const withoutPending = (state: CloudState, key: string) => Object.fromEntries(Object.entries(state.pending).filter(([k]) => k !== key))
-const unavailable = () => ({ ...reject("cloud.provider.unavailable", "Cloud machines are not configured on this deployment"), retryable: true })
+/** A refusal-free answer that changes nothing (a pause or start already running). */
+export const noChangePower = (state: CloudState, value: unknown): ReduceResult<CloudState> => ({ ok: true, state, value, changed: false })
+export const withoutPending = (state: CloudState, key: string) => Object.fromEntries(Object.entries(state.pending).filter(([k]) => k !== key))
+export const unavailable = () => ({ ...reject("cloud.provider.unavailable", "Cloud machines are not configured on this deployment"), retryable: true })
 
-const upsertMachine = (row: MachineRow, n: number | null): RowWrite => ({ table: TABLE_MACHINE, op: "upsert", key: row.id, n, row })
-const upsertLedger = (row: LedgerRow, n: number | null): RowWrite => ({ table: TABLE_LEDGER, op: "upsert", key: row.key, n, row })
+export const upsertMachine = (row: MachineRow, n: number | null): RowWrite => ({ table: TABLE_MACHINE, op: "upsert", key: row.id, n, row })
+export const upsertLedger = (row: LedgerRow, n: number | null): RowWrite => ({ table: TABLE_LEDGER, op: "upsert", key: row.key, n, row })
 
 export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
   initial: () => ({ team: null, rev: 0, active: 0, saved: 0, pending: {}, watch: {}, changed: null }),
@@ -148,6 +151,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     if (state.team !== null && state.team !== principal.team) return { code: "auth.forbidden", message: "not this team's machines" }
     if (isAgent(principal) && op === "cloud.machine.create") return { code: "auth.forbidden", message: "an agent cannot create machines" }
     if (isAgent(principal) && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "an agent cannot delete machines" }
+    // CLOUDDO-MONEY-OPS: pause and start change what the team pays; a person decides (no agent, no install grant).
+    if ((op === "cloud.machine.pause" || op === "cloud.machine.start") && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: "pausing or starting a machine needs a signed-in person" }
     // Money and destructive ops need a signed-in person, never an install's grant (even one that lists
     // money/destructive). Later: an install with a fresh single-use origin.confirmation (decision ORIGIN).
     if (principal.kind !== "session" && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
@@ -170,6 +175,9 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return watchResult(state, params, ctx)
       case "cloud.machine.bind":
         return bindMachine(state, params, ctx, next)
+      case "cloud.machine.pause":
+      case "cloud.machine.start":
+        return powerIntent(config, state, op, params, ctx)
       case "cloud.machine.vm_status":
         return applyVmStatus(state, params, ctx, next)
       case "cloud.prune":
@@ -296,6 +304,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const rev = state.rev + 1
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
+  if ((l.op === "pause" || l.op === "start") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
   if (!r.ok) {
     const attempts = l.attempts + 1
     const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider call failed" }
