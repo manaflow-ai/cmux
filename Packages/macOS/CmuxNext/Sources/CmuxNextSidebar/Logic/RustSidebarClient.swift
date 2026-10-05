@@ -11,7 +11,7 @@ nonisolated enum RustSidebarClient {
         let code: Int32 = data.withUnsafeBytes { requestBytes in operation.withCString { operationCString in output.withUnsafeMutableBytes { outputBytes in cmux_layout_reducer_json(requestBytes.bindMemory(to: UInt8.self).baseAddress, data.count, operationCString, outputBytes.bindMemory(to: UInt8.self).baseAddress, output.count, &outputLength) } } }
         guard code == CMUX_LAYOUT_REDUCER_OK else { return nil }
         if outputLength > output.count { return nil }
-        return try? JSONDecoder().decode(Response.self, from: output.prefix(outputLength))
+        return try? JSONDecoder().decode(Response.self, from: Data(output.prefix(outputLength)))
         #else
         return nil
         #endif
