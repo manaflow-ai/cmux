@@ -1120,6 +1120,12 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "shortcuts.showModifierHoldHints" : {
+      "default" : true,
+      "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
+      "title" : "Show Shortcuts When Holding a Modifier",
+      "type" : "boolean"
+    },
     "sidebar.border" : {
       "default" : false,
       "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",

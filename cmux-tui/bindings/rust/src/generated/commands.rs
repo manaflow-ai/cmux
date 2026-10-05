@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3117b4552592c333990727719bd3f574a23fcf0977583a45c9e05e63b269fcaa.
+// cmux-tui mux protocol 12, IR b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -148,6 +148,11 @@ pub struct BrowserFramePresentedRequest {
 
 #[rustfmt::skip]
 pub type BrowserFramePresentedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BrowserHostProviderRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3021,6 +3026,10 @@ impl CmuxClient {
 
     pub fn browser_frame_presented(&mut self, request: BrowserFramePresentedRequest) -> Result<BrowserFramePresentedResult> {
         self.execute(&BROWSER_FRAME_PRESENTED_METADATA, &request)
+    }
+
+    pub fn browser_host_provider(&mut self, request: BrowserHostProviderRequest) -> Result<T::BrowserHostProviderResult> {
+        self.execute(&BROWSER_HOST_PROVIDER_METADATA, &request)
     }
 
     pub fn browser_insert_text(&mut self, request: BrowserInsertTextRequest) -> Result<BrowserInsertTextResult> {

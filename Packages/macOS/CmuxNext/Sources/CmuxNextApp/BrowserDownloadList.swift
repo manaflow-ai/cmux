@@ -20,6 +20,10 @@ final class BrowserDownloadList {
     /// Newest last; at most `limit`.
     private(set) var items: [BrowserDownload] = []
     static let limit = 100
+    /// The newest download a site's automatic-downloads setting blocked:
+    /// that site and the tab it came from. `browser.download.openBlocked
+    /// SiteSettings` opens that site's Site settings from it.
+    private(set) var latestBlocked: (site: String, tab: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "downloads")
 
     /// Adds `item` (from tab `key`); `notice` shows a line over that tab.
@@ -29,6 +33,7 @@ final class BrowserDownloadList {
         if items.count > Self.limit { items.removeFirst(items.count - Self.limit) }
         logger.notice("download \(item.id, privacy: .public) started in tab \(key, privacy: .public)")
         item.onFinish { [weak self] item in
+            if case .blocked = item.status, let site = item.blockedSite { self?.latestBlocked = (site, key) }
             self?.finished(item, notice: notice)
         }
     }

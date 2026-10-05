@@ -33,4 +33,27 @@ import Testing
         #expect(BrowserDownloadList.notice(for: ended(.blocked("Blocked")))?.siteSettingsOrigin == nil)
         #expect(BrowserDownloadList.notice(for: ended(.cancelled)) == nil)
     }
+
+    /// The keyboard path to the change: the newest download a site blocked
+    /// names that site and its tab (`browser.download.openBlockedSiteSettings`).
+    @Test func theLatestBlockedDownloadNamesItsSiteAndTab() {
+        let list = BrowserDownloadList()
+        func add(_ status: BrowserDownload.Status, site: String?, tab: String) {
+            let item = BrowserDownload(sourceURL: URL(string: "https://files.example/a.zip"), filename: "a.zip")
+            list.add(item, tab: tab) { _ in }
+            item.blockedSite = site
+            item.complete(status)
+        }
+        #expect(list.latestBlocked == nil)
+        add(.blocked("Blocked"), site: "https://one.example", tab: "tab-1")
+        #expect(list.latestBlocked?.site == "https://one.example")
+        #expect(list.latestBlocked?.tab == "tab-1")
+        add(.blocked("Blocked"), site: "https://two.example", tab: "tab-2")
+        #expect(list.latestBlocked?.site == "https://two.example")
+        #expect(list.latestBlocked?.tab == "tab-2")
+        // A finished download, or a blocked one with no site, leaves it.
+        add(.finished, site: nil, tab: "tab-3")
+        add(.blocked("Blocked"), site: nil, tab: "tab-4")
+        #expect(list.latestBlocked?.site == "https://two.example")
+    }
 }

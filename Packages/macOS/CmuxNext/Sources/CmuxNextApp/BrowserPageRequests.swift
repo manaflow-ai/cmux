@@ -35,6 +35,21 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
 
+    /// Site settings of `site`, a site whose automatic-downloads setting
+    /// blocked a download in tab `tab` (its profile's store). One path for
+    /// the notice's button and `browser.download.openBlockedSiteSettings`.
+    @discardableResult
+    func openBlockedSiteSettings(site: String, tab: String) -> Bool {
+        guard let chrome = services?.cache.existingBrowser(tab)?.chrome else { return false }
+        chrome.pageInfo.showSiteSettings(origin: site)
+        return true
+    }
+
+    /// Whether the newest blocked download's tab is still open.
+    var canOpenLatestBlockedSiteSettings: Bool {
+        downloads.latestBlocked.flatMap { services?.cache.existingBrowser($0.tab) } != nil
+    }
+
     func browserTab(_ page: any BrowserTab, didRequest intent: BrowserTabIntent) {
         // A popup panel's page: the panel handles it (window.close closes
         // the panel), except links it opens in tabs (its opener's pane).
@@ -95,9 +110,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
             downloads.add(item, tab: key) { [weak services] notice in
                 guard let chrome = services?.cache.existingBrowser(key)?.chrome else { return }
                 // A blocked download offers the blocking site's Site
-                // settings, where its automatic-downloads choice changes.
+                // settings, where its automatic-downloads choice changes
+                // (the same path as browser.download.openBlockedSiteSettings).
                 let action = notice.siteSettingsOrigin.map { origin -> (title: String, run: () -> Void) in
-                    (title: BrowserHitStrings.siteSettings, run: { [weak chrome] () -> Void in chrome?.pageInfo.showSiteSettings(origin: origin) })
+                    (title: BrowserHitStrings.siteSettings, run: { [weak self] () -> Void in _ = self?.openBlockedSiteSettings(site: origin, tab: key) })
                 }
                 chrome.showNotice(notice.text, action: action)
             }

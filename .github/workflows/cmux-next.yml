@@ -42,6 +42,7 @@ on:
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
+      - tests/test_check_app_personalities.sh
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -82,6 +83,7 @@ on:
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
+      - tests/test_check_app_personalities.sh
   workflow_dispatch:
 
 permissions:
@@ -471,14 +473,16 @@ jobs:
       - name: Check the app FFI pin
         run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
 
-      # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
+      # macOS-only script behavior tests (PlistBuddy, plutil, lipo): the "Bundle
       # server helper" phase writes the server helper and agent plists without
       # the app's processed Info.plist, and release signing signs every
-      # libexec helper and restamps the plists from the final bundle id.
+      # libexec helper and restamps the plists from the final bundle id; the
+      # app personality check reads the bundle's Info.plist.
       - name: Script tests (bundle-server-helper)
         run: |
           bash scripts/cmux-next/tests/bundle-server-helper.test.sh
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
+          bash tests/test_check_app_personalities.sh
 
       - name: Build package and tests
         id: build-tests

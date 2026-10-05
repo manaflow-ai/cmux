@@ -350,6 +350,14 @@ class BrowserFrame:
 
 
 @dataclass(frozen=True)
+class BrowserHostProviderResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserHostProviderResult'
+    host_pid: int
+    secret: str
+    socket: str
+
+
+@dataclass(frozen=True)
 class BrowserProviderSnapshot:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderSnapshot'
     available: bool
@@ -1786,6 +1794,12 @@ class BrowserFramePresentedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-frame-presented/request'
     surface: Id
     frame_seq: int
+
+
+@dataclass(frozen=True)
+class BrowserHostProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-host-provider/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -4369,6 +4383,7 @@ __all__ = [
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'BrowserFrame',
+    'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
     'BrowserProviderTarget',
     'BrowserProviderUnregisterResult',
@@ -4519,6 +4534,7 @@ __all__ = [
     'BrowserBackRequest',
     'BrowserForwardRequest',
     'BrowserFramePresentedRequest',
+    'BrowserHostProviderRequest',
     'BrowserInsertTextRequest',
     'BrowserKeyRequest',
     'BrowserKeyPressRequest',
