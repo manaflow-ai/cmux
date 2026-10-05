@@ -89,15 +89,15 @@ public struct TerminalSizingEngine: Sendable {
     @discardableResult
     public mutating func noteActivity(_ id: String, kind: TerminalSizingActivityKind, at: UInt64) -> Bool {
         guard let i = index(id) else { return false }
-        var next = entries
-        next[i].activity = activityClock + 1
-        next[i].activeAt = at
-        if kind == .input, let owner = holdingOwner(at: at), owner != id,
-           decide(next.filter(counts)).1 != state.owners {
-            return false
+        if kind == .input, let owner = holdingOwner(at: at), owner != id {
+            var next = entries
+            next[i].activity = activityClock + 1
+            next[i].activeAt = at
+            if decide(next.filter(counts)).1 != state.owners { return false }
         }
         activityClock += 1
-        entries = next
+        entries[i].activity = activityClock
+        entries[i].activeAt = at
         return publish()
     }
 
@@ -148,8 +148,11 @@ public struct TerminalSizingEngine: Sendable {
 
     /// The single owner picked by activity, while it is inside its hold.
     private func holdingOwner(at: UInt64) -> String? {
-        guard [.latest, .priority, .priorityFallback].contains(state.reason),
-              state.owners.count == 1, let owner = state.owners.first,
+        switch state.reason {
+        case .latest, .priority, .priorityFallback: break
+        default: return nil
+        }
+        guard state.owners.count == 1, let owner = state.owners.first,
               let entry = entries.first(where: { $0.participant.id == owner }) else { return nil }
         // A clock that went backwards counts as inside the hold.
         guard at < entry.activeAt || at - entry.activeAt < Self.activityHoldMilliseconds else { return nil }

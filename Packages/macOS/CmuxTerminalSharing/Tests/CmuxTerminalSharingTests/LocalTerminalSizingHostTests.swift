@@ -82,11 +82,11 @@ import Testing
         let disconnected = h.disconnect("mobile:a", detachment: detachment)
         #expect(disconnected)
         #expect(h.isDetached("mobile:a"))
-        h.syncPhones([phone("a", user: "u_other")], at: 10_000)
+        h.syncPhones([phone("a", user: "u_other")], at: 20_000)
         #expect(h.state.participant("mobile:a") == nil)
         #expect(h.applyTarget == .uncapped)
         h.reattach("mobile:a", asViewer: true, at: 30_000)
-        h.syncPhones([phone("a", user: "u_other")], at: 10_000)
+        h.syncPhones([phone("a", user: "u_other")], at: 40_000)
         #expect(h.state.participant("mobile:a")?.participant.countsOverride == false)
         #expect(h.applyTarget == .uncapped)
     }

@@ -71,6 +71,7 @@ use crate::sizing_policy::{
     TerminalDetachActor, TerminalDeviceKind, TerminalSizingActivityKind, TerminalSizingPolicy,
     TerminalSizingState, detach_reason,
 };
+use crate::stream_interrupt::{InterruptSet, StreamInterrupt};
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
@@ -1835,7 +1836,14 @@ impl std::error::Error for DeliveryClassifiedError {
     }
 }
 
-const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
+/// Re-check bound for a writer blocked on a full stream queue. It runs only
+/// while a stream is backpressured (active output), never while idle: the
+/// writer thread notifies after every pop, and this bound covers a stream
+/// closed by another thread while its queue stays full.
+const BACKPRESSURE_RECHECK: Duration = Duration::from_millis(100);
+/// First and longest pause after an accept error that can persist.
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
@@ -2069,11 +2077,34 @@ struct ConnectionSurfaceState {
     closed: bool,
 }
 
+/// Set when a connection's request scheduler closes. Request handlers that
+/// wait (wait-for) register an interrupt instead of polling the flag.
+#[derive(Default)]
+struct ConnectionCancellation {
+    flag: AtomicBool,
+    interrupts: InterruptSet,
+}
+
+impl ConnectionCancellation {
+    fn cancel(&self) {
+        self.flag.store(true, Ordering::Release);
+        self.interrupts.fire();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::Acquire)
+    }
+
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.interrupts.register(interrupt);
+    }
+}
+
 struct ConnectionSurfaceScheduler {
     state: Mutex<ConnectionSurfaceState>,
     changed: Condvar,
     admission: Arc<ServerSurfaceOperationAdmission>,
-    cancelled: AtomicBool,
+    cancelled: ConnectionCancellation,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
     connection_permit: Mutex<Option<ConnectionPermit>>,
 }
@@ -2105,7 +2136,7 @@ impl ConnectionSurfaceScheduler {
             state: Mutex::new(ConnectionSurfaceState::default()),
             changed: Condvar::new(),
             admission,
-            cancelled: AtomicBool::new(false),
+            cancelled: ConnectionCancellation::default(),
             dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
         }
@@ -2586,6 +2617,8 @@ struct OutboundStream {
     open: Arc<AtomicBool>,
     terminal_enqueued: Arc<AtomicBool>,
     overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
+    /// Fired by `close`, so stream loops block instead of polling `is_open`.
+    closed: InterruptSet,
 }
 
 impl OutboundStream {
@@ -2595,7 +2628,12 @@ impl OutboundStream {
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
+            closed: InterruptSet::default(),
         }
+    }
+
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.closed.register(interrupt);
     }
 
     fn is_open(&self) -> bool {
@@ -2604,6 +2642,7 @@ impl OutboundStream {
 
     fn close(&self) {
         self.open.store(false, Ordering::Release);
+        self.closed.fire();
     }
 
     fn update_overflow(&self, text: Arc<BudgetedText>) {
@@ -2657,6 +2696,9 @@ struct MessageWriter {
     next_stream_id: Arc<AtomicU64>,
     render_service: Arc<RenderService>,
     wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
+    /// Fired when the writer closes, so stream loops block instead of
+    /// polling `is_open`.
+    closed: InterruptSet,
 }
 
 impl MessageWriter {
@@ -2681,6 +2723,7 @@ impl MessageWriter {
             next_stream_id: Arc::new(AtomicU64::new(1)),
             render_service,
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
+            closed: InterruptSet::default(),
         }
     }
 
@@ -2875,6 +2918,14 @@ impl MessageWriter {
         result
     }
 
+    /// Fires `interrupt` when this writer closes (at once if it is closed).
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.closed.register(interrupt);
+        if !self.is_open() {
+            interrupt.fire();
+        }
+    }
+
     fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
         let mut wakeups = self.wait_wakeups.lock().unwrap();
         wakeups.retain(|registered| registered.strong_count() > 0);
@@ -2892,6 +2943,7 @@ impl MessageWriter {
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
+            self.closed.fire();
             if preserve_control {
                 self.sink.close_after_control();
             } else {
@@ -2906,6 +2958,7 @@ impl MessageWriter {
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
+            self.closed.fire();
         }
         self.sink.abort();
     }
@@ -3064,7 +3117,7 @@ impl ConnectionSurfaceScheduler {
     }
 
     fn close(&self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancelled.cancel();
         let mut state = self.state.lock().unwrap();
         state.closed = true;
         state.requests.clear();
@@ -3358,7 +3411,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return result;
             }
-            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
             state = next;
         }
     }
@@ -3537,7 +3590,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return Ok(());
             }
-            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
             state = next;
         }
     }
@@ -4182,6 +4235,9 @@ struct ClientRegistryState {
 }
 
 pub(crate) struct ClientRegistry {
+    /// Called when a surface loses its last attached client (the idle-close
+    /// reaper starts that terminal's unattached period).
+    detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
@@ -4192,6 +4248,7 @@ pub(crate) struct ClientRegistry {
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
+            detach_waker: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
@@ -5133,6 +5190,7 @@ impl ClientRegistry {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(&surface);
+                    self.notify_detach();
                 }
             }
             return DetachedSurface {
@@ -5236,13 +5294,19 @@ impl ClientRegistry {
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
         }
+        let mut detached = false;
         for surface in record.attached.keys() {
             if let Some(clients) = state.attached_by_surface.get_mut(surface) {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(surface);
+                    detached = true;
                 }
             }
+        }
+        drop(state);
+        if detached {
+            self.notify_detach();
         }
         Some(record)
     }
@@ -5282,6 +5346,16 @@ impl ClientRegistry {
 
     /// Whether any client holds an attach stream on one of `surfaces`, and
     /// the newest attach epoch among them (0 when none was ever attached).
+    pub(crate) fn set_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        *self.detach_waker.lock().unwrap() = Some(Box::new(waker));
+    }
+
+    fn notify_detach(&self) {
+        if let Some(waker) = self.detach_waker.lock().unwrap().as_ref() {
+            waker();
+        }
+    }
+
     pub(crate) fn attach_observation(&self, surfaces: &[SurfaceId]) -> (bool, u64) {
         let state = self.state.lock().unwrap();
         let attached =
@@ -5629,8 +5703,27 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     let server_mux = mux.clone();
 
     let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
+        // accepts, and an immediate retry ran this thread at 100% CPU until
+        // descriptors freed up. Space those retries; per-connection errors
+        // need none because the next accept blocks.
+        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         loop {
-            let Ok(stream) = listener.accept() else { continue };
+            let stream = match listener.accept() {
+                Ok(stream) => {
+                    backoff.reset();
+                    stream
+                }
+                Err(error) => {
+                    if server_shutdown.load(Ordering::Acquire) {
+                        break;
+                    }
+                    if crate::backoff::accept_error_needs_backoff(&error) {
+                        backoff.sleep();
+                    }
+                    continue;
+                }
+            };
             if server_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -5715,16 +5808,21 @@ pub fn serve_websocket(
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
+        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         while !thread_shutdown.load(Ordering::Acquire) {
             let (stream, peer) = match listener.accept() {
-                Ok(connection) => connection,
-                Err(_) => {
+                Ok(connection) => {
+                    backoff.reset();
+                    connection
+                }
+                Err(error) => {
                     if thread_shutdown.load(Ordering::Acquire) {
                         break;
                     }
                     // Accept errors can persist (for example, after resource exhaustion).
-                    // A short backoff prevents a hot retry loop while still recovering promptly.
-                    std::thread::sleep(STREAM_DISCONNECT_POLL);
+                    if crate::backoff::accept_error_needs_backoff(&error) {
+                        backoff.sleep();
+                    }
                     continue;
                 }
             };
@@ -8073,6 +8171,19 @@ fn send_resource_uncursored_stream_item(
         .is_ok()
 }
 
+/// One interrupt for a resource attach loop: its connection writer, its
+/// outbound stream (closed with `canceled`) and its attach lifecycle.
+fn resource_attach_interrupt(
+    writer: &MessageWriter,
+    start: &ResourceSurfaceAttachStart,
+) -> Arc<StreamInterrupt> {
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    start.outbound.register_interrupt(&interrupt);
+    start.lifecycle.register_interrupt(&interrupt);
+    interrupt
+}
+
 fn finish_resource_surface_attach(
     mux: &Mux,
     client: u64,
@@ -8132,12 +8243,14 @@ fn start_terminal_resource_attach(
             sequence = sequence.saturating_add(1);
             let mut render_state =
                 RenderClientState::new(worker_writer.render_service.clone(), &start.attach.initial);
+            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
+            start.attach.stream.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.common.outbound.is_open()
                 && !start.common.canceled.load(Ordering::Acquire)
                 && !start.common.lifecycle.is_canceled()
             {
-                let item = match start.attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let item = match start.attach.stream.recv_until_interrupted(&interrupt) {
                     Ok(RenderAttachFrame::Frame(frame)) => {
                         terminal_resource_patch(&start.terminal_id, &mut render_state, &frame)
                     }
@@ -8366,12 +8479,14 @@ fn start_browser_resource_attach(
                 }
                 sequence = sequence.saturating_add(1);
             }
+            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
+            start.frames.notify.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.common.outbound.is_open()
                 && !start.common.canceled.load(Ordering::Acquire)
                 && !start.common.lifecycle.is_canceled()
             {
-                match start.frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                match start.frames.notify.recv_until_interrupted(&interrupt) {
                     Ok(()) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -8523,11 +8638,16 @@ fn start_sidebar_resource_attach(
             }
             sequence = sequence.saturating_add(1);
             let mut render_state = SidebarRenderClientState::new(&start.attachment.initial);
+            // `canceled` is only set together with closing `outbound`.
+            let interrupt = StreamInterrupt::new();
+            worker_writer.register_interrupt(&interrupt);
+            start.outbound.register_interrupt(&interrupt);
+            start.attachment.stream.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.outbound.is_open()
                 && !start.canceled.load(Ordering::Acquire)
             {
-                let item = match start.attachment.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let item = match start.attachment.stream.recv_until_interrupted(&interrupt) {
                     Ok(RenderAttachFrame::Frame(frame)) => {
                         render_state.patch(&start.attachment.sidebar_view_id, &frame)
                     }
@@ -8846,11 +8966,22 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
+    // `canceled` is only set together with closing `outbound`, but the
+    // outbound can also close alone (a victim of a full connection queue):
+    // the loops check all three, or a fired interrupt would spin. The stream
+    // used to wake every second to re-check them.
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    stream.outbound.register_interrupt(&interrupt);
+    mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if stream.canceled.load(Ordering::Acquire)
+            || !writer.is_open()
+            || !stream.outbound.is_open()
+        {
             break;
         }
-        let epoch = mux.wait_for_resource_event(stream.epoch, Duration::from_secs(1));
+        let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
         if epoch == stream.epoch {
             continue;
         }
@@ -9405,6 +9536,11 @@ fn run_session_journal_stream(
     writer: &MessageWriter,
     mut stream: SessionJournalStreamStart,
 ) {
+    // `canceled` is only set together with closing `outbound`.
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    stream.outbound.register_interrupt(&interrupt);
+    mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
         if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
             break;
@@ -9568,13 +9704,16 @@ fn run_session_journal_stream(
             }
         }
         loop {
-            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            if stream.canceled.load(Ordering::Acquire)
+                || !writer.is_open()
+                || !stream.outbound.is_open()
+            {
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {
-                mux.wait_for_shared_journal(stream.epoch, Duration::from_secs(1))
+                mux.wait_for_shared_journal_until_interrupted(stream.epoch, &interrupt)
             } else {
-                mux.wait_for_journal_event(stream.epoch, Duration::from_secs(1))
+                mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt)
             };
             if epoch != stream.epoch {
                 stream.epoch = epoch;
@@ -9748,7 +9887,7 @@ fn handle_request_with_cancellation(
     client: u64,
     request: Request,
     writer: &MessageWriter,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
     if let Command::UrlOpen { terminal_id, url } = cmd {
@@ -11515,8 +11654,13 @@ fn spawn_attach_notification_stream(
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
+            let interrupt = StreamInterrupt::new();
+            writer.register_interrupt(&interrupt);
+            outbound_stream.register_interrupt(&interrupt);
+            lifecycle.register_interrupt(&interrupt);
+            events.wake_on(&interrupt);
             while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let event = match events.recv_until_interrupted(&interrupt) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -11907,6 +12051,7 @@ fn terminal_renderer_grant_json(
         "token": grant.token,
         "rights": grant.rights.bits(),
         "protocol_version": grant.protocol_version,
+        "supports_viewer_size_priority": grant.supports_viewer_size_priority,
         "ttl_ms": ttl_ms,
     })
 }
@@ -11916,7 +12061,7 @@ fn handle_command_with_cancellation(
     client: u64,
     cmd: Command,
     writer: &MessageWriter,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::UrlOpenSubscribe { terminal_ids } => {
@@ -12420,7 +12565,7 @@ fn handle_command_with_cancellation(
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            let cancelled = || cancellation.is_some_and(|flag| flag.load(Ordering::Acquire));
+            let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
             if cancelled() {
                 anyhow::bail!("connection closed while waiting for pattern");
             }
@@ -12444,6 +12589,13 @@ fn handle_command_with_cancellation(
             }
             let deadline = start + Duration::from_millis(timeout_ms);
             let attach = surface.attach_stream()?;
+            // The wait ends on output, the deadline, or the connection
+            // closing; it used to wake every 100 ms to check the last.
+            let interrupt = StreamInterrupt::new();
+            if let Some(cancellation) = cancellation {
+                cancellation.register_interrupt(&interrupt);
+            }
+            attach.stream.wake_on(&interrupt);
             if let Some(text) = check()? {
                 return Ok(json!({
                     "matched": true,
@@ -12459,8 +12611,7 @@ fn handle_command_with_cancellation(
                 if now >= deadline {
                     anyhow::bail!("timeout waiting for pattern");
                 }
-                let remaining = deadline.saturating_duration_since(now);
-                match attach.stream.recv_timeout(remaining.min(STREAM_DISCONNECT_POLL)) {
+                match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
                     Ok(_) => {
                         if let Some(text) = check()? {
                             return Ok(json!({
@@ -13646,8 +13797,12 @@ fn handle_command_with_cancellation(
                         break;
                     }
                 }
+                let interrupt = StreamInterrupt::new();
+                writer.register_interrupt(&interrupt);
+                outbound_stream.register_interrupt(&interrupt);
+                events.wake_on(&interrupt);
                 while writer.is_open() && outbound_stream.is_open() {
-                    let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    let event = match events.recv_until_interrupted(&interrupt) {
                         Ok(event) => event,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -13826,30 +13981,35 @@ fn handle_command_with_cancellation(
                         }
                         let mut state =
                             RenderClientState::new(writer.render_service.clone(), &attach.initial);
+                        let interrupt = StreamInterrupt::new();
+                        writer.register_interrupt(&interrupt);
+                        outbound_stream.register_interrupt(&interrupt);
+                        lifecycle.register_interrupt(&interrupt);
+                        attach.stream.wake_on(&interrupt);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
-                            let send_result =
-                                match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
-                                    Ok(RenderAttachFrame::Frame(frame)) => {
-                                        let message = state.delta_message(surface_id, &frame);
-                                        writer.send_stream_backpressured(&message, &outbound_stream)
-                                    }
-                                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                                        writer.send_stream_backpressured(
-                                            &json!({
-                                                "event": "scroll-changed",
-                                                "surface": surface_id,
-                                                "offset": offset,
-                                                "at_bottom": at_bottom,
-                                            }),
-                                            &outbound_stream,
-                                        )
-                                    }
-                                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                                };
+                            let send_result = match attach.stream.recv_until_interrupted(&interrupt)
+                            {
+                                Ok(RenderAttachFrame::Frame(frame)) => {
+                                    let message = state.delta_message(surface_id, &frame);
+                                    writer.send_stream_backpressured(&message, &outbound_stream)
+                                }
+                                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                                    writer.send_stream_backpressured(
+                                        &json!({
+                                            "event": "scroll-changed",
+                                            "surface": surface_id,
+                                            "offset": offset,
+                                            "at_bottom": at_bottom,
+                                        }),
+                                        &outbound_stream,
+                                    )
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                            };
                             if let Err(error) = send_result {
                                 handle_attach_send_error(&lifecycle, &error);
                                 break;
@@ -13981,11 +14141,16 @@ fn handle_command_with_cancellation(
                         if worker_committed.recv().is_err() {
                             return;
                         }
+                        let interrupt = StreamInterrupt::new();
+                        writer.register_interrupt(&interrupt);
+                        outbound_stream.register_interrupt(&interrupt);
+                        lifecycle.register_interrupt(&interrupt);
+                        frames.notify.wake_on(&interrupt);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
-                            match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                            match frames.notify.recv_until_interrupted(&interrupt) {
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -14120,11 +14285,16 @@ fn handle_command_with_cancellation(
                     if worker_committed.recv().is_err() {
                         return;
                     }
+                    let interrupt = StreamInterrupt::new();
+                    writer.register_interrupt(&interrupt);
+                    outbound_stream.register_interrupt(&interrupt);
+                    attach.lifecycle.register_interrupt(&interrupt);
+                    attach.stream.wake_on(&interrupt);
                     while writer.is_open()
                         && outbound_stream.is_open()
                         && !attach.lifecycle.is_canceled()
                     {
-                        let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                        let frame = match attach.stream.recv_interruptible(&interrupt, None) {
                             Ok(frame) => frame,
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

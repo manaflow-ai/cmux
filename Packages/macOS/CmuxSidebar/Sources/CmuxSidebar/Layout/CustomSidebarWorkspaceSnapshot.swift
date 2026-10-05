@@ -59,6 +59,12 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let listeningPorts: [Int]
     /// The workspace's unread count (`workspaces[i].unread`).
     public let unreadCount: Int
+    /// The workspace's resolved task-status lane (`workspaces[i].status`):
+    /// the raw wire value of `WorkspaceTaskStatus` — `todo`, `working`,
+    /// `needs-attention`, `review` or `done`. Carried as a string so this
+    /// package does not depend on the app-side enum, the same way
+    /// `ControlWorkspaceTodoStatusSnapshot` crosses its seam.
+    public let taskStatus: String
     /// Surfaces in pane order (`workspaces[i].tabs`).
     public let surfaces: [CustomSidebarSurfaceSnapshot]
     /// Total surface count across panes (`workspaces[i].tabCount`).
@@ -114,8 +120,10 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         latestSubmittedAt: Date?,
         remote: Remote?,
         agents: [CustomSidebarAgentSnapshot] = [],
-        groupId: UUID? = nil
+        groupId: UUID? = nil,
+        taskStatus: String
     ) {
+        self.taskStatus = taskStatus
         self.groupId = groupId
         self.id = id
         self.title = title

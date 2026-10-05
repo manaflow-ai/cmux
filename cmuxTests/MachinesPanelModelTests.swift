@@ -11,6 +11,29 @@ import XCTest
 @testable import cmux
 #endif
 final class MachinesPanelModelTests: XCTestCase {
+    @MainActor
+    func testLocalWorkspaceProjectionRefreshesWithoutCatalogPoll() {
+        let first = UUID()
+        let second = UUID()
+        var selected = first
+        let model = MachinesPanelViewModel(
+            client: nil,
+            isCloudEnabled: { false },
+            localWorkspacesProvider: {
+                [
+                    CloudTreeLocalWorkspace(id: first, title: "first", isSelected: selected == first),
+                    CloudTreeLocalWorkspace(id: second, title: "second", isSelected: selected == second),
+                ]
+            }
+        )
+
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
+        XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, first)
+        selected = second
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
+        XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, second)
+    }
+
     func testSnapshotMapsSummaryFields() {
         let summary = VMSummary(
             id: "noble-wren",
@@ -579,11 +602,14 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
-        // Only terminals and displays leave the tree by drag; workspaces,
-        // browsers, ports, machines, and headers do not.
+        // Remote workspace rows export their placement group alongside terminal
+        // and display leaves. Local workspace groups remain reorder-only because
+        // they point at live panes in the source workspace.
         for node in flattened {
             switch node.kind {
             case .terminal, .display:
+                XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
+            case .workspace where !node.machine.isLocal:
                 XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
             default:
                 XCTAssertFalse(node.isDragSource, "\(node.id) should not drag")

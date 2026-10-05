@@ -58,11 +58,7 @@ public struct UpdatePopoverView: View {
                 ExtractingView(extracting: extracting)
 
             case .installing(let installing):
-                if let blockers = installing.relaunchBlockers {
-                    WaitingToRelaunchView(installing: installing, blockers: blockers, dismiss: dismiss)
-                } else {
-                    InstallingView(installing: installing, dismiss: dismiss)
-                }
+                InstallingView(installing: installing, dismiss: dismiss)
 
             case .notFound(let notFound):
                 NotFoundView(notFound: notFound, dismiss: dismiss)
@@ -434,129 +430,6 @@ private struct InstallingView: View {
             }
         }
         .padding(16)
-    }
-}
-
-/// A held update relaunch: one compact list of the agent sessions it would resume, each with
-/// a safety chip and what it is doing, and the choices that fit why it is held.
-private struct WaitingToRelaunchView: View {
-    let installing: UpdateState.Installing
-    let blockers: UpdateRelaunchBlockers
-    let dismiss: () -> Void
-
-    private var isAskingUser: Bool { installing.updateWhenClear != nil }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "update.readyWaiting", defaultValue: "Update Ready"))
-                    .cmuxFont(size: 13, weight: .semibold)
-
-                Text(UpdateStateModel.relaunchBlockersDescription(blockers, askingUser: isAskingUser))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !blockers.agents.isEmpty || blockers.runningCommandCount > 0 {
-                VStack(alignment: .leading, spacing: 6) {
-                    // Risky first: those are the ones the user is deciding about.
-                    ForEach(sortedAgents) { agent in
-                        AgentRow(agent: agent)
-                    }
-                    if blockers.runningCommandCount > 0 {
-                        HStack(spacing: 6) {
-                            SafetyChip(safety: .risky)
-                            Text(UpdateStateModel.runningCommandsLabel(blockers.runningCommandCount))
-                                .cmuxFont(size: 11)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-                .accessibilityIdentifier("UpdateRelaunchAgentList")
-            }
-
-            HStack {
-                Button(isAskingUser
-                    ? String(localized: "update.wait", defaultValue: "Wait")
-                    : String(localized: "common.later", defaultValue: "Later")) {
-                    installing.dismiss()
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-                .controlSize(.small)
-
-                Spacer()
-
-                if let updateWhenClear = installing.updateWhenClear {
-                    Button(String(localized: "update.updateWhenFinished", defaultValue: "Update When These Finish")) {
-                        updateWhenClear()
-                        dismiss()
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.small)
-                }
-
-                // No default-action shortcut: this stops risky agents' commands.
-                Button(blockers.needsConfirmation
-                    ? String(localized: "update.updateAnyway", defaultValue: "Update Anyway")
-                    : String(localized: "update.installNow", defaultValue: "Install Now")) {
-                    installing.retryTerminatingApplication()
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-        }
-        .padding(16)
-        .frame(width: 340)
-    }
-
-    private var sortedAgents: [UpdateRelaunchAgent] {
-        let order: [UpdateResumeSafety: Int] = [.risky: 0, .care: 1, .safe: 2]
-        return blockers.agents.sorted { (order[$0.safety] ?? 3) < (order[$1.safety] ?? 3) }
-    }
-}
-
-private struct AgentRow: View {
-    let agent: UpdateRelaunchAgent
-
-    var body: some View {
-        HStack(spacing: 6) {
-            SafetyChip(safety: agent.safety)
-            Text(agent.name)
-                .cmuxFont(size: 11, weight: .medium)
-                .lineLimit(1)
-            Text(agent.activity)
-                .cmuxFont(size: 11)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .help(agent.location.isEmpty ? agent.activity : "\(agent.location): \(agent.activity)")
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct SafetyChip: View {
-    let safety: UpdateResumeSafety
-
-    var body: some View {
-        Text(UpdateStateModel.safetyLabel(safety))
-            .cmuxFont(size: 9, weight: .semibold)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(color.opacity(0.18)))
-            .foregroundColor(color)
-            .fixedSize()
-    }
-
-    private var color: Color {
-        switch safety {
-        case .safe: return .green
-        case .care: return .blue
-        case .risky: return .orange
-        }
     }
 }
 

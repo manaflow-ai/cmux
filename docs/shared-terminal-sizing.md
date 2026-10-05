@@ -111,9 +111,10 @@ activity inside one priority key or under `priority-fallback`), input from a
 participant other than the owner takes the grid only once the owner has had
 no activity for 2000 ms. Two devices typing at once therefore keep the grid
 where it is instead of flipping it on every keystroke. Input that would not
-move the grid is recorded as usual; input that would move it inside the hold
-is dropped, so the other device takes the grid with its next keystroke after
-the hold. The owner's own activity always refreshes the hold. Attach and an
+move the grid is recorded as usual. For input that would move it inside the
+hold, the keystrokes still reach the terminal and only the activity update is
+dropped, so the other device takes the grid with its next keystroke after the
+hold. The owner's own activity always refreshes the hold. Attach and an
 explicit focus-click (and Size to My Window) take the grid at once, and an
 owner detach picks the next owner at once. The hold constant lives in
 `TerminalSizingEngine.activityHoldMilliseconds` and `ACTIVITY_HOLD_MS`.

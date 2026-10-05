@@ -116,6 +116,27 @@ print -r -- "PREFIX=$(_cmux_pr_cache_prefix)"
         self.assertEqual(cached.read_text(), "contract-branch\n")
         self.assert_private_directory(cached.parent)
 
+    def test_pr_probe_does_not_run_directory_change_hooks(self):
+        output = self.run_zsh(r'''
+expected_repo="$PWD"
+_record_directory_change() { print -r -- "$PWD" >> "$HOME/chpwd.log"; }
+add-zsh-hook chpwd _record_directory_change
+gh() {
+    [[ "$PWD" == "$expected_repo" ]] || return 1
+    printf '123\tOPEN\thttps://github.com/example/repo/pull/123\n'
+}
+_cmux_report_pr_for_path "$expected_repo"
+_cmux_report_pr_for_path "$expected_repo"
+print -r -- "PREFIX=$(_cmux_pr_cache_prefix)"
+''')
+
+        self.assertFalse((self.directory / "chpwd.log").exists(), "PR refresh ran chpwd hooks")
+        prefix = output.split("PREFIX=", 1)[1].strip()
+        self.assertEqual(
+            Path(f"{prefix}.result").read_text(),
+            "pr\t123\tOPEN\thttps://github.com/example/repo/pull/123\n",
+        )
+
     def test_debug_log_writes_no_file_in_shared_tmp(self):
         self.plant_symlink(Path("/tmp/cmux-pr-debug.log"), self.victim)
 

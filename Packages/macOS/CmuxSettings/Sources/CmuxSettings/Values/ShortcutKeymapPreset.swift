@@ -44,6 +44,7 @@ public enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
             return [
                 .closeOtherTabsInPane: .stroke("cmd+opt+w"),
                 .renameTab: .stroke("cmd+shift+i"),
+                .agentInbox: .unbound,
             ]
         case .tmux:
             let prefix = "ctrl+b"

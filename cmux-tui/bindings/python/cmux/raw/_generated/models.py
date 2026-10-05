@@ -720,6 +720,7 @@ class MintTerminalRendererResult:
     rights: int
     token: str
     ttl_ms: int
+    supports_viewer_size_priority: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1887,8 +1888,8 @@ class NewWorkspaceRequest:
 class NoteSizeActivityRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/note-size-activity/request'
     surface: Id
-    kind: Union[SizeActivityKind, None, MissingType] = field(default=MISSING)
     view: Union[str, None, MissingType] = field(default=MISSING)
+    kind: Union[SizeActivityKind, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

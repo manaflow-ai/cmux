@@ -186,17 +186,14 @@ struct LocalTmuxCommandBuilder {
     }
 }
 
-/// Resolves tmux without trusting a GUI-launched process's reduced PATH.
+/// Resolves tmux (or zellij, for local-zellij) without trusting a
+/// GUI-launched process's reduced PATH.
 struct LocalTmuxExecutableResolver {
+    var executableName = "tmux"
+
     func resolve(
         environmentPath: String?,
-        commonPaths: [String] = [
-            "/opt/homebrew/bin/tmux",
-            "/usr/local/bin/tmux",
-            "/opt/local/bin/tmux",
-            "/usr/bin/tmux",
-            "/bin/tmux",
-        ],
+        commonPaths: [String]? = nil,
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         isDirectory: (String) -> Bool = { path in
             var directory = ObjCBool(false)
@@ -209,10 +206,16 @@ struct LocalTmuxExecutableResolver {
             for rawDirectory in environmentPath.split(separator: ":", omittingEmptySubsequences: false) {
                 let directory = String(rawDirectory)
                 guard directory.hasPrefix("/"), !directory.contains("\0") else { continue }
-                candidates.append((directory as NSString).appendingPathComponent("tmux"))
+                candidates.append((directory as NSString).appendingPathComponent(executableName))
             }
         }
-        candidates.append(contentsOf: commonPaths)
+        candidates.append(contentsOf: commonPaths ?? [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/local/bin",
+            "/usr/bin",
+            "/bin",
+        ].map { ($0 as NSString).appendingPathComponent(executableName) })
         var seen = Set<String>()
         return candidates.first { candidate in
             seen.insert(candidate).inserted

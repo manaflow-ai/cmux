@@ -75,6 +75,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
     private let borderLayer = CAShapeLayer()
     private let chip = TerminalSizeBoundsChipView()
     private var lastGridKey: String?
+    private var lastGeometry: TerminalSizeBoundsGeometry?
+    private var lastGeometryBounds: NSRect?
     private var animateNextBorderChange = false
     private var lastBorderEdges: TerminalSizeBoundsEdges = []
     private var detachedCardHost: NSHostingView<TerminalSharingDetachedCard>?
@@ -101,8 +103,12 @@ final class TerminalSizeBoundsOverlayView: NSView {
     /// Whether a snapshot is shown; the legacy phone border hides while it is.
     var isPresentingSharing: Bool { snapshot?.showsSizingChrome == true }
 
+    /// Applies a new authoritative sharing snapshot and invalidates presentation only when it changes.
     func update(snapshot: TerminalSharingSnapshot?) {
+        guard self.snapshot != snapshot else { return }
         self.snapshot = snapshot
+        lastGeometry = nil
+        lastGeometryBounds = nil
         updateDetachedCard()
         let key = snapshot.map { "\($0.state.cols)x\($0.state.rows)" }
         if let key, let lastGridKey, key != lastGridKey { animateNextBorderChange = true }
@@ -113,9 +119,14 @@ final class TerminalSizeBoundsOverlayView: NSView {
         needsLayout = true
     }
 
-    /// Re-reads the surface geometry (pane resized or font changed).
+    /// Re-reads the surface geometry (pane resized or font changed), and
+    /// invalidates the chrome only when a rendered geometry input changes.
     func refreshGeometry() {
-        guard !isHidden else { return }
+        guard !isHidden, let snapshot,
+              let geometry = currentGeometry(for: snapshot) else { return }
+        guard geometry != lastGeometry || bounds != lastGeometryBounds else { return }
+        lastGeometry = geometry
+        lastGeometryBounds = bounds
         needsDisplay = true
         needsLayout = true
     }

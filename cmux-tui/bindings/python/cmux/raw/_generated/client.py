@@ -189,8 +189,8 @@ class GeneratedClientMixin:
     def new_workspace(self, *, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-workspace', NewWorkspaceRequest(name=name, cols=cols, rows=rows))
 
-    def note_size_activity(self, surface: Id, *, kind: Union[SizeActivityKind, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> NoteSizeActivityResult:
-        return self._invoke_command('note-size-activity', NoteSizeActivityRequest(surface=surface, kind=kind, view=view))
+    def note_size_activity(self, surface: Id, *, view: Union[str, None, MissingType] = MISSING, kind: Union[SizeActivityKind, None, MissingType] = MISSING) -> NoteSizeActivityResult:
+        return self._invoke_command('note-size-activity', NoteSizeActivityRequest(surface=surface, view=view, kind=kind))
 
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface))

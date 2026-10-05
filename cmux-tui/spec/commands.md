@@ -2829,9 +2829,12 @@ for shared sizing. Without `view` it marks the caller's own view of the
 terminal. With `view` it marks that relay sub-view of this connection, so a
 relay forwarding a phone's input credits the phone instead of itself. Under
 `latest` the marked participant takes the grid when it counts. `kind` is
-`input` (default) or `focus`: input from a participant that does not own the
-grid takes it only after the owner has been idle for 2000 ms, while focus (a
-focus-click, Size to My Window) takes it at once. A daemon that predates
+`input` (default) or `focus`: where activity picks the owner (`latest`, the
+newest activity inside one `priority` key, and `priority-fallback`), input
+from a participant that does not own the grid takes it only after the owner
+has been idle for 2000 ms, while focus (a focus-click, Size to My Window)
+takes it at once. Held input still reaches the terminal; only the ownership
+update is ignored. A daemon that predates
 `kind` ignores it and treats every activity as immediate. The command
 requires the client capability `shared-sizing-v1`. Plain `send`/`send-key`
 already mark the caller's own view as input.

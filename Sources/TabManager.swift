@@ -214,7 +214,7 @@ class TabManager: ObservableObject {
     // timing (objectWillChange + bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
-    private(set) var workspacesById: [UUID: Workspace] = [:]
+    var workspacesById: [UUID: Workspace] { workspaces.tabsById }
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
@@ -274,7 +274,6 @@ class TabManager: ObservableObject {
     /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
     /// bridge fire before storage changes, matching @Published timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
-        workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
     }
@@ -906,7 +905,7 @@ class TabManager: ObservableObject {
 
     var selectedWorkspace: Workspace? {
         guard let selectedTabId else { return nil }
-        return tabs.first(where: { $0.id == selectedTabId })
+        return workspaces.tab(id: selectedTabId)
     }
 
     // Keep selectedTab as convenience alias
@@ -3714,13 +3713,6 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
-        tabs.reduce(0) { count, workspace in
-            count + workspace.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
-        }
-    }
-
-    @discardableResult
     func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {
         guard let panel = focusedBrowserPanel else { return nil }
         return action(panel)
@@ -4648,7 +4640,8 @@ class TabManager: ObservableObject {
         globalConfigPath: String,
         settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
-        workspaceCommands: [String: CmuxResolvedCommand]
+        workspaceCommands: [String: CmuxResolvedCommand],
+        usesCompactCluster: Bool = false
     ) {
         for workspace in tabs {
             workspace.applySurfaceTabBarButtons(
@@ -4657,7 +4650,8 @@ class TabManager: ObservableObject {
                 globalConfigPath: globalConfigPath,
                 settingPresets: settingPresets,
                 terminalCommandSourcePaths: terminalCommandSourcePaths,
-                workspaceCommands: workspaceCommands
+                workspaceCommands: workspaceCommands,
+                usesCompactCluster: usesCompactCluster
             )
         }
     }
@@ -7320,9 +7314,11 @@ extension Notification.Name {
     static let commandPaletteRenameRequested = Notification.Name("cmux.commandPaletteRenameRequested")
     static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
+    static let agentInboxReplyFieldFocusChanged = Notification.Name("cmux.agentInboxReplyFieldFocusChanged")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let agentInboxRequested = Notification.Name("cmux.agentInboxRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")

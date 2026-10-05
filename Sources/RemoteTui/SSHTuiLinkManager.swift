@@ -37,7 +37,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// starts, so an explicit open reports OpenSSH's failure in seconds like
     /// `ssh`. Restores and reconnects skip it: the carrier's own retries wait
     /// for a host or an agent that comes back, with one login per link.
-    func connected(machineID: String, preflight: Bool) async throws -> CloudMachineLink.Connected {
+    func connected(machineID: String, preflight: Bool, upgrade: Bool = false) async throws -> CloudMachineLink.Connected {
         guard machineID == connection.id else { throw CancellationError() }
         guard isEnabled() else { await disconnect(); throw CancellationError() }
         if let current, await current.isConnected, let ready = await current.connected { return ready }
@@ -70,7 +70,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         let attempt = Task { [carrier] in
             try await link.connect(route: "ssh://" + connection.configuration.destination,
                                    session: connection.session, carrier: true,
-                                   timeout: deadline - ContinuousClock.now, ssh: carrier)
+                                   timeout: deadline - ContinuousClock.now, ssh: carrier,
+                                   sshUpgrade: upgrade)
         }
         connecting = attempt
         defer { if connecting == attempt { connecting = nil } }

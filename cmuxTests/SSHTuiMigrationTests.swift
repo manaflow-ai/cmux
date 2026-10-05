@@ -14,6 +14,28 @@ import Testing
 
 @Suite("SSH cmux-tui migration", .serialized)
 struct SSHTuiMigrationTests {
+    @Test("SSH terminal failures do not use Cloud wording")
+    func sshTerminalFailureUsesSSHCopy() {
+        let failure = CloudPaneCreationFailure(machine: .ssh("austins-macbook-pro"), error: CloudMachineLink.LinkError.timedOut)
+
+        #expect(failure.displayTitle == "Couldn’t open SSH terminal")
+        #expect(failure.errorText == "The SSH connection could not be established.")
+        #expect(failure.recoveryText.contains("SSH connection"))
+        #expect(!failure.copyableText.contains("Cloud"))
+    }
+
+    @Test("SSH terminal failures do not expose provider responses")
+    func sshTerminalFailureSanitizesProviderDetails() {
+        struct LeakyError: LocalizedError {
+            var errorDescription: String? { "provider-name: response payload and secret" }
+        }
+        let failure = CloudPaneCreationFailure(machine: .ssh("host"), error: LeakyError())
+
+        #expect(!failure.errorText.contains("provider-name"))
+        #expect(!failure.copyableText.contains("response payload"))
+        #expect(!failure.copyableText.contains("secret"))
+    }
+
     private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             terminalProfile: profile, destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
@@ -118,6 +140,15 @@ struct SSHTuiMigrationTests {
         }
     }
 
+    @Test("Restore-only SSH carriers request sidecar recovery")
+    func restoreCarrierRequestsSidecarUpgrade() {
+        let connection = SSHTuiConnection(configuration: configuration())
+        let fresh = connection.arguments(stateDirectory: "/tmp/state", deviceName: "test")
+        let restored = connection.arguments(stateDirectory: "/tmp/state", deviceName: "test", upgrade: true)
+        #expect(!fresh.contains("--upgrade"))
+        #expect(restored.contains("--upgrade"))
+    }
+
     @Test("Changing a ControlMaster path does not change persistent SSH terminal identity")
     func sessionIdentitySurvivesCarrierReplacement() {
         let first = SSHTuiConnection(configuration: configuration(options: ["ControlPath=/tmp/first", "ProxyJump=bastion"]))
@@ -150,7 +181,16 @@ struct SSHTuiMigrationTests {
         // `cmux ssh` opens with cmux's sharing defaults. The restored carrier
         // runs in batch mode, so on a password-only host the live master is
         // its only way in.
-        let opened = configuration(options: ["ProxyJump=bastion"])
+        // Like the CLI, the open sends this process's agent when it exists.
+        let agent = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "alice@example.invalid")
+            .restorableAgentSocketPath()
+        let base = configuration(options: ["ProxyJump=bastion"])
+        let opened = WorkspaceRemoteConfiguration(
+            terminalProfile: base.terminalProfile, destination: base.destination, port: base.port,
+            identityFile: base.identityFile, sshOptions: base.sshOptions, localProxyPort: nil, relayPort: nil,
+            relayID: nil, relayToken: nil, localSocketPath: nil, terminalStartupCommand: nil,
+            configuredRemoteCommand: nil, agentSocketPath: agent, preserveAfterTerminalExit: true
+        )
         let snapshot = try #require(opened.sessionSnapshot())
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
@@ -159,6 +199,90 @@ struct SSHTuiMigrationTests {
         let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
         #expect(openedCarrier["controlpath"]?.hasPrefix(socketDirectory + "/") == true)
         #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
+    }
+
+    @Test("A restored carrier finds the master an open with an SSH agent authenticated")
+    func restoredCarrierSharesTheMasterOfAnOpenWithAnAgent() throws {
+        // `cmux ssh` always sends the shell's SSH_AUTH_SOCK, and the master's
+        // path is keyed by that agent. A restore that loses the agent dials a
+        // different master, which batch mode cannot log in on a password-only host.
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
+        let agent = listener.path
+        let opened = WorkspaceRemoteConfiguration(
+            terminalProfile: .shell, destination: "alice@example.invalid", port: 2222, identityFile: nil,
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: nil,
+            agentSocketPath: agent, preserveAfterTerminalExit: true
+        )
+        let snapshot = try #require(opened.sessionSnapshot())
+        let persisted = try JSONEncoder().encode(snapshot)
+        let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted)
+            .workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
+        #expect(restored.agentSocketPath == agent)
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored))
+                == resolvedControlSettings(SSHTuiConnection(configuration: opened)))
+    }
+
+    @Test("A restored carrier dials the cmux master the CLI keyed by its resolved route")
+    func restoredCarrierDialsTheCLIsRouteMaster() throws {
+        // `cmux ssh` keys its master by the route `ssh -G` resolved and sends
+        // that cmux-owned ControlPath. The app cannot recompute the same key,
+        // so a restore that drops the path dials a master no login opened.
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        let cliPath = socketDirectory + "/" + String(repeating: "a", count: 40)
+        let opened = configuration(options: ["ControlMaster=auto", "ControlPersist=600", "ControlPath=\(cliPath)"])
+        let snapshot = try #require(opened.sessionSnapshot())
+        let persisted = try JSONEncoder().encode(snapshot)
+        let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted)
+            .workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored))["controlpath"] == cliPath)
+        #expect(SSHTuiConnection(configuration: restored).id == SSHTuiConnection(configuration: opened).id)
+    }
+
+    @Test("A restored Mosh workspace keeps the agent its snapshot saved")
+    func restoredMoshWorkspaceKeepsSavedAgent() throws {
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
+        let saved = listener.path
+        let snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, terminalTransport: .mosh,
+            destination: "alice@example.invalid", agentSocketPath: saved)
+        let restored = try #require(snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
+        #expect(restored.terminalTransport == .mosh)
+        #expect(restored.agentSocketPath == saved)
+    }
+
+    @Test("A restore uses the saved agent while it serves, then the app's agent")
+    func restoredAgentFallsBackToTheAppsAgent() {
+        let saved = "/tmp/cmux-test-saved-agent.sock"
+        let current = "/tmp/cmux-test-current-agent.sock"
+        var live: Set<String> = [current]
+        var snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "alice@example.invalid", agentSocketPath: saved)
+        let environment = ["SSH_AUTH_SOCK": current]
+
+        // A reboot moved the agent: the app's agent matches what a new `cmux ssh` sends.
+        #expect(snapshot.restorableAgentSocketPath(environment: environment, isLiveAgent: live.contains) == current)
+        live.insert(saved)
+        #expect(snapshot.restorableAgentSocketPath(environment: environment, isLiveAgent: live.contains) == saved)
+        // Snapshots written before the agent was saved still find the app's agent.
+        snapshot.agentSocketPath = nil
+        #expect(snapshot.restorableAgentSocketPath(environment: environment, isLiveAgent: live.contains) == current)
+        #expect(snapshot.restorableAgentSocketPath(environment: [:], isLiveAgent: live.contains) == nil)
+    }
+
+    @Test("A saved agent path that no longer serves never beats a live agent")
+    func staleAgentPathLosesToALiveAgent() throws {
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
+        // A leftover regular file where the saved agent used to listen.
+        let stale = listener.directory + "/stale.sock"
+        #expect(FileManager.default.createFile(atPath: stale, contents: nil))
+        defer { unlink(stale) }
+        let snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "alice@example.invalid", agentSocketPath: stale)
+
+        #expect(!SessionRemoteWorkspaceSnapshot.acceptsAgentConnections(atPath: stale))
+        #expect(SessionRemoteWorkspaceSnapshot.acceptsAgentConnections(atPath: listener.path))
+        #expect(snapshot.restorableAgentSocketPath(environment: ["SSH_AUTH_SOCK": listener.path]) == listener.path)
     }
 
     /// The control settings OpenSSH resolves for the carrier's own ssh arguments.
@@ -199,6 +323,30 @@ struct SSHTuiMigrationTests {
         #expect(blocked.scopedToOwnerWorkspace(UUID()).sessionSnapshot() == legacy)
         #expect(blocked.withSSHControlMasterLeaseGeneration(UUID()).sessionSnapshot() == legacy)
 
+    }
+
+    @Test("A stale legacy SSH snapshot starts a fresh cmux-tui workspace")
+    func staleLegacySnapshotStartsFreshTuiWorkspace() throws {
+        let legacy = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "fixture@host",
+            preserveAfterTerminalExit: true,
+            relayPort: 1234,
+            persistentDaemonSlot: "legacy-owned"
+        )
+        var configuration = try #require(legacy.workspaceConfiguration())
+        configuration.restoredSSHSession = legacy
+        let prepared = SSHTuiWorkspaceCoordinator.configurationForAttach(configuration)
+        #expect(prepared.restoredSSHSession == nil)
+        #expect(prepared.destination == configuration.destination)
+        #expect(prepared.preserveAfterTerminalExit)
+    }
+
+    @Test("SSH restores do not require Cloud creation receipts")
+    func sshRestoreSkipsCloudOnlyReceiptResolution() {
+        #expect(!SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "ssh:fixture", restoring: true))
+        #expect(SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "vm_fixture", restoring: true))
+        #expect(!SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "ssh:fixture", restoring: false))
     }
 
     @Test("A legacy persistent SSH snapshot running a named tmux session reattaches it through cmux-tui")
@@ -600,5 +748,43 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection.agentHookProviders(defaults: defaults) == ["codex"])
         defaults.set(false, forKey: "codexHooksEnabled")
         #expect(SSHTuiConnection.agentHookProviders(defaults: defaults).isEmpty)
+    }
+}
+
+/// A listening Unix socket standing in for an SSH agent. Its path stays under
+/// the 104-byte `sun_path` limit, which a per-user temporary directory can exceed.
+private struct AgentSocketListener {
+    let directory: String
+    let path: String
+    private let fd: Int32
+
+    init() throws {
+        var template = Array("/tmp/cmux-agent-XXXXXX".utf8CString)
+        let created = template.withUnsafeMutableBufferPointer { buffer in
+            mkdtemp(buffer.baseAddress).map { String(cString: $0) }
+        }
+        directory = try #require(created)
+        path = directory + "/a.sock"
+        fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(fd >= 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let socketPath = path
+        _ = withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            socketPath.utf8CString.withUnsafeBytes { buffer.copyMemory(from: $0) }
+        }
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        try #require(bound == 0)
+        try #require(listen(fd, 4) == 0)
+    }
+
+    func remove() {
+        close(fd)
+        unlink(path)
+        rmdir(directory)
     }
 }

@@ -40,6 +40,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "cmux-devbox-boot",
   "cmux-motd",
   "cmux-prompt.bash",
+  "cmux-python-completion.bash",
   "cmux-terminfo.sh",
   "cmux-terminfo.src",
   "codex-managed.toml",
@@ -734,6 +735,76 @@ export function devboxWaitForDaemonCommand(timeoutSeconds = 120): string {
   );
 }
 
+/** Options for {@link devboxIdleWakeupCheckCommand}. `procRoot` and `pause` exist for tests. */
+export interface DevboxIdleWakeupCheckOptions {
+  /** Idle window over which voluntary context switches are counted. */
+  readonly windowSeconds?: number;
+  /** Most voluntary context switches one terminal host's main thread may make in the window. */
+  readonly maxHostMainSwitches?: number;
+  readonly procRoot?: string;
+  /** The command that waits out the window (default `sleep <windowSeconds>`). */
+  readonly pause?: string;
+}
+
+/**
+ * Idle-wakeup smoke check (plans/cmux-next/vm-image.md, "Production promotion").
+ * Counts voluntary context switches per thread of every cmux-tui terminal host
+ * and of the daemon across an idle window, and fails when a terminal host's
+ * main thread woke more than the bound. The old host accept loop polled its
+ * listener every 20 ms (about 3,000 switches a minute); an event-driven host
+ * blocks and makes a handful. Processes are found by argv (argv[1] is
+ * `__terminal-host`, or `server start` for the daemon), never by a pattern over
+ * the whole command line, which would also match this check's own shell. It
+ * fails when no terminal host exists, so an empty machine never passes.
+ */
+export function devboxIdleWakeupCheckCommand(options: DevboxIdleWakeupCheckOptions = {}): string {
+  const windowSeconds = options.windowSeconds ?? 60;
+  const max = options.maxHostMainSwitches ?? 30;
+  const proc = options.procRoot ?? "/proc";
+  const pause = options.pause ?? `sleep ${windowSeconds}`;
+  // No shell `${...}` below: this is a TypeScript template.
+  const script = String.raw`P='@PROC@'; hosts=''; daemon=''
+for d in "$P"/[0-9]*; do
+  a1=$(tr '\0' '\n' < "$d/cmdline" 2>/dev/null | sed -n 2p)
+  a2=$(tr '\0' '\n' < "$d/cmdline" 2>/dev/null | sed -n 3p)
+  if [ "$a1" = __terminal-host ]; then hosts="$hosts $(basename "$d")"
+  elif [ "$a1" = server ] && [ "$a2" = start ]; then daemon="$daemon $(basename "$d")"; fi
+done
+[ -n "$hosts" ] || { echo 'idle-wakeups: FAIL no terminal host to measure'; exit 1; }
+snap() {
+  for p in $hosts; do for t in "$P/$p"/task/*; do
+    printf 'host %s %s %s %s\n' "$p" "$(basename "$t")" "$(awk '/^voluntary_ctxt_switches/ { print $2 }' "$t/status" 2>/dev/null)" "$(cat "$t/comm" 2>/dev/null)"
+  done; done
+  for p in $daemon; do for t in "$P/$p"/task/*; do
+    printf 'daemon %s %s %s %s\n' "$p" "$(basename "$t")" "$(awk '/^voluntary_ctxt_switches/ { print $2 }' "$t/status" 2>/dev/null)" "$(cat "$t/comm" 2>/dev/null)"
+  done; done
+}
+before=$(snap); @PAUSE@; after=$(snap)
+printf '%s\n--\n%s\n' "$before" "$after" | awk -v max=@MAX@ -v window=@WINDOW@ '
+  $0 == "--" { second = 1; next }
+  $4 !~ /^[0-9]+$/ { next }
+  !second { start[$1 " " $2 " " $3] = $4; next }
+  {
+    key = $1 " " $2 " " $3
+    if (!(key in start)) next
+    d = $4 - start[key]; comm = $5
+    for (i = 6; i <= NF; i++) comm = comm " " $i
+    tag = ($2 == $3) ? " main" : ""
+    printf "idle-wakeups: %s %s thread %s (%s%s): %d voluntary switches in %ds\n", $1, $2, $3, comm, tag, d, window
+    if ($1 == "host" && $2 == $3) { hosts++; if (d > max) bad++ }
+  }
+  END {
+    if (hosts == 0) { print "idle-wakeups: FAIL no terminal host main thread measured"; exit 1 }
+    if (bad) { printf "idle-wakeups: FAIL %d terminal host main thread(s) over %d switches in %ds\n", bad, max, window; exit 1 }
+    printf "idle-wakeups: PASS %d terminal host main thread(s) at or under %d switches in %ds\n", hosts, max, window
+  }'`;
+  return script
+    .replace("@PROC@", proc)
+    .replace("@PAUSE@", pause)
+    .replace("@MAX@", String(max))
+    .replace("@WINDOW@", String(windowSeconds));
+}
+
 const TEMPLATE_RUN_DIR = "/run/cmux";
 const TERMINAL_IDS_JQ = `[.. | objects | (.terminal_id? // .id?) | strings | select(startswith("term_"))] | unique | .[]`;
 
@@ -754,7 +825,7 @@ export function devboxPrepareTemplateTerminalCommand(timeoutSeconds = 60): strin
     `(${run("terminal list")} > /tmp/cmux-template-terminals.json || :)`,
     `for id in $(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json 2>/dev/null); do ${run('terminal "$id" close')} >/dev/null || exit 1; done`,
     `install -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 644 /dev/null ${TEMPLATE_RUN_DIR}/template-arm`,
-    `${run("workspace create --name Cloud")} >/dev/null`,
+    `${run("workspace create --name workspace-1")} >/dev/null`,
     `for i in $(seq 1 ${timeoutSeconds * 10}); do [ -e ${TEMPLATE_RUN_DIR}/template-shell-ready ] && break; sleep 0.1; done`,
     `test -e ${TEMPLATE_RUN_DIR}/template-shell-ready`,
     `test ! -e ${TEMPLATE_RUN_DIR}/template-arm`,
