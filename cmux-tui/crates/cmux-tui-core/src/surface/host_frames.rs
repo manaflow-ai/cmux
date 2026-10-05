@@ -371,4 +371,65 @@ mod tests {
         let state = queue.state.lock().unwrap();
         assert_eq!(state.frames.len(), 1, "the frame after the late ack was not read");
     }
+
+    fn clipboard_request(token: u64, location: u8, version: u16) -> Frame {
+        let mut payload = token.to_le_bytes().to_vec();
+        payload.push(location);
+        let mut frame = Frame::new(MessageKind::ClipboardReadRequest, payload);
+        frame.version = version;
+        frame
+    }
+
+    /// A host-originated clipboard read is outside the live sequence: the
+    /// reader thread hands it to the connection's inbox and keeps reading.
+    #[test]
+    fn negotiated_clipboard_read_requests_reach_the_inbox_outside_the_stream() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        responses.negotiate_clipboard_reads_for_test();
+        let queue = queue();
+        let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
+        output.version = version;
+        let stream = stream_of(&[clipboard_request(7, 1, version), output]);
+        read_stream(stream, &responses, version, SMART, &queue);
+        assert_eq!(
+            responses.pending_clipboard_read(),
+            Some(ghostty_vt::ClipboardReadRequest {
+                token: 7,
+                location: ghostty_vt::ClipboardLocation::Selection,
+            })
+        );
+        let state = queue.state.lock().unwrap();
+        assert_eq!(state.frames.len(), 1, "only the Output frame is ordered");
+    }
+
+    /// A clipboard read on a connection that did not negotiate the right,
+    /// or a malformed one, ends the connection.
+    #[test]
+    fn unnegotiated_or_malformed_clipboard_read_requests_end_the_stream() {
+        let version = version();
+        let mut with_request_id = clipboard_request(7, 0, version);
+        with_request_id.request_id = 3;
+        let mut sequenced = clipboard_request(7, 0, version);
+        sequenced.sequence = 9;
+        for (negotiated, request) in [
+            (false, clipboard_request(7, 0, version)),
+            (true, clipboard_request(0, 0, version)),
+            (true, clipboard_request(7, 3, version)),
+            (true, with_request_id),
+            (true, sequenced),
+        ] {
+            let responses = ControlResponses::new_for_test();
+            if negotiated {
+                responses.negotiate_clipboard_reads_for_test();
+            }
+            let queue = queue();
+            let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
+            output.version = version;
+            read_stream(stream_of(&[request, output]), &responses, version, SMART, &queue);
+            assert_eq!(responses.pending_clipboard_read(), None);
+            let state = queue.state.lock().unwrap();
+            assert!(state.ended && state.frames.is_empty(), "the connection must end there");
+        }
+    }
 }

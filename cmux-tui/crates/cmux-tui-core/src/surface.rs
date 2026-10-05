@@ -7029,6 +7029,8 @@ fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
 #[cfg(test)]
 mod tests {
     mod attach_tap;
+    #[cfg(unix)]
+    mod clipboard_read;
     use base64::Engine as _;
     use std::sync::mpsc::sync_channel;
 

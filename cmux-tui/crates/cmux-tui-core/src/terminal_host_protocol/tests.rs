@@ -413,3 +413,13 @@ fn encoder_enforces_the_global_payload_budget() {
             if len == MAX_FRAME_PAYLOAD + 1 && max == MAX_FRAME_PAYLOAD
     ));
 }
+
+#[test]
+fn clipboard_read_messages_have_stable_additive_kinds() {
+    assert_eq!(MessageKind::ClipboardReadRequest as u16, 24);
+    assert_eq!(MessageKind::try_from(24).unwrap(), MessageKind::ClipboardReadRequest);
+    assert_eq!(MessageKind::ClipboardReadReply as u16, 112);
+    assert_eq!(MessageKind::try_from(112).unwrap(), MessageKind::ClipboardReadReply);
+    assert!(matches!(MessageKind::try_from(25), Err(ProtocolError::UnknownMessageKind(25))));
+    assert!(matches!(MessageKind::try_from(113), Err(ProtocolError::UnknownMessageKind(113))));
+}

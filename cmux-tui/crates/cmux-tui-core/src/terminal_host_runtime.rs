@@ -6348,6 +6348,7 @@ mod unix {
 
     #[cfg(test)]
     mod tests {
+        mod clipboard_read;
         use super::*;
         use cmux_pty::Child;
 
@@ -6521,6 +6522,7 @@ mod unix {
                 source_order_lock: Mutex::new(()),
                 parser_commands,
                 parser_budget: ParserBudget::new(1),
+                clipboard: ClipboardReads::new(Arc::new(SystemClock)),
                 parser_progress: (Mutex::new(0), Condvar::new()),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),
@@ -6580,12 +6582,20 @@ mod unix {
         }
 
         fn test_host_shared() -> Arc<HostShared> {
-            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let (parser_commands, _parser_receiver) = sync_channel(1);
+            test_host_shared_with(term, parser_commands, ClipboardReads::new(Arc::new(SystemClock)))
+        }
+
+        fn test_host_shared_with(
+            mut term: Terminal,
+            parser_commands: SyncSender<ParserCommand>,
+            clipboard: ClipboardReads,
+        ) -> Arc<HostShared> {
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-            let (parser_commands, _parser_receiver) = sync_channel(1);
             let host = Arc::new(HostShared {
                 terminal_id: TerminalId::random().unwrap(),
                 incarnation: HostIncarnation::random().unwrap(),
@@ -6613,6 +6623,7 @@ mod unix {
                 source_order_lock: Mutex::new(()),
                 parser_commands,
                 parser_budget: ParserBudget::new(1),
+                clipboard,
                 parser_progress: (Mutex::new(0), Condvar::new()),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),

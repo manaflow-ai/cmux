@@ -204,3 +204,57 @@ fn stdio_bootstrap_requires_the_bootstrap_message_kind() {
         })
     ));
 }
+
+#[test]
+fn clipboard_read_is_a_known_owner_only_right_outside_admin() {
+    let clipboard = CapabilityRights::CLIPBOARD_READ;
+    assert_eq!(clipboard.bits(), 0x20);
+    assert_eq!(CapabilityRights::from_bits(0x20), Some(clipboard));
+    assert_eq!(CapabilityRights::from_bits(0x3f), Some(CapabilityRights::ADMIN | clipboard));
+    assert_eq!(CapabilityRights::from_bits(0x40), None);
+    assert!(!CapabilityRights::ADMIN.contains(clipboard));
+    assert_eq!(format!("{clipboard:?}"), "CapabilityRights(\"clipboard-read\")");
+
+    let mut encoded =
+        hello(terminal(1), token(2), ClientRole::Admin, CapabilityRights::ADMIN | clipboard)
+            .encode();
+    assert_eq!(
+        ClientHello::decode(&encoded).unwrap().requested_rights,
+        CapabilityRights::ADMIN | clipboard
+    );
+    encoded[8..12].copy_from_slice(&0x40u32.to_le_bytes());
+    assert!(ClientHello::decode(&encoded).is_err());
+}
+
+#[test]
+fn minted_and_renderer_capabilities_never_carry_clipboard_reads() {
+    let store = CapabilityStore::new(8);
+    for rights in [
+        CapabilityRights::CLIPBOARD_READ,
+        CapabilityRights::READ | CapabilityRights::CLIPBOARD_READ,
+        CapabilityRights::ADMIN | CapabilityRights::CLIPBOARD_READ,
+    ] {
+        assert!(matches!(
+            store.mint(terminal(1), rights, Duration::from_secs(60)),
+            Err(HostHandshakeError::CapabilityDenied)
+        ));
+    }
+    assert_eq!(store.active_grants(), 0);
+
+    let incarnation = HostIncarnation::from_bytes([6; TERMINAL_ID_LEN]);
+    for (role, rights) in [
+        (ClientRole::Renderer, CapabilityRights::READ | CapabilityRights::CLIPBOARD_READ),
+        (ClientRole::DaemonMirror, CapabilityRights::READ | CapabilityRights::CLIPBOARD_READ),
+        (ClientRole::Admin, CapabilityRights::ADMIN | CapabilityRights::CLIPBOARD_READ),
+    ] {
+        let minted =
+            store.mint(terminal(1), CapabilityRights::ADMIN, Duration::from_secs(60)).unwrap();
+        assert!(matches!(
+            store.accept(&hello(terminal(1), minted, role, rights), 1..=1, incarnation),
+            Err(HostHandshakeError::CapabilityDenied)
+        ));
+    }
+    assert!(ClientRole::Admin.allowed_rights().contains(CapabilityRights::CLIPBOARD_READ));
+    assert!(!ClientRole::Renderer.allowed_rights().contains(CapabilityRights::CLIPBOARD_READ));
+    assert!(!ClientRole::DaemonMirror.allowed_rights().contains(CapabilityRights::CLIPBOARD_READ));
+}
