@@ -69,6 +69,15 @@ case "${1:-}" in
     set --
     ;;
 esac
+# Swift Testing runs many test cases at once (up to twice the core count).
+# The CmuxNext full run then oversubscribes the main actor: on 2026-10-04 a
+# queued main-actor reload waited 55 s, past test deadlines. Cap the width at
+# the physical core count unless the caller set one. The variable is
+# experimental in swift-testing and is ignored by a toolchain without it.
+if [ -z "${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-}" ]; then
+  SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="$(sysctl -n hw.physicalcpu 2>/dev/null || echo 4)"
+  export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH
+fi
 event="${EVENT_NAME:-}"
 full_suite="${FULL_SUITE:-false}"
 while [ "$#" -gt 0 ]; do

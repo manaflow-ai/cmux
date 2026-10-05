@@ -212,6 +212,11 @@ class RustNoticesTest(unittest.TestCase):
 
     # Determinism ----------------------------------------------------------------
 
+    def test_markdown_header_names_every_target(self) -> None:
+        code, err, out, _ = self.generate("hdr", fmt="markdown", targets=("aarch64-apple-darwin", "x86_64-apple-darwin"))
+        self.assertEqual(code, 0, err)
+        self.assertIn("targets: aarch64-apple-darwin, x86_64-apple-darwin;", out.read_text())
+
     def test_two_runs_are_byte_equal(self) -> None:
         for fmt in ("spdx-json", "markdown"):
             code_a, err_a, out_a, files_a = self.generate(f"a-{fmt}", fmt=fmt)

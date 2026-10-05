@@ -14326,16 +14326,16 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_named(workspace, None, cwd, size)
+        self.new_screen_named(workspace, None, TerminalSpawnOptions::new(cwd, Vec::new()), size)
     }
 
-    /// New screen with a name (set in the creating commit) and a directory
-    /// for its first terminal.
+    /// New screen with a name (set in the creating commit) and the spawn
+    /// options (directory, env, terminal id, program) of its first terminal.
     pub(crate) fn new_screen_named(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
         name: Option<String>,
-        cwd: Option<String>,
+        spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
@@ -14354,7 +14354,7 @@ impl Mux {
         };
         let mut fields = Map::new();
         Self::insert_optional_string(&mut fields, "name", name);
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
+        Self::insert_spawn_options(&mut fields, spawn);
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::ScreenCreate,
