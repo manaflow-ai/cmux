@@ -20,6 +20,7 @@ export type NewTabScreenActions = {
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
+  onAction?(id: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
 };
@@ -105,6 +106,8 @@ export function NewTabScreen(props: Props) {
       case "tab":
       case "workspace":
         return props.onJump(row.type, row.id);
+      case "action":
+        return props.onAction?.(row.id);
     }
   };
   const edit = (next: string) => {
@@ -239,6 +242,8 @@ function rowKey(row: ScreenRow): string {
       return `${row.type}:${row.id}`;
     case "history":
       return `history:${row.url}`;
+    case "action":
+      return `action:${row.id}`;
     default:
       return row.type;
   }
@@ -268,6 +273,7 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
     case "tab":
     case "workspace":
+    case "action":
       return row.detail;
     default:
       return undefined;
@@ -288,5 +294,7 @@ function rowAction(nt: NewTabTranslate, row: ScreenRow): string {
       return nt("row.workspace");
     case "history":
       return nt("row.history");
+    case "action":
+      return nt("row.open");
   }
 }

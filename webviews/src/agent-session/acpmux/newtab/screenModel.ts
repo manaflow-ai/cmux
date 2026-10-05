@@ -18,7 +18,8 @@ export type ScreenRow =
   | { type: "open"; url: string; text: string }
   | { type: "tab"; id: string; title: string; detail?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
-  | { type: "history"; url: string; title?: string };
+  | { type: "history"; url: string; title?: string }
+  | { type: "action"; id: string; title: string; detail?: string };
 
 /// Agents shown per query; more installed harnesses stay in the composer's picker.
 export const MAX_AGENT_ROWS = 4;
@@ -75,6 +76,10 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
         ...(workspace.detail ? { detail: workspace.detail } : {}),
       } as ScreenRow,
       score: matchScore(query, workspace.name, workspace.detail) + 0.5,
+    })),
+    ...(omnibar.actions ?? []).map((action) => ({
+      row: { type: "action", id: action.id, title: action.title, ...(action.detail ? { detail: action.detail } : {}) } as ScreenRow,
+      score: matchScore(query, action.title, ...(action.keywords ?? [])) + 0.4,
     })),
     ...omnibar.history.map((entry) => ({
       row: { type: "history", url: entry.url, ...(entry.title ? { title: entry.title } : {}) } as ScreenRow,

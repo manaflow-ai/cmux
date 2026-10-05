@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -23,6 +23,7 @@ jobs:
         run: cd webviews && bun install --frozen-lockfile
       - name: Prove regressions fail before the fix
         run: |
+          git fetch --depth=1 origin 22426acd48891414bea8ddba21a15a149b0221c8
           git restore --source=22426acd48891414bea8ddba21a15a149b0221c8 --worktree webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx webviews/src/agent-session/acpmux/newtab/NewTabScreen.test.tsx
           set +e
           (cd webviews && bun test src/agent-session/acpmux/newtab/NewTabScreen.test.tsx) > red-test.log 2>&1
@@ -42,6 +43,7 @@ jobs:
       - name: Localization audit
         continue-on-error: true
         run: |
+          git fetch --depth=1 origin feat-cmux-next:refs/remotes/origin/feat-cmux-next
           scripts/localize-changes --base origin/feat-cmux-next
           python3 scripts/localization_catalog.py check
       - name: Save generated changes

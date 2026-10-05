@@ -16,7 +16,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var layoutView: LayoutRootView!
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) var contentView: WorkspaceContentView!
-    private(set) var emptyView: EmptyWorkspaceView!
+    private(set) var emptyView: EmptyWorkspaceView?
     private(set) var screenBar: ScreenBarController!
     /// The workspace theme: only this content area, under the window's
     /// room theme.

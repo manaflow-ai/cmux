@@ -278,7 +278,8 @@ final class AgentTabStore {
             return await page.handler.listProjects(query)
         }
         model.onImportAndSync = { [weak self] in
-            _ = self?.actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user))
+            if let page = self?.newTabPages[resolve(provisional)] { page.handler.importAndSync() }
+            else { _ = self?.actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
         }
         model.onAppAction = { [weak self] id in self?.newTabPages[resolve(provisional)]?.handler.action(id) }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }

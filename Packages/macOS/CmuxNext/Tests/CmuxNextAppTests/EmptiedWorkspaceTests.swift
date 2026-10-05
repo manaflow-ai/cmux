@@ -92,7 +92,7 @@ struct EmptiedWorkspaceTests {
         await Self.settle { false }
         #expect(recorder.created.isEmpty)
         #expect(recorder.closed.isEmpty)
-        controller.emptyView.onNew?()
+        controller.emptyView?.onNew?()
         await Self.settle { !recorder.created.isEmpty }
         #expect(recorder.created == [Self.key])
         controller.teardown()

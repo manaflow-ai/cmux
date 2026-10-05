@@ -89,8 +89,12 @@ enum NewTabPage {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title)
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
+        let actionIDs: Set<String> = ["palette.welcomeChecklist", "palette.openCmuxSettingsFile", "keybindings.open"]
+        let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
+            AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
+        }
         return AgentPaneOmnibar(
-            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, commands: Array(commands), history: Array(history)
+            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history)
         )
     }
 
@@ -162,7 +166,7 @@ enum NewTabPage {
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
-                let hints = services.history.agents.sessions.compactMap(\.cwd)
+                let hints = services.history.agents.sessions.compactMap(\.cwd) + services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
                 return await Task.detached {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
