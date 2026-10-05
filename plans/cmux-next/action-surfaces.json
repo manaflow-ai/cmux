@@ -4255,7 +4255,7 @@
         "key" : "h",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneLeft",
@@ -4284,7 +4284,7 @@
         "key" : "l",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneRight",
@@ -4313,7 +4313,7 @@
         "key" : "k",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneUp",
@@ -4342,7 +4342,7 @@
         "key" : "j",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneDown",
@@ -17827,10 +17827,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "-",
         "modifiers" : [
-          "ctrl",
-          "cmd"
+          "ctrl"
         ]
       },
       "id" : "focusHistoryBack",
@@ -17856,10 +17855,10 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "-",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "focusHistoryForward",

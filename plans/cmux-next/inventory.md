@@ -28,7 +28,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | commandPalette | Command Palette… | ⇧⌘P | KM | KSS:103, cmuxApp:956 |
 | commandPaletteNext / Previous | Palette: Next / Previous | ⌃N / ⌃P | K | KSS:104-105 |
 | goToWorkspace | Go to Workspace… | ⌘P | KM | KSS:102, cmuxApp:951 |
-| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌘[ / ⌘] / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
+| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌃- / ⌃⇧- / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
 | (history) | Recently Focused / Recently Closed lists | — | M | cmuxApp+HistoryMenu:65,90 |
 | palette.openTaskManager | Task Manager | — | PM | VCP:31, cmuxApp:1080 |
 | palette.sleepyMode | Sleepy Mode | — | PM | VCP:37 |
@@ -94,7 +94,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | newPaneAutoLayout | New Pane (Auto Layout) | ⌃⌘N | PKM | KSS:166, ContentView+PaneResizeCommands:21 |
 | toggleSplitZoom | Toggle Pane Zoom | ⇧⌘↩ | PKC | KSS:166, CV:8614, TIV |
 | equalizeSplits | Equalize Splits | ⌃⇧⌘= | PKM | KSS:170 |
-| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⇧H/L/K/J | PKM | KSS:171-174, RSP:117 |
+| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⌘←→↑↓ or ⌃⌘H/L/K/J | PKM | KSS:171-174, RSP:117 |
 | focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ | PK | KSS:159-162 |
 | focusPreviousPane / focusNextPane | Focus Previous / Next Pane | — | PK | KSS:163-164 |
 | triggerFlash | Flash Focused Panel | ⇧⌘H | PKC | KSS:120, GTV:9254 |
