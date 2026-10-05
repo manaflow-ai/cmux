@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 // `sidebar.spacesPosition` (R109): the spaces dots sit in the footer, above
 // the Settings band, or in their own row under the titlebar row.
