@@ -44,10 +44,12 @@ public struct BrowserReplTabFacts: Sendable, Equatable {
 }
 
 /// What a session wants to do with a tab (``BrowserReplMethodSpec/capability``).
+/// Both need the tab to be the session's own or the user's, and in the
+/// session's workspace (``BrowserReplDocumentAuthority/verdict(_:)``).
 public enum BrowserReplTabCapability: String, Sendable, CaseIterable {
     /// Read, drive or configure the tab (every tab method but closing it).
     case use
-    /// Close the tab.
+    /// Close the tab: also only a tab the session created or is attached to.
     case close
 }
 
@@ -194,6 +196,27 @@ public struct BrowserReplDocumentAuthority: Sendable {
                 code: "denied",
                 reason: reason,
                 message: "\(reason); a session drives only the tabs it opened and the user's tabs (tabs.list({ all: true }) shows each tab's owner)"
+            )
+        }
+        let isCreator = tab.creatorSessionID == sessionID
+        // A session acts in its own workspace. Another workspace's tab needs
+        // an attach a person grants, and cmux has no such grant yet, so it
+        // is refused; a tab whose workspace cannot be told is refused too.
+        if let workspaceID, !isCreator, tab.workspaceID != workspaceID {
+            let reason = "the tab \(name) is in another workspace"
+            return BrowserReplRefusal(
+                code: "denied",
+                reason: reason,
+                message: "\(reason); a REPL session drives only the tabs of its own workspace (a person must grant a tab of another workspace, and cmux has no such grant yet): open the page with tabs.open, or move the tab into this workspace"
+            )
+        }
+        // A user's tab closes only through a session that drives it.
+        if capability == .close, !isCreator, !tab.attachedSessionIDs.contains(sessionID) {
+            let reason = "the tab \(name) is the user's and this session does not drive it"
+            return BrowserReplRefusal(
+                code: "denied",
+                reason: reason,
+                message: "\(reason); a session closes only the tabs it opened and the user's tabs it attached with tabs.use"
             )
         }
         return nil

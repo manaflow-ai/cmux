@@ -742,23 +742,24 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return out
     }
 
-    /// A tab this session may drive: one of its workspace's browser surfaces,
-    /// or a tab in another workspace it claimed with tabs.use(id) after
-    /// `tabs.list({ all: true })` listed it (reference B's claimTab), but
-    /// never a tab another live session created (`denied`, naming that
-    /// session): that tab's page, cookies, storage and clipboard are the
-    /// other session's.
+    /// A tab this session may drive (``BrowserReplDocumentAuthority``,
+    /// ``BrowserReplTabCapability/use``): one of its workspace's browser
+    /// surfaces, never a tab another live session created (`denied`, naming
+    /// that session: that tab's page, cookies, storage and clipboard are the
+    /// other session's), and never a tab of another workspace (`denied`: that
+    /// needs an attach a person grants, which cmux does not offer yet).
     @MainActor
     private func reachablePanel(_ id: UUID) throws -> BrowserPanel? {
         if let own = try browserPanels().first(where: { $0.id == id }) { return try drivable(own) }
         if let other = allBrowserPanels().first(where: { $0.panel.id == id })?.panel { return try drivable(other) }
         // A tab a relaunch restored but has not loaded yet is a placeholder
         // until first use; using it creates its browser, which then loads
-        // like a hibernated tab (prepareTab). Creating it shows nothing.
+        // like a hibernated tab (prepareTab). Creating it shows nothing. One
+        // of another workspace is refused before anything is created.
         for workspace in allWorkspaces() {
-            if let deferred = workspace.panels[id] as? DeferredBrowserPanel {
-                return workspace.materializeDeferredBrowserPanel(deferred)
-            }
+            guard let deferred = workspace.panels[id] as? DeferredBrowserPanel else { continue }
+            try authority.verdict(BrowserReplAccess(in: BrowserReplTabFacts(id: id, workspaceID: workspace.id), capability: .use)).check()
+            return workspace.materializeDeferredBrowserPanel(deferred)
         }
         return nil
     }
@@ -1208,8 +1209,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 return nil
             }
         }
-        // The workspace that holds the tab closes it: a user's tab in another
-        // workspace is reachable too. What is kept for the tab (its
+        // The workspace that holds the tab closes it (the authority let this
+        // session close it: its own tab, or a user's tab of its workspace it
+        // drives). What is kept for the tab (its
         // attachment, the secrets sessions typed into it) is forgotten when
         // the tab really closes (`BrowserPanel.close()`), never here: a
         // close the workspace refuses leaves the tab open, and its typed
