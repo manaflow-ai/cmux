@@ -248,10 +248,17 @@ impl Host {
         let gate = Arc::new(
             // A remote caller (CALLER-LOCALITY, from the transport) is
             // refused loopback and private ranges.
-            Gate::new(driver, Grants { raw_cdp, remote: caller.locality.refuses_private_ranges() })
-                .with_tab_secrets(self.tab_secrets.clone())
-                // The session name is the lease session (LeaseCaller.session).
-                .with_input_events(&name, sink),
+            Gate::new(
+                driver,
+                Grants {
+                    raw_cdp,
+                    remote: caller.locality.refuses_private_ranges(),
+                    signed_in_profile: profile != AGENT_PROFILE,
+                },
+            )
+            .with_tab_secrets(self.tab_secrets.clone())
+            // The session name is the lease session (LeaseCaller.session).
+            .with_input_events(&name, sink),
         );
         let config = VmConfig {
             session_id: name.clone(),

@@ -30,6 +30,12 @@ struct Browser {
     empty_agent_world: bool,
     /// Agent-world contexts that hold the page agent.
     agent_in: HashSet<i64>,
+    /// A host fetch's request is held (no reply) until its tab closes.
+    hold_fetch: bool,
+    /// The held fetch request: (message id, session).
+    held: Option<(Value, String)>,
+    /// Every new tab's setup fails (`Page.enable` errors).
+    fail_setup: bool,
 }
 
 struct FakeWire {
@@ -47,7 +53,10 @@ impl CdpWire for WireHandle {
         for event in events {
             conn.receive(&event.to_string());
         }
-        conn.receive(&reply.to_string());
+        // A held request gets no reply now.
+        if !reply.is_null() {
+            conn.receive(&reply.to_string());
+        }
         Ok(())
     }
 }
@@ -77,13 +86,14 @@ impl FakeWire {
                 browser.next_target += 1;
                 let n = browser.next_target;
                 let target = format!("T{n}");
+                let created = params["url"].as_str().unwrap_or("about:blank").to_owned();
                 browser.tabs.insert(
                     target.clone(),
                     FakeTab { history: vec!["about:blank".into()], index: 0, loaders: 0 },
                 );
                 events.push(json!({"method": "Target.attachedToTarget", "params": {
                     "sessionId": format!("S{n}"),
-                    "targetInfo": {"targetId": target, "type": "page", "url": "about:blank", "title": ""},
+                    "targetInfo": {"targetId": target, "type": "page", "url": created, "title": ""},
                     "waitingForDebugger": true,
                 }}));
                 json!({"targetId": target})
@@ -91,13 +101,29 @@ impl FakeWire {
             "Target.closeTarget" => {
                 let target = params["targetId"].as_str().unwrap().to_owned();
                 browser.tabs.remove(&target);
+                // A request held on the closed tab fails, as Chromium's do.
+                if let Some((held, _)) =
+                    browser.held.take_if(|(_, on)| *on == target.replacen('T', "S", 1))
+                {
+                    events.push(
+                        json!({"id": held, "error": {"code": -32000, "message": "Target closed"}}),
+                    );
+                }
                 events.push(json!({"method": "Target.detachedFromTarget", "params": {"sessionId": target.replacen('T', "S", 1)}}));
                 events.push(
                     json!({"method": "Target.targetDestroyed", "params": {"targetId": target}}),
                 );
                 json!({"success": true})
             }
+            "Page.enable" if browser.fail_setup => {
+                return (
+                    json!({"id": id, "error": {"code": -32000, "message": "setup failed"}}),
+                    events,
+                );
+            }
+            "Page.createIsolatedWorld" => json!({"executionContextId": 30}),
             "Target.activateTarget"
+            | "Network.setBypassServiceWorker"
             | "Target.detachFromTarget"
             | "Page.enable"
             | "Page.setLifecycleEventsEnabled"
@@ -215,7 +241,15 @@ impl FakeWire {
             "Runtime.callFunctionOn" => {
                 let declaration = params["functionDeclaration"].as_str().unwrap_or("");
                 let first = &params["arguments"][0]["value"];
-                if declaration.contains("return a && a.resolveHandle ? a.resolveHandle(id) : null")
+                if declaration.contains("__cmuxFetch") && declaration.contains("AbortController") {
+                    if browser.hold_fetch {
+                        browser.held = Some((id, session));
+                        return (Value::Null, events);
+                    }
+                    json!({"result": {"type": "object", "value": {"id": "b1", "size": 0, "url": first["url"],
+                        "status": 200, "statusText": "OK", "redirected": false, "headers": []}}})
+                } else if declaration
+                    .contains("return a && a.resolveHandle ? a.resolveHandle(id) : null")
                 {
                     match first.as_str() {
                         Some("dead") => {
@@ -1188,5 +1222,112 @@ fn request_kinds_tell_main_frame_documents_from_iframes() {
     assert_eq!(
         *seen.lock().unwrap(),
         vec![RequestKind::Document, RequestKind::SubframeDocument, RequestKind::Subresource]
+    );
+}
+
+/// The sent messages since `mark` with their sessions: (method, session, params).
+fn sent_with_sessions(h: &Harness, mark: usize) -> Vec<(String, String, Value)> {
+    let browser = h.wire.browser.lock().unwrap();
+    browser.sent[mark..]
+        .iter()
+        .map(|m| {
+            let session = m["sessionId"].as_str().unwrap_or("").to_owned();
+            (m["method"].as_str().unwrap().to_owned(), session, m["params"].clone())
+        })
+        .collect()
+}
+
+/// a9 shell-tab condition (b): the shell tab of a tab-less fetch bypasses
+/// service workers before its navigation (a worker could answer the shell
+/// document or the fetch); (d) it closes after a fetch that succeeded.
+#[test]
+fn the_fetch_shell_bypasses_service_workers_before_it_navigates() {
+    let h = Harness::new();
+    let mark = h.mark();
+    let out = h.call("net.fetch", json!({"url": "https://a.test/data", "timeoutMs": 2000}));
+    assert_eq!(out["status"], 200, "{out}");
+    let sent = sent_with_sessions(&h, mark);
+    let bypass = sent
+        .iter()
+        .position(|(m, on, p)| {
+            m == "Network.setBypassServiceWorker" && on == "S1" && p["bypass"] == true
+        })
+        .unwrap_or_else(|| panic!("no service worker bypass on the shell: {sent:?}"));
+    let navigate = sent
+        .iter()
+        .position(|(m, on, _)| m == "Page.navigate" && on == "S1")
+        .unwrap_or_else(|| panic!("the shell never navigated: {sent:?}"));
+    assert!(bypass < navigate, "the bypass comes before the navigation: {sent:?}");
+    assert!(
+        sent.iter().any(|(m, _, p)| m == "Target.closeTarget" && p["targetId"] == "T1"),
+        "the shell closes after the fetch: {sent:?}"
+    );
+}
+
+/// a9 shell-tab conditions (c, d): the shell is hidden from the session (not
+/// listed, no events, no page agent, every call refused) and closes when
+/// the session ends while its fetch runs.
+#[test]
+fn the_fetch_shell_is_hidden_and_closes_when_the_session_ends() {
+    let h = Harness::with_browser(Browser { hold_fetch: true, ..Browser::default() });
+    let mark = h.mark();
+    std::thread::scope(|scope| {
+        let fetch = scope.spawn(|| {
+            h.driver.call("net.fetch", &json!({"url": "https://a.test/data", "timeoutMs": 2000}))
+        });
+        wait_until(|| h.wire.browser.lock().unwrap().held.is_some(), "the fetch never started");
+        assert_eq!(h.call("tabs.list", json!({})), json!([]), "the shell is listed");
+        for (method, params) in [
+            ("tab.info", json!({"targetId": "T1"})),
+            ("tab.screenshot", json!({"targetId": "T1"})),
+            ("tabs.activate", json!({"targetId": "T1"})),
+            ("frame.evaluate", json!({"targetId": "T1", "source": "() => 1"})),
+            ("tab.navigate", json!({"targetId": "T1", "url": "https://a.test/"})),
+            ("cdp", json!({"targetId": "T1", "method": "DOM.getDocument"})),
+            ("tabs.close", json!({"targetId": "T1"})),
+        ] {
+            let error = h.driver.call(method, &params).expect_err(method);
+            assert_eq!(error.code, ErrorCode::NotFound, "{method}: {error}");
+        }
+        h.driver.end_session();
+        let ended = fetch.join().unwrap();
+        assert!(ended.is_err(), "the fetch ends with its shell: {ended:?}");
+    });
+    let sent = h.sent_since(mark);
+    assert!(
+        sent.iter().any(|(m, p)| m == "Target.closeTarget" && p["targetId"] == "T1"),
+        "{sent:?}"
+    );
+    assert!(
+        !sent.iter().any(|(m, _)| m == "Page.addScriptToEvaluateOnNewDocument"),
+        "the shell runs no page agent: {sent:?}"
+    );
+    // Events are delivered in order: a later tab's navigation is a barrier.
+    let later = h.open(Some("https://a.test/later"));
+    wait_until(
+        || h.events.lock().unwrap().iter().any(|e| e.payload["targetId"] == later.as_str()),
+        "the later tab's events never arrived",
+    );
+    let events = h.events.lock().unwrap().clone();
+    assert!(
+        events.iter().all(|e| e.payload["targetId"] != "T1"),
+        "the shell emitted events: {events:?}"
+    );
+}
+
+/// a9 shell-tab condition (d): a shell whose setup failed is closed too.
+#[test]
+fn the_fetch_shell_closes_when_its_setup_fails() {
+    let h = Harness::with_browser(Browser { fail_setup: true, ..Browser::default() });
+    let mark = h.mark();
+    let error = h
+        .driver
+        .call("net.fetch", &json!({"url": "https://a.test/data", "timeoutMs": 2000}))
+        .expect_err("the shell's setup failed");
+    assert_eq!(error.code, ErrorCode::Closed, "{error}");
+    let sent = h.sent_since(mark);
+    assert!(
+        sent.iter().any(|(m, p)| m == "Target.closeTarget" && p["targetId"] == "T1"),
+        "the shell leaked: {sent:?}"
     );
 }

@@ -43,7 +43,7 @@ export type AcpmuxAdopt = { harness: string; agentSessionId: string };
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
  *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
 export function newSessionParams(
-  host: Pick<AcpmuxHostConfig, "cwd" | "adopt">,
+  host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
   harness?: string,
 ): Record<string, unknown> {
   if (host.adopt)
@@ -51,7 +51,11 @@ export function newSessionParams(
       mcpServers: [],
       _meta: { acpmux: { harness: harness ?? host.adopt.harness, adopt: host.adopt } },
     };
-  return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+  return {
+    ...(host.cwd ? { cwd: host.cwd } : {}),
+    mcpServers: [],
+    _meta: { acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) } },
+  };
 }
 
 /** True when a `session/new` result resumed `adopt`. A daemon without adopt ignores the request
@@ -428,6 +432,7 @@ export class AcpmuxDirectClient {
   private toolRows = new Map<string, string>();
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
+  private peers: string[] = [];
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -534,6 +539,12 @@ export class AcpmuxDirectClient {
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
+      const status = await this.request("_acpmux/status", {}).catch(() => undefined);
+      this.peers = Array.isArray(status?.peers)
+        ? status.peers
+            .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
+            .filter((peer: string | undefined): peer is string => Boolean(peer))
+        : [];
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -1244,6 +1255,7 @@ export class AcpmuxDirectClient {
         }
         return entry;
       }),
+      peers: this.peers,
       summary: summary
         ? {
             sessionId: summary.sessionId,
@@ -1251,6 +1263,7 @@ export class AcpmuxDirectClient {
             turnCount: summary.turnCount,
             usage: this.usage,
             host: text(summary.host),
+            peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
             branch: text(summary.branch),
             worktree: text(summary.worktree),
@@ -1419,9 +1432,9 @@ export class AcpmuxDirectClient {
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
-  create(harness?: string, cwd?: string): Promise<string | undefined> {
+  create(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
     const started = (async () => {
-      const sessionId = await this.startSession(harness, cwd);
+      const sessionId = await this.startSession(harness, cwd, peer);
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -1434,8 +1447,11 @@ export class AcpmuxDirectClient {
   }
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
-  async startSession(harness?: string, cwd?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
+  async startSession(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
+    const result = await this.request(
+      "session/new",
+      newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness),
+    );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     return result?.sessionId ? String(result.sessionId) : undefined;

@@ -29,7 +29,7 @@ mod published_screen;
 mod screen_create;
 mod structural_move;
 mod unpublished_creation;
-pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
+pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;

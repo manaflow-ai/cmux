@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c. */
+/* cmux-tui mux protocol 12, IR ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c" as const;
+export const SDK_IR_SHA256 = "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -423,7 +423,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "batch-close-v1",
-    "fields": {},
+    "fields": {
+      "reason": {
+        "since": null,
+        "capability": "close-reason-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -11491,6 +11496,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "origin": {
           "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "reason": {
+          "capability": "close-reason-v1",
+          "default": null,
+          "description": "session_end only: the close is not recorded in the closed history.",
           "nullable": true,
           "presence": "optional",
           "type": {
