@@ -874,8 +874,8 @@ enum CloudTreeNodeBuilder {
                 children.append(CloudTreeNode(
                     id: nodeID(displaysPool: machine),
                     kind: .displaysPool(machine: machine, count: displays.count, canCreate: snapshot.displayCreationMachines?.contains(machine) == true),
-                    children: displays.isEmpty
-                        ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
+                    children: (displays.isEmpty
+                        ? (snapshot.pendingDisplayCreations?.contains(machine) == true ? [] : [CloudMachineSurfacePresentation.emptyDisplays(info: info)])
                         : displays.map {
                             CloudTreeNode(
                                 id: nodeID(resource: $0.id),
@@ -885,10 +885,10 @@ enum CloudTreeNodeBuilder {
                                     remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
                                 )
                             )
-                        }
+                        }) + pendingDisplayRows(machine: machine, snapshot: snapshot)
                 ))
             }
-            if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
+            if info.linkState == .connecting || info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
                 children.append(terminalsGroupNode(
                     machine: machine,
                     terminals: terminals,
@@ -904,6 +904,13 @@ enum CloudTreeNodeBuilder {
         // snapshot, so device rows carry no Resources group.
         if let machineSnapshot {
             children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
+        } else if info?.linkState == .connecting {
+            // Keep the stable Resources control while a machine reconnects.
+            // Telemetry is unavailable until the VM snapshot arrives, so the
+            // group is intentionally empty and does not imply stale readings.
+            let placeholder = MachineSnapshot(
+                id: machine.rawValue, provider: "", image: "", isDesktop: false, activity: .pending)
+            children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: placeholder, now: now))
         }
         return children
     }
@@ -1168,6 +1175,19 @@ enum CloudTreeNodeBuilder {
                 hiddenTabCount: hiddenTabCount
             ))
         )
+    }
+
+    /// The optimistic row for a guest display creation still in flight.
+    private static func pendingDisplayRows(machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
+        guard snapshot.pendingDisplayCreations?.contains(machine) == true else { return [] }
+        return [CloudTreeNode(
+            id: "\(nodeID(displaysPool: machine))/pending-display",
+            kind: .placeholder(machine: machine, CloudTreePlaceholder(
+                text: String(localized: "cloudTree.displays.starting", defaultValue: "Starting display…"),
+                style: .connecting,
+                opensMachine: false
+            ))
+        )]
     }
 
     private static func placeholder(

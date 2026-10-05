@@ -22,6 +22,8 @@ public enum ProUpgradeSource: String, CaseIterable, Sendable {
     case settingsCloudMachines = "mac_settings_cloud_machines"
     /// Machines panel empty state: plan does not include Cloud machines.
     case machinesPanelRequiresPro = "mac_machines_panel_requires_pro"
+    /// "Introducing cmux Cloud" welcome window, Free plan.
+    case cloudWelcome = "mac_cloud_welcome"
     /// Machines panel nudge under the create button.
     case machinesPanelUpgradeNudge = "mac_machines_panel_upgrade_nudge"
     /// Machines panel free-access countdown / expired banner.
@@ -36,6 +38,8 @@ public enum ProUpgradeSource: String, CaseIterable, Sendable {
     case newMachineSheetMaxUpgrade = "mac_new_machine_sheet_max_upgrade"
     /// Link inside the `vm_memory_requires_plan` error text (`VMClient`).
     case vmMemoryRequiresPlanError = "mac_vm_memory_requires_plan_error"
+    /// Max checkout link inside the `vm_resource_pool_exceeded` error text (`VMClient`).
+    case vmResourcePoolExceededError = "mac_vm_resource_pool_exceeded_error"
     /// DEBUG native pricing window.
     case nativePricingPreview = "mac_native_pricing_preview"
     /// Link inside the `vm_requires_pro` error text (`VMClient`); the token

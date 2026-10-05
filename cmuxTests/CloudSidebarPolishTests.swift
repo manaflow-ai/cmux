@@ -35,7 +35,7 @@ struct CloudSidebarPolishTests {
         // Full and icon-only widths for three tabs; Cloud's label is the widest.
         let natural: [CGFloat] = [59, 66, 58]
         let floors: [CGFloat] = [30, 30, 30]
-        #expect(RightSidebarModeBarTabWidths.oneLabelWidth(natural: natural, floors: floors) == 30 * 3 + 36)
+        #expect(abs(RightSidebarModeBarTabWidths.oneLabelWidth(natural: natural, floors: floors) - 126) < 0.01)
         #expect(RightSidebarModeBarTabWidths.oneLabelWidth(natural: [], floors: []) == 0)
     }
 

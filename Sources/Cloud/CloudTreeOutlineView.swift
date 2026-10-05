@@ -490,15 +490,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #endif
             switch node.kind {
             case .machine(let machine, _):
-                machineActions.promptRename(machine.id, machine.label)
+                machineActions.promptRename(machine)
             case .workspace(let machine, let workspace, _, _, _):
                 nodeActions.renameWorkspace(machine, workspace)
-            case .display(let resource, _, _):
-                // A double-click is already an open gesture. If the selected
-                // workspace belongs to another Cloud machine, explain the
-                // ownership boundary instead of leaving the user with a
-                // generic failed pane operation.
-                _ = nodeActions.showDisplayOpenHint(resource.id)
             default:
                 break
             }
@@ -618,14 +612,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             } else {
                 outlineView.expandItem(node)
             }
-        }
-
-        /// Machines can sit under a section row (`.cloudMachinesSection`), so search the whole tree.
-        func machine(id: SurfaceMachineID) -> MachineSnapshot? {
-            for node in CloudTreeNodeBuilder.flattened(nodes) {
-                if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
-            }
-            return nil
         }
 
         // MARK: Keyboard

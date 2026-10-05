@@ -62,6 +62,7 @@ struct NewMachineSheetPresenterTests {
             submit: { _ in true }
         )
         #expect(model.planIsLoading)
+        #expect(model.supportsSize)
         model.applyPlan(activeCount: 0, limits: VMPlanLimits(
             maxActiveVms: 1,
             planId: "pro",

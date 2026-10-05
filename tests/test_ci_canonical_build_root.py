@@ -117,20 +117,38 @@ class CanonicalFingerprintTests(unittest.TestCase):
 
     def test_self_hosted_runners_get_distinct_roots(self):
         roots = []
-        for name in ("aws-m4pro-9-glaeda", "aws-m4pro-9-glaeda-1"):
-            result = subprocess.run(
-                [str(ROOT_SCRIPT), "--print-root"],
-                env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name,
-                     "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root"},
-                text=True,
-                capture_output=True,
-                check=True,
-            )
-            roots.append(result.stdout.strip())
+        with tempfile.TemporaryDirectory() as fleet_dir:
+            for name in ("aws-m4pro-9-glaeda", "aws-m4pro-9-glaeda-1"):
+                result = subprocess.run(
+                    [str(ROOT_SCRIPT), "--print-root"],
+                    env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name,
+                         "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root",
+                         "CMUX_CI_FLEET_DIR": fleet_dir},
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                roots.append(result.stdout.strip())
         self.assertEqual(roots, [
             "/private/tmp/cmux-ci-aws-m4pro-9-glaeda",
             "/private/tmp/cmux-ci-aws-m4pro-9-glaeda-1",
         ])
+
+    def test_an_ephemeral_self_hosted_runner_keeps_the_shared_default(self):
+        # Blacksmith macOS runners report RUNNER_ENVIRONMENT=self-hosted but run
+        # one job per VM and are not fleet Macs. A per-runner root there made
+        # every build start cold and every seed unadoptable (job 111334766861).
+        result = subprocess.run(
+            [str(ROOT_SCRIPT), "--print-root"],
+            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
+                 "RUNNER_NAME": "blacksmith-12vcpu-macos-26-abc123",
+                 "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root",
+                 "CMUX_CI_FLEET_DIR": "/nonexistent/cmux-build-fleet"},
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(result.stdout.strip(), "/private/tmp/cmux-ci")
 
     def test_glaeda_managed_runner_keeps_the_hooks_canonical_root(self):
         # glaeda's runner hook already isolates roots per job and exports one

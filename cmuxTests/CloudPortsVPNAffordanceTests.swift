@@ -339,7 +339,7 @@ struct CloudPortsVPNAffordanceTests {
                 memoryMb: nil, diskMb: nil, linkState: link, linkError: nil,
                 cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, portDiscoveryState: discovery))
         }
-        // "No reachable ports" (Refresh) and an asleep machine (Wake Machine).
+        // "No ports yet" (Refresh) and an asleep machine (Wake Machine).
         let noPorts = status(link: .connected, discovery: .empty(.noListeningService))
         let asleep = status(link: .asleep, discovery: .notRequested)
         guard case .placeholder(_, let noPortsRow) = noPorts.kind, case .placeholder(_, let asleepRow) = asleep.kind else {
@@ -380,7 +380,7 @@ struct CloudPortsVPNAffordanceTests {
 
     private func machineActions(upgrade: @escaping @MainActor () -> Void = {}) -> MachineRowActions {
         MachineRowActions( openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
+                    confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
             resizeMemory: { _, _ in }, promptUpgrade: upgrade)
     }
 

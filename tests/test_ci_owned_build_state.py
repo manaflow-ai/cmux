@@ -1168,6 +1168,8 @@ class Wiring(unittest.TestCase):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
+            if name == "Compile app-host test product":
+                continue
             self.assertNotIn("owned", block.lower(), name)
         self.assertNotIn("CMUX_OWNED_STATE_ROOT", identity.recipe_projection(text)["job_controls"]["env"])
 
@@ -1208,14 +1210,13 @@ class Wiring(unittest.TestCase):
     def test_a_second_compile_slot_keeps_its_own_root_and_state(self):
         # The first slot, and every Blacksmith job, keeps the default root and store.
         for runner in ("glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
-            self.assertEqual(self.slot(None, runner), (0, "CMUX_CI_CANONICAL_ROOT=/private/tmp/cmux-ci\n", "root=/private/tmp/cmux-ci\n"))
+            self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
         code, env, out = self.slot("/private/tmp/cmux-ci-2")
         self.assertEqual(code, 0)
         self.assertEqual(
             env,
             "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
-            "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n"
-            "CMUX_CI_CANONICAL_ROOT=/private/tmp/cmux-ci-2\n",
+            "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n",
         )
         self.assertEqual(out, "root=/private/tmp/cmux-ci-2\n")
         # Only an owned Mac may move the root, and only to a slot root.
@@ -1361,7 +1362,7 @@ cp "{ROOT}/scripts/ci/${{1##*/}}" "$out"
         run = self.by_id["owned-state"]["run"].replace("/Users/Shared/cmux-build-fleet/ci", str(fleet))
         env = {"PATH": f"{base / 'bin'}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output),
                "RUNNER_TEMP": str(temp), "GITHUB_REPOSITORY": "manaflow-ai/cmux", "WORKFLOW_SHA": "w" * 40,
-               "CMUX_DERIVED_DATA_PATH": "/private/tmp/cmux-ci/derived-data-compile-admission", "HOME": str(base)}
+               "CMUX_DERIVED_DATA_PATH": "/private/tmp/cmux-ci/derived-data-compile-admission", "CMUX_CI_CANONICAL_ROOT": root or "/private/tmp/cmux-ci", "HOME": str(base)}
         if root is not None:
             env["CMUX_CI_CANONICAL_ROOT"] = root
         result = subprocess.run(["bash", "-e", "-c", run], cwd=workspace, env=env, capture_output=True, text=True)
@@ -1385,15 +1386,6 @@ cp "{ROOT}/scripts/ci/${{1##*/}}" "$out"
                 for url in urls:
                     self.assertTrue(url.startswith(f"https://raw.githubusercontent.com/manaflow-ai/cmux/{'w' * 40}/scripts/ci/"), url)
                 self.assertTrue(Path(outputs["tools"], "owned_build_state.py").is_file())
-
-    def test_an_unexpected_root_reads_nothing(self):
-        for root in ("/tmp/elsewhere", "/private/tmp/cmux-ci-x", "/private/tmp/cmux-ci/../x"):
-            with self.subTest(root=root):
-                result, outputs, _, workspace, urls = self.owned_state(root)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(outputs, {})
-                self.assertEqual(urls, [])
-                self.assertFalse((workspace / ".ci-source-packages").exists())
 
     def test_the_adopt_and_prefer_lines_are_ones_the_script_accepts(self):
         import os

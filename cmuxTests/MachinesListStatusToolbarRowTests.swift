@@ -292,6 +292,18 @@ struct MachinesCloudStatusTests {
         #expect(texts.allSatisfy { !$0.contains(rawError) }, "Upstream error details reached accessibility")
     }
 
+    /// Ownership and availability hints are trusted copy and stay readable;
+    /// a raw failure that merely follows one is still sanitized.
+    @Test("A trusted tree hint is shown verbatim, an upstream failure never is")
+    func trustedTreeHintIsShownVerbatim() {
+        let hint = SurfaceTransferRejection.cloudMachineMismatch.message
+        let shown = Self.accessibilitySnapshot(in: Self.host(treeError: hint, treeHint: hint) { _ in }.view).texts
+        #expect(shown.contains(hint))
+        let rawError = "https://cloud.example.test/api/vm?trace=secret response-body=private"
+        let raw = Self.accessibilitySnapshot(in: Self.host(treeError: rawError, treeHint: hint) { _ in }.view).texts
+        #expect(raw.allSatisfy { !$0.contains(rawError) && !$0.contains(hint) })
+    }
+
     @MainActor
     private final class ActionLog {
         var error: String?
@@ -304,6 +316,7 @@ struct MachinesCloudStatusTests {
 
     private static func host(
         treeError: String?,
+        treeHint: String? = nil,
         listStatus: MachineListStatus? = nil,
         onDismissTreeError: @escaping (String) -> Void
     ) -> Hosted {
@@ -312,6 +325,7 @@ struct MachinesCloudStatusTests {
                 listStatus: listStatus,
                 listError: nil,
                 treeError: treeError,
+                treeHint: treeHint,
                 onDismissStale: { _ in },
                 onDismissTreeError: onDismissTreeError,
                 performListStatusAction: { _ in }
