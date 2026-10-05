@@ -257,3 +257,43 @@ async fn waiting_peer_add_answers_after_a_failed_first_attempt() {
     assert_eq!(peers[0]["connected"], false);
     assert!(peers[0]["error"].is_string(), "{peers:?}");
 }
+
+/// ACP-REMOTE-GUARD P1: a peer proven by its peer token has no mode rule
+/// for its own local user, but a request it forwards for its Web client
+/// carries `via: web`, and the owning daemon applies the Web's rules on its
+/// own fresh state.
+#[tokio::test]
+async fn a_web_prompt_forwarded_by_a_peer_meets_the_web_rules_on_the_owning_daemon() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "via").await;
+    let mut cb = client(b.clone()).await;
+    // A local session on B in the fake harness's own mode, which no
+    // asking-mode row lists.
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "via-one"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    // A's own user (unix socket on A) prompts through the peer.
+    let mut ca = client(a.clone()).await;
+    let prompt =
+        |text: &str| json!({"sessionId": "b/via-one", "prompt": [{"type": "text", "text": text}]});
+    let r = ca.call(method::SESSION_PROMPT, prompt("from a's user")).await;
+    assert!(r.is_ok(), "{r:?}");
+    // A Web client of A: refused by B.
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Web,
+    ));
+    let mut web = C { tx: in_tx, rx: out_rx, next: 0 };
+    let r = web.call(method::SESSION_PROMPT, prompt("from a's paired device")).await;
+    let err = r.expect_err("a Web prompt to a session that does not ask");
+    assert!(err.contains("does not ask"), "{err}");
+    let info = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    assert!(!info.to_string().contains("from a's paired device"), "{info}");
+}
