@@ -439,6 +439,56 @@ mod tests {
         }
     }
 
+    /// An engine whose drivers the test watches through `Weak`s.
+    struct WatchedEngines(Mutex<Vec<std::sync::Weak<NoDriver>>>);
+
+    impl Engines for WatchedEngines {
+        fn driver(
+            &self,
+            _engine: &str,
+            _events: crate::driver::EventSink,
+            _session: &SessionContext,
+        ) -> Result<Arc<dyn Driver>, DriverError> {
+            let driver = Arc::new(NoDriver);
+            self.0.lock().unwrap().push(Arc::downgrade(&driver));
+            Ok(driver)
+        }
+    }
+
+    /// The session's event slot holds its gate, and the gate's input
+    /// emitter holds the session sink, which holds the slot: only clearing
+    /// the slot frees a session. Every end path must clear it, the host's
+    /// own end too (no browser.repl.close).
+    #[test]
+    fn every_session_end_frees_the_engine() {
+        let engines = Arc::new(WatchedEngines(Mutex::new(Vec::new())));
+        let root = std::env::temp_dir().join(format!("host-drop-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let host = Host::new(engines.clone(), root.display().to_string());
+        let caller = Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() };
+        for name in ["closed", "open"] {
+            host.dispatch(
+                &caller,
+                "browser.repl.open",
+                &json!({"session": name, "engine": "headless"}),
+            )
+            .unwrap();
+        }
+        let weak = |i: usize| engines.0.lock().unwrap()[i].clone();
+        let freed = |i: usize, what: &str| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while weak(i).strong_count() > 0 {
+                assert!(std::time::Instant::now() < deadline, "{what}: the engine was never freed");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        host.dispatch(&caller, "browser.repl.close", &json!({"session": "closed"})).unwrap();
+        freed(0, "browser.repl.close");
+        drop(host);
+        freed(1, "the host ended with the session open");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn engines_get_the_session_profile_and_only_the_person_picks_another() {
         let engines = Arc::new(ProfileEngines(Mutex::new(Vec::new())));
