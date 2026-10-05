@@ -1331,7 +1331,7 @@ export interface CloudOps {
     }
     readonly result: CloudMachine
   }
-  /** Set when an idle machine pauses; 0 = never. */
+  /** Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h. */
   readonly "cloud.machine.idle_policy.set": {
     readonly params: {
       readonly machine: MachineId
