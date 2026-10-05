@@ -143,7 +143,10 @@ extension CloudTreeNodeBuilder {
         nodes.append(CloudTreeNode(
             id: "coderouter-section",
             kind: .coderouterSection,
-            children: []
+            children: [
+                CloudTreeNode(id: "coderouter-section/empty", kind: .coderouterEmpty),
+                CloudTreeNode(id: "coderouter-section/add-account", kind: .coderouterAddAccount)
+            ]
         ))
         return nodes
     }
