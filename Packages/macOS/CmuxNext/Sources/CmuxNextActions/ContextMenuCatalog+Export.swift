@@ -14,11 +14,13 @@ nonisolated extension ContextMenuCatalog {
         "A submenu takes its action's title without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
         "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
         "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
+        "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus).",
     ]
 
     /// Menus built by hand in their views, not from the catalog, so not in
     /// `context_menus` yet (a known gap; GPUI asks for one when it needs it):
-    /// name and the source that builds it.
+    /// name and the source that builds it. A new hand-built NSMenu must be
+    /// added here (no source scan checks this).
     public static let exportHandBuiltMenus: [[String: String]] = [
         ["name": "remoteHoverToolbar", "source": "CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift"],
         ["name": "terminalPaste", "source": "CmuxNextTerminal/TerminalSurfaceView+Pasteboard.swift"],
