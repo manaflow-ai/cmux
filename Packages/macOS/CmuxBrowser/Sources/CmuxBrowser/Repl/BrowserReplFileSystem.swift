@@ -294,10 +294,10 @@ public struct BrowserReplFileSystem: Sendable {
                     try copyData(from: source, to: copy, size: size, display: pair)
                 }
                 // Mode, times and extended attributes, as fcopyfile's own copy.
-                guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR)) == 0,
-                      renameat(destination.directory.fd, staging, destination.directory.fd, name) == 0 else {
+                guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR)) == 0 else {
                     throw Self.posixError(errno, syscall: "copyfile", display: pair)
                 }
+                try Self.publish(staging, as: name, in: destination.directory, holding: copy, display: pair)
             } catch {
                 unlinkat(destination.directory.fd, staging, 0)
                 throw error
@@ -306,6 +306,38 @@ public struct BrowserReplFileSystem: Sendable {
         default:
             throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: unsupported fs operation '\(operation)'")
         }
+    }
+
+    /// Renames the staging entry `staging` in `directory` to `name` while
+    /// it is still the regular file `copy` holds open, checked and renamed
+    /// while no REPL `fs.rename` and no browser file grant runs
+    /// (``BrowserReplFileSandbox/pathChangeLock``). The staging name is
+    /// visible to another session sharing the directory, which can move a
+    /// link into its place while the copy runs; `fs.rename` is the only
+    /// fs operation that puts a link at a path, and it takes the same
+    /// lock, so the entry checked is the one renamed, and a link is never
+    /// published under the destination's name.
+    private static func publish(
+        _ staging: String,
+        as name: String,
+        in directory: BrowserReplDescriptor,
+        holding copy: BrowserReplDescriptor,
+        display: String
+    ) throws {
+        let result: Int32 = BrowserReplFileSandbox.pathChangeLock.withLock {
+            var held = stat()
+            var named = stat()
+            guard fstat(copy.fd, &held) == 0, fstatat(directory.fd, staging, &named, AT_SYMLINK_NOFOLLOW) == 0 else { return errno }
+            guard named.st_mode & S_IFMT == S_IFREG, named.st_dev == held.st_dev, named.st_ino == held.st_ino else { return EBUSY }
+            return renameat(directory.fd, staging, directory.fd, name) == 0 ? 0 : errno
+        }
+        guard result != EBUSY else {
+            throw BrowserReplFileSystemError(
+                code: "EBUSY",
+                message: "EBUSY: resource busy, copyfile '\(display)': the copy's staging file was replaced while it was written (another session shares the directory); copy again"
+            )
+        }
+        guard result == 0 else { throw posixError(result, syscall: "copyfile", display: display) }
     }
 
     private static let isDirectoryError = BrowserReplFileSystemError(

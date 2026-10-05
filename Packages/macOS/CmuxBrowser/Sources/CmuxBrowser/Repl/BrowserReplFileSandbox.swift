@@ -242,13 +242,15 @@ public struct BrowserReplFileSandbox: Sendable {
         return out
     }
 
-    /// Held by every REPL `fs.rename` around its `renameat`, and by a file
-    /// navigation from its last check until the browser took its read
+    /// Held by every REPL `fs.rename` around its `renameat`, by `copyFile`
+    /// while it checks and renames its staging file into place, and by a
+    /// file navigation from its last check until the browser took its read
     /// access (``withPinnedFileAccess(_:roots:_:)``): no REPL session (this
     /// one included, from its own thread) moves an entry in between.
     /// `rename` is the only `fs` operation that can put a link, or a
-    /// directory that holds one, at a path; the others make regular files
-    /// and directories or remove entries.
+    /// directory that holds one, at a path; `copyFile` renames only the
+    /// regular file it wrote, and the others make regular files and
+    /// directories or remove entries.
     static let pathChangeLock = NSLock()
 
     /// Runs `load`, which must start the browser's load of the file `url`
