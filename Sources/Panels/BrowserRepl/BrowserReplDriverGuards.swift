@@ -41,7 +41,7 @@ final class BrowserReplNavigationGuard {
               let creator = attachment.creatorSessionID,
               let policy = board.policy(for: creator),
               let reason = policy.navigationBlockReason(url, initiator: initiator) else { return false }
-        attachment.emit("navigation.blocked", ["url": attachment.pageURL(url.absoluteString), "reason": reason])
+        attachment.emit(.navigationBlocked, ["url": attachment.pageURL(url.absoluteString), "reason": reason])
         return true
     }
 
@@ -59,7 +59,7 @@ final class BrowserReplNavigationGuard {
               let reason = BrowserReplFileSandbox.navigationRefusal(url.absoluteString, roots: board.fileRoots(for: creator) ?? []) else {
             return false
         }
-        attachment.emit("navigation.blocked", ["url": attachment.pageURL(url.absoluteString), "reason": reason])
+        attachment.emit(.navigationBlocked, ["url": attachment.pageURL(url.absoluteString), "reason": reason])
         return true
     }
 
@@ -88,7 +88,7 @@ final class BrowserReplNavigationGuard {
             return .untilRulesSettle(sessionID: creator)
         case .failed(let error):
             let reason = "the domain policy could not be applied (\(error)); set a policy that compiles"
-            attachment.emit("navigation.blocked", ["url": attachment.pageURL(url?.absoluteString ?? ""), "reason": reason])
+            attachment.emit(.navigationBlocked, ["url": attachment.pageURL(url?.absoluteString ?? ""), "reason": reason])
             return .refused(reason)
         }
     }

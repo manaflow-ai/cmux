@@ -1,0 +1,180 @@
+import Foundation
+import Testing
+
+@testable import CmuxBrowser
+
+/// One authority judges every document, URL and tab a session reaches, and
+/// one table names the guards of every driver method and event.
+@Suite("Browser REPL document authority")
+struct BrowserReplDocumentAuthorityTests {
+    private func policy(allowed: [String]? = nil, prohibited: [String] = [], locked: Bool = false) throws -> BrowserReplDomainPolicy {
+        var policy = BrowserReplDomainPolicy()
+        policy.allowed = try allowed?.map { try BrowserReplDomainPattern.parse($0, title: "t") }
+        policy.prohibited = try prohibited.map { try BrowserReplDomainPattern.parse($0, title: "t") }
+        policy.locked = locked
+        return policy
+    }
+
+    private let roots = ["/tmp/session-work"]
+
+    @Test("Every driver method has a guard entry, and a method outside the table is refused")
+    func everyMethodHasASpec() {
+        for method in BrowserReplDriverMethod.allCases {
+            let spec = BrowserReplMethodSpec.spec(for: method.rawValue)
+            #expect(spec == method.spec, "\(method.rawValue) has no guard entry")
+            // An explicit `none` always says why.
+            if case .none(let reason) = method.spec.target { #expect(!reason.isEmpty, "\(method.rawValue)") }
+            if case .none(let reason) = method.spec.page { #expect(!reason.isEmpty, "\(method.rawValue)") }
+            if case .none(let reason) = method.spec.frames { #expect(!reason.isEmpty, "\(method.rawValue)") }
+            if case .inFrame(let reason) = method.spec.frames { #expect(!reason.isEmpty, "\(method.rawValue)") }
+            // Trusted input always has a frame check and a page check.
+            if method.spec.guardsInput {
+                #expect(method.spec.page == .tabPage, "\(method.rawValue)")
+                #expect([.pointer, .drag, .focus].contains(method.spec.frames), "\(method.rawValue)")
+            }
+            // A page or frame check needs the tab the method acts on.
+            if method.spec.page == .tabPage { #expect(method.spec.capability != nil, "\(method.rawValue)") }
+        }
+        for unknown in ["tab.evaluate", "frames.evaluate", "input.", "", "TAB.INFO", "tab.info "] {
+            #expect(BrowserReplMethodSpec.spec(for: unknown) == nil, "\(unknown) must be refused")
+        }
+        #expect(BrowserReplMethodSpec.unknownMethodError("x.y").code == "unsupported")
+    }
+
+    @Test("The methods no guard list named before have explicit entries")
+    func formerlyUnlistedMethodsAreExplicit() {
+        let explicit: [BrowserReplDriverMethod] = [.tabInfo, .framesList, .frameOwnerBox, .downloadPath, .dialogRespond]
+        for method in explicit {
+            #expect(BrowserReplMethodSpec.spec(for: method.rawValue) != nil)
+        }
+        #expect(BrowserReplDriverMethod.dialogRespond.spec.frames == .dialogDocument)
+        #expect(BrowserReplDriverMethod.tabsClose.spec.capability == .close)
+    }
+
+    @Test("Every driver event has a delivery, an event outside the table is dropped, and a path that does not match drops it")
+    func everyEventHasASpec() {
+        for event in BrowserReplDriverEvent.allCases {
+            #expect(BrowserReplEventSpec.spec(for: event.rawValue) == event.spec, "\(event.rawValue)")
+            #expect(event.isDelivered(as: event.spec.delivery), "\(event.rawValue)")
+            switch event.spec.delivery {
+            case .everyAttached(let reason), .oneSession(let reason): #expect(!reason.isEmpty, "\(event.rawValue)")
+            default: break
+            }
+        }
+        #expect(BrowserReplEventSpec.spec(for: "permission.requested") == nil)
+        // A page's console message sent to every attached session is dropped:
+        // it must go through the path that judges its document.
+        #expect(!BrowserReplDriverEvent.console.isDelivered(as: .everyAttached("")))
+        #expect(!BrowserReplDriverEvent.dialogOpened.isDelivered(as: .everyAttached("")))
+        #expect(!BrowserReplDriverEvent.downloadStarted.isDelivered(as: .everyAttached("")))
+    }
+
+    @Test("A load is judged by the domain policy")
+    func loadsFollowThePolicy() throws {
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", policy: try policy(allowed: ["example.com"]), fileRoots: roots)
+        #expect(authority.verdict(BrowserReplAccess(.load("https://example.com/a"))) == .allowed)
+        let refused = authority.verdict(BrowserReplAccess(.load("https://evil.test/")))
+        #expect(refused.refusal?.code == "blocked")
+        #expect(refused.refusal?.message.hasPrefix("https://evil.test/ is blocked: ") == true)
+    }
+
+    @Test("A tab's page is judged by the file roots whatever the policy, then by the policy")
+    func tabPagesFollowRootsAndPolicy() throws {
+        let open = BrowserReplDocumentAuthority(sessionID: "s", fileRoots: roots)
+        #expect(open.verdict(BrowserReplAccess(.tabPage("file:///etc/passwd"))).refusal?.code == "blocked")
+        #expect(open.verdict(BrowserReplAccess(.tabPage("file:///tmp/session-work/a.html"))) == .allowed)
+        #expect(open.verdict(BrowserReplAccess(.tabPage("https://evil.test/"))) == .allowed)
+        let strict = BrowserReplDocumentAuthority(sessionID: "s", policy: try policy(prohibited: ["evil.test"]), fileRoots: roots)
+        let refused = strict.verdict(BrowserReplAccess(.tabPage("https://evil.test/")))
+        #expect(refused.refusal?.message.contains("which the domain policy blocks") == true)
+        #expect(strict.verdict(BrowserReplAccess(.tabPage(""))) == .allowed)
+    }
+
+    @Test("A document is judged by the policy, its makers, and in another's tab off a web page by the file roots")
+    func documentsJoinPolicyMakersAndRoots() throws {
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", policy: try policy(prohibited: ["evil.test"]), fileRoots: roots)
+        let evil = BrowserReplFrameDocument(origin: "https://evil.test", place: "https://evil.test")
+        #expect(authority.verdict(BrowserReplAccess(.document(evil))).reason != nil)
+        // An opaque document a blocked page made is blocked.
+        let made = BrowserReplFrameDocument(origin: "null", place: "data://", makers: [.page(evil)], opaque: "data:text/html,x")
+        #expect(authority.verdict(BrowserReplAccess(.document(made))).reason?.contains("made by https://evil.test") == true)
+
+        // Local documents, with no policy (a policy blocks every `file:` document).
+        let local = BrowserReplDocumentAuthority(sessionID: "s", fileRoots: roots)
+        let outside = BrowserReplFrameDocument(origin: "file://", place: "file://", local: "file:///etc/passwd")
+        let userTab = BrowserReplTabFacts(mainFrameURL: URL(string: "file:///tmp/session-work/index.html"))
+        let ownTab = BrowserReplTabFacts(mainFrameURL: URL(string: "file:///tmp/session-work/index.html"), creatorSessionID: "s")
+        let webTab = BrowserReplTabFacts(mainFrameURL: URL(string: "https://example.com/"))
+        #expect(local.judgesLocalDocuments(in: userTab))
+        #expect(local.verdict(BrowserReplAccess(.document(outside), in: userTab)).reason != nil)
+        // Its own tab keeps files out with content rules; a web page cannot frame one.
+        #expect(local.verdict(BrowserReplAccess(.document(outside), in: ownTab)) == .allowed)
+        #expect(local.verdict(BrowserReplAccess(.document(outside), in: webTab)) == .allowed)
+        // Without a tab or without known roots, files are not judged.
+        #expect(local.verdict(BrowserReplAccess(.document(outside))) == .allowed)
+        let rootless = BrowserReplDocumentAuthority(sessionID: "s")
+        #expect(rootless.verdict(BrowserReplAccess(.document(outside), in: userTab)) == .allowed)
+        // An opaque document whose maker cmux cannot tell, in such a tab.
+        let unknown = BrowserReplFrameDocument(origin: "null", place: "data://", makers: nil, opaque: "data:,x")
+        #expect(local.verdict(BrowserReplAccess(.document(unknown), in: userTab)).reason != nil)
+    }
+
+    @Test("Another live session's tab is denied")
+    func otherSessionsTabIsDenied() {
+        let authority = BrowserReplDocumentAuthority(sessionID: "s")
+        let theirs = BrowserReplTabFacts(id: UUID(), creatorSessionID: "other", attachedSessionIDs: ["other"])
+        for capability in BrowserReplTabCapability.allCases {
+            let verdict = authority.verdict(BrowserReplAccess(in: theirs, capability: capability))
+            #expect(verdict.refusal?.code == "denied")
+        }
+        let mine = BrowserReplTabFacts(id: UUID(), creatorSessionID: "s", attachedSessionIDs: ["s"])
+        #expect(authority.verdict(BrowserReplAccess(in: mine, capability: .use)) == .allowed)
+        #expect(authority.verdict(BrowserReplAccess(in: mine, capability: .close)) == .allowed)
+    }
+
+    @Test("A session uses tabs of its own workspace only: another workspace's tab needs a person's grant")
+    func crossWorkspaceReachIsDenied() {
+        let own = UUID()
+        let elsewhere = UUID()
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", workspaceID: own)
+        let userTabHere = BrowserReplTabFacts(id: UUID(), workspaceID: own)
+        let userTabElsewhere = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: ["s"], workspaceID: elsewhere)
+        #expect(authority.verdict(BrowserReplAccess(in: userTabHere, capability: .use)) == .allowed)
+        for capability in BrowserReplTabCapability.allCases {
+            let verdict = authority.verdict(BrowserReplAccess(in: userTabElsewhere, capability: capability))
+            #expect(verdict.refusal?.code == "denied", "\(capability)")
+            #expect(verdict.refusal?.message.contains("another workspace") == true, "\(capability)")
+        }
+        // Its own popup in another workspace (a tab it created) stays usable.
+        let ownTabElsewhere = BrowserReplTabFacts(id: UUID(), creatorSessionID: "s", attachedSessionIDs: ["s"], workspaceID: elsewhere)
+        #expect(authority.verdict(BrowserReplAccess(in: ownTabElsewhere, capability: .use)) == .allowed)
+        // A tab whose workspace cannot be told is not reachable either.
+        let unplaced = BrowserReplTabFacts(id: UUID(), workspaceID: nil)
+        #expect(authority.verdict(BrowserReplAccess(in: unplaced, capability: .use)).refusal?.code == "denied")
+    }
+
+    @Test("A session never closes a user's tab it is not attached to")
+    func closingAnUnattachedUserTabIsDenied() {
+        let own = UUID()
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", workspaceID: own)
+        let unattached = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: ["other"], workspaceID: own)
+        let closing = authority.verdict(BrowserReplAccess(in: unattached, capability: .close))
+        #expect(closing.refusal?.code == "denied")
+        #expect(authority.verdict(BrowserReplAccess(in: unattached, capability: .use)) == .allowed)
+        let attached = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: ["s"], workspaceID: own)
+        #expect(authority.verdict(BrowserReplAccess(in: attached, capability: .close)) == .allowed)
+        let created = BrowserReplTabFacts(id: UUID(), creatorSessionID: "s", attachedSessionIDs: ["s"], workspaceID: own)
+        #expect(authority.verdict(BrowserReplAccess(in: created, capability: .close)) == .allowed)
+    }
+
+    @Test("The policy board's authority carries the session's policy and directories")
+    func boardAuthority() throws {
+        let board = BrowserReplPolicyBoard()
+        board.publish(try policy(prohibited: ["evil.test"]), sessionID: "s")
+        board.setFileRoots(roots, sessionID: "s")
+        let authority = board.authority(for: "s")
+        #expect(authority.fileRoots == roots)
+        #expect(authority.verdict(BrowserReplAccess(.load("https://evil.test/"))).reason != nil)
+        #expect(board.authority(for: "unknown").verdict(BrowserReplAccess(.load("https://evil.test/"))) == .allowed)
+    }
+}

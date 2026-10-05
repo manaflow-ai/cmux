@@ -398,9 +398,22 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         from document: BrowserReplFrameDocument,
         policy: (String) -> BrowserReplDomainPolicy?
     ) -> BrowserReplEventRoute {
+        route(for: event, from: document, in: nil) {
+            BrowserReplDocumentAuthority(sessionID: $0, policy: policy($0) ?? BrowserReplDomainPolicy())
+        }
+    }
+
+    /// ``route(for:from:policy:)``, judged by each session's authority for
+    /// `document` in `tab` (``BrowserReplDocumentAuthority/verdict(_:)``).
+    public func route(
+        for event: BrowserReplTabEvent,
+        from document: BrowserReplFrameDocument,
+        in tab: BrowserReplTabFacts?,
+        authority: (String) -> BrowserReplDocumentAuthority
+    ) -> BrowserReplEventRoute {
         let route = route(for: event)
         guard case .session(let sessionID) = route,
-              policy(sessionID)?.blockReason(document: document) != nil else { return route }
+              authority(sessionID).verdict(BrowserReplAccess(.document(document), in: tab)) != .allowed else { return route }
         let creator = isSessionOwned ? creatorSessionID : nil
         return sessionID == creator || sessionID == inputSessionID ? .refused : .user
     }

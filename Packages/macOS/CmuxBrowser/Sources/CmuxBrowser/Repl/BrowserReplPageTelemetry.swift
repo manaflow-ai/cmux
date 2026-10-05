@@ -14,6 +14,19 @@ public struct BrowserReplPageTelemetry: Sendable {
         among sessionIDs: [String],
         policy: (String) -> BrowserReplDomainPolicy?
     ) -> [String] {
-        sessionIDs.filter { policy($0)?.blockReason(document: document) == nil }
+        recipients(of: document, in: nil, among: sessionIDs) {
+            BrowserReplDocumentAuthority(sessionID: $0, policy: policy($0) ?? BrowserReplDomainPolicy())
+        }
+    }
+
+    /// The sessions, of `sessionIDs`, whose authority allows `document` in
+    /// `tab` (``BrowserReplDocumentAuthority/verdict(_:)``).
+    public func recipients(
+        of document: BrowserReplFrameDocument,
+        in tab: BrowserReplTabFacts?,
+        among sessionIDs: [String],
+        authority: (String) -> BrowserReplDocumentAuthority
+    ) -> [String] {
+        sessionIDs.filter { authority($0).verdict(BrowserReplAccess(.document(document), in: tab)) == .allowed }
     }
 }

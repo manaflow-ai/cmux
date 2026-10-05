@@ -27,11 +27,26 @@ public struct BrowserReplPermissionRequest: Sendable, Equatable {
     /// must not hand it the camera, microphone, location or notifications.
     /// An origin the policy cannot judge (opaque, or not named) is denied.
     public func isGranted(by granted: Set<String>, policy: BrowserReplDomainPolicy?) -> Bool {
+        isGranted(by: granted, authority: BrowserReplDocumentAuthority(sessionID: "", policy: policy ?? BrowserReplDomainPolicy()), in: nil)
+    }
+
+    /// Whether the request is granted, given the creating session's grants
+    /// and its authority on the documents that ask in `tab`
+    /// (``isAllowed(by:in:)``).
+    public func isGranted(by granted: Set<String>, authority: BrowserReplDocumentAuthority, in tab: BrowserReplTabFacts?) -> Bool {
         guard !permissions.isEmpty, permissions.allSatisfy(granted.contains) else { return false }
-        guard let policy, policy.isActive else { return true }
+        return isAllowed(by: authority, in: tab)
+    }
+
+    /// Whether `authority` allows the origin that asks and the frame's
+    /// document in `tab` (``BrowserReplDocumentAuthority/verdict(_:)``). An
+    /// origin it cannot judge (opaque, or not named) is refused while the
+    /// authority judges anything in the tab.
+    public func isAllowed(by authority: BrowserReplDocumentAuthority, in tab: BrowserReplTabFacts?) -> Bool {
+        guard authority.isActive(in: tab) else { return true }
         guard let origin, let name = origin.origin, name != "null" else { return false }
-        if policy.blockReason(document: origin) != nil { return false }
-        if let frame, policy.blockReason(document: frame) != nil { return false }
+        if authority.verdict(BrowserReplAccess(.document(origin), in: tab)) != .allowed { return false }
+        if let frame, authority.verdict(BrowserReplAccess(.document(frame), in: tab)) != .allowed { return false }
         return true
     }
 }

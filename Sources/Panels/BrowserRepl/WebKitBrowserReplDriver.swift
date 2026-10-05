@@ -203,23 +203,25 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         method.hasPrefix("input.")
     }
 
-    /// Trusted input for the whole tab, a point or a key, which reaches
-    /// whatever frame is under the point or holds the focus when it lands.
-    private static func isGuardedInput(_ method: String) -> Bool {
-        ["input.mouse", "input.drag", "input.key", "input.insertText"].contains(method)
+    /// This session's ``BrowserReplDocumentAuthority``: every decision on a
+    /// document, URL or tab the driver makes is its verdict.
+    private var authority: BrowserReplDocumentAuthority {
+        lock.withLock {
+            BrowserReplDocumentAuthority(sessionID: sessionID, policy: domainPolicy, fileRoots: fileRoots.map(\.path), workspaceID: workspaceID)
+        }
     }
 
-    /// Methods that read or act on a page or its cookies; refused while the
-    /// page is one the policy blocks. Of the cookie calls only
-    /// `cookies.clear` takes its scope (the tab's site) from the page;
-    /// `cookies.get` and `cookies.set` use the tab only to pick its data
-    /// store, and are judged by their URLs and each cookie's domain, so a
-    /// page that shows a blocked site does not stop an allowed cookie.
-    private static func isGuarded(_ method: String) -> Bool {
-        method == "frame.evaluate" || method.hasPrefix("input.") || method == "tab.screenshot"
-            || method == "tab.pdf" || method.hasPrefix("clipboard.") || method == "filechooser.respond"
-            || method == "cookies.clear" || method == "auth.request"
-            || method == "frame.contentFrame" || method == "frame.contentFrames"
+    /// `panel` as the authority judges it.
+    @MainActor
+    private func tabFacts(_ panel: BrowserPanel) -> BrowserReplTabFacts {
+        let attachment = BrowserReplTabAttachments.shared.attachment(for: panel.id)
+        return BrowserReplTabFacts(
+            id: panel.id,
+            mainFrameURL: panel.webView.url,
+            creatorSessionID: attachment?.liveCreatorSessionID,
+            attachedSessionIDs: Set(attachment?.sessionIDs ?? []),
+            workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id
+        )
     }
 
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {
@@ -285,8 +287,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let held = attachment.takeHeldInput(of: sessionID)
         guard !held.isEmpty, let panel = attachment.panel else { return }
         let webView = panel.webView
-        if BrowserReplFileSandbox.localPageRefusal(url: Self.url(panel), documentOrigin: nil, roots: currentFileRoots) != nil
-            || currentPolicy.blockReason(Self.url(panel)) != nil {
+        if authority.verdict(BrowserReplAccess(.tabPage(Self.url(panel)), in: tabFacts(panel))) != .allowed {
             attachment.forgetReleased(held)
             return
         }
@@ -345,15 +346,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     @MainActor
-    private func dispatchAttached(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+    private func dispatchAttached(method name: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         await lock.withLock({ policyRunner }).idle()
         if let policyFailure { return .failure(policyFailure) }
+        // Default deny: a method outside the guard table runs nothing.
+        guard let method = BrowserReplDriverMethod(rawValue: name) else {
+            return .failure(BrowserReplMethodSpec.unknownMethodError(name))
+        }
+        let spec = method.spec
         let params = JSONSerialization.browserReplObject(paramsJSON)
         // Every call on a tab first wakes a hibernated tab and waits until
         // the tab renders like a focused foreground page; input must not race
         // WebKit's focus update. Closing or keeping a tab leaves it as it is.
         var tabToPrepare: BrowserPanel?
-        if BrowserReplTabWaker.wakesHibernatedTab(method),
+        if BrowserReplTabWaker.wakesHibernatedTab(name),
            let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
            let panel = try? reachablePanel(id) {
             // Attaching keeps the tab rendering, which starts the restore of
@@ -372,14 +378,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             if let panel = tabToPrepare {
                 // The policy judges the tab's recorded URL before a wake would
                 // load a page it blocks.
-                try checkPagePolicy(method: method, params: params)
+                try checkPage(spec, params: params)
                 let attachment = attachment(panel)
                 // A dialog the restored page opens while it loads is this
                 // session's doing, as is one from its own input.
                 let preparation = tabCondition(panel).state == .live
-                    ? try await prepareTab(panel, for: method, params: params)
+                    ? try await prepareTab(panel, for: name, params: params)
                     : try await attachment.withInput(sessionID: sessionID) {
-                        try await prepareTab(panel, for: method, params: params)
+                        try await prepareTab(panel, for: name, params: params)
                     }
                 // WebKit signals the update; the bound only guards a web process
                 // that goes away before answering.
@@ -397,13 +403,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     return .success(json)
                 }
             }
-            try checkPagePolicy(method: method, params: params)
-            try await checkLocalDocumentOrigin(method: method, params: params)
-            let guardsInput = Self.isGuardedInput(method) && tabToPrepare.map { frameGate.isActive(in: $0.webView) } == true
-            if !guardsInput { try await checkFramePolicy(method: method, params: params) }
+            try checkTab(spec, params: params)
+            try checkPage(spec, params: params)
+            try await checkLocalDocumentOrigin(spec, params: params)
+            let guardsInput = spec.guardsInput && tabToPrepare.map { frameGate.isActive(in: $0.webView) } == true
+            if !guardsInput { try await checkFrames(spec, params: params) }
             let value: Any? = try await withAgentGestureClipboardQuarantine(
                 tabToPrepare,
-                when: Self.isGuardedInput(method) || (method == "frame.evaluate" && params["world"] as? String != "agent")
+                when: spec.guardsInput || (method == .frameEvaluate && params["world"] as? String != "agent")
             ) { () async throws -> Any? in
                 if guardsInput, let panel = tabToPrepare {
                     // The input is a point or a key for the whole tab: while it
@@ -415,20 +422,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     return try await frameGate.guardingInput(
                         in: webView,
                         frames: { await BrowserReplFrameTree.frames(of: webView) },
-                        checkFocusAfter: method == "input.key" || method == "input.insertText"
+                        checkFocusAfter: spec.frames == .focus
                     ) {
-                        try await checkFramePolicy(method: method, params: params)
+                        try await checkFrames(spec, params: params)
                         return try await attachment(panel).withInput(sessionID: sessionID) {
                             try await handle(method: method, params: params)
                         }
                     }
-                } else if Self.isActionOnPage(method), let panel = tabToPrepare {
+                } else if Self.isActionOnPage(name), let panel = tabToPrepare {
                     // What the page opens while it handles this session's input
                     // goes to this session, never to cmux's UI in front of the user.
                     return try await attachment(panel).withInput(sessionID: sessionID) {
                         try await handle(method: method, params: params)
                     }
-                } else if method == "frame.evaluate", params["world"] as? String == "page", let panel = tabToPrepare {
+                } else if method == .frameEvaluate, params["world"] as? String == "page", let panel = tabToPrepare {
                     // The agent's own page script (el.click(), form.submit()):
                     // what it opens goes to the session, for at most a second,
                     // so a long script leaves the user's dialogs and popups alone.
@@ -444,7 +451,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // Page URLs in the result (BrowserReplPageURL) become this
             // session's form of them here.
             guard let json = BrowserReplDriverOutput(reader: sessionID).result(value) else {
-                return .failure(Self.error("invalid", "Driver result for \(method) is not JSON"))
+                return .failure(Self.error("invalid", "Driver result for \(name) is not JSON"))
             }
             return .success(json)
         } catch let error as BrowserReplDriverError {
@@ -455,44 +462,44 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     @MainActor
-    private func handle(method: String, params: [String: Any]) async throws -> Any? {
+    private func handle(method: BrowserReplDriverMethod, params: [String: Any]) async throws -> Any? {
         switch method {
-        case "tabs.list": return try listTabs(all: params["all"] as? Bool == true).map(listedTabRow)
-        case "history.search": return try searchHistory(params)
-        case "tabs.dataStore": return try dataStore(params)
-        case "tabs.open": return try await openTab(params)
-        case "tabs.close": return try closeTab(params)
-        case "tabs.activate", "tab.bringToFront": return try activateTab(params)
-        case "tab.keep": return try keepTab(params)
-        case "tab.handleEvents": return try handleEvents(params)
-        case "session.name": return try nameSession(params)
-        case "session.configure": return try await configureSession(params)
-        case "tab.navigate": return try await navigate(params)
-        case "tab.history": return try await history(params)
-        case "tab.reload": return try await reload(params)
-        case "tab.info": return try await info(params)
-        case "tab.setViewport": return try setViewport(params)
-        case "frames.list": return try await listFrames(params)
-        case "frame.evaluate": return try await evaluate(params)
-        case "frame.ownerBox": return try await ownerBox(params)
-        case "frame.contentFrame": return try await contentFrame(params)
-        case "frame.contentFrames": return try await contentFrames(params)
-        case "input.mouse": return try await mouse(params)
-        case "input.key": return try await key(params)
-        case "input.insertText": return try await insertText(params)
-        case "input.drag": return try await drag(params)
-        case "input.setFiles": return try await setFiles(params)
-        case "filechooser.respond": return try respondToFileChooser(params)
-        case "dialog.respond": return try respondToDialog(params)
-        case "download.path": return try await downloadPath(params)
-        case "tab.screenshot": return try await screenshot(params)
-        case "tab.pdf": return try await pdf(params)
-        case "cookies.get": return try await cookies(params)
-        case "cookies.set": return try await setCookies(params)
-        case "cookies.clear": return try await clearCookies(params)
-        case "clipboard.read": return try readClipboard(params)
-        case "clipboard.write": return try writeClipboard(params)
-        case "auth.request":
+        case .tabsList: return try listTabs(all: params["all"] as? Bool == true).map(listedTabRow)
+        case .historySearch: return try searchHistory(params)
+        case .tabsDataStore: return try dataStore(params)
+        case .tabsOpen: return try await openTab(params)
+        case .tabsClose: return try closeTab(params)
+        case .tabsActivate, .tabBringToFront: return try activateTab(params)
+        case .tabKeep: return try keepTab(params)
+        case .tabHandleEvents: return try handleEvents(params)
+        case .sessionName: return try nameSession(params)
+        case .sessionConfigure: return try await configureSession(params)
+        case .tabNavigate: return try await navigate(params)
+        case .tabHistory: return try await history(params)
+        case .tabReload: return try await reload(params)
+        case .tabInfo: return try await info(params)
+        case .tabSetViewport: return try setViewport(params)
+        case .framesList: return try await listFrames(params)
+        case .frameEvaluate: return try await evaluate(params)
+        case .frameOwnerBox: return try await ownerBox(params)
+        case .frameContentFrame: return try await contentFrame(params)
+        case .frameContentFrames: return try await contentFrames(params)
+        case .inputMouse: return try await mouse(params)
+        case .inputKey: return try await key(params)
+        case .inputInsertText: return try await insertText(params)
+        case .inputDrag: return try await drag(params)
+        case .inputSetFiles: return try await setFiles(params)
+        case .fileChooserRespond: return try respondToFileChooser(params)
+        case .dialogRespond: return try respondToDialog(params)
+        case .downloadPath: return try await downloadPath(params)
+        case .tabScreenshot: return try await screenshot(params)
+        case .tabPDF: return try await pdf(params)
+        case .cookiesGet: return try await cookies(params)
+        case .cookiesSet: return try await setCookies(params)
+        case .cookiesClear: return try await clearCookies(params)
+        case .clipboardRead: return try readClipboard(params)
+        case .clipboardWrite: return try writeClipboard(params)
+        case .authRequest:
             // sites.browserAuth: a native sheet collects credentials; see BrowserReplCredentialRequest.
             let panel = try panel(params)
             let frame = try await frame(panel, params)
@@ -519,8 +526,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     return panel.webView === webView && tabAttachment.sessionIDs.contains(sessionID)
                 }
             )
-        default:
-            throw Self.error("unsupported", "Unsupported driver method \(method)")
         }
     }
 
@@ -557,99 +562,110 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return try await BrowserReplPasteboardRedirect.shared.withAgentGesture(lingering: Self.gestureQuarantineLingering, body)
     }
 
-    /// Refuses a read or input on a tab whose page the domain policy blocks,
-    /// and a navigation to a blocked URL.
+    /// The tab `params.targetId` names, when the driver can reach it.
     @MainActor
-    private func checkPagePolicy(method: String, params: [String: Any]) throws {
-        // A local file outside the session's directories (a user's tab, or
-        // one a hibernated tab would load again), whatever the policy.
-        if Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
-           let panel = try? reachablePanel(id),
-           let reason = BrowserReplFileSandbox.localPageRefusal(url: Self.url(panel), documentOrigin: nil, roots: currentFileRoots) {
-            throw Self.error("blocked", reason)
-        }
-        let policy = currentPolicy
-        guard policy.isActive else { return }
-        if method == "tab.navigate" || method == "tabs.open", let url = params["url"] as? String,
-           let reason = policy.blockReason(url) {
-            throw Self.error("blocked", "\(url) is blocked: \(reason)")
-        }
-        guard Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
-              let panel = try? reachablePanel(id) else { return }
-        // A hibernated tab has no page yet; its recorded URL is what a wake would load.
-        let url = Self.url(panel)
-        guard !url.isEmpty, let reason = policy.blockReason(url) else { return }
-        throw Self.error("blocked", "the tab shows \(url), which the domain policy blocks: \(reason); navigate it to an allowed page")
+    private func targetPanel(_ params: [String: Any]) -> BrowserPanel? {
+        guard let raw = params["targetId"] as? String, let id = UUID(uuidString: raw) else { return nil }
+        return try? reachablePanel(id)
     }
 
-    /// Refuses a read or input on a tab the session did not create whose
-    /// page is a document of a local file's origin under another URL (an
-    /// `about:blank` page a file page wrote), whose file cannot be told, or
-    /// an opaque document (`data:`) such a file or a file outside the
-    /// session's directories made (``BrowserReplFrameGate/localBlockReason(_:roots:)``).
+    /// The tab capability the method needs (``BrowserReplMethodSpec/target``),
+    /// judged by the authority on the tab `targetId` names.
     @MainActor
-    private func checkLocalDocumentOrigin(method: String, params: [String: Any]) async throws {
-        guard Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
-              let panel = try? reachablePanel(id),
-              BrowserReplTabAttachments.shared.attachment(for: id)?.creatorSessionID != sessionID else { return }
-        let url = Self.url(panel)
-        // A web page has its own origin; a file page is judged by its path.
-        guard !["http", "https", "file"].contains(URL(string: url)?.scheme?.lowercased() ?? "") else { return }
-        guard let main = await BrowserReplFrameTree.frames(of: panel.webView).first?.info else { return }
-        if let reason = BrowserReplFrameGate.localBlockReason(BrowserReplFrameDocument(info: main), roots: currentFileRoots) {
-            throw Self.error("blocked", reason)
+    private func checkTab(_ spec: BrowserReplMethodSpec, params: [String: Any]) throws {
+        guard let capability = spec.capability, let panel = targetPanel(params) else { return }
+        try authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: capability)).check()
+    }
+
+    /// The method's page check (``BrowserReplMethodSpec/page``): a read or
+    /// input on a tab whose page the authority refuses (a page the domain
+    /// policy blocks, a local file outside the session's directories), and a
+    /// navigation to a URL it refuses.
+    @MainActor
+    private func checkPage(_ spec: BrowserReplMethodSpec, params: [String: Any]) throws {
+        switch spec.page {
+        case .none:
+            return
+        case .loadURL:
+            guard let url = params["url"] as? String else { return }
+            try authority.verdict(BrowserReplAccess(.load(url))).check()
+        case .tabPage:
+            // A hibernated tab has no page yet; its recorded URL is what a wake would load.
+            guard let panel = targetPanel(params) else { return }
+            try authority.verdict(BrowserReplAccess(.tabPage(Self.url(panel)), in: tabFacts(panel))).check()
         }
+    }
+
+    /// For a page-checked method on a tab the session did not create whose
+    /// page is not a web page or a file by URL: the main frame's document
+    /// (an `about:blank` page a file page wrote, or an opaque document such
+    /// a file made), as the authority judges it.
+    @MainActor
+    private func checkLocalDocumentOrigin(_ spec: BrowserReplMethodSpec, params: [String: Any]) async throws {
+        guard spec.page == .tabPage, let panel = targetPanel(params) else { return }
+        let tab = tabFacts(panel)
+        guard authority.judgesLocalDocuments(in: tab) else { return }
+        // A web page has its own origin; a file page is judged by its path.
+        guard !["http", "https", "file"].contains(URL(string: Self.url(panel))?.scheme?.lowercased() ?? "") else { return }
+        guard let main = await BrowserReplFrameTree.frames(of: panel.webView).first?.info else { return }
+        try authority.verdict(BrowserReplAccess(.document(BrowserReplFrameDocument(info: main)), in: tab)).check()
     }
 
     /// After a navigation of a tab the user owns: a page the policy blocks is
     /// left in place (the user's tab is never navigated away) and the call fails.
     @MainActor
     private func checkLandedPage(_ panel: BrowserPanel) throws {
-        let policy = currentPolicy
-        guard policy.isActive, let url = panel.webView.url?.absoluteString,
-              let reason = policy.blockReason(url) else { return }
+        guard let url = panel.webView.url?.absoluteString,
+              let reason = authority.verdict(BrowserReplAccess(.load(url))).reason else { return }
         throw Self.error("blocked", "navigation to \(url) was blocked: \(reason); the tab is the user's, so it stays there and the session cannot read it")
     }
 
-    /// Refuses input and captures that would reach a frame (not only the
-    /// main frame) the domain policy blocks, judged on the frame tree as it
-    /// is now. Calls that run script in one frame are judged where they run
+    /// The method's frame check (``BrowserReplMethodSpec/frames``) on the
+    /// frame tree as it is now: input and captures that would reach a frame
+    /// (not only the main frame) the authority refuses. Calls that run
+    /// script in one frame are judged where they run
     /// (`BrowserReplFrameGate.callAsyncJavaScript`).
     @MainActor
-    private func checkFramePolicy(method: String, params: [String: Any]) async throws {
-        guard ["input.mouse", "input.drag", "input.key", "input.insertText", "tab.screenshot", "tab.pdf", "filechooser.respond"].contains(method),
-              let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+    private func checkFrames(_ spec: BrowserReplMethodSpec, params: [String: Any]) async throws {
+        switch spec.frames {
+        case .pointer, .drag, .focus, .fileChooser, .allFrames:
+            break
+        case .screenshot, .dialogDocument, .inFrame, .none:
+            // A screenshot is judged during the capture, which blanks blocked
+            // frames (BrowserReplFrameGate.coverBlockedFrames); a dialog's
+            // document where it is answered; script where it runs.
+            return
+        }
+        guard let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
               let panel = try? reachablePanel(id), frameGate.isActive(in: panel.webView) else { return }
-        if method == "filechooser.respond", params["cancel"] as? Bool == true { return }
+        if spec.frames == .fileChooser, params["cancel"] as? Bool == true { return }
         let webView = panel.webView
         let frames = await BrowserReplFrameTree.frames(of: webView)
-        switch method {
-        case "input.mouse":
+        switch spec.frames {
+        case .pointer:
             let position = BrowserReplTabAttachments.shared.attachment(for: id)?.mousePosition ?? .zero
             let point = CGPoint(
                 x: (params["x"] as? NSNumber)?.doubleValue ?? position.x,
                 y: (params["y"] as? NSNumber)?.doubleValue ?? position.y
             )
             try await frameGate.checkPointer(at: [point], in: webView, frames: frames)
-        case "input.drag":
+        case .drag:
             try await frameGate.checkPointer(at: Self.dragTrail(params), in: webView, frames: frames)
-        case "input.key", "input.insertText":
+        case .focus:
             try await frameGate.checkFocus(in: webView, frames: frames)
-        case "filechooser.respond":
+        case .fileChooser:
             // Files go only to the input of the chooser's own frame.
             guard let chooserID = params["chooserId"] as? String,
                   let frame = BrowserReplTabAttachments.shared.attachment(for: id)?.fileChooserFrame(id: chooserID, sessionID: sessionID) else {
                 return
             }
             try await frameGate.checkFileChooser(frame: frame, in: webView, frames: frames)
-        case "tab.screenshot":
-            // Judged during the capture, which blanks blocked frames
-            // (BrowserReplFrameGate.coverBlockedFrames).
-            return
-        default:
+        case .allFrames:
             // A PDF is laid out for print; its frames' boxes cannot be
             // blanked, so any blocked frame refuses it.
             try frameGate.checkCapture(in: webView, frames: frames)
+        case .screenshot, .dialogDocument, .inFrame, .none:
+            return
         }
     }
 
@@ -712,33 +728,33 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return out
     }
 
-    /// A tab this session may drive: one of its workspace's browser surfaces,
-    /// or a tab in another workspace it claimed with tabs.use(id) after
-    /// `tabs.list({ all: true })` listed it (reference B's claimTab), but
-    /// never a tab another live session created (`denied`, naming that
-    /// session): that tab's page, cookies, storage and clipboard are the
-    /// other session's.
+    /// A tab this session may drive (``BrowserReplDocumentAuthority``,
+    /// ``BrowserReplTabCapability/use``): one of its workspace's browser
+    /// surfaces, never a tab another live session created (`denied`, naming
+    /// that session: that tab's page, cookies, storage and clipboard are the
+    /// other session's), and never a tab of another workspace (`denied`: that
+    /// needs an attach a person grants, which cmux does not offer yet).
     @MainActor
     private func reachablePanel(_ id: UUID) throws -> BrowserPanel? {
         if let own = try browserPanels().first(where: { $0.id == id }) { return try drivable(own) }
         if let other = allBrowserPanels().first(where: { $0.panel.id == id })?.panel { return try drivable(other) }
         // A tab a relaunch restored but has not loaded yet is a placeholder
         // until first use; using it creates its browser, which then loads
-        // like a hibernated tab (prepareTab). Creating it shows nothing.
+        // like a hibernated tab (prepareTab). Creating it shows nothing. One
+        // of another workspace is refused before anything is created.
         for workspace in allWorkspaces() {
-            if let deferred = workspace.panels[id] as? DeferredBrowserPanel {
-                return workspace.materializeDeferredBrowserPanel(deferred)
-            }
+            guard let deferred = workspace.panels[id] as? DeferredBrowserPanel else { continue }
+            try authority.verdict(BrowserReplAccess(in: BrowserReplTabFacts(id: id, workspaceID: workspace.id), capability: .use)).check()
+            return workspace.materializeDeferredBrowserPanel(deferred)
         }
         return nil
     }
 
-    /// `panel`, unless another live session created it.
+    /// `panel`, when the authority lets this session use it
+    /// (``BrowserReplTabCapability/use``): not another live session's tab.
     @MainActor
     private func drivable(_ panel: BrowserPanel) throws -> BrowserPanel {
-        if let owner = otherSessionOwning(panel.id) {
-            throw Self.error("denied", "the tab \(panel.id.uuidString) belongs to the REPL session \(Self.describeSession(owner)), which is still running; a session drives only the tabs it opened and the user's tabs (tabs.list({ all: true }) shows each tab's owner)")
-        }
+        try authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: .use)).check()
         return panel
     }
 
@@ -746,12 +762,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func otherSessionOwning(_ id: UUID) -> String? {
         BrowserReplTabAttachments.shared.attachment(for: id)?.ownerRefusing(sessionID)
-    }
-
-    /// A session's name, and its workspace, for messages.
-    private static func describeSession(_ instanceID: String) -> String {
-        guard let key = BrowserReplSessionKey(instanceID: instanceID) else { return "\"\(instanceID)\"" }
-        return "\"\(key.name)\" (workspace \(key.workspaceID.uuidString))"
     }
 
     /// The name of the live session other than this one that created tab
@@ -974,6 +984,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func forward(_ name: String, _ payload: [String: Any]) {
+        // Default deny: an event outside the guard table never reaches the
+        // session (BrowserReplEventSpec).
+        guard BrowserReplEventSpec.spec(for: name) != nil else { return }
         if name == "download.finished", let id = payload["downloadId"] as? String {
             downloads.finish(id: id, path: payload["path"] as? String, error: payload["error"] as? String)
         }
@@ -1183,8 +1196,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 return nil
             }
         }
-        // The workspace that holds the tab closes it: a user's tab in another
-        // workspace is reachable too. What is kept for the tab (its
+        // The workspace that holds the tab closes it (the authority let this
+        // session close it: its own tab, or a user's tab of its workspace it
+        // drives). What is kept for the tab (its
         // attachment, the secrets sessions typed into it) is forgotten when
         // the tab really closes (`BrowserPanel.close()`), never here: a
         // close the workspace refuses leaves the tab open, and its typed
@@ -2901,9 +2915,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Refuses a cookie call on a URL the domain policy blocks.
     @MainActor
     private func checkCookieURLs(_ urls: [String], method: String) throws {
-        let policy = currentPolicy
+        let authority = self.authority
         for url in urls {
-            if let reason = policy.blockReason(url) {
+            if let reason = authority.verdict(BrowserReplAccess(.load(url))).reason {
                 throw Self.error("blocked", "\(method): \(url) is blocked: \(reason)")
             }
         }

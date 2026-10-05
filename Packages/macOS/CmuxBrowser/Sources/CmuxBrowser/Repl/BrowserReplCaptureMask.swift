@@ -141,7 +141,10 @@ public struct BrowserReplCaptureMask {
         probe: BrowserReplScriptProbe = BrowserReplScriptProbe()
     ) {
         self.policy = policy
-        judge = Judge(isActive: { _ in policy.isActive }, blockReason: { document, _ in policy.blockReason(document: document) })
+        let authority = BrowserReplDocumentAuthority(sessionID: "", policy: policy)
+        judge = Judge(isActive: { _ in policy.isActive }, blockReason: { document, _ in
+            authority.verdict(BrowserReplAccess(.document(document))).reason
+        })
         self.blockedChildFrames = blockedChildFrames
         self.probe = probe
         masks = secretMasks.compactMap { mask in
