@@ -86,6 +86,13 @@ extension NSWindow {
             return false
         }
         if let terminalView {
+            // An explicit workspace restore binding must reach the shared
+            // shortcut dispatcher before terminal Undo consumes Cmd+Z.
+            if let appDelegate = AppDelegate.shared,
+               appDelegate.matchConfiguredShortcut(event: event, action: .reopenClosedWorkspace),
+               appDelegate.handleConfiguredShortcutKeyEquivalent(event) {
+                return true
+            }
             if terminalView.performKeyEquivalentAfterMenuMiss(with: event) {
 #if DEBUG
                 cmuxDebugLog("  -> undo/redo routed to terminal before AppKit menu")
