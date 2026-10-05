@@ -26,7 +26,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import ghostty_source_archive as archive  # noqa: E402
 
-REVISION = "b" * 40
 COMMIT = "c" * 40
 Z2D = "z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR"
 OLD = "N-V-__8AAG02ugUcWec-Ndp-i7JTsJ0dgF8nnJRUInkGLG7G"
@@ -48,6 +47,7 @@ class Fixture:
         git(self.source, "init", "-q")
         git(self.source, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
         git(self.source, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "fixture")
+        self.revision = subprocess.run(["git", "-C", str(self.source), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
         # Zig 0.16 layout (zig-pkg, untracked) and the older cache layout (p/).
         z2d = self.source / "zig-pkg" / Z2D
         (z2d / "src").mkdir(parents=True)
@@ -64,7 +64,7 @@ class Fixture:
         (old / "link").symlink_to("a.c")
         self.manifest = root / "SOURCE-MANIFEST.json"
         self.manifest.write_text(json.dumps({
-            "schema": 1, "ghostty_revision": REVISION, "unresolved_packages": [],
+            "schema": 1, "ghostty_revision": self.revision, "unresolved_packages": [],
             "license_files": [],
             "zig_packages": {
                 Z2D: {"dependency": "z2d", "url": "https://x/z2d.tar.gz"},
@@ -75,12 +75,12 @@ class Fixture:
     def build(self, out: Path) -> int:
         return archive.main([
             "build", "--ghostty-source", str(self.source), "--zig-cache", str(self.cache),
-            "--license-manifest", str(self.manifest), "--revision", REVISION,
+            "--license-manifest", str(self.manifest), "--revision", self.revision,
             "--cmux-commit", COMMIT, "--tag", "cmux-next-src-ccccccccccc", "--out", str(out),
         ])
 
     def verify(self, out: Path) -> int:
-        return archive.main(["verify", "--archive", str(out), "--license-manifest", str(self.manifest), "--revision", REVISION])
+        return archive.main(["verify", "--archive", str(out), "--license-manifest", str(self.manifest), "--revision", self.revision])
 
 
 class GhosttySourceArchiveTest(unittest.TestCase):
@@ -120,7 +120,7 @@ class GhosttySourceArchiveTest(unittest.TestCase):
         self.assertIn(f"{p}/zig-packages/{OLD}/a.c", names)
         self.assertEqual(mode, 0o755)
         self.assertTrue(link.issym())
-        self.assertEqual(info["ghostty_revision"], REVISION)
+        self.assertEqual(info["ghostty_revision"], self.fx.revision)
         self.assertEqual(info["cmux_commit"], COMMIT)
         self.assertEqual(info["tag_url"], "https://github.com/manaflow-ai/cmux/tree/cmux-next-src-ccccccccccc")
         self.assertEqual(sorted(info["zig_packages"]), sorted([Z2D, OLD]))
