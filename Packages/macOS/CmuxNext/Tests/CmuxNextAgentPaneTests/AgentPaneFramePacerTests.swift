@@ -104,15 +104,46 @@ import Testing
         rig.deadline.fire()
         #expect(rig.flushes == 2, "delivered without a frame")
         #expect(rig.pacer.linkStalled)
-        // While the link is stalled, every call goes on the next turn: no 10 Hz.
-        for _ in 0..<50 {
+        // While the link is stalled and the page keeps up (a quiet frame interval since the last
+        // call began), every call goes on the next turn: no 10 Hz.
+        for _ in 0..<20 {
+            rig.clock += AgentPaneFramePacer.frameInterval * 2
+            rig.arrive()
+            rig.pacer.delivered()
+            #expect(!rig.pacer.waitingForFrame && !rig.deadline.isScheduled)
+            rig.runTurns()
+        }
+        #expect(rig.flushes == 22)
+        // One loaded delivery (frames waiting, within one frame interval of the last call's start)
+        // still goes on the next turn: a single busy moment adds no wait.
+        rig.clock += 0.001
+        rig.arrive()
+        rig.pacer.delivered()
+        #expect(!rig.deadline.isScheduled && rig.turns.count == 1)
+        rig.runTurns()
+        #expect(rig.flushes == 23)
+        // Sustained load (the delivery before was loaded too): at most one call per frame interval,
+        // on the deadline, and the frames that came meanwhile go together.
+        for _ in 0..<20 {
             rig.clock += 0.001
             rig.arrive()
             rig.pacer.delivered()
-            #expect(!rig.pacer.waitingForFrame)
-            rig.runTurns()
+            rig.arrive()
+            rig.arrive()
+            #expect(rig.turns.isEmpty && rig.deadline.isScheduled, "waits out the frame interval")
+            rig.clock += AgentPaneFramePacer.frameInterval
+            rig.deadline.fire()
         }
-        #expect(rig.flushes == 52)
+        #expect(rig.flushes == 43, "one call per interval, not one per arrival")
+        // A quiet delivery ends the sustained load: the next loaded one goes on the next turn again.
+        rig.pacer.delivered()
+        rig.clock += 0.001
+        rig.arrive()
+        #expect(rig.flushes == 44, "idle: at once")
+        rig.clock += 0.001
+        rig.arrive()
+        rig.pacer.delivered()
+        #expect(!rig.deadline.isScheduled && rig.turns.count == 1)
         // A real frame again: back to frame pacing.
         rig.frames.activate()
         rig.frames.tick()
