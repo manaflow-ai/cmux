@@ -680,3 +680,35 @@ fn fetch_checks_every_redirect_hop_and_the_address_it_reached() {
     assert_eq!(rebound.code, ErrorCode::Forbidden);
     assert!(rebound.message.contains("resolved to 169.254.169.254"), "{}", rebound.message);
 }
+
+/// DNS rebinding for navigations and page requests (a9, v1 after the fact):
+/// a response that came from a refused address stops the tab's load and
+/// is logged; other responses change nothing.
+#[test]
+fn a_response_from_a_refused_address_stops_the_load() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    let response = |url: &str, ip: &str| {
+        json!({"targetId": "T", "url": url, "resourceType": "document", "remoteIPAddress": ip})
+    };
+    gate.mask_event("response", &response("https://fine.test/", "93.184.216.34"));
+    gate.mask_event("response", &response("https://rebind.test/", "169.254.169.254"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !methods(&driver).contains(&"tab.stop".to_owned()) {
+        assert!(std::time::Instant::now() < deadline, "the load was never stopped");
+        std::thread::yield_now();
+    }
+    let stops: Vec<Value> = driver
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _)| m == "tab.stop")
+        .map(|(_, p)| p.clone())
+        .collect();
+    assert_eq!(stops, vec![json!({"targetId": "T"})], "only the refused response stops");
+    let log = policy(&gate, "log", json!({})).unwrap();
+    let entry = log.as_array().unwrap().iter().find(|e| e["url"] == "https://rebind.test/").cloned();
+    let entry = entry.unwrap_or_else(|| panic!("not logged: {log}"));
+    assert_eq!(entry["blocked"], "after");
+    assert!(entry["reason"].as_str().unwrap().contains("169.254.169.254"), "{entry}");
+}
