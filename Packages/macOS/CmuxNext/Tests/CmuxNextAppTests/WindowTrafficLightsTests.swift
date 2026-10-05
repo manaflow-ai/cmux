@@ -110,6 +110,32 @@ struct WindowTrafficLightsTests {
         withExtendedLifetime(services) {}
     }
 
+    /// nxdog43: a hover that leaves the corner re-collapses the controls (the pointer's exit reaches
+    /// the corner region's tracking area). Driven through DebugHover, the same events a real pointer
+    /// crossing causes.
+    @Test func leavingTheCornerCollapsesTheControlsAgain() {
+        let services = ActionBindingCoverageTests.boundServices()
+        let controller = makeWindow(services)
+        let root = controller.root
+        guard let window = controller.window else {
+            Issue.record("no window")
+            return
+        }
+        root.layoutSubtreeIfNeeded()
+        root.sidebarHidden = true
+        root.layoutSubtreeIfNeeded()
+        let corner = root.cornerRegionFrameInWindow
+        #expect(corner.width > 0, "corner \(corner)")
+        _ = DebugHover.move(to: NSPoint(x: corner.minX + 10, y: corner.midY), in: window)
+        #expect(!root.windowControlsCollapsed, "hovering the corner shows the controls")
+        _ = DebugHover.move(to: NSPoint(x: corner.maxX + 300, y: corner.minY - 200), in: window)
+        #expect(root.cornerReveal.state.pointerInside == false, "the exit reached the corner region")
+        #expect(root.windowControlsCollapsed, "leaving the corner collapses them again")
+        controller.teardown()
+        controller.window?.close()
+        withExtendedLifetime(services) {}
+    }
+
     @Test func themedAndTranslucentWindowsShowTheTrafficLights() {
         let services = ActionBindingCoverageTests.boundServices()
         let controller = makeWindow(services)
