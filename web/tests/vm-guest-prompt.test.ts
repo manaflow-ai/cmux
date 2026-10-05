@@ -314,6 +314,35 @@ print(json.dumps(calls))
     expect(JSON.parse(result.stdout)).toEqual(["terminal term_adopted history clear --quiet", "terminal term_adopted keys ctrl+c --quiet"]);
   });
 
+  test("prompt sync clears the baked prompt even after the clone prompt is named", async () => {
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const run = path.join(fixture(), "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "bound"), "CMUX_TUI_SESSION_ID=session_clone\nCMUX_TUI_TERMINAL_ID=term_adopted\n");
+    writeFileSync(path.join(run, "first-prompt-named"), "");
+    const result = await runChild("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+module.time = types.SimpleNamespace(sleep=lambda _: None, monotonic=module.time.monotonic)
+calls = []
+def tui(*args):
+    calls.append(" ".join(args))
+    return types.SimpleNamespace(returncode=0, stdout="")
+module.tui = tui
+ready = threading.Event(); ready.set()
+module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
+print(json.dumps(calls))
+`, script, run], { env: { ...process.env, CMUX_PROMPT_RUN_DIR: run } });
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual([
+      "terminal term_adopted history clear --quiet",
+      "terminal term_adopted keys ctrl+c --quiet",
+    ]);
+  });
+
   test("the armed template shell waits for its clone binding and replaces the builder's ids", async () => {
     const directory = fixture();
     await install(directory, "cmux", 100);
