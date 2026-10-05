@@ -337,3 +337,46 @@ test("page.searchText: the text it scans and the contexts it returns stop at the
     await servers.close();
   }
 });
+
+test("session.storageState: localStorage is read within the page-read budget, and past it the call fails with the note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      // 2,300,000 characters of one origin's localStorage, within WebKit's
+      // 5 MB quota and past the page-read budget's 2,000,000 characters.
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => { localStorage.clear(); localStorage.setItem("big", "A".repeat(2300000)); localStorage.setItem("small", "s"); });`);
+      const r = await run(`const out = await session.storageState().then((s) => "saved " + JSON.stringify(s).length, (e) => e.message); console.log("@@" + JSON.stringify(out));`);
+      const out = JSON.parse(r.value);
+      assert.match(out, /^session\.storageState: the page is too large to read whole: localStorage stopped after 2,000,000 characters/, out.slice(0, 300));
+      assert.ok(largestRead(r.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(r.log)} characters at once`);
+      // A state within the budget is still read whole.
+      await run(`await page.evaluate(() => { localStorage.clear(); localStorage.setItem("k", "v"); });`);
+      const small = await run(`const st = await session.storageState(); console.log("@@" + JSON.stringify(st.origins));`);
+      assert.deepEqual(JSON.parse(small.value), [{ origin: servers.origins.primary, localStorage: [{ name: "k", value: "v" }] }]);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("page.exportContent: the default Markdown export stops at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.title = "Export lab";
+          document.body.innerHTML = '<h1>Top</h1><p id="big"></p><p>Last</p>';
+          document.getElementById("big").textContent = "A".repeat(5000000);
+        });`);
+      const r = await run(`const file = await page.exportContent(); const md = fs.readFileSync(file, "utf8"); console.log("@@" + JSON.stringify({ length: md.length, head: md.slice(0, 200), tail: md.slice(-400) }));`);
+      const md = JSON.parse(r.value);
+      assert.ok(md.length < READ_SIZE + 100000, `a 5,000,000-character page exported ${md.length} characters`);
+      assert.match(md.head, /^# Export lab\n\n<http:\/\/[^>]+>\n\n# Top/);
+      assert.match(md.tail, /<!-- the page is too large to read whole: Markdown stopped after 2,000,000 characters/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
