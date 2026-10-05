@@ -386,7 +386,7 @@ struct CloudTreeMachineResourcesTests {
         let snapshot = SurfaceCatalogSnapshot(machines: [info, emptyInfo], resources: [], projections: [])
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [first, second], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
-        )
+        ).withoutCoderouterSection
         #expect(nodes.count == 2)
         for node in nodes {
             let children = node.children
