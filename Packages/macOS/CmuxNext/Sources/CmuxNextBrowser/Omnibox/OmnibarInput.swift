@@ -99,6 +99,9 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     case ended(OmnibarEndReason)
     /// Shift-Delete removed this history row: forget the page.
     case deleteSuggestion(URL)
+    /// Enter loaded the typed text as a URL (what-you-typed or its inline
+    /// completion): the visit counts as typed (Chromium `PAGE_TRANSITION_TYPED`).
+    case typedNavigation(URL)
     /// An extension keyword session started (`chrome.omnibox.onInputStarted`).
     case keywordStarted(extensionID: String)
     /// The session's text changed; answer with `.suggestions(generation:)`.
