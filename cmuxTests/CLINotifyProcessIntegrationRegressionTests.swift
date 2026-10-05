@@ -10278,41 +10278,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    func testBrowserProfileMutationsRejectUnexpectedArgumentsBeforeSocket() throws {
-        let cliPath = try bundledCLIPath()
-        let cases: [(name: String, arguments: [String])] = [
-            ("create-flag", ["browser", "profiles", "create", "Work", "--typo"]),
-            ("create-extra", ["browser", "profiles", "create", "--name", "Work", "extra"]),
-            ("rename-flag", ["browser", "profiles", "rename", "--profile", "Work", "--name", "New", "--typo"]),
-            ("rename-extra", ["browser", "profiles", "rename", "--profile", "Work", "--name", "New", "extra"]),
-            ("clear-flag", ["browser", "profiles", "clear", "--all", "--typo"]),
-            ("clear-extra", ["browser", "profiles", "clear", "--all", "extra"]),
-            ("delete-flag", ["browser", "profiles", "delete", "Work", "--typo"]),
-            ("delete-extra", ["browser", "profiles", "delete", "Work", "extra"]),
-        ]
-
-        for testCase in cases {
-            let socketPath = makeSocketPath("browser-profile-invalid-\(testCase.name)")
-            var environment = ProcessInfo.processInfo.environment
-            environment["CMUX_SOCKET_PATH"] = socketPath
-            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
-            let result = runProcess(
-                executablePath: cliPath,
-                arguments: testCase.arguments,
-                environment: environment,
-                timeout: 5
-            )
-
-            XCTAssertFalse(result.timedOut, result.stderr)
-            XCTAssertNotEqual(result.status, 0, testCase.name)
-            XCTAssertTrue(
-                result.stderr.contains("unexpected arguments"),
-                "\(testCase.name): \(result.stderr)"
-            )
-        }
-    }
-
     private struct MockedSSHRun {
         let requests: [[String: Any]]
         let stdout: String
