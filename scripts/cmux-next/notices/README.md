@@ -52,7 +52,7 @@ builds cmux-tui with its own Ghostty pin passes `--ghostty-revision-file`.
 
 Linked set: `vt_link_graph.py generate` (Testbox or CI; it runs zig) builds
 libghostty-vt with `-Dstrip=false` and an empty Zig cache for aarch64/x86_64
-macOS and aarch64/x86_64 Linux musl, reads the archive's DWARF source paths and
+macOS, aarch64/x86_64 Linux musl and x86_64 Windows GNU, reads the archive's DWARF source paths and
 writes `vt-link-graph.json`. `check_ghostty_vt_notices.py --link-graph` checks
 it (the graph's commit is the resolved gitlink, nothing unattributed, linked
 packages declared and covered) and prints linked vs declared. nightly-next and
