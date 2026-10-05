@@ -12,16 +12,34 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DiffPageTabTests {
+    /// `diffViewerFocused` has one rule, the trunk's: the focused page's id is `cmux.diff`.
     @Test func aFocusedDiffTabSetsDiffViewerFocused() {
         let diff = KeyOwnershipMatrixTests.focused(.page, tab: "local-page:diff:1")
-        #expect(diff.context == FocusState.Context(diff: true))
-        #expect(KeyRouter.keyContext(for: diff, appContext: [], facts: .init()).bits.contains(.diffViewerFocused))
+        #expect(diff.context == FocusState.Context())
+        #expect(KeyRouter.keyContext(for: diff, appContext: [], facts: .init(pageID: PageDescriptor.diff.id)).bits.contains(.diffViewerFocused))
+        #expect(!KeyRouter.keyContext(for: diff, appContext: [], facts: .init()).bits.contains(.diffViewerFocused))
         #expect(KeyRouter.surfaceKind(diff.resolved) == "diff")
         let settings = KeyOwnershipMatrixTests.focused(.page, tab: "local-page:settings:1")
         #expect(settings.context == FocusState.Context())
         // A bit another window published never leaks into this window's keys.
         let terminal = KeyOwnershipMatrixTests.focused(.terminal, tab: "t1")
         #expect(!KeyRouter.keyContext(for: terminal, appContext: [.diffViewerFocused], facts: .init()).bits.contains(.diffViewerFocused))
+    }
+
+    /// The bare-key rule (60ea7ec8a8d): j, k and / reach the binding table only in a page that owns
+    /// them; the diff page owns diffViewerFocused, and with the app's own bindings its actions run
+    /// (they are bound for the diff page, not left unavailable). With no diff page they do not.
+    @Test func aBareKeyOnAFocusedDiffPageRunsItsAction() {
+        let services = ActionBindingCoverageTests.boundServices()
+        let router = services.keyRouter!
+        let diffPage = PageKeyOwnershipTests.context(page: PageDescriptor.diff.id)
+        for (chars, code, action) in [("j", UInt16(38), "diffViewerNextLine"), ("k", UInt16(40), "diffViewerPreviousLine"),
+                                      ("/", UInt16(44), "diffViewerSearch")] {
+            let key = PageKeyOwnershipTests.key(chars, code: code)
+            #expect(router.bareKeyWinner(key, context: diffPage)?.command.rawValue == action, "\(chars)")
+            #expect(services.registry.unavailableReason(for: ActionID(rawValue: action)) == nil, "\(action) is bound for the diff page")
+            #expect(router.bareKeyWinner(key, context: PageKeyOwnershipTests.context(page: nil)) == nil, "\(chars) with no diff page")
+        }
     }
 
     @Test func navigationRefusesWithoutAFocusedDiffTab() {

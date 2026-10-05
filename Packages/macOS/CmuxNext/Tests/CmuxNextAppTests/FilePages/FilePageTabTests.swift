@@ -130,14 +130,15 @@ struct FilePageTabTests {
         #expect(KeyRouter.keyContext(for: markdown, appContext: [], facts: .init(pageID: PageDescriptor.markdown.id))
             .bits.contains(.markdownFocused))
         #expect(!KeyRouter.keyContext(for: markdown, appContext: [], facts: .init()).bits.contains(.markdownFocused))
+        // The editor page sets the trunk's codeEditorFocused from its page id (R127).
         let editor = KeyOwnershipMatrixTests.focused(.page, tab: "local-page:editor:1")
-        #expect(editor.context == FocusState.Context(filePreview: true))
-        #expect(KeyRouter.keyContext(for: editor, appContext: [], facts: .init()).bits.contains(.filePreviewFocused))
+        #expect(editor.context == FocusState.Context())
+        #expect(KeyRouter.keyContext(for: editor, appContext: [], facts: .init(pageID: PageDescriptor.editor.id)).bits.contains(.codeEditorFocused))
         #expect(KeyRouter.surfaceKind(editor.resolved) == "editor")
         let terminal = KeyOwnershipMatrixTests.focused(.terminal, tab: "t1")
-        #expect(!KeyRouter.keyContext(for: terminal, appContext: [.filePreviewFocused, .markdownFocused], facts: .init())
-            .bits.contains(.filePreviewFocused))
-        #expect(ActionContext.focusBits.isSuperset(of: [.markdownFocused, .filePreviewFocused]))
+        #expect(!KeyRouter.keyContext(for: terminal, appContext: [.codeEditorFocused, .markdownFocused], facts: .init())
+            .bits.contains(.codeEditorFocused))
+        #expect(ActionContext.focusBits.isSuperset(of: [.markdownFocused, .codeEditorFocused, .diffViewerFocused]))
     }
 
     /// Every page command comes from the one key dispatcher: each action is bound, needs its
@@ -161,9 +162,22 @@ struct FilePageTabTests {
         #expect(shortcut("markdownLink") == Shortcut("k", modifiers: [.command]))
     }
 
+    /// In the editor tab (codeEditorFocused) Cmd-S, word wrap and the file editor actions are the
+    /// editor's; Monaco's own chords still win where the trunk yields them.
+    @Test func theEditorActionsNeedTheCodeEditorContext() throws {
+        for id in ["saveFilePreview", "toggleFileEditorWordWrap", "fileEditorGotoLine", "fileEditorReplace",
+                   "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "fileEditorAction"] {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == id }, "\(id)")
+            #expect(descriptor.requires.contains(.codeEditorFocused), "\(id)")
+        }
+        let services = ActionBindingCoverageTests.boundServices()
+        services.registry.context = [.codeEditorFocused]
+        #expect(services.registry.keyWinner(Shortcut("s", modifiers: [.command]))?.command == "saveFilePreview")
+    }
+
     @Test func filePageActionsRefuseWithoutTheirTab() {
         let services = ActionBindingCoverageTests.boundServices()
-        services.registry.context = [.markdownFocused, .filePreviewFocused]
+        services.registry.context = [.markdownFocused, .codeEditorFocused]
         #expect(ActionBindingCoverageTests.run(services, "markdownSave") == .refused(FilePageStrings.noFilePage))
         #expect(ActionBindingCoverageTests.run(services, "fileEditorGotoLine") == .refused(FilePageStrings.noFilePage))
     }
