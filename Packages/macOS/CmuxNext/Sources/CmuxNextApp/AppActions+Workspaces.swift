@@ -26,8 +26,9 @@ extension AppActions {
                 services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
             }
         })
-        registry.bind("nextSidebarTab") { selectWorkspace(services, offset: 1) }
-        registry.bind("prevSidebarTab") { selectWorkspace(services, offset: -1) }
+        // Next / previous item in the current sidebar section; in the workspaces list, the workspaces (R119).
+        registry.bind("nextSidebarTab") { stepSidebar(services, offset: 1) }
+        registry.bind("prevSidebarTab") { stepSidebar(services, offset: -1) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
             // Home is 1, then sidebar order across every machine section (R119).
@@ -115,6 +116,12 @@ extension AppActions {
         guard let window = controller.window else { return }
         WindowActivation.show(window, .focus)
         windows.didActivate(controller)
+    }
+
+    private static func stepSidebar(_ services: AppServices, offset: Int) {
+        let window = services.windows.active
+        if window?.sidebar.stepSectionItem(by: offset, shownWorkspace: { window?.state.workspaceID }) == true { return }
+        selectWorkspace(services, offset: offset)
     }
 
     private static func selectWorkspace(_ services: AppServices, offset: Int) {
