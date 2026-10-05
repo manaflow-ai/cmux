@@ -44,6 +44,9 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     case fileBytesWritten
     /// Entries the session's fs created, made, renamed or removed over its life.
     case fileEntryChanges
+    /// Everything the session holds in memory together: the sum of the
+    /// resources that are memory (``isMemory``), each also within its own limit.
+    case sessionMemoryBytes
 
     /// How a limit counts.
     public enum Scope: Sendable {
@@ -67,7 +70,19 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isBytes: Bool {
         switch self {
         case .waitingCellSourceBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
-             .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .fileBytesWritten:
+             .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .fileBytesWritten, .sessionMemoryBytes:
+            true
+        default:
+            false
+        }
+    }
+
+    /// Whether what it holds is the session's memory, and so counts toward
+    /// ``sessionMemoryBytes`` too.
+    public var isMemory: Bool {
+        switch self {
+        case .waitingCellSourceBytes, .retainedOutputBytes, .requestBytes, .driverResultBytes,
+             .fetchBodyBytes, .queuedEventBytes:
             true
         default:
             false
@@ -95,6 +110,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .pendingTimers: "pending timers"
         case .fileBytesWritten: "bytes the session's fs writes"
         case .fileEntryChanges: "file changes (files created, directories made, entries renamed or removed)"
+        case .sessionMemoryBytes: "memory the session holds in all"
         }
     }
 
@@ -112,6 +128,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .pendingTimers: "clear some first"
         case .fileBytesWritten: "reset the session (cmux browser repl reset NAME) to write more"
         case .fileEntryChanges: "reset the session (cmux browser repl reset NAME) to make more"
+        case .sessionMemoryBytes: "await results and let cells finish before starting more"
         }
     }
 }
@@ -173,6 +190,9 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
             .pendingTimers: 10_000,
             .fileBytesWritten: 2 << 30,
             .fileEntryChanges: 100_000,
+            // Decided 2026-10-04 (C9): the per-holder limits above add up
+            // to more, so this bounds them together.
+            .sessionMemoryBytes: 512 << 20,
         ],
         items: [
             // One browser call's parameters (the fetch and readFile limit).
@@ -285,16 +305,19 @@ public final class BrowserReplResourceLedger: @unchecked Sendable {
     public func release(_ amount: Int, of resource: BrowserReplResource) {
         guard amount > 0, resource.scope != .lifetime else { return }
         lock.withLock {
-            let left = (held[resource] ?? 0) - amount
-            assert(left >= 0, "\(resource) released more than it reserved")
-            held[resource] = left > 0 ? left : nil
+            assert((held[resource] ?? 0) >= amount, "\(resource) released more than it reserved")
+            addLocked(-amount, to: resource)
+            if resource.isMemory { addLocked(-amount, to: .sessionMemoryBytes) }
         }
     }
 
     /// Releases everything held of `resources` (what close() drops at once).
     public func releaseAll(_ resources: [BrowserReplResource]) {
         lock.withLock {
-            for resource in resources where resource.scope != .lifetime { held[resource] = nil }
+            for resource in resources where resource.scope != .lifetime {
+                if resource.isMemory { addLocked(-(held[resource] ?? 0), to: .sessionMemoryBytes) }
+                held[resource] = nil
+            }
         }
     }
 
@@ -330,9 +353,24 @@ public final class BrowserReplResourceLedger: @unchecked Sendable {
         if !force, amount > limit - others {
             return BrowserReplResourceLimitError(resource: resource, limit: limit, isPerItem: false, held: others, requested: amount)
         }
-        let now = others + amount
+        let growth = amount - old
+        if resource.isMemory, !force, growth > 0 {
+            let memory = held[.sessionMemoryBytes] ?? 0
+            let total = limits[.sessionMemoryBytes]
+            if growth > total - memory {
+                return BrowserReplResourceLimitError(resource: .sessionMemoryBytes, limit: total, isPerItem: false, held: memory, requested: growth)
+            }
+        }
+        addLocked(growth, to: resource)
+        if resource.isMemory { addLocked(growth, to: .sessionMemoryBytes) }
+        return nil
+    }
+
+    /// Adds `delta` to what `resource` holds and records its peak. Call
+    /// with `lock` held.
+    private func addLocked(_ delta: Int, to resource: BrowserReplResource) {
+        let now = (held[resource] ?? 0) + delta
         held[resource] = now != 0 ? now : nil
         if now > (peaks[resource] ?? 0) { peaks[resource] = now }
-        return nil
     }
 }
