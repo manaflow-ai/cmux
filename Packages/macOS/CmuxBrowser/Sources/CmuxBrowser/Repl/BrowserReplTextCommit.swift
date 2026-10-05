@@ -11,6 +11,12 @@ public protocol BrowserReplTextCommitTarget: AnyObject {
     func prepareComposition() async -> Bool
     func setMarkedText(_ text: String)
     func insertText(_ text: String)
+    /// Whether this target is still the one the tab shows.
+    var isCurrent: Bool { get }
+}
+
+extension BrowserReplTextCommitTarget {
+    public var isCurrent: Bool { true }
 }
 
 /// Commits text the way an input method does: as marked text that is then

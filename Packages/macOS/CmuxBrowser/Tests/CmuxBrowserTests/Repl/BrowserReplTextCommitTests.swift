@@ -10,6 +10,8 @@ private final class FakeTextTarget: BrowserReplTextCommitTarget {
     var originAfterPreparation: String?
     var richText = true
     var hasMarkedText = false
+    /// Whether the tab still shows this client's web view.
+    var isCurrent = true
     private(set) var log: [String] = []
 
     func prepareComposition() async -> Bool {
@@ -70,5 +72,22 @@ struct BrowserReplTextCommitTests {
             try await target.commit("pw", checkTarget: allowOnly(target))
         }
         #expect(!target.log.contains { $0.hasPrefix("insert") || $0.hasPrefix("marked") })
+    }
+    @Test func aTargetReplacedDuringTheCheckGetsNothing() async throws {
+        // The check passes, but while it waited the tab replaced the web view
+        // the text would go to (a web content recovery): the check judged
+        // the tab as it is now, and the text must not go to the old client.
+        let target = FakeTextTarget()
+        let check: @MainActor () async throws -> Void = {
+            target.isCurrent = false
+        }
+        var code: String?
+        do {
+            try await target.commit("pw", checkTarget: check)
+        } catch let error as BrowserReplDriverError {
+            code = error.code
+        }
+        #expect(code == "stale")
+        #expect(!target.log.contains { $0.hasPrefix("insert") || $0.hasPrefix("marked") }, "\(target.log)")
     }
 }
