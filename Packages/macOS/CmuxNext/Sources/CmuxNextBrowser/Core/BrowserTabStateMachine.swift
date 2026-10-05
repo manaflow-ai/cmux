@@ -193,4 +193,12 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         default: .none
         }
     }
+
+    /// The security of a committed page from what the engine knows: mixed
+    /// content, and a page loaded past an untrusted certificate the user
+    /// proceeded through, which is broken ("Not secure"), as in Chrome.
+    public static func security(for url: URL?, hasOnlySecureContent: Bool, certificateBypassed: Bool) -> BrowserSecurityState {
+        let security = security(for: url)
+        return security == .secure && !hasOnlySecureContent ? .mixedContent : security
+    }
 }

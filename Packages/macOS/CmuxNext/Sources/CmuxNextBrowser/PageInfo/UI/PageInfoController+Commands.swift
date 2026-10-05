@@ -50,7 +50,7 @@ extension PageInfoController {
             guard let url = model.aboutThisPageURL ?? PageInfoModel.aboutURL(for: site) else { return }
             close()
             tab.delegate?.browserTab(tab, didRequest: .openURL(url, .foregroundTab))
-        case .show, .close, .reload:
+        case .show, .close, .reload, .reenableCertificateWarnings:
             break
         }
     }

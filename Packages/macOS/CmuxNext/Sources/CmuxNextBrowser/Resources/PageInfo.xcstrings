@@ -6027,6 +6027,137 @@
         }
       }
     },
+    "pageInfo.error.certificateWarningsAlreadyOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Security warnings are already on for this site."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحذيرات الأمان مفعّلة بالفعل لهذا الموقع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigurnosna upozorenja su već uključena za ovu web lokaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikkerhedsadvarsler er allerede slået til for dette website."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sicherheitswarnungen sind für diese Website bereits aktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las advertencias de seguridad ya están activadas para este sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les avertissements de sécurité sont déjà activés pour ce site."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli avvisi di sicurezza sono già attivi per questo sito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトのセキュリティ警告はすでにオンになっています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការព្រមានសុវត្ថិភាពត្រូវបានបើករួចហើយសម្រាប់គេហទំព័រនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 사이트에 대한 보안 경고가 이미 켜져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikkerhetsadvarsler er allerede slått på for dette nettstedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostrzeżenia dotyczące bezpieczeństwa są już włączone dla tej witryny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os avisos de segurança já estão ativados para este site."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предупреждения системы безопасности для этого сайта уже включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดคำเตือนด้านความปลอดภัยสำหรับเว็บไซต์นี้อยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu site için güvenlik uyarıları zaten açık."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередження системи безпеки для цього сайту вже ввімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cảnh báo bảo mật đã được bật cho trang web này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此网站的安全警告已开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此網站的安全性警告已開啟。"
+          }
+        }
+      }
+    },
     "pageInfo.error.invalidArgument": {
       "extractionState": "manual",
       "localizations": {

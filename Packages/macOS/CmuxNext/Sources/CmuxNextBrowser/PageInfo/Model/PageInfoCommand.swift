@@ -25,6 +25,9 @@ public nonisolated enum PageInfoCommand: Hashable, Sendable {
     /// (every entry the page stored) when nil.
     case deleteSiteData(domain: String?)
     case aboutThisPage
+    /// Turns certificate warnings on again for a site the user proceeded
+    /// past, and reloads (Chrome's "Turn on warnings").
+    case reenableCertificateWarnings
     case reload
     case close
 
@@ -39,6 +42,7 @@ public nonisolated enum PageInfoCommand: Hashable, Sendable {
     public static let manageSiteDataActionID = "browser.pageInfo.manageSiteData"
     public static let deleteSiteDataActionID = "browser.pageInfo.deleteSiteData"
     public static let aboutThisPageActionID = "browser.pageInfo.aboutThisPage"
+    public static let reenableCertificateWarningsActionID = "browser.pageInfo.reenableCertificateWarnings"
 
     /// The registry action and its string arguments, nil for commands that
     /// only move inside the bubble (permission subpage, close, reload).
@@ -47,7 +51,7 @@ public nonisolated enum PageInfoCommand: Hashable, Sendable {
         case .show(.main): (PageInfoCommand.showActionID, [:])
         case .show(.security): (PageInfoCommand.connectionActionID, [:])
         case .show(.cookies): (PageInfoCommand.cookiesActionID, [:])
-        case .show(.permission), .reload, .close: nil
+        case .show(.permission), .reload, .close, .reenableCertificateWarnings: nil
         case .showCertificate: (PageInfoCommand.certificateActionID, [:])
         case .setPermission(let kind, let setting): (PageInfoCommand.setPermissionActionID, ["permission": kind.rawValue, "setting": setting.rawValue])
         case .resetPermissions: (PageInfoCommand.resetPermissionsActionID, [:])

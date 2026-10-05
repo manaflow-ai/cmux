@@ -8,12 +8,15 @@ public nonisolated enum PageInfoCommandError: Error, Hashable, Sendable {
     case noSiteInformation
     /// Permissions, site data and site settings exist for web pages only.
     case notAWebPage
+    /// The user did not turn off certificate warnings for this site.
+    case certificateWarningsAlreadyOn
 
     public var message: String {
         switch self {
         case .invalidArgument(let name, let value): PageInfoStrings.invalidArgument(name, value)
         case .noSiteInformation: PageInfoStrings.noSiteInformation
         case .notAWebPage: PageInfoStrings.notAWebPage
+        case .certificateWarningsAlreadyOn: PageInfoStrings.certificateWarningsAlreadyOn
         }
     }
 }
@@ -59,7 +62,8 @@ extension PageInfoCommand {
     var needsWebPage: Bool {
         switch self {
         case .show(.main), .show(.security), .showCertificate, .close, .reload: false
-        case .show, .setPermission, .resetPermissions, .siteSettings, .manageSiteData, .deleteSiteData, .aboutThisPage: true
+        case .show, .setPermission, .resetPermissions, .siteSettings, .manageSiteData, .deleteSiteData, .aboutThisPage,
+             .reenableCertificateWarnings: true
         }
     }
 }
