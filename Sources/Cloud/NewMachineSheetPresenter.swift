@@ -27,6 +27,15 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     /// The app's plan and network catalog cache; nil only in tests.
     private var dataCache: NewMachineSheetDataCache? { NewMachineSheetDataCache.shared }
 
+    /// The plan state used to build a fetching-plan sheet before its first
+    /// layout. A missing or incomplete cache keeps the loading indicator on;
+    /// complete cached data is shown immediately while it is revalidated.
+    static func initialPlanState(from data: NewMachineSheetData?) -> (
+        plan: MachinePlanSnapshot?, limits: VMPlanLimits?, isLoading: Bool
+    ) {
+        (plan: data?.plan, limits: data?.limits, isLoading: data?.hasPlan != true)
+    }
+
     /// The shared paywall decision used by both sheet entrypoints.
     static func shouldPresentUpgrade(for plan: MachinePlanSnapshot?) -> Bool {
         guard let plan else { return false }
@@ -243,11 +252,21 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let selectionID = UUID()
         pendingSelectionID = selectionID
         let coordinator = MachineCreateCoordinator.shared
+        // Seed the model from the shared cache before the first SwiftUI layout.
+        // A warmed cache is still revalidated below, but it should not make a
+        // ready sheet flash its loading state while that happens.
+        let initialPlan = Self.initialPlanState(from: dataCache?.currentData)
+        let cachedLimits = initialPlan.limits
         let model = NewMachineModel(
             mode: .newMachine,
-            plan: nil,
+            plan: initialPlan.plan,
+            memoryOptionsMb: cachedLimits?.memoryOptionsMb ?? [],
+            lockedMemoryOptionsMb: cachedLimits?.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: cachedLimits?.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: cachedLimits?.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: cachedLimits?.vcpusByMemoryMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
-            planIsLoading: true,
+            planIsLoading: initialPlan.isLoading,
             submit: { [weak self] request in
                 guard let self, self.pendingSelectionID == selectionID else { return false }
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
@@ -263,7 +282,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             guard let self, let model, self.pendingSelectionID == selectionID else { return }
             self.beginPlanLoad(model: model, selectionID: selectionID)
         }
-        present(model: model, preferredWindow: preferredWindow, loadPlanFromCache: false)
+        present(model: model, preferredWindow: preferredWindow, loadPlanFromCache: true)
         beginPlanLoad(model: model, selectionID: selectionID)
 
         let request = await withTaskCancellationHandler(operation: {
