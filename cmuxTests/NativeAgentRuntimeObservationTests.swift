@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 import CmuxAgentJournal
+import CMUXAgentLaunch
 import CmuxRemoteWorkspace
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 
@@ -22,8 +23,62 @@ struct NativeAgentRuntimeObservationTests {
         model.setAgentPIDKeysByPanelId([panelID: Set(processes.keys)])
     }
 
-    private func state(_ activity: AgentSessionActivity, mode: AgentExecutionMode = .unknown, reason: AgentRuntimeReason? = nil, at: Int64 = 125_000, generation: UInt64? = nil) -> AgentSessionLifecycleState {
-        AgentSessionLifecycleState(phase: activity == .working ? .running : .needsInput, ended: false, lastSequence: 1, lastOccurredAtMs: at, activity: activity, reason: reason, mode: mode, activityObservedAtMs: at, transitionedAtMs: at, modeObservedAtMs: mode == .unknown ? nil : at - 1_000, processGeneration: generation, modeProcessGeneration: generation)
+    private func state(_ activity: AgentSessionActivity, mode: AgentExecutionMode = .unknown, reason: AgentRuntimeReason? = nil, at: Int64 = 125_000, generation: UInt64? = nil, pendingUserActions: Int = 0) -> AgentSessionLifecycleState {
+        AgentSessionLifecycleState(phase: activity == .working ? .running : .needsInput, ended: false, lastSequence: 1, lastOccurredAtMs: at, activity: activity, reason: reason, mode: mode, activityObservedAtMs: at, transitionedAtMs: at, modeObservedAtMs: mode == .unknown ? nil : at - 1_000, processGeneration: generation, modeProcessGeneration: generation, pendingUserActionCount: pendingUserActions, pendingUserActionsObservedAtMs: at, pendingUserActionsProcessGeneration: generation)
+    }
+
+    @Test
+    func nativeWorkingAndPendingQuestionSurviveProjectionAndReadOnlyRPC() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedPanelId)
+        let identity = AgentPIDProcessIdentity(pid: 12_345, startSeconds: 100, startMicroseconds: 7)
+        configure(workspace, panelID: panel, processes: ["codex.exact": identity])
+        workspace.sidebarAgentRuntimeObservation.recordJournalEvidence(panelID: panel, statusKey: "codex", sessionID: "exact", state: state(.working, mode: .plan, generation: 100_000_007, pendingUserActions: 2))
+        let projector = SidebarExtensionRuntimeProjector(processIdentity: { _ in identity })
+        let observation = try #require(projector.observation(workspace: workspace, panelID: panel))
+        #expect(observation.activity == .working)
+        #expect(observation.mode == .plan)
+        #expect(observation.pendingUserActionCount == 2)
+        let result = AgentRuntimeObservationReader(projector: projector).read(workspaces: [workspace])
+        let rows = try #require(result["observations"] as? [[String: Any]])
+        #expect(rows.first?["pending_user_action_count"] as? Int == 2)
+        #expect(rows.first?["activity"] as? String == "working")
+    }
+
+    @Test
+    func claudeAliasesAndNativeRequestIdentityRemainExact() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedPanelId)
+        let identity = AgentPIDProcessIdentity(pid: 12_345, startSeconds: 100, startMicroseconds: 7)
+        configure(workspace, panelID: panel, processes: ["claude.exact": identity])
+        workspace.sidebarAgentRuntimeObservation.recordJournalEvidence(panelID: panel, statusKey: "claude_code", sessionID: "exact", state: state(.working, generation: 100_000_007, pendingUserActions: 1))
+        let projector = SidebarExtensionRuntimeProjector(processIdentity: { _ in identity })
+        #expect(projector.observation(workspace: workspace, panelID: panel)?.toolID == "claude_code")
+        #expect(projector.observation(workspace: workspace, panelID: panel)?.pendingUserActionCount == 1)
+        let result = AgentRuntimeObservationReader(projector: projector).read(workspaces: [workspace])
+        #expect((result["observations"] as? [[String: Any]])?.first?["pid"] as? Int == Int(identity.pid))
+        let reply = WorkstreamEvent(sessionId: "opencode-session", hookEventName: .postToolUse, source: "opencode", workspaceId: workspace.id.uuidString, surfaceId: panel.uuidString, requestId: "native-question", extraFieldsJSON: #"{"pending_work":false}"#)
+        let draft = try #require(AgentFeedSemanticInput(event: reply, agentKey: "opencode").draft())
+        #expect(draft.kind == .attentionResolved)
+        #expect(draft.attention?.requestIdentity == "native-question")
+        #expect(draft.declaredPhase == .idle)
+        #expect(!draft.pendingWork)
+    }
+
+    @Test
+    func nativeProcessSampleCannotRefreshEventEvidence() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel(now: { Date(timeIntervalSince1970: 200) })
+        let panel = UUID()
+        let identity = AgentPIDProcessIdentity(pid: 12_345, startSeconds: 100, startMicroseconds: 7)
+        model.setAgentPIDs(["codex.exact": identity.pid])
+        model.setAgentPIDProcessIdentitiesByKey(["codex.exact": identity])
+        model.setAgentPIDPanelIdsByKey(["codex.exact": panel])
+        model.setAgentPIDKeysByPanelId([panel: ["codex.exact"]])
+        model.recordJournalEvidence(panelID: panel, statusKey: "codex", sessionID: "exact", state: state(.working, mode: .plan, generation: 100_000_007, pendingUserActions: 1))
+        let before = model.journalEvidenceByPanelID
+        model.recordProcessSample(key: "codex.exact", identity: identity)
+        #expect(model.journalEvidenceByPanelID == before)
+        #expect(model.processSampledAtByKey["codex.exact"] == Date(timeIntervalSince1970: 200))
     }
 
     @Test
@@ -137,6 +192,47 @@ struct NativeAgentRuntimeObservationTests {
         #expect(workspace.agentPIDPanelIdsByKey["codex.known-session"] == panel)
         let observation = SidebarExtensionRuntimeProjector(processIdentity: { _ in identity }).observations(workspace: workspace, panelID: panel)?.first(where: { $0.sessionID == "known-session" })
         #expect(observation?.activity == .unknown)
+    }
+
+    @Test
+    func explicitBindingPreservesOnlyTheCurrentProcessLaunchMetadata() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        manager.tabs = [workspace]
+        let panel = try #require(workspace.focusedPanelId)
+        let identity = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        let generation = UInt64(identity.startSeconds) * 1_000_000 + UInt64(identity.startMicroseconds)
+        configure(workspace, panelID: panel, processes: ["codex.old-session": identity])
+        let launch = AgentLaunchCommand(launcher: "codex", executablePath: "/opt/native/codex", arguments: ["/opt/native/codex", "--config", "model=example"], environment: ["LANG": "C"])
+        let previous = SurfaceResumeBindingSnapshot(kind: "codex", command: "codex resume old-session", checkpointId: "old-session", environment: ["LANG": "C"], launchCommand: launch, permissionMode: "default", autoResume: false)
+        #expect(workspace.setSurfaceResumeBinding(previous, panelId: panel))
+        let coordinator = SidebarExtensionAgentSessionBindingCoordinator(tabManager: manager, processIdentity: { _ in identity }, ownsSurface: { _, _, _ in true })
+        #expect(coordinator.perform(.bindAgentSession(workspaceID: workspace.id, surfaceID: panel, toolID: "codex", sessionID: "new-session", expectedProcessGeneration: generation))?.accepted == true)
+        let binding = try #require(workspace.surfaceResumeBinding(panelId: panel))
+        #expect(binding.launchCommand == previous.launchCommand)
+        #expect(binding.environment == previous.environment)
+        #expect(binding.permissionMode == previous.permissionMode)
+        #expect(binding.checkpointId == "new-session")
+        #expect(binding.command.contains("new-session"))
+        #expect(binding.autoResume == false)
+    }
+
+    @Test
+    func explicitClaudeAliasBindingUsesCanonicalIdentityAndUnsupportedCommandCodeNeverFallsBackToRawCmd() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        manager.tabs = [workspace]
+        let panel = try #require(workspace.focusedPanelId)
+        let identity = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        let generation = UInt64(identity.startSeconds) * 1_000_000 + UInt64(identity.startMicroseconds)
+        configure(workspace, panelID: panel, processes: ["commandcode": identity])
+        let coordinator = SidebarExtensionAgentSessionBindingCoordinator(tabManager: manager, processIdentity: { _ in identity }, ownsSurface: { _, _, _ in true })
+        #expect(coordinator.perform(.bindAgentSession(workspaceID: workspace.id, surfaceID: panel, toolID: "commandcode", sessionID: "known-session", expectedProcessGeneration: generation))?.accepted == false)
+        #expect(workspace.surfaceResumeBinding(panelId: panel) == nil)
+        configure(workspace, panelID: panel, processes: ["claude_code": identity])
+        #expect(coordinator.perform(.bindAgentSession(workspaceID: workspace.id, surfaceID: panel, toolID: "claude", sessionID: "known-session", expectedProcessGeneration: generation))?.accepted == true)
+        #expect(workspace.agentPIDProcessIdentitiesByKey["claude_code.known-session"] == identity)
+        #expect(workspace.surfaceResumeBinding(panelId: panel)?.kind == "claude")
     }
 
     @Test

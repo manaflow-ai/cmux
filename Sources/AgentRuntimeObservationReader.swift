@@ -1,4 +1,5 @@
 @_spi(CmuxHostTransport) import CmuxExtensionKit
+import CmuxAgentJournal
 import Foundation
 
 /// Builds a bounded read-only socket projection from native process/session evidence.
@@ -15,13 +16,19 @@ struct AgentRuntimeObservationReader {
                 if let surfaceID, panelID != surfaceID { continue }
                 for observation in projector.observations(workspace: workspace, panelID: panelID) ?? [] {
                     guard let tool = observation.toolID, let generation = observation.processGeneration else { continue }
-                    let key = observation.sessionID.map { tool + "." + $0 } ?? tool
-                    guard let pid = workspace.agentPIDs[key] else { continue }
+                    let keys = workspace.agentPIDKeysByPanelId[panelID] ?? []
+                    guard let key = keys.sorted().first(where: { key in
+                        let nativeTool = workspace.agentStatusKey(forAgentPIDKey: key)
+                        let sessionID = key.hasPrefix(nativeTool + ".") ? String(key.dropFirst(nativeTool.count + 1)) : nil
+                        return AgentSemanticEventMapper().statusKey(nativeToolID: nativeTool) == tool && sessionID == observation.sessionID
+                            && matchesGeneration(workspace.agentPIDProcessIdentitiesByKey[key], expected: generation)
+                    }), let pid = workspace.agentPIDs[key] else { continue }
                     guard rows.count < maximum else { truncated = true; break outer }
                     var row: [String: Any] = ["workspace_id": workspace.id.uuidString,
                         "surface_id": panelID.uuidString, "tool_id": tool, "pid": Int(pid),
                         "process_generation": generation, "activity": observation.activity.rawValue,
                         "mode": observation.mode.rawValue, "lifecycle": observation.lifecycle.rawValue,
+                        "pending_user_action_count": observation.pendingUserActionCount,
                         "provenance": observation.provenance.rawValue]
                     row["session_id"] = observation.sessionID.map { $0 as Any } ?? NSNull()
                     row["reason"] = observation.reason.map { $0.rawValue as Any } ?? NSNull()
@@ -34,6 +41,12 @@ struct AgentRuntimeObservationReader {
             }
         }
         return ["schema_version": 1, "api_version": "2.2", "observations": rows, "truncated": truncated]
+    }
+
+    private func matchesGeneration(_ identity: AgentPIDProcessIdentity?, expected: UInt64) -> Bool {
+        guard let identity, identity.startSeconds > 0, identity.startMicroseconds >= 0, identity.startMicroseconds < 1_000_000 else { return false }
+        let (seconds, overflow) = UInt64(identity.startSeconds).multipliedReportingOverflow(by: 1_000_000)
+        return !overflow && seconds + UInt64(identity.startMicroseconds) == expected
     }
 
     private func milliseconds(_ date: Date?) -> Any? {

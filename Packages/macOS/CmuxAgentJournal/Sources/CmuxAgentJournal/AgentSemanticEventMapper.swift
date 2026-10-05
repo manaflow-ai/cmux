@@ -96,6 +96,14 @@ public struct AgentSemanticEventMapper: Sendable {
         }
     }
 
+    /// Normalizes the native Claude status-key alias without altering session identifiers.
+    /// - Parameter nativeToolID: Native provider or lifecycle status identifier.
+    /// - Returns: The canonical lifecycle status key for that provider.
+    public func statusKey(nativeToolID: String) -> String {
+        let key = nativeToolID.lowercased()
+        return key == "claude" ? "claude_code" : key
+    }
+
     /// Normalizes a native event or tool name for table matching: lowercases
     /// and strips every non-alphanumeric character, so naming-convention
     /// variants collapse to one key.

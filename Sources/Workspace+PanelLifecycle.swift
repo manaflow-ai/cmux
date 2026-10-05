@@ -152,11 +152,12 @@ extension Workspace {
         }
         if isStructuredAgentHookPIDKey(key) {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
+            let currentIdentity = agentPIDProcessIdentitiesByKey[key]
             let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
                 $0 != key &&
                 isStructuredAgentHookPIDKey($0) &&
                 agentStatusKey(forAgentPIDKey: $0) != statusKey &&
-                agentPIDProcessIdentitiesByKey[$0] == agentPIDProcessIdentitiesByKey[key]
+                currentIdentity != nil && agentPIDProcessIdentitiesByKey[$0] == currentIdentity
             } ?? []
             for staleKey in stalePanelKeys {
                 _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
@@ -193,6 +194,7 @@ extension Workspace {
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if let processIdentity { sidebarAgentRuntimeObservation.recordProcessSample(key: key, identity: processIdentity) }
         if let panelId { noteAgentWakeAgentReported(panelId: panelId, statusKey: agentStatusKey(forAgentPIDKey: key)) }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {

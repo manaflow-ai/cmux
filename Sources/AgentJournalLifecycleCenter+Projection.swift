@@ -21,6 +21,7 @@ extension AgentJournalLifecycleCenter {
     static func reduceIngest(
         _ event: AgentJournalEvent,
         sourceKind: AgentJournalEventKind? = nil,
+        pendingUserActionCount: Int? = nil,
         aliases: AgentJournalAliasResolver,
         reducer: AgentLifecycleReducer,
         state: inout AgentLifecycleReducerState
@@ -30,7 +31,7 @@ extension AgentJournalLifecycleCenter {
         let previousPhase = canonical.draft.surfaceId.flatMap {
             state.combinedPhase(surfaceId: $0, agentKey: canonical.agentKey)
         }
-        reducer.apply(canonical, to: &state)
+        reducer.apply(canonical, to: &state, pendingUserActionCount: pendingUserActionCount)
         guard canonical.draft.unattributedReason == nil else {
             publishUnattributedDiagnostic(canonical)
             return nil
@@ -92,8 +93,9 @@ extension AgentJournalLifecycleCenter {
             for event in page.events {
                 let canonical = canonicalized(event, aliases: aliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale, decision.projectsLifecycle {
-                    reducer.apply(notifications.lifecycleEvent(canonical), to: &state)
+                if (decision.disposition != .stale && decision.projectsLifecycle) || canonical.draft.declaredMode != nil {
+                    let projected = runtimeEvent(canonical, projectsLifecycle: decision.disposition != .stale && decision.projectsLifecycle, notifications: notifications)
+                    reducer.apply(projected, to: &state, pendingUserActionCount: notifications.pendingUserActionCount(for: canonical))
                 }
             }
             folded += page.events.count
@@ -118,6 +120,32 @@ extension AgentJournalLifecycleCenter {
         )
 #endif
         return assignments
+    }
+
+    /// Mode uses its own watermark even when causal admission rejects an activity assertion.
+    static func runtimeEvent(_ event: AgentJournalEvent, projectsLifecycle: Bool, notifications: AgentNotificationReconciler) -> AgentJournalEvent {
+        if projectsLifecycle { return notifications.lifecycleEvent(event) }
+        var draft = event.draft
+        draft.kind = .stateChanged
+        draft.declaredActivity = nil
+        draft.declaredReason = nil
+        draft.declaredPhase = nil
+        return AgentJournalEvent(sequence: event.sequence, committedAtMs: event.committedAtMs, draft: draft)
+    }
+
+    /// Restores metadata with original evidence times, never historical liveness or ordering effects.
+    @MainActor
+    static func applyStartupRuntimeEvidence(_ state: AgentLifecycleReducerState) {
+        for (surfaceID, agents) in state.sessions {
+            guard let panelID = UUID(uuidString: surfaceID),
+                  let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID, preferredWorkspaceId: nil) else { continue }
+            for (statusKey, sessions) in agents {
+                for (sessionID, saved) in sessions {
+                    let replay = AgentJournalReplayPolicy().startupRuntimeState(from: saved)
+                    located.workspace.sidebarAgentRuntimeObservation.recordJournalEvidence(panelID: panelID, statusKey: statusKey, sessionID: sessionID, state: replay)
+                }
+            }
+        }
     }
 
     /// Rewrites the event's identity through the restore alias chains so
@@ -190,6 +218,7 @@ extension AgentJournalLifecycleCenter {
         located.workspace.sidebarAgentRuntimeObservation.recordJournalEvidence(panelID: panelID, statusKey: application.assignment.agentKey, sessionID: sessionID, state: state)
     }
 
+    @MainActor
     static func apply(
         _ assignment: AgentLifecycleAssignment,
         workspaceHint: String?,

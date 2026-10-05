@@ -28,10 +28,11 @@ struct SidebarExtensionRuntimeProjector {
                   let pid = model.agentPIDs[key], let recorded = model.agentPIDProcessIdentitiesByKey[key],
                   recorded.pid == pid, processIdentity(pid) == recorded,
                   let generation = birthGeneration(recorded) else { return nil }
-            let statusKey = workspace.agentStatusKey(forAgentPIDKey: key)
+            let nativeStatusKey = workspace.agentStatusKey(forAgentPIDKey: key)
+            let statusKey = AgentSemanticEventMapper().statusKey(nativeToolID: nativeStatusKey)
             guard !AgentHibernationLifecycleStatusKeys.isManualKey(statusKey) else { return nil }
             let bornAt = Date(timeIntervalSince1970: Double(generation) / 1_000_000)
-            let sessionID = key.hasPrefix(statusKey + ".") ? String(key.dropFirst(statusKey.count + 1)) : nil
+            let sessionID = key.hasPrefix(nativeStatusKey + ".") ? String(key.dropFirst(nativeStatusKey.count + 1)) : nil
             var observation = CmuxSidebarRuntimeObservation(provenance: .nativeProcess, sessionID: sessionID, toolID: statusKey, processGeneration: generation, sampledAt: model.processSampledAtByKey[key])
             if let evidence = model.journalEvidenceByPanelID[panelID]?[key], evidence.processIdentity == recorded {
                 let state = evidence.state
@@ -50,10 +51,15 @@ struct SidebarExtensionRuntimeProjector {
                     observation.modeObservedAt = Date(timeIntervalSince1970: Double(timestamp) / 1_000)
                     observation.provenance = .nativeLifecycle
                 }
+                if let timestamp = state.pendingUserActionsObservedAtMs, Date(timeIntervalSince1970: Double(timestamp) / 1_000) >= bornAt,
+                   state.pendingUserActionsProcessGeneration == nil || state.pendingUserActionsProcessGeneration == generation {
+                    observation.pendingUserActionCount = state.pendingUserActionCount
+                    observation.provenance = .nativeLifecycle
+                }
             }
-            if let evidence = model.lifecycleEvidenceByPanelID[panelID]?[statusKey], evidence.agentPIDKey == key,
+            if let evidence = model.lifecycleEvidenceByPanelID[panelID]?[nativeStatusKey], evidence.agentPIDKey == key,
                evidence.processIdentity == recorded, evidence.observedAt >= bornAt,
-               model.agentLifecycleStatesByPanelId[panelID]?[statusKey] == evidence.lifecycle,
+               model.agentLifecycleStatesByPanelId[panelID]?[nativeStatusKey] == evidence.lifecycle,
                observation.observedAt == nil {
                 switch evidence.lifecycle {
                 case .unknown: observation.lifecycle = .unknown; observation.activity = .unknown
@@ -89,7 +95,7 @@ struct SidebarExtensionRuntimeProjector {
 
     private func rank(_ state: CmuxSidebarAgentLifecycle) -> Int {
         switch state {
-        case .running, .backgroundWorkPending: return 4
+        case .running: return 4
         case .error: return 3
         case .needsInput: return 2
         case .unknown: return 1

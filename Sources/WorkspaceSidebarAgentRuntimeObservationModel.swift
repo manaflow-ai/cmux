@@ -128,13 +128,27 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
 
     /// Records only exact registered SID/tool/process evidence; absent bindings remain unknown.
     func recordJournalEvidence(panelID: UUID, statusKey: String, sessionID: String, state: AgentSessionLifecycleState) {
-        let key = statusKey + "." + sessionID
+        let statusKey = AgentSemanticEventMapper().statusKey(nativeToolID: statusKey)
+        let key = (agentPIDKeysByPanelId[panelID] ?? []).sorted().first { key in
+            guard let dot = key.firstIndex(of: ".") else { return false }
+            return AgentSemanticEventMapper().statusKey(nativeToolID: String(key[..<dot])) == statusKey
+                && String(key[key.index(after: dot)...]) == sessionID
+        } ?? (statusKey + "." + sessionID)
         guard !sessionID.isEmpty, agentPIDPanelIdsByKey[key] == panelID,
               let pid = agentPIDs[key], let identity = agentPIDProcessIdentitiesByKey[key], identity.pid == pid else { return }
         let evidence = JournalEvidence(agentPIDKey: key, processIdentity: identity, sessionID: sessionID, statusKey: statusKey, state: state)
         guard journalEvidenceByPanelID[panelID]?[key] != evidence else { return }
         journalEvidenceByPanelID[panelID, default: [:]][key] = evidence
         processSampledAtByKey[key] = now()
+        notifyChanged()
+    }
+
+    /// Records a native process-birth sample without refreshing activity, mode or request evidence.
+    func recordProcessSample(key: String, identity: AgentPIDProcessIdentity) {
+        guard agentPIDProcessIdentitiesByKey[key] == identity, agentPIDs[key] == identity.pid else { return }
+        let sampledAt = now()
+        guard processSampledAtByKey[key] != sampledAt else { return }
+        processSampledAtByKey[key] = sampledAt
         notifyChanged()
     }
 

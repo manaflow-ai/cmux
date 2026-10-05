@@ -8,9 +8,10 @@ public struct AgentLifecycleReducer: Sendable {
     /// - Parameters:
     ///   - event: Committed native semantic event.
     ///   - state: Accumulated per-session state.
-    /// - Returns: Whether either activity or mode evidence changed.
+    ///   - pendingUserActionCount: Count from the native request reconciler, when supplied.
+    /// - Returns: Whether activity, mode or pending-request evidence changed.
     @discardableResult
-    public func apply(_ event: AgentJournalEvent, to state: inout AgentLifecycleReducerState) -> Bool {
+    public func apply(_ event: AgentJournalEvent, to state: inout AgentLifecycleReducerState, pendingUserActionCount: Int? = nil) -> Bool {
         state.advanceHead(to: event.sequence)
         guard event.draft.unattributedReason == nil, let surfaceId = event.draft.surfaceId else {
             state.recordUnattributed(event)
@@ -21,7 +22,16 @@ public struct AgentLifecycleReducer: Sendable {
         let previous = state.session(surfaceId: surfaceId, agentKey: event.agentKey, sessionKey: sessionKey)
         var next = previous ?? AgentSessionLifecycleState(phase: .unknown, ended: false, lastSequence: 0, lastOccurredAtMs: 0)
         var changed = false
-        if let mode = event.draft.declaredMode, event.sequence > next.modeSequence {
+        if let count = pendingUserActionCount, event.sequence > next.pendingUserActionSequence,
+           max(0, count) != next.pendingUserActionCount {
+            next.pendingUserActionCount = max(0, count)
+            next.pendingUserActionSequence = event.sequence
+            next.pendingUserActionsObservedAtMs = event.draft.occurredAtMs
+            next.pendingUserActionsProcessGeneration = event.draft.processGeneration
+            changed = true
+        }
+        if let mode = event.draft.declaredMode, event.sequence > next.modeSequence,
+           event.draft.occurredAtMs >= (next.modeObservedAtMs ?? Int64.min) {
             next.mode = mode
             next.modeSequence = event.sequence
             next.modeObservedAtMs = event.draft.occurredAtMs
@@ -30,7 +40,7 @@ public struct AgentLifecycleReducer: Sendable {
         }
         if let transition = transition(for: event.draft, previous: previous),
            event.sequence > next.lastSequence,
-           event.draft.kind == .stateChanged || event.draft.occurredAtMs >= next.lastOccurredAtMs {
+           (event.draft.kind == .stateChanged && event.draft.declaredActivity == nil) || event.draft.occurredAtMs >= next.lastOccurredAtMs {
             let unchangedActivity = previous?.activity == transition.activity && previous?.reason == transition.reason && previous?.ended == transition.ended
             next.phase = transition.phase
             next.ended = transition.ended

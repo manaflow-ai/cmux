@@ -27,6 +27,7 @@ struct AgentFeedSemanticInput: Sendable {
         let declaredMode = mapper.mode(nativeMode: extra["declared_mode"] as? String ?? extra["execution_mode"] as? String)
         let nativeRequest = ["tool_use_id", "tool_call_id", "request_id", "agent_id"]
             .compactMap { extra[$0] as? String }.first
+            ?? (event.source.lowercased() == "opencode" ? event.requestId : nil)
         let isToolActivity = event.hookEventName == .preToolUse
             || event.hookEventName == .postToolUse
             || event.hookEventName == .postToolUseFailure
@@ -68,7 +69,8 @@ struct AgentFeedSemanticInput: Sendable {
             // that has no UserPromptSubmit hook; older activity is rejected by
             // the reconciler's timestamp and turn-identity watermarks.
             nativeEvent: event.hookEventName.rawValue,
-            declaredPhase: (resolvesRequest || isToolActivity) ? .running : nil,
+            declaredPhase: resolved && !resolvesRequest && extra["pending_work"] as? Bool == false
+                ? .idle : ((resolvesRequest || isToolActivity) ? .running : nil),
             attention: AgentAttentionContext(eventIdentity: extra["event_id"] as? String,
                 turnIdentity: extra["turn_id"] as? String, requestIdentity: identity, notification: notification),
             declaredActivity: declaredActivity, declaredReason: declaredReason, declaredMode: declaredMode, processGeneration: generation)

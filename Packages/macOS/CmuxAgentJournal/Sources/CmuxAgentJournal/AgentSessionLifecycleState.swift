@@ -29,6 +29,14 @@ public struct AgentSessionLifecycleState: Sendable, Equatable {
     public var processGeneration: UInt64?
     /// Explicit process generation supplied by the newest mode evidence, if known.
     public var modeProcessGeneration: UInt64?
+    /// Number of unresolved native user-action requests, independent of activity.
+    public var pendingUserActionCount: Int
+    /// Journal sequence of the latest pending-request count change.
+    public var pendingUserActionSequence: Int64
+    /// Original event time of the latest pending-request count change.
+    public var pendingUserActionsObservedAtMs: Int64?
+    /// Exact process generation of the latest pending-request count change.
+    public var pendingUserActionsProcessGeneration: UInt64?
 
     /// Creates a session state.
     ///
@@ -46,6 +54,10 @@ public struct AgentSessionLifecycleState: Sendable, Equatable {
     ///   - modeObservedAtMs: Original mode evidence timestamp.
     ///   - processGeneration: Exact activity process generation, when declared.
     ///   - modeProcessGeneration: Exact mode process generation, when declared.
+    ///   - pendingUserActionCount: Authoritative unresolved native requests; zero without evidence.
+    ///   - pendingUserActionSequence: Latest reconciled request-count sequence.
+    ///   - pendingUserActionsObservedAtMs: Original request-count evidence time.
+    ///   - pendingUserActionsProcessGeneration: Process generation of the request evidence.
     public init(
         phase: AgentLifecyclePhase,
         ended: Bool,
@@ -59,7 +71,11 @@ public struct AgentSessionLifecycleState: Sendable, Equatable {
         transitionedAtMs: Int64? = nil,
         modeObservedAtMs: Int64? = nil,
         processGeneration: UInt64? = nil,
-        modeProcessGeneration: UInt64? = nil
+        modeProcessGeneration: UInt64? = nil,
+        pendingUserActionCount: Int = 0,
+        pendingUserActionSequence: Int64 = 0,
+        pendingUserActionsObservedAtMs: Int64? = nil,
+        pendingUserActionsProcessGeneration: UInt64? = nil
     ) {
         self.phase = phase
         self.ended = ended
@@ -74,5 +90,9 @@ public struct AgentSessionLifecycleState: Sendable, Equatable {
         self.modeObservedAtMs = modeObservedAtMs
         self.processGeneration = processGeneration
         self.modeProcessGeneration = modeProcessGeneration
+        self.pendingUserActionCount = max(0, pendingUserActionCount)
+        self.pendingUserActionSequence = pendingUserActionSequence
+        self.pendingUserActionsObservedAtMs = pendingUserActionsObservedAtMs
+        self.pendingUserActionsProcessGeneration = pendingUserActionsProcessGeneration
     }
 }

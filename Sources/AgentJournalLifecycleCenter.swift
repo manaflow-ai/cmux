@@ -94,8 +94,9 @@ final class AgentJournalLifecycleCenter: Sendable {
                 guard let eventAliases = resolver(store) else { return false }
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale, decision.projectsLifecycle || canonical.draft.declaredMode != nil,
-                   let application = Self.reduceIngest(decision.projectsLifecycle ? notifications.lifecycleEvent(canonical) : canonical, sourceKind: canonical.kind,
+                if (decision.disposition != .stale && decision.projectsLifecycle) || canonical.draft.declaredMode != nil,
+                   let application = Self.reduceIngest(Self.runtimeEvent(canonical, projectsLifecycle: decision.disposition != .stale && decision.projectsLifecycle, notifications: notifications), sourceKind: canonical.kind,
+                       pendingUserActionCount: notifications.pendingUserActionCount(for: canonical),
                        aliases: eventAliases,
                        reducer: reducer, state: &state) {
                     await MainActor.run {
@@ -220,12 +221,12 @@ final class AgentJournalLifecycleCenter: Sendable {
                         state: &state,
                         notifications: &notifications
                     )
-                    if !assignments.isEmpty {
-                        await MainActor.run {
-                            for assignment in assignments {
-                                Self.apply(assignment, workspaceHint: nil)
-                            }
+                    let replayState = state
+                    await MainActor.run {
+                        for assignment in assignments {
+                            Self.apply(assignment, workspaceHint: nil)
                         }
+                        Self.applyStartupRuntimeEvidence(replayState)
                     }
                 }
             }

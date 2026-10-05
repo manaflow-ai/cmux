@@ -42,7 +42,8 @@ extension CMUXCLI {
             source: source, agentKey: agentKey, sessionId: sessionId,
             workspaceId: workspaceId, surfaceId: surfaceId,
             isSubagent: isSubagent, pendingWork: pendingWork,
-            nativeEvent: rawObject?["hook_event_name"] as? String, attention: context)
+            nativeEvent: rawObject?["hook_event_name"] as? String, attention: context,
+            declaredMode: Self.semanticExecutionMode(rawObject), processGeneration: Self.semanticProcessGeneration(rawObject))
         let data = try JSONEncoder().encode(draft)
         return "agent_journal_append \(String(decoding: data, as: UTF8.self))"
     }

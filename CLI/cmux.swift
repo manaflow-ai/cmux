@@ -28874,6 +28874,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -28961,6 +28962,7 @@ struct CMUXCLI {
                     detail: isClearSessionStart ? "clear-session-start" : nil,
                     attention: Self.semanticAttentionContext(parsedInput.rawObject),
                     occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                    nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29024,6 +29026,7 @@ struct CMUXCLI {
                         nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                         store: sessionStore,
                         telemetry: telemetry
                     )
@@ -29083,6 +29086,7 @@ struct CMUXCLI {
                         detail: "superseded-stale",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                         store: sessionStore,
                         telemetry: telemetry
                     )
@@ -29105,6 +29109,7 @@ struct CMUXCLI {
                         nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                         store: sessionStore,
                         telemetry: telemetry
                     )
@@ -29176,6 +29181,7 @@ struct CMUXCLI {
                     detail: stopFailure?.journalDetail,
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29263,6 +29269,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29307,6 +29314,7 @@ struct CMUXCLI {
                     detail: "superseded-stale",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29327,6 +29335,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29384,6 +29393,7 @@ struct CMUXCLI {
                 nativeEvent: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                 store: sessionStore,
                 telemetry: telemetry
             )
@@ -29468,6 +29478,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "Notification",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29510,6 +29521,7 @@ struct CMUXCLI {
                     detail: "superseded-stale",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29530,6 +29542,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "Notification",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29692,6 +29705,7 @@ struct CMUXCLI {
                 nativeEvent: reportedHookEventName(from: parsedInput) ?? "Notification",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                 store: sessionStore,
                 telemetry: telemetry
             )
@@ -29780,6 +29794,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionEnd",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -29825,6 +29840,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionEnd",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -30010,6 +30026,7 @@ struct CMUXCLI {
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                     store: sessionStore,
                     telemetry: telemetry
                 )
@@ -30091,6 +30108,7 @@ struct CMUXCLI {
                 declaredPhase: .running,
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
+                        nativePayload: parsedInput.rawObject,
                 store: sessionStore,
                 telemetry: telemetry
             )
@@ -36081,6 +36099,7 @@ export default {
                 detail: detail,
                 attention: Self.semanticAttentionContext(input.rawObject),
                 occurredAtMs: Self.semanticOccurredAtMs(input.rawObject),
+                nativePayload: input.rawObject,
                 responseTimeout: responseTimeout,
                 deadline: deadline ?? cursorShellDeadline,
                 store: store,
@@ -37997,6 +38016,7 @@ export default {
                         nativeEvent: "transcript-terminal",
                         attention: AgentAttentionContext(turnIdentity: priorTurnId),
                         occurredAtMs: Self.semanticOccurredAtMs(input.rawObject),
+                        nativePayload: input.rawObject,
                         store: store,
                         telemetry: telemetry
                     )
@@ -41149,7 +41169,7 @@ export default {
                 sessionId: FeedWorkstreamIdentifier(rawValue: eventDict["session_id"] as? String ?? "")?.sessionID,
                 workspaceId: workspaceID, surfaceId: surfaceID,
                 nativeEvent: eventDict["hook_event_name"] as? String, declaredPhase: .running,
-                attention: evidence, occurredAtMs: Self.semanticOccurredAtMs(eventDict),
+                attention: evidence, occurredAtMs: Self.semanticOccurredAtMs(eventDict), nativePayload: eventDict,
                 responseTimeout: remainingBudget(), deadline: deadline)
             return
         }
@@ -41607,6 +41627,8 @@ export default {
         if let value = causalEvidence.turnIdentity { eventDict["turn_id"] = value }
         if let value = causalEvidence.requestIdentity { eventDict["request_id"] = value }
         if let value = Self.semanticOccurredAtMs(stdinObj) { eventDict["occurred_at_ms"] = value }
+        if let value = Self.semanticExecutionMode(stdinObj) { eventDict["declared_mode"] = value.rawValue }
+        if let value = Self.semanticProcessGeneration(stdinObj) { eventDict["process_generation"] = value }
         if let value = firstString(in: stdinObj, keys: ["agent_id", "agentId"]) { eventDict["agent_id"] = value }
 
         // Sync. For actionable events we block within the agent's shortest

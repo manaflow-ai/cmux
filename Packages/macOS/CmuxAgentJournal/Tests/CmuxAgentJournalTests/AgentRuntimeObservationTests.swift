@@ -97,15 +97,16 @@ struct AgentRuntimeObservationTests {
         var reconciler = AgentNotificationReconciler()
         var state = AgentLifecycleReducerState()
         let reducer = AgentLifecycleReducer()
-        let working = event(3, activity: .working, nativeEvent: "PreToolUse", phase: .running)
+        let working = event(3, activity: .working, nativeEvent: "PreToolUse")
         for input in [event(1, kind: .turnStarted), event(2, kind: .questionRequested, request: "pending-question", notification: true), working] {
             let decision = reconciler.apply(input)
             if decision.disposition != .stale && decision.projectsLifecycle {
-                reducer.apply(reconciler.lifecycleEvent(input), to: &state)
+                reducer.apply(reconciler.lifecycleEvent(input), to: &state, pendingUserActionCount: reconciler.pendingUserActionCount(for: input))
             }
         }
         let session = try #require(state.sessions[surface]?["opencode"]?["first"])
         #expect(session.activity == .working)
+        #expect(session.pendingUserActionCount == 1)
         let reminder = event(4, kind: .questionRequested, notification: true)
         #expect(!reconciler.apply(reminder).projectsLifecycle)
     }
@@ -124,6 +125,102 @@ struct AgentRuntimeObservationTests {
         let session = try #require(state.sessions[surface]?["opencode"]?["first"])
         #expect(session.activity == .idle)
         #expect(session.activityObservedAtMs == 2_000)
+    }
+
+    @Test
+    func exactRequestsAreIndependentOfModeNotificationDeliveryAndLateReplies() {
+        var reconciler = AgentNotificationReconciler()
+        let first = event(1, kind: .questionRequested, request: "first", notification: false)
+        let second = event(2, kind: .approvalRequested, request: "second", notification: false)
+        _ = reconciler.apply(first)
+        _ = reconciler.apply(second)
+        #expect(reconciler.pendingUserActionCount(for: second) == 2)
+        _ = reconciler.apply(event(3, mode: .plan))
+        #expect(reconciler.pendingUserActionCount(for: second) == 2)
+        let reply = event(4, kind: .attentionResolved, at: 900, request: "first")
+        _ = reconciler.apply(reply)
+        #expect(reconciler.pendingUserActionCount(for: reply) == 1)
+        _ = reconciler.apply(reply)
+        #expect(reconciler.pendingUserActionCount(for: reply) == 1)
+        #expect(reconciler.apply(event(5, kind: .questionRequested, request: "first", notification: true)).disposition == .stale)
+        _ = reconciler.apply(event(6, kind: .attentionResolved, at: 800, request: "unrelated"))
+        #expect(reconciler.pendingUserActionCount(for: second) == 1)
+    }
+
+    @Test
+    func ambiguousAnonymousReplyKeepsBothNativeRequests() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, kind: .questionRequested, request: "first"))
+        _ = reconciler.apply(event(2, kind: .questionRequested, request: "second"))
+        let reply = event(3, kind: .attentionResolved)
+        _ = reconciler.apply(reply)
+        #expect(reconciler.pendingUserActionCount(for: reply) == 2)
+    }
+
+    @Test
+    func exactAsyncQuestionSurvivesCompletionAndNewWorkUntilItsOwnReply() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, kind: .turnStarted))
+        let question = event(2, kind: .questionRequested, request: "async-question")
+        _ = reconciler.apply(question)
+        _ = reconciler.apply(event(3, kind: .turnCompleted))
+        #expect(reconciler.pendingUserActionCount(for: question) == 1)
+        _ = reconciler.apply(event(4, kind: .turnStarted))
+        #expect(reconciler.pendingUserActionCount(for: question) == 1)
+        _ = reconciler.apply(event(5, kind: .attentionResolved, request: "async-question"))
+        #expect(reconciler.pendingUserActionCount(for: question) == 0)
+        _ = reconciler.apply(event(6, kind: .questionRequested, request: "second"))
+        _ = reconciler.apply(event(7, kind: .sessionEnded))
+        #expect(reconciler.pendingUserActionCount(for: question) == 0)
+    }
+
+    @Test
+    func claudeAliasesResolveTheSameExactRequest() {
+        var questionDraft = event(1, kind: .questionRequested, request: "alias-request").draft
+        questionDraft.source = "claude"
+        questionDraft.agentKey = "claude_code"
+        let question = AgentJournalEvent(sequence: 1, committedAtMs: 3_001, draft: questionDraft)
+        var replyDraft = event(2, kind: .attentionResolved, request: "alias-request").draft
+        replyDraft.source = "claude_code"
+        replyDraft.agentKey = "claude_code"
+        let reply = AgentJournalEvent(sequence: 2, committedAtMs: 3_002, draft: replyDraft)
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(question)
+        #expect(reconciler.pendingUserActionCount(for: reply) == 1)
+        _ = reconciler.apply(reply)
+        #expect(reconciler.pendingUserActionCount(for: question) == 0)
+    }
+
+    @Test
+    func replayReconstructsIndependentModeAndRequestEvidenceWithoutInventingWork() throws {
+        let events = [event(1, mode: .plan, at: 2_000, generation: 77), event(2, kind: .questionRequested, at: 2_100, generation: 77, request: "question")]
+        var reconciler = AgentNotificationReconciler()
+        var state = AgentLifecycleReducerState()
+        for input in events {
+            let decision = reconciler.apply(input)
+            if decision.disposition != .stale && decision.projectsLifecycle {
+                AgentLifecycleReducer().apply(reconciler.lifecycleEvent(input), to: &state, pendingUserActionCount: reconciler.pendingUserActionCount(for: input))
+            }
+        }
+        let session = try #require(state.sessions[surface]?["opencode"]?["first"])
+        #expect(session.mode == .plan)
+        #expect(session.modeObservedAtMs == 2_000)
+        #expect(session.activity == .needsInput)
+        #expect(session.pendingUserActionCount == 1)
+        #expect(session.pendingUserActionsObservedAtMs == 2_100)
+        #expect(session.pendingUserActionsProcessGeneration == 77)
+        #expect(AgentJournalReplayPolicy().startupSnapshot(from: state.snapshot()).phases[surface]?["opencode"] == .needsInput)
+    }
+
+    @Test
+    func structuredActivityCannotReopenIdleWithoutNewTurnOrFreshToolEvidence() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, kind: .turnStarted))
+        _ = reconciler.apply(event(2, kind: .turnCompleted))
+        let genericBusy = event(3, activity: .working, nativeEvent: "Notification")
+        #expect(!reconciler.apply(genericBusy).projectsLifecycle)
+        let tool = event(4, activity: .working, nativeEvent: "PreToolUse")
+        #expect(reconciler.apply(tool).projectsLifecycle)
     }
 
     @Test(arguments: ["question.replied", "question.rejected"])

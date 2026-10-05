@@ -17,6 +17,26 @@ public struct AgentJournalReplayPolicy: Sendable {
     /// Creates a policy.
     public init() {}
 
+    /// Retains blocked activity and independent metadata without replaying historical liveness.
+    /// - Parameter state: One reduced native session, with its original evidence timestamps.
+    /// - Returns: Session evidence safe to apply after startup; mode and exact requests are unchanged.
+    public func startupRuntimeState(from state: AgentSessionLifecycleState) -> AgentSessionLifecycleState {
+        var startup = state
+        switch state.activity {
+        case .needsInput, .failed, .quotaBlocked:
+            break
+        case .unknown, .working, .idle, .ready, .waiting, .paused, .ended:
+            startup.phase = .unknown
+            startup.ended = false
+            startup.activity = .unknown
+            startup.reason = nil
+            startup.activityObservedAtMs = nil
+            startup.transitionedAtMs = nil
+            startup.processGeneration = nil
+        }
+        return startup
+    }
+
     /// Filters a reduced snapshot down to what startup replay may paint.
     ///
     /// - Parameter snapshot: The full reduced snapshot.
