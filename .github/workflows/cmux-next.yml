@@ -466,14 +466,6 @@ jobs:
         working-directory: cmux-tui
         run: cargo test -p cmux-layout-reducer --locked
 
-      # The reducer test harness may create the isolated FFI crate's lockfile
-      # while exercising the shared sources. It is generated state, not a
-      # pinned source input, and must not make the reused checkout dirty before
-      # the release pin check.
-      - name: Clean generated layout-reducer FFI lockfile
-        if: ${{ always() }}
-        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
-
       # Package.swift links the app FFI from one pinned release; the pin must
       # match these sources and the release must be built from them.
       - name: Check the app FFI pin
@@ -521,6 +513,12 @@ jobs:
       # cmux-tui artifacts workflow builds, tests and publishes that tree.
       # The capability check then fails the job when that daemon does not
       # serve a capability the app relies on.
+      # Building the package's reducer FFI can recreate the isolated crate's
+      # workspace lockfile after the initial reducer test. Remove generated
+      # state immediately before pin-cmux-tui validates the checkout.
+      - name: Clean generated layout-reducer FFI lockfile
+        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
