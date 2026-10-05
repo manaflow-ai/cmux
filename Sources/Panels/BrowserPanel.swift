@@ -5043,6 +5043,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func focusContentAfterAttachment() {
         pendingContentFocusAfterAttachment = true
         prepareFocusIntentForActivation(.browser(.webView))
+        guard BrowserWindowPortalRegistry.isPresented(webView) else { return }
         focus()
         if let window = webView.window,
            Self.responderChainContains(window.firstResponder, target: webView)
@@ -5055,6 +5056,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func focusPendingContentAfterAttachment() {
         guard pendingContentFocusAfterAttachment else { return }
         prepareFocusIntentForActivation(.browser(.webView))
+        guard BrowserWindowPortalRegistry.isPresented(webView) else { return }
         focus()
         if let window = webView.window,
            Self.responderChainContains(window.firstResponder, target: webView)
@@ -7785,6 +7787,7 @@ extension BrowserPanel {
 #endif
             return nil
         }
+        pendingContentFocusAfterAttachment = false
         // A pending WebView reassertion must not win after an accepted
         // address-bar request. An unavailable address bar leaves the WebView
         // retry intact so callers can fall back without dropping focus.
