@@ -62,3 +62,19 @@ jobs:
         run: |
           cd webviews
           bun test src/agent-session/acpmux/bridgeSocket.test.ts src/agent-session/acpmux/emptyState.test.ts src/agent-session/acpmux/composer.test.tsx src/agent-session/acpmux/quickComposer.test.tsx src/agent-session/acpmux/NewTabPage.test.tsx src/agent-session/acpmux/omnibar.test.ts src/agent-session/acpmux/newtab src/agent-session/acpmux/i18n.test.ts src/agent-session/acpmux/i18n.compiled.test.ts test/pane-english.test.ts test/agent-pane-locale.test.ts
+
+  base-conventions:
+    name: Base package-conventions reproduction
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 6b6fa588fff5678140be9a020a4df8cf38a63515
+          persist-credentials: false
+      - name: Confirm untouched base revision
+        run: test "$(git rev-parse HEAD)" = 6b6fa588fff5678140be9a020a4df8cf38a63515
+      - name: Lint iOS package conventions
+        run: |
+          python3 scripts/tests/test_ios_package_conventions.py
+          ./scripts/lint-ios-package-conventions.sh
