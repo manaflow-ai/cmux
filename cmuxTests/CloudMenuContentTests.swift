@@ -138,6 +138,11 @@ struct CloudMenuContentTests {
         #expect(plainIDs == ["machine.plain.openShell", "machine.plain.newWorkspace", "machine.plain.openFullClient",
                              "machine.plain.rename", "machine.plain.status", "machine.plain.delete"])
 
+        // Freestyle: no native fork, but the backend forks through snapshot + create.
+        var snapshotForked = Self.machine("snap")
+        snapshotForked.capabilities = VMCapabilities(snapshot: true, restore: true, fork: false)
+        #expect(recorder.actions.machine.submenuEntries(snapshotForked).contains { $0.id == "machine.snap.fork" })
+
         var desktop = Self.machine("desk", isDesktop: true)
         desktop.privateAddress = "100.64.0.9"
         let desktopEntries = recorder.actions.machine.submenuEntries(desktop)

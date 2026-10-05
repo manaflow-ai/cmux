@@ -14,7 +14,7 @@ describe("vm capability derivation", () => {
     expect(caps).toEqual({
       snapshot: true,
       restore: true,
-      fork: true,
+      fork: false,
       exec: true,
       stats: true,
       // Port previews ride the platform's TLS edge (style.dev capability URLs).

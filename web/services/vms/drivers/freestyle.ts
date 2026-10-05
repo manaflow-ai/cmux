@@ -993,9 +993,9 @@ export class FreestyleProvider implements VMProvider {
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
   /// Freestyle exposes live resource statistics and grow-only resizing.
-  // Freestyle branches machines through the snapshot fallback in the VM
-  // workflow. Advertising this capability enables the shared fork entrypoints.
-  readonly capabilities = { stats: true, sizing: true, desktop: true, fork: true } as const;
+  // `fork` stays derived (no native fork): forkVm takes the snapshot path, and
+  // clients offer Fork from snapshot + restore (VMCapabilities.canFork).
+  readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
   private readonly resourceStats: FreestyleResourceStatsReader;

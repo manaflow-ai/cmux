@@ -7302,7 +7302,7 @@ struct ContentView: View {
             // publishes authoritative server capabilities.
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsFork,
-                cloudCapabilities?.fork ?? true
+                cloudCapabilities?.canFork ?? true
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsSnapshot,

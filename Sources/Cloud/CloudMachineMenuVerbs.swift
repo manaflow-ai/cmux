@@ -50,7 +50,7 @@ struct CloudMachineMenuVerbs {
         if machine.capabilities.snapshot {
             entries.append(action("checkpoint", id, String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { runCommand(id, ["vm", "snapshot"]) })
         }
-        if machine.capabilities.fork {
+        if machine.capabilities.canFork {
             entries.append(action("fork", id, String(localized: "machines.menu.fork", defaultValue: "Fork")) { fork(machine) })
         }
         return entries
