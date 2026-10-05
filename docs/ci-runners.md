@@ -65,7 +65,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_IOS` | the iOS image: simulator tests, TestFlight upload, and `ios-streamed-validate.yml` (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
-| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit`, the macOS legs of `cmux-tui-artifacts` (post-merge) and `cmux-tui-nightly` (on demand). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
+| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
 
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that
@@ -724,8 +724,8 @@ A job belongs in the lane only if all of these hold:
 - it does not need a GUI console session.
 
 Members today: `build-ghosttykit.yml` (Xcode from the image default, Zig
-xcframework build), and the two macOS Rust legs of `cmux-tui-artifacts.yml`
-and `cmux-tui-nightly.yml` (passed as `macos_runner` to
+xcframework build), and the two macOS Rust legs of
+`cmux-tui-artifacts.yml` (passed as `macos_runner` to
 `cmux-tui-build-package.yml`; release and full-suite callers keep their own
 runner).
 
