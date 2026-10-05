@@ -7,7 +7,7 @@ import QuartzCore
 /// file or a short-lived signed GET (the render core's `MediaStore`, or a
 /// host's own media cache such as the Mac MessagesLab host's `HomeMedia`).
 @MainActor
-public protocol HomeVideoSource: AnyObject {
+public protocol HomeVideoSource: AnyObject, Sendable {
     func originalURL(for ref: AttachmentRef) async throws -> URL
 }
 
