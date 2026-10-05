@@ -408,9 +408,9 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
     "cat /etc/cmux/daemon-socket /etc/cmux/daemon.json",
   ].join(" && "));
   const info = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { version?: string; capabilities?: string[] };
-  // Cloud-gated capabilities depend on the pinned cmux-tui (d7f8fd06 advertises neither fs-v1
-  // nor loopback-forward-v1 at bake time), so only a real version and the agent's own are required.
-  if (!info.version || info.version.startsWith("unknown") || !info.capabilities?.includes("vm-agent-v1")) {
+  // The pinned cmux-tui must advertise loopback-forward-v1 (Cloud ports); fs-v1 appears only on a
+  // bound Cloud host, so it is not required at bake time.
+  if (!info.version || info.version.startsWith("unknown") || !info.capabilities?.includes("vm-agent-v1") || !info.capabilities.includes("loopback-forward-v1")) {
     throw new Error(`daemon.json is not a real identify answer: ${out.trim().slice(0, 300)}`);
   }
   ctx.result.daemonInfo = info;
