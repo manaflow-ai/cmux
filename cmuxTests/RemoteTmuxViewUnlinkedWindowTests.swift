@@ -195,7 +195,7 @@ private final class ScriptedViewHost {
             onFailure: {}
         )
         connection.installStdinWriterForTesting(writer)
-        view.adoptConnectionForTesting(connection)
+        view.connection = connection
         // The same wiring `RemoteTmuxViewConnection.start()` installs on the stream it opens.
         observerToken = connection.addObserver(
             onTopologyChanged: { [weak view] in view?.requestReconcile() },

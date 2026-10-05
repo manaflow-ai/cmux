@@ -84,7 +84,7 @@ final class RemoteTmuxViewConnection {
     let view: RemoteTmuxViewSession
 
     /// The single live `-CC` control connection attached to the view session.
-    private(set) var connection: RemoteTmuxControlConnection?
+    var connection: RemoteTmuxControlConnection?
     /// The current regrouped workspaces (home session → ordered window ids).
     private(set) var workspaces: [RemoteTmuxLinkedWorkspaceModel.Workspace] = []
     /// Called when the stream is found waiting for credentials, so the verdict can be stored somewhere
@@ -715,11 +715,6 @@ final class RemoteTmuxViewConnection {
         workspaces = []
         resolveFirstWorkspacesWaiters(false)
         onEnded?()
-    }
-
-    /// Installs a connection without starting a stream, so the teardown path is drivable in a test.
-    func adoptConnectionForTesting(_ connection: RemoteTmuxControlConnection) {
-        self.connection = connection
     }
 
     /// Records whether the stream was waiting for credentials, while the connection still exists to

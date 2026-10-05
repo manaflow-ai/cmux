@@ -226,7 +226,7 @@ final class RemoteTmuxControlConnection {
     /// Past this many consecutive transport-death reattaches, believe the `%exit`.
     static let maxTransportDeathReattempts = 3
     /// When the current spawn reached control mode, or nil if it never has.
-    private var controlModeEnteredAt: ContinuousClock.Instant?
+    var controlModeEnteredAt: ContinuousClock.Instant?
     /// How long an attach has to hold before it counts as having worked.
     ///
     /// A tunnel that dies a second after every attach still publishes windows on each one, so
@@ -257,15 +257,6 @@ final class RemoteTmuxControlConnection {
     static let reattachOnPossibleTransportDeath = false
     #else
     static let reattachOnPossibleTransportDeath = true
-    #endif
-
-    #if DEBUG
-    /// Test seam: moves the current attach's control-mode entry back in time, so a case can drive
-    /// both sides of ``workingConnectionSeconds`` without holding a fake connection open for it.
-    func backdateControlModeEntryForTesting(bySeconds seconds: Double) {
-        guard let enteredAt = controlModeEnteredAt else { return }
-        controlModeEnteredAt = enteredAt.advanced(by: .seconds(-seconds))
-    }
     #endif
 
     /// Called when an attach that lasted ends, so the cap counts consecutive failures.

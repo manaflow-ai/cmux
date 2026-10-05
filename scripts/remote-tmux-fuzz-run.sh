@@ -51,6 +51,9 @@ TAG="${CMUX_TAG:-etbroker}"
 HOST="${FUZZ_HOST:-cmux-ethost}"
 HAIRPIN="${FUZZ_HAIRPIN:-cmux-srvA}"
 TMUX_BIN="${FUZZ_TMUX_BIN:-/opt/homebrew/bin/tmux}"
+# The et client the app spawns. Counted and reaped by this path, so resolve it the way the app's
+# PATH would instead of assuming one install location.
+ET_CLIENT_BIN="${ET_CLIENT:-$(command -v et || echo /usr/local/bin/et)}"
 # The "remote" host is this machine over loopback, so the tmux cmux mirrors is the default
 # server. Address it by socket path rather than bare `tmux` so nothing here can start or kill a
 # server by accident: list-clients/list-sessions on a missing socket just fail.
@@ -109,7 +112,7 @@ count_control_for_session() { tmx list-clients -F '#{client_session} #{client_fl
 control_ttys() { tmx list-clients -F '#{client_tty} #{client_flags}' | awk '$2 ~ /control-mode/ {print $1}'; }
 list_sessions() { tmx list-sessions -F '#{session_name}' | sort; }
 count_etterminal() { pgrep -x etterminal | wc -l | tr -d ' '; }
-count_etclient() { ps -Ao command= | awk '$1=="/usr/local/bin/et"' | wc -l | tr -d ' '; }
+count_etclient() { ps -Ao command= | awk -v et="$ET_CLIENT_BIN" '$1==et' | wc -l | tr -d ' '; }
 # The bracket in the pattern is not cosmetic. pkill/pgrep -f match every process's whole command
 # line, including the ssh client and the remote shell that are carrying the pattern itself, so a
 # plain pattern kills the very connection running it (measured: ssh died with 144 and the rest of
@@ -241,7 +244,7 @@ reap() {
   kill_app || log "    app did not exit"
   # Safe because the baseline gate proved there were no etterminal/et processes before the
   # case, so everything alive now was caused by it.
-  hp "pkill -x etterminal; pkill -f '/usr/local/bin/et[ ]-p'; pkill -f 'et-[l]ocalbroker'; pkill -f 'et-[p]ipebroker'; true" >/dev/null
+  hp "pkill -x etterminal; pkill -f '${ET_CLIENT_BIN}[ ]-p'; pkill -f 'et-[l]ocalbroker'; pkill -f 'et-[p]ipebroker'; true" >/dev/null
   wait_edge "etterminal and et clients exit" 20 procs_clear
   # Backstop for a control client whose remote half is already gone: detach that client by its
   # own tty. Never `detach-client -s <session>`, which would evict the human's client too.

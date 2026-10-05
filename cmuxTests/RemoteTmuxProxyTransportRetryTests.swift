@@ -1769,7 +1769,11 @@ private struct SplitMix64 {
         for incident in 1...(cap + 1) {
             let before = recovering.eventCount(prefix: "exit-may-be-transport-death")
             let reconnectsBefore = recovering.eventCount(prefix: "reconnecting preserving-backoff")
-            recovering.connection.backdateControlModeEntryForTesting(bySeconds: heldFor)
+            // Move the attach's control-mode entry back, so both sides of the working-connection
+            // rule run without holding a fake connection open for it.
+            if let enteredAt = recovering.connection.controlModeEnteredAt {
+                recovering.connection.controlModeEnteredAt = enteredAt.advanced(by: .seconds(-heldFor))
+            }
             recovering.deliverExit()
             let context = "\(recoveringContext) incident=\(incident)"
             #expect(

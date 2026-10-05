@@ -260,7 +260,10 @@ et_run() {
     # Forcing either onto the other's path broke this harness in both directions today.
     # Unconditional: a tty is guaranteed by the pane re-exec above, so script(1) always works and
     # always relays stdin — which is what lets a human answer a 2FA prompt.
-    /usr/bin/script -q "$T_SCRIPT" \
+    # The deadline is part of the measurement: an over-limit probe never returns, and
+    # delivered() reads exit 124 as "not delivered". --foreground keeps the terminal with
+    # script(1), so a 2FA prompt can still be answered.
+    "$TIMEOUT_BIN" --foreground "$timeout_s" /usr/bin/script -q "$T_SCRIPT" \
       "$TRANSPORT_BROKER" $TRANSPORT_BROKER_ARGS "$TRANSPORT_HOST" -c "$command"
     ET_RUN_LOG="$T_SCRIPT"
   else
@@ -356,7 +359,7 @@ sys.exit(0 if re.search(b"(?:^|[^A-J])" + want + b"(?:[^A-J]|$)", d) else 1)  # 
 # requires a byte count the remote computes, which an echo cannot produce.
 if delivered 200; then gate_ok=1; else gate_ok=0; fi
 if [ "$gate_ok" -ne 1 ]; then
-  gate_out="$(cat "$T" 2>/dev/null || true)"
+  gate_out="$(cat "${ET_RUN_LOG:-/dev/null}" 2>/dev/null || true)"
   echo "  ⛔ PRECONDITION FAILED: a trivial command did not survive the transport." >&2
   echo "     No claim was tested, so no claim is being reported. Fix the transport and re-run." >&2
   printf '     last output: %s\n' "$(printf '%s' "$gate_out" | tail -3 | tr -d '\r' | tr '\n' ' ')" >&2

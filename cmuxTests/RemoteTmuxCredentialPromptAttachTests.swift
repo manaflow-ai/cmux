@@ -105,7 +105,7 @@ struct RemoteTmuxCredentialPromptAttachTests {
         )
         #expect(!view.lastStreamAwaitedCredentials)
 
-        view.adoptConnectionForTesting(brokeredConnection())
+        view.connection = brokeredConnection()
         view.connection?.ingest(Data("Passcode: ".utf8))
         #expect(view.connection?.isAwaitingCredentials == true)
 
@@ -123,7 +123,7 @@ struct RemoteTmuxCredentialPromptAttachTests {
             host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
             ownerId: "test-owner"
         )
-        view.adoptConnectionForTesting(brokeredConnection())
+        view.connection = brokeredConnection()
         view.connection?.ingest(Data("Passcode: ".utf8))
         view.stop()
         view.stop()
@@ -154,7 +154,7 @@ struct RemoteTmuxCredentialPromptAttachTests {
         let view = RemoteTmuxViewConnection(host: host, ownerId: "test-owner")
         var noted = false
         view.onAwaitingCredentials = { noted = true }
-        view.adoptConnectionForTesting(brokeredConnection())
+        view.connection = brokeredConnection()
         view.connection?.ingest(Data("Enter a passcode:\n".utf8))
 
         // The stream ends and everything holding the reason goes away.
