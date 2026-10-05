@@ -26,12 +26,19 @@ struct DiffPageStoresTests {
     }
 
     static func world() throws -> (DiffPageProvider, MemoryPrefs, DiffViewedFiles, DiffPageProviderTests.World) {
+        let (provider, prefs, viewed, _, base) = try worldWithCollapsed()
+        return (provider, prefs, viewed, base)
+    }
+
+    static func worldWithCollapsed() throws -> (DiffPageProvider, MemoryPrefs, DiffViewedFiles, DiffCollapsedFiles, DiffPageProviderTests.World) {
         let base = try DiffPageProviderTests.world()
         let prefs = MemoryPrefs()
-        let viewed = DiffViewedFiles(url: temporaryURL(DiffViewedFiles.fileName))
+        let viewedURL = temporaryURL(DiffViewedFiles.fileName)
+        let viewed = DiffViewedFiles(url: viewedURL)
+        let collapsed = DiffCollapsedFiles(url: DiffCollapsedFiles.standardURL(viewed: viewedURL))
         let provider = DiffPageProvider(ready: base.ready, sidecar: base.sidecar, languages: nil,
-                                        stores: DiffPageStores(prefs: prefs, viewed: viewed))
-        return (provider, prefs, viewed, base)
+                                        stores: DiffPageStores(prefs: prefs, viewed: viewed, collapsed: collapsed))
+        return (provider, prefs, viewed, collapsed, base)
     }
 
     static func call(_ provider: DiffPageProvider, _ op: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
@@ -41,6 +48,10 @@ struct DiffPageStoresTests {
     @Test func prefKeysAcceptOnlyThePagesValues() {
         #expect(DiffPrefKey.all.sorted() == ["collapsedFiles", "diffIndicators", "expandUnchanged", "layout", "lineNumbers",
                                              "showBackgrounds", "wordDiffs", "wordWrap"])
+        // P2-3: every display key is a schema row; collapsedFiles is not a setting (P2-4).
+        #expect(DiffPrefKey.displayKeys.sorted() == ["diffIndicators", "expandUnchanged", "layout", "lineNumbers",
+                                                     "showBackgrounds", "wordDiffs", "wordWrap"])
+        for key in DiffPrefKey.displayKeys { #expect(SettingsSchema.descriptor(for: DiffPrefKey.path(key)) != nil, "\(key)") }
         #expect(DiffPrefKey.accepts("wordWrap", true))
         #expect(!DiffPrefKey.accepts("wordWrap", "yes"))
         #expect(DiffPrefKey.accepts("layout", "unified"))
@@ -97,6 +108,22 @@ struct DiffPageStoresTests {
         await base.provider.close()
     }
 
+    /// P2-4: the collapsed files are not in cmux.json: the page sets them through the same prefs op,
+    /// and the host keeps them in its store next to the viewed marks.
+    @Test func collapsedFilesLiveNextToTheViewedMarks() async throws {
+        let (provider, prefs, viewed, collapsed, _) = try Self.worldWithCollapsed()
+        _ = try await Self.call(provider, "cmux.diff.prefs.set", ["key": "collapsedFiles", "value": ["/r\u{0}a.swift"]])
+        _ = try await Self.call(provider, "cmux.diff.prefs.set", ["key": "wordWrap", "value": true])
+        #expect(prefs.values == ["wordWrap": true], "the settings store never sees collapsedFiles")
+        #expect(try await Self.call(provider, "cmux.diff.prefs.get") == ["prefs": ["wordWrap": true, "collapsedFiles": ["/r\u{0}a.swift"]]])
+        #expect(collapsed.url.deletingLastPathComponent() == viewed.url.deletingLastPathComponent())
+        await collapsed.flush()
+        #expect(await DiffCollapsedFiles(url: collapsed.url).list() == ["/r\u{0}a.swift"])
+        _ = try await Self.call(provider, "cmux.diff.prefs.set", ["key": "collapsedFiles", "value": .null])
+        #expect(try await Self.call(provider, "cmux.diff.prefs.get") == ["prefs": ["wordWrap": true]])
+        await provider.close()
+    }
+
     @Test func viewedScopesAreCapped() async throws {
         let viewed = DiffViewedFiles(url: Self.temporaryURL(DiffViewedFiles.fileName))
         for index in 0..<(DiffViewedFiles.scopeLimit + 3) {
@@ -117,13 +144,14 @@ struct DiffPageStoresTests {
         await settings.reload()
         let prefs = SettingsDiffPrefs { settings }
         try await prefs.setPref("wordWrap", to: true)
-        try await prefs.setPref("collapsedFiles", to: ["/r\u{0}a.swift"])
-        #expect(prefs.prefs() == ["wordWrap": true, "collapsedFiles": ["/r\u{0}a.swift"]])
+        #expect(prefs.prefs() == ["wordWrap": true])
         await settings.reload()
         #expect(settings.fileRoot["diff"]?["wordWrap"] == true)
+        // P2-3: only schema rows go through the settings store; there is no raw file write.
+        await #expect(throws: SettingsDiffPrefs.NotASetting.self) { try await prefs.setPref("collapsedFiles", to: ["/r\u{0}a.swift"]) }
         try await prefs.setPref("wordWrap", to: .null)
         await settings.reload()
-        #expect(prefs.prefs() == ["collapsedFiles": ["/r\u{0}a.swift"]])
+        #expect(prefs.prefs().isEmpty)
     }
 
     @Test func theDiffPageDrawsAtTheFullFrameRate() {
