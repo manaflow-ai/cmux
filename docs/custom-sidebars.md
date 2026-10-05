@@ -330,7 +330,28 @@ with:
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
-  (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
+  (array of Int) + `portCount`, `unread` (Int notifications), `status`, `tabs` +
+  `tabCount`. `status` is the workspace's task-status lane, one of `todo`,
+  `working`, `needs-attention`, `review` or `done`. It is the resolved lane:
+  a manual pin set through `cmux workspace status set` or the sidebar menu
+  while that pin still holds, otherwise the lane cmux infers from live signals
+  (an agent waiting on input, a running agent, an open pull request, a dirty
+  working tree). An external tool that pins the lane through
+  `cmux workspace status set` shows up here too.
+
+  `status` is always reported, independently of whether the built-in status
+  glyph is visible. That glyph needs two further conditions the context does
+  not carry: the workspace-todo feature has to be on, which happens through the
+  beta toggle or through the remote feature flag, and the workspace's own
+  `statusHidden` has to be false. A workspace created in this session starts
+  hidden; one restored from a session snapshot that predates the field starts
+  visible. A custom sidebar therefore has to decide for itself whether to
+  render the lane, and it cannot read `statusHidden` from the context.
+
+  Note the two vocabularies differ: this lane uses `needs-attention`, while
+  `agents[j].status` uses `needs_input`. They are separate values from separate
+  sources and are not interchangeable.
+
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
   (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
