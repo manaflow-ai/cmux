@@ -112,7 +112,7 @@ async function resolveTeamOr403(
 }
 
 const worker = {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/healthz") {
@@ -305,8 +305,9 @@ const worker = {
       if (!parsed.ok) return json({ error: parsed.error }, 400);
       // The verified user id rides along so the DO can pin and enforce device
       // ownership (a co-member must not be able to spoof this device).
-      // Mirror into the user's device room, in parallel. Best-effort: the team
-      // room's answer stays the response, and a mirror failure never fails the beat.
+      // Mirror into the user's device room after the response. Best-effort: the
+      // team room's answer stays the response, and the mirror never delays or
+      // fails the beat.
       const mirror = userDevicesStub(env, team.user.id)
         .heartbeat(team.user.id, team.user.id, parsed.beat)
         .catch((error: unknown) =>
@@ -315,8 +316,9 @@ const worker = {
             operation: "user_devices_heartbeat",
           }),
         );
+      ctx?.waitUntil(mirror);
       const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
-      await mirror;
+      if (!ctx) await mirror;
       if ("error" in result) {
         return result.status === 429
           ? rateLimitedJson({ error: result.error })
@@ -415,7 +417,7 @@ const worker = {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      return await worker.fetch(request, env);
+      return await worker.fetch(request, env, ctx);
     } catch (error) {
       await captureSentryException(env, "cloudflare-worker", error, {
         durable_object: "worker-router",
