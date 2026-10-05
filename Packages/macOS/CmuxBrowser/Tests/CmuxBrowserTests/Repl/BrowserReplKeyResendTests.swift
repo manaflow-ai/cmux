@@ -201,8 +201,8 @@ struct BrowserReplKeyResendTests {
         // WebKit's resend arrives on a later turn, outside any delivery.
         #expect(delivered.isResentBrowserAutomationKeyEvent)
         #expect(delivered.dropResentBrowserAutomationKeyEvent())
-        // The web view's own delivery (arrow keys go through its window) is not a resend.
-        webView.withBrowserWebKitKeyDownDispatch {
+        // The key's own delivery (arrow keys go through its window) is not a resend.
+        webView.withBrowserWebKitKeyDownDispatch(of: delivered) {
             #expect(!delivered.isResentBrowserAutomationKeyEvent)
             #expect(!delivered.dropResentBrowserAutomationKeyEvent())
         }

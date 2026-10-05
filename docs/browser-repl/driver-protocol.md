@@ -156,7 +156,7 @@ stays in the web view and the window's first responder stays the user's.
 A key-down no page handles is not passed on: WebKit resends such a key
 through `NSApp.sendEvent` to the key window (the user's terminal, menus), so
 keys the REPL and `cmux browser press` send carry a mark (`eventSourceUserData`; the mobile browser stream's keys, a person's, do not) and the app
-drops a marked key that arrives outside the web view's own delivery. That
+drops a marked key that arrives outside that same event's own delivery (another web view delivering its own key at that moment does not exempt it). That
 resend is also how a Command shortcut's Edit menu command (select all, copy,
 cut, paste, undo, redo; bold, italic and underline in the REPL) is run: only
 once WebKit has sent the key back (no page handled it; a page that cancels
