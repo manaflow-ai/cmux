@@ -95,10 +95,11 @@ final class CloudSheetWindow {
 
 /// Lays the content out at its ideal height, pinned to the top, and reports
 /// that size. The ideal height does not depend on the window's height, so a
-/// resize never changes what is reported.
-private struct CloudSheetContent<Content: View>: View {
+/// resize never changes what is reported. Internal so tests can reach the
+/// content's actions through the hosting controller.
+struct CloudSheetContent<Content: View>: View {
     let content: Content
-    let report: CloudSheetWindow.SizeReporter
+    fileprivate let report: CloudSheetWindow.SizeReporter
 
     var body: some View {
         content
