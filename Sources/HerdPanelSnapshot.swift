@@ -142,7 +142,7 @@ private extension HerdPanelSnapshot.Lifecycle {
     init(_ lifecycle: AgentHibernationLifecycleState) {
         switch lifecycle {
         case .needsInput: self = .needsInput
-        case .running: self = .working
+        case .running, .backgroundWorkPending: self = .working
         case .idle: self = .idle
         case .unknown: self = .unknown
         }
