@@ -98,7 +98,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/remote_browser_proxy.rs	1008	23
 rust-file	cmux-tui/crates/cmux-tui/src/remote_cli.rs	5324	190
 rust-file	cmux-tui/crates/cmux-tui/src/remote_runtime.rs	6677	238
 rust-file	cmux-tui/crates/cmux-tui/src/session/mod.rs	3331	188
-rust-file	cmux-tui/crates/cmux-tui/src/session/remote.rs	4559	228
+rust-file	cmux-tui/crates/cmux-tui/src/session/remote.rs	2897	170
 rust-file	cmux-tui/crates/cmux-tui/src/session/tree.rs	1628	69
 rust-file	cmux-tui/crates/cmux-tui/src/ui/graphics_writer.rs	2870	124
 rust-file	cmux-tui/crates/cmux-tui/src/ui/graphics.rs	2302	107
