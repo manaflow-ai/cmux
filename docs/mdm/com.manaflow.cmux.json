@@ -133,6 +133,27 @@
       "title" : "Interface Size",
       "type" : "number"
     },
+    "appearance.metrics.columnGap" : {
+      "description" : "appearance.metrics.columnGap",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Column Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarWidth" : {
+      "description" : "appearance.metrics.sidebarWidth",
+      "maximum" : 420,
+      "minimum" : 160,
+      "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.titlebarHeight" : {
+      "description" : "appearance.metrics.titlebarHeight",
+      "maximum" : 56,
+      "minimum" : 24,
+      "title" : "Titlebar Height",
+      "type" : "number"
+    },
     "appearance.saturation" : {
       "default" : 1,
       "description" : "Increase or reduce the tint color intensity.",

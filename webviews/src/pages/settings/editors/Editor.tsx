@@ -44,5 +44,9 @@ export function Editor(props: EditorProps): ReactNode {
       return <FolderListEditor {...props} />;
     case "time_range":
       return <TimeRangeEditor {...props} />;
+    case "number_list":
+    case "string_map":
+      // Only cmux-browser keys have these kinds, and the page never lists them (schema.ts).
+      return null;
   }
 }

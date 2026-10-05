@@ -78,6 +78,7 @@ extension TerminalSession {
             noteLocalHistoryMismatch()
             return result == Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue)
         }
+        noteLocalSnapshot()
         return true
     }
 }

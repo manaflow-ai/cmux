@@ -36,7 +36,7 @@ public nonisolated enum MetricTunables {
     public static let sidebarWidth = MetricTunable.make("sidebarWidth", .sidebar, "Sidebar width", help: "Default sidebar width when visible.",
                                                         compact: 208, comfortable: 240, key: .sidebarWidth, range: 120...480)
     public static let titlebarHeight = MetricTunable.make("titlebarHeight", .sidebar, "Titlebar height", help: "Height of the unified titlebar area.",
-                                                          compact: 32, comfortable: 40)
+                                                          compact: 32, comfortable: 40, key: .titlebarHeight)
     public static let sidebarRowHeight = MetricTunable.make("sidebarRowHeight", .sidebar, "Sidebar row height", help: "A workspace row with one line.",
                                                             compact: 24, comfortable: 32, key: .sidebarRowHeight)
     public static let sidebarRowHeightWithSubtitle = MetricTunable.make(

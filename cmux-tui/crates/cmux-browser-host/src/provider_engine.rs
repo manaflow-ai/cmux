@@ -91,6 +91,9 @@ pub struct ProviderEngine {
     engine: String,
     agent_source: Arc<str>,
     subscription: u64,
+    /// The session's own event sink (the one the provider subscription
+    /// holds, tee'd to the app for automation.input).
+    events: EventSink,
     /// The session's lease identity (stamped from its connection).
     lease: LeaseCaller,
     /// Set once the session's end released its leases (close, or the
@@ -139,12 +142,13 @@ impl ProviderEngine {
         if let Some(reason) = provider.closed_reason() {
             return Err(DriverError::closed(reason));
         }
-        let subscription = provider.subscribe(events);
+        let subscription = provider.subscribe(events.clone());
         Ok(ProviderEngine {
             provider,
             engine: engine.to_owned(),
             agent_source,
             subscription,
+            events,
             lease,
             ended: std::sync::atomic::AtomicBool::new(false),
         })
@@ -369,6 +373,13 @@ impl Driver for ProviderEngine {
 
     fn end_session(&self) {
         self.release_session();
+    }
+
+    /// The gate's events for this session go through the session's sink
+    /// only (never `publish`, which reaches every subscribed session).
+    fn send_session_event(&self, event: DriverEvent) -> bool {
+        (self.events)(event);
+        true
     }
 
     /// CEF tabs take the session's filter on their relays (for the tabs the
