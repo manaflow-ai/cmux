@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createBody } from "../src/cloud-driver.ts"
-import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, DAEMON, installOf, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * Coordinator decision (2026-10-05): Freestyle never changes a machine's state by itself (every
@@ -52,5 +53,39 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     const after = (await s.stub.fakeControl({})) as unknown as { creates: number; pauses: number; vms: Array<{ name: string; idle: number | null }> }
     expect([after.creates, after.pauses]).toEqual([before.creates, before.pauses])
     expect(after.vms.find((v) => v.name.endsWith(s.machine.replace(/_/g, "-")))?.idle).toBe(-1)
+  })
+
+  it("cost backstop: a running machine with no applied report for 24 h after its bind is paused with pause_reason no_report", async () => {
+    const s = await vmSetup("cloud-bind-1")
+    await s.stub.fakeControl({ advance_ms: 23 * H } as never)
+    await fireAlarm(s.stub)
+    expect(await s.status()).toBe("running")
+    await s.stub.fakeControl({ advance_ms: 2 * H } as never)
+    await fireAlarm(s.stub)
+    const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
+  })
+
+  it("a report keeps the cost backstop away; a start clears the pause reason", async () => {
+    const s = await vmSetup("cloud-bind-2")
+    await s.stub.fakeControl({ advance_ms: 23 * H } as never)
+    await s.report({ active_sessions: 1, last_user_input_at: Date.now() + 23 * H })
+    await s.stub.fakeControl({ advance_ms: 2 * H } as never)
+    await fireAlarm(s.stub)
+    expect(await s.status()).toBe("running")
+  })
+
+  it("connect_info and link_token check the VM's real state: a VM powered off inside is recorded paused and link_token refuses", async () => {
+    const s = await vmSetup("cloud-bind-3")
+    const vm = ((await s.stub.fakeControl({})) as unknown as { vms: Array<{ name: string }> }).vms.find((v) => v.name.endsWith(s.machine.replace(/_/g, "-")))!
+    await s.stub.fakeControl({ vm_state: { name: vm.name, state: "stopped" } } as never)
+    const ci = await post("/v1/read", s.a.installToken, { op: "cloud.machine.connect_info", params: { machine: s.machine } })
+    expect(ci.body.value.state, JSON.stringify(ci.body)).toBe("paused")
+    const host = ci.body.value.host as string
+    const lt = await post("/v1/ops", s.a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["ssh"] }, origin: "cli" })
+    expect(lt.body.error?.code).toBe("cloud.machine.paused")
+    const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(got).toMatchObject({ status: "paused", pause_reason: "provider_stopped" })
+    void installOf
   })
 })
