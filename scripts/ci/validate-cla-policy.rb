@@ -33,7 +33,9 @@ CLA_ACTION_LEGACY_REFS = %w[
 # as [action reference, cla.yml SHA-256] pairs with no helper. A pull request
 # records the main revision it was last synchronized against as its base, so
 # a cla.yml bump on main appends a pin here and keeps the earlier ones: a
-# branch behind main still names a reviewed base. The last pin is main now.
+# branch behind main still names a reviewed base. Main carries the last
+# pin, or the runner successor of it in CLA_ACTION_RUNNER_SUCCESSOR_PINS once
+# that lands; both stay reviewed bases.
 CLA_ACTION_REVIEWED_MAIN_PINS = [
   # #14668: f567 action on the GitHub-hosted runner.
   %w[
@@ -153,7 +155,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9ffdce443e15c05f7771cd548686f913e2f3b78a59491d
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "1f9a618037d31658843a1b934aa01da3eca55e303c5d527dc4675471fa812106"
+EXPECTED_GUARD_SCRIPT_DIGEST = "c2eb2196538a60f320c26e604a3fd199fd54246210dc9e2320ec5eee00f27c37"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -170,8 +172,10 @@ LEGACY_CLA_HELPER_PATH = ".github/scripts/rerun-failed-cla.sh".freeze
 LEGACY_B4D3_CLA_WORKFLOW_DIGEST = "e03fa7a1d41eb5d59843807bf3a3bd153f5f7ab343f78e521d1d43cbecc43891"
 LEGACY_B4D3_CLA_REFRESH_DIGEST = "580ea1130f9745be686e428e45aa39c93ad290ca48736330c429e3206d9211ec"
 LEGACY_B4D3_CLA_HELPER_PATH = ".github/scripts/refresh-cla-check.sh".freeze
-# origin/main currently carries the single-job workflow and intentionally has
-# no rerun helper. It is the newest reviewed main pin above.
+# The newest reviewed main pin above: the single-job workflow, which
+# intentionally has no rerun helper. After the runner successor lands, main
+# carries that successor's bytes instead; reviewed_cla_base? accepts both, and
+# this digest stays the pin the successor is reviewed from.
 CURRENT_MAIN_CLA_WORKFLOW_DIGEST = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(1)
 REVIEWED_CLA_BASES = {
   CLA_ACTION_LEGACY_REFS.fetch(0) => {
@@ -1322,11 +1326,14 @@ def assert_hosted_runner_guard_step(step, name)
     normalize_run_text(step["run"]) == normalize_run_text(guard[2])
 end
 
-# Splits an expression on the && operators outside parentheses and string
-# literals. Returns nil when the text is unbalanced, so a caller fails closed.
+# Splits an expression on the && operators outside parentheses, index
+# brackets, and string literals. Brackets nest like parentheses: in
+# `fromJSON('[true]')[false && runner.environment == 'github-hosted']` the
+# runner term only builds an index and never gates the step. Returns nil when
+# the text is unbalanced or mismatched, so a caller fails closed.
 def top_level_and_terms(condition)
   terms = []
-  depth = 0
+  open_groups = []
   quoted = false
   start = 0
   index = 0
@@ -1342,12 +1349,11 @@ def top_level_and_terms(condition)
       end
     elsif char == "'"
       quoted = true
-    elsif char == "("
-      depth += 1
-    elsif char == ")"
-      depth -= 1
-      return nil if depth.negative?
-    elsif depth.zero? && condition[index, 2] == "&&"
+    elsif char == "(" || char == "["
+      open_groups << char
+    elsif char == ")" || char == "]"
+      return nil unless open_groups.pop == (char == ")" ? "(" : "[")
+    elsif open_groups.empty? && condition[index, 2] == "&&"
       terms << condition[start...index].strip
       index += 2
       start = index
@@ -1355,23 +1361,27 @@ def top_level_and_terms(condition)
     end
     index += 1
   end
-  return nil if quoted || !depth.zero?
+  return nil if quoted || !open_groups.empty?
 
   terms << condition[start..].strip
   terms
 end
 
-def assert_hosted_runner_step(step, name)
+def assert_hosted_runner_step(step, name, runs_on: CLA_RUNNER)
   condition = step.is_a?(Hash) ? step["if"].to_s.gsub(/\s+/, " ").strip : ""
   # The runner identity must be a top-level AND term. A substring check would
   # accept `runner.environment == 'github-hosted' || true`, and a naive split
   # would accept `!(x && runner.environment == 'github-hosted')`; either would
   # execute a privileged action on a self-hosted runner. The ephemeral term
   # carries its own || inside one parenthesized group; no other term may.
+  # A job that can land on Blacksmith must gate its steps on the ephemeral
+  # term: the hosted-only term would silently skip them there and let the
+  # check go green without doing its work.
+  accepted = runs_on == CLA_RUNNER ? CLA_RUNNER_STEP_IFS : [CLA_EPHEMERAL_RUNNER_STEP_IF]
   terms = top_level_and_terms(condition)
   fail!("#{name} is not restricted to a GitHub-hosted or Blacksmith runner") unless
     terms &&
-    terms.any? { |term| CLA_RUNNER_STEP_IFS.include?(term) } &&
+    terms.any? { |term| accepted.include?(term) } &&
     terms.none? { |term| term != CLA_EPHEMERAL_RUNNER_STEP_IF && term.include?("||") }
 end
 
@@ -1380,7 +1390,7 @@ def assert_hosted_runner_job_steps(job_value, name)
   fail!("#{name} must have a runner identity guard") if job_steps.empty?
   assert_hosted_runner_guard_step(job_steps.first, name)
   job_steps.drop(1).each_with_index do |step, index|
-    assert_hosted_runner_step(step, "#{name} step #{index + 2}")
+    assert_hosted_runner_step(step, "#{name} step #{index + 2}", runs_on: job_value["runs-on"])
   end
 end
 
@@ -2150,7 +2160,42 @@ def run_runner_regression_matrix!
     assert_hosted_runner_step({ "if" => condition }, "regression CLA action")
     checks += 1
   end
+  # Off ubuntu-24.04 only the ephemeral term counts, so a Blacksmith job
+  # cannot skip its privileged steps and still report success.
+  (CLA_RUNNERS - [CLA_RUNNER]).each do |runner|
+    assert_hosted_runner_step(
+      { "if" => "github.event_name == 'issue_comment' && #{ephemeral_term}" }, "regression CLA action", runs_on: runner
+    )
+    checks += 1
+    [CLA_HOSTED_RUNNER_STEP_IF, "github.event_name == 'issue_comment' && #{CLA_HOSTED_RUNNER_STEP_IF}"].each do |condition|
+      expect_policy_error("hosted-only step on #{runner}") do
+        assert_hosted_runner_step({ "if" => condition }, "regression CLA action", runs_on: runner)
+      end
+      checks += 1
+    end
+  end
+  silent_skip_job = {
+    "runs-on" => CLA_TRUSTED_RUNNER_EXPRESSION,
+    "steps" => [
+      { "name" => CLA_EPHEMERAL_RUNNER_GUARD_NAME, "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF, "run" => CLA_EPHEMERAL_RUNNER_GUARD_RUN },
+      { "if" => CLA_HOSTED_RUNNER_STEP_IF, "run" => "echo privileged" }
+    ]
+  }
+  expect_policy_error("selector job with a hosted-only step") do
+    assert_hosted_runner_job_steps(silent_skip_job, "regression CLA job")
+  end
+  ephemeral_job = Marshal.load(Marshal.dump(silent_skip_job))
+  ephemeral_job["steps"][1]["if"] = ephemeral_term
+  assert_hosted_runner_job_steps(ephemeral_job, "regression CLA job")
+  hosted_job = Marshal.load(Marshal.dump(silent_skip_job))
+  hosted_job["runs-on"] = CLA_RUNNER
+  assert_hosted_runner_job_steps(hosted_job, "regression CLA job")
+  checks += 3
   rejected_conditions = {
+    "hosted term inside an index" => "always() && fromJSON('[true]')[false && runner.environment == 'github-hosted' && true]",
+    "ephemeral term inside an index" => "always() && fromJSON('[true]')[false && #{ephemeral_term} && true]",
+    "mismatched index bracket" => "fromJSON('[1]')[0) && #{ephemeral_term} && (true]",
+    "unclosed index bracket" => "x[0 && #{ephemeral_term}",
     "missing hosted action condition" => nil,
     "runner condition bypass" => "runner.environment == 'github-hosted' || always()",
     "ephemeral condition bypass" => "#{ephemeral_term} || always()",
