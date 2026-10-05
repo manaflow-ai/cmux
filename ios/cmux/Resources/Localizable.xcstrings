@@ -106441,6 +106441,48 @@
             "state": "translated",
             "value": "方向にドラッグして矢印キーを送信します。"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسحب في اتجاه لإرسال مفاتيح الأسهم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In eine Richtung ziehen, um Pfeiltasten zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra en una dirección para enviar teclas de flecha."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser dans une direction pour envoyer les touches fléchées."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방향으로 드래그하여 화살표 키를 보냅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向某个方向拖动以发送方向键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "朝某個方向拖移以傳送方向鍵。"
+          }
         }
       }
     },
@@ -106702,19 +106744,19 @@
               "zero": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "لا أجهزة أخرى"
+                  "value": "%lld جهاز آخر"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "جهاز آخر"
+                  "value": "%lld جهاز آخر"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "جهازان آخران"
+                  "value": "%lld جهازان آخران"
                 }
               },
               "few": {
