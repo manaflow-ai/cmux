@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { localizedShortcutText, shortcutCategories } from "../data/cmux-shortcuts";
 import generated from "../data/cmux-shortcuts.generated.json";
 import { buildDocsShortcuts } from "../scripts/export-docs-shortcuts";
@@ -10,7 +11,7 @@ import { buildDocsShortcuts } from "../scripts/export-docs-shortcuts";
 // at build time); these tests read the catalog export and the string
 // catalogs at test time and require the copy and the page to match them.
 
-const repo = join(import.meta.dir, "..", "..");
+const repo = fileURLToPath(new URL("../..", import.meta.url));
 const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
 const catalogDir = join(repo, "Packages/macOS/CmuxNext/Sources/CmuxNextActions");
 const catalogs: Record<string, unknown> = Object.fromEntries(

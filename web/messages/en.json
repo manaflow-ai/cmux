@@ -3555,7 +3555,7 @@
         "wn-reload": "Reload configuration",
         "wn-quit": "Quit"
       },
-      "paneResizeDescription": "Resize the focused pane with Ctrl+Shift+H/J/K/L (left/down/up/right). Hold a key to keep resizing. Change the bindings and Pane Resize Step in Settings → Keyboard Shortcuts. The step is also configurable with app.paneResizeStepPixels in cmux.json (1–200, default 20).",
+      "paneResizeDescription": "Resize the focused pane with Ctrl+Cmd+H/J/K/L (left/down/up/right). Hold a key to keep resizing. Change the bindings and Pane Resize Step in Settings → Keyboard Shortcuts. The step is also configurable with app.paneResizeStepPixels in cmux.json (1–200, default 20).",
       "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z)."
     },
     "api": {
