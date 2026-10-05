@@ -122,4 +122,22 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     expect((await ci()).body.value.state).toBe("running")
     expect(await s.status()).toBe("running")
   })
+
+  it("a cost-backstop pause the provider keeps refusing backs off exponentially (60 s, 2 min, 4 min ... capped at 1 h)", async () => {
+    const s = await vmSetup("cloud-bind-6")
+    await s.stub.fakeControl({ power_refuse: 100 } as never)
+    const calls = async () => ((await s.stub.fakeControl({})) as unknown as { power_calls: number }).power_calls
+    await s.stub.fakeControl({ advance_ms: 25 * H } as never)
+    await fireAlarm(s.stub)
+    const first = await calls()
+    expect(first).toBeGreaterThan(0)
+    expect(await s.status()).toBe("running")
+    // 61 s later: still inside the 2 min backoff, no new attempt.
+    await s.stub.fakeControl({ advance_ms: 61_000 } as never)
+    await fireAlarm(s.stub)
+    expect(await calls()).toBe(first)
+    await s.stub.fakeControl({ advance_ms: 70_000 } as never)
+    await fireAlarm(s.stub)
+    expect(await calls()).toBeGreaterThan(first)
+  })
 })
