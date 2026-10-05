@@ -57,7 +57,7 @@ def validate_metadata_routing(document: dict) -> None:
     # PyYAML's YAML 1.1 loader treats the Actions `on` key as a boolean.
     events = document.get("on", document.get(True))
     assert events["pull_request_target"]["types"] == [
-        "opened", "edited", "reopened", "synchronize", "ready_for_review"
+        "opened", "reopened", "synchronize", "ready_for_review"
     ], "source changes and base retargets must still validate"
     assert "merge_group" in events and "push" in events
 

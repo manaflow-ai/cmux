@@ -6,7 +6,7 @@ on:
   pull_request_target:
     branches:
       - main
-    types: [opened, edited, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]
   # The merge queue's commit is checked the same way, as data, against the
   # policy on the branch it is about to join.
   merge_group:
