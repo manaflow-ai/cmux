@@ -90,6 +90,93 @@ impl VerifierConfig {
     }
 }
 
+/// Why the daemon has its [`VerifierConfig`]: the reason in the start log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifierReason {
+    /// [`VERIFIER_ENV`] was not set.
+    Absent,
+    /// [`VERIFIER_ENV`] named a known mode.
+    Named,
+    /// [`VERIFIER_ENV`] held a value that is not UTF-8 or not a known mode.
+    Unrecognized,
+}
+
+/// The daemon's verifier config and why it has it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifierChoice {
+    pub config: VerifierConfig,
+    pub reason: VerifierReason,
+}
+
+impl VerifierChoice {
+    /// The choice for the raw value of [`VERIFIER_ENV`].
+    pub fn from_daemon_config(value: Option<&std::ffi::OsStr>) -> Self {
+        let reason = match value.map(|value| value.to_str()) {
+            None => VerifierReason::Absent,
+            Some(Some("control_plane" | "deny_all")) => VerifierReason::Named,
+            Some(_) => VerifierReason::Unrecognized,
+        };
+        Self { config: VerifierConfig::from_daemon_config(value), reason }
+    }
+}
+
+static DAEMON_CHOICE: std::sync::OnceLock<VerifierChoice> = std::sync::OnceLock::new();
+
+/// Read [`VERIFIER_ENV`] once and remove it from this process's environment
+/// (G4), so no terminal or other child inherits it. Later calls keep the
+/// first choice. [`daemon_verifier_choice`] returns it.
+///
+/// # Safety
+///
+/// No other thread may run: removing an environment variable is unsound
+/// while another thread can read the environment. `main` calls this as its
+/// first statement.
+pub unsafe fn take_from_process_env() {
+    let choice = VerifierChoice::from_daemon_config(std::env::var_os(VERIFIER_ENV).as_deref());
+    // RED: the variable stays in the environment.
+    let _ = DAEMON_CHOICE.set(choice);
+}
+
+/// The choice [`take_from_process_env`] read at start; without that call
+/// (tests, other entry points), no real verifier.
+pub fn daemon_verifier_choice() -> VerifierChoice {
+    DAEMON_CHOICE.get().copied().unwrap_or(VerifierChoice {
+        config: VerifierConfig::DenyAll,
+        reason: VerifierReason::Absent,
+    })
+}
+
+/// The one start log line (G3): the mode and why, never a token, a secret
+/// or the raw config value.
+pub fn mode_log_line(
+    choice: VerifierChoice,
+    checks: &Result<StampChecks, VerifierRefused>,
+) -> String {
+    // RED: no log line yet.
+    let _ = (choice, checks);
+    String::new()
+}
+
+#[allow(dead_code)]
+fn mode_log_line_final(
+    choice: VerifierChoice,
+    checks: &Result<StampChecks, VerifierRefused>,
+) -> String {
+    let mode = match choice.config {
+        VerifierConfig::DenyAll => "deny_all",
+        VerifierConfig::ControlPlane => "control_plane",
+    };
+    let reason = match (choice.reason, checks) {
+        (_, Err(refused)) => format!("refused at start: {refused}"),
+        (VerifierReason::Absent, Ok(_)) => format!("{VERIFIER_ENV} is not set"),
+        (VerifierReason::Named, Ok(_)) => format!("named by {VERIFIER_ENV}"),
+        (VerifierReason::Unrecognized, Ok(_)) => {
+            format!("{VERIFIER_ENV} holds an unrecognized value (not shown)")
+        }
+    };
+    format!("cmux link: token verifier mode {mode}: {reason}")
+}
+
 /// How this build binds a recorded check to its source and time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CheckBinding {
@@ -257,5 +344,36 @@ mod tests {
             Err(VerifierRefused::CheckTimeNotTokenIat)
         );
         assert!(StampChecks::at_daemon_start(VerifierConfig::ControlPlane).is_err());
+    }
+
+    /// RED (G3): the start log line names the mode and the reason, and
+    /// never the raw value.
+    #[test]
+    fn g3_the_start_log_line_names_the_mode_and_reason_but_never_the_value() {
+        use std::ffi::OsStr;
+        let line = |value: Option<&str>| {
+            let choice = VerifierChoice::from_daemon_config(value.map(OsStr::new));
+            mode_log_line(choice, &StampChecks::at_daemon_start(choice.config))
+        };
+        assert_eq!(
+            line(None),
+            "cmux link: token verifier mode deny_all: CMUX_LINK_TOKEN_VERIFIER is not set"
+        );
+        assert_eq!(
+            line(Some("deny_all")),
+            "cmux link: token verifier mode deny_all: named by CMUX_LINK_TOKEN_VERIFIER"
+        );
+        let unknown = line(Some("hunter2-secret"));
+        assert_eq!(
+            unknown,
+            "cmux link: token verifier mode deny_all: CMUX_LINK_TOKEN_VERIFIER holds an \
+             unrecognized value (not shown)"
+        );
+        assert!(!unknown.contains("hunter2"));
+        let control = line(Some("control_plane"));
+        let refused = "cmux link: token verifier mode control_plane: refused at start: ";
+        assert!(control.starts_with(refused), "{control}");
+        assert!(control.contains("(G1)") || control.contains("(G2)"), "{control}");
+        assert!(!line(None).contains('\n'));
     }
 }
