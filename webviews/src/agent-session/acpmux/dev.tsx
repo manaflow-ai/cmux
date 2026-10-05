@@ -26,4 +26,6 @@ if (devHost) installDevHost(devHost);
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
 if (params.get("recents") === "demo") seedDevRecents();
+// The dev server has no locales/<code>.js: install the whole string table before the pane loads.
+globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
 await import("./main");

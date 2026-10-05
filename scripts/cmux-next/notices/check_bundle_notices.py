@@ -17,6 +17,11 @@ an entry of the map, and every requirement of each matching entry must hold:
                    revision --ghostty-revision (Contents/Resources/ghostty-licenses)
                    or --tree-revision PATH=SHA names (or, without one, the
                    revision in the tree's own SOURCE-MANIFEST.json)
+  rust-std         every `/rustc/<commit>/` path inside the Mach-O names a
+                   rustc that toolchains.json reviews, and that rustc's
+                   COPYRIGHT-library.html is bundled unchanged under
+                   Contents/Resources/toolchain-licenses (toolchain_notices.py)
+  zig-std          every reviewed Zig LICENSE is bundled unchanged there
 `resources` entries name non-Mach-O third-party data (a path relative to the
 .app); when the bundle has that path, its notices must hold too. A bundle that
 has a path in REQUIRED_RESOURCES needs a `resources` entry for it.
@@ -40,6 +45,7 @@ THIN_MAGICS = {0xFEEDFACE, 0xFEEDFACF, 0xCEFAEDFE, 0xCFFAEDFE}
 FAT_MAGICS = {0xCAFEBABE, 0xCAFEBABF}
 MARKER = re.compile(r"<!-- notices-section: ([A-Za-z0-9._-]+) -->")
 GHOSTTY_VERIFIER = HERE.parents[2] / "cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py"
+TOOLCHAIN_NOTICES = HERE.parents[2] / "cmux-tui/build-support/notices/toolchains/toolchain_notices.py"
 # Third-party data that a bundle may carry only with a bundle-map `resources`
 # entry: the nightly-next Ghostty dependency license trees (nightly.yml,
 # "Inject the Ghostty dependency licenses"): Ghostty's, and ghostty-next's for
@@ -49,6 +55,14 @@ REQUIRED_RESOURCES = ("Contents/Resources/ghostty-licenses", "Contents/Resources
 
 def _ghostty_verifier():
     spec = importlib.util.spec_from_file_location("verify_ghostty_license_bundle", GHOSTTY_VERIFIER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _toolchain_notices():
+    spec = importlib.util.spec_from_file_location("toolchain_notices", TOOLCHAIN_NOTICES)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -103,10 +117,29 @@ def check(
     notices = notices or app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
     sections = set(MARKER.findall(notices.read_text(encoding="utf-8"))) if notices.is_file() else set()
     errors = []
-    reasons: dict[str, str] = {}
+    reasons: dict[object, str] = {}
+    toolchains = None
 
-    def requirement_holds(need: str, owner: str) -> bool:
+    def toolchain_manifest():
+        nonlocal toolchains
+        if toolchains is None:
+            module = _toolchain_notices()
+            toolchains = (module, module.load())
+        return toolchains
+
+    def requirement_holds(need: str, owner: str, binary: str | None = None) -> bool:
         kind, _, value = need.partition(":")
+        if kind in ("rust-std", "zig-std"):
+            module, manifest = toolchain_manifest()
+            if kind == "rust-std":
+                if binary is None:
+                    raise SystemExit(f"check_bundle_notices: rust-std applies to a Mach-O entry, not {owner!r}")
+                problems = module.rust_std_problems(manifest, app, binary)
+            else:
+                problems = module.zig_std_problems(manifest, app)
+            if problems:
+                reasons[(need, binary)] = "; ".join(problems)
+            return not problems
         if kind == "first-party":
             return _non_empty(app / "Contents/Resources/LICENSE")
         if kind == "section":
@@ -123,7 +156,7 @@ def check(
         raise SystemExit(f"check_bundle_notices: unknown requirement {need!r} in entry {owner!r}")
 
     def missing(owner: str, need: str) -> str:
-        reason = reasons.get(need)
+        reason = reasons.get(need) or reasons.get((need, owner))
         return f"{owner}: missing notice {need}" + (f" ({reason})" if reason else "")
 
     mapped = {entry["path"] for entry in bundle_map.get("resources", [])}
@@ -144,8 +177,16 @@ def check(
             continue
         for entry in entries:
             for need in entry["notices"]:
-                if not requirement_holds(need, entry["path"]):
+                if not requirement_holds(need, entry["path"], rel):
                     errors.append(missing(rel, need))
+        # Rust code can land in a binary that the map does not expect (Xcode
+        # merges Iroh.framework's static code into Contents/MacOS/cmux in
+        # Release), so every Mach-O is scanned for rustc's std paths.
+        if not any("rust-std" in entry["notices"] for entry in entries):
+            module, _ = toolchain_manifest()
+            commits = module.rustc_commits(app / rel)
+            if commits:
+                errors.append(f"{rel}: links the Rust standard library of rustc {', '.join(commits)}, but no bundle-map entry for it requires rust-std")
     return errors
 
 

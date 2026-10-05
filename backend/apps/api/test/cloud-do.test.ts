@@ -317,7 +317,10 @@ describe("cloud driver prefix guard", () => {
       start: async (id) => void calls.push(`start:${id}`),
       state: async () => null,
       resize: async (id) => void calls.push(`resize:${id}`),
-      resources: async () => null
+      resources: async () => null,
+      findSnapshot: async (slug) => (calls.push(`findSnapshot:${slug}`), null),
+      createSnapshot: async (id) => (calls.push(`createSnapshot:${id}`), { id: "sh-1" }),
+      deleteSnapshot: async (id) => void calls.push(`deleteSnapshot:${id}`)
     }
     return { calls, raw }
   }
@@ -344,6 +347,12 @@ describe("cloud driver prefix guard", () => {
       await expect(driver.power(name, tag, "pause")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
       await expect(driver.power(name, tag, "start")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
       await expect(driver.resize(name, tag, { cpu: 4, memory: 8192, storage: 16384 })).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+      await expect(driver.snapshot(name, tag, "cmuxnp-test-cld-snap-00000000000000000001")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+    }
+    // Snapshot slugs carry the prefix and the snap- tail, also for a restore's boot snapshot.
+    for (const slug of ["cmuxnp-test-cld-vm-00000000000000000001", "cmuxnp-dev-cld-snap-00000000000000000001", "freestyle/ubuntu", "cmuxnp-test-cld-snap-x"]) {
+      await expect(driver.removeSnapshot(slug)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+      await expect(driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0, snapshot: slug })).rejects.toMatchObject({ code: "cloud.provider.refused" })
     }
     expect(calls).toEqual([])
     await driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })
@@ -384,7 +393,14 @@ describe("cloud driver prefix guard", () => {
       resize: async () => {
         throw new Error("must not resize")
       },
-      resources: async () => null
+      resources: async () => null,
+      findSnapshot: async () => null,
+      createSnapshot: async () => {
+        throw new Error("must not snapshot")
+      },
+      deleteSnapshot: async () => {
+        throw new Error("must not delete a snapshot")
+      }
     }
     const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }

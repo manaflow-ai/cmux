@@ -42,10 +42,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public internal(set) var devTools: BrowserDevToolsState
     /// DevTools placement (layout, docked views, window); writes `devTools`.
     @ObservationIgnored let devToolsController: CEFDevToolsController
-    /// cmux's header over Chromium's side panel, while it is open.
-    @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
-    @ObservationIgnored var sidePanelState: CEFSidePanelState?
-    @ObservationIgnored var sidePanelRefreshPending = false
+    /// cmux's header over Chromium's side panel (`CEFSidePanelController`).
+    @ObservationIgnored private(set) lazy var sidePanel = CEFSidePanelController(tab: self)
     /// A toolbar click that came before the browser existed.
     @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
@@ -82,8 +80,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// and every navigation that ends without committing clears it.
     @ObservationIgnored var titleBeforeCommit: String?
     @ObservationIgnored var capturesTitleBeforeCommit = false
-    @ObservationIgnored var findContinuation: CheckedContinuation<BrowserFindResult, Never>?
-    @ObservationIgnored var nextFindID: Int32 = 1
+    /// The pending find-in-page request (`CEFFindRequests`).
+    @ObservationIgnored var findRequests = CEFFindRequests()
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false
@@ -199,8 +197,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
         agentRelay.browserEnded()
-        findContinuation?.resume(returning: .none)
-        findContinuation = nil
+        findRequests.cancel()
         host.removed(self)
         if !isClosed {
             isClosed = true
@@ -224,8 +221,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         machine.apply(.processExited(exit))
         reloadWhenShown = host.visibleTab !== self
-        findContinuation?.resume(returning: .none)
-        findContinuation = nil
+        findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)
     }
 

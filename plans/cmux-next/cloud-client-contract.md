@@ -491,7 +491,28 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
 - A paused, pausing or starting machine: `connect_info` answers `state`; `link_token` refuses with
   `cloud.machine.paused {machine, state}`. Nothing starts a machine on connect: the client asks the
   person ("Start machine?") and calls `cloud.machine.start`.
+- Freestyle never pauses, stops or deletes a machine by itself (every Freestyle timer -1 at create), so the
+  machine record stays true. Our 24 h backstop pauses a machine whose own reports show no sessions and no
+  input or agent action for 24 h, for every team (bounds the cost of a forgotten machine).
+  A running machine whose VM sent no report for 24 h after its last start or bind is also paused (the cost
+  backstop for a silent VM; a machine that never binds counts from its create). Until the VM daemon sends
+  `cloud.vm.status.report`, every machine is therefore paused 24 h after its bind or start: the app shows
+  `pause_reason: no_report`. `pause_reason` on the machine says why cmux paused it: idle, no_report,
+  provider_stopped or provider_paused (connect_info and link_token read the VM's real state and correct
+  the record, e.g. after a poweroff inside); a person's pause or a start clears it.
 - Idle pause: team policy `cloud.idlePause`, default OFF until auto-start is decided. When on, a machine
   pauses only when its own `cloud.vm.status.report` shows no sessions and no input or agent action past
-  its idle policy; a VM that stops reporting is unknown and never paused.
+  its idle policy (`cloud.machine.idle_policy.set` changes only this policy); a VM that stops reporting is
+  unknown and never paused.
+
+### Snapshots (2026-10-05)
+
+`cloud.snapshot.create {machine, name?}` (a running or paused, bound machine; answers `creating`,
+`cloud.snapshot.upsert` brings `ready` or `failed`; counts against `max_saved`), `cloud.snapshot.list
+{machine?}`, `cloud.snapshot.delete {snapshot}` (the provider snapshot under its recorded name only;
+`cloud.snapshot.removed {snapshot, revision}`), `cloud.snapshot.restore {snapshot, name?}` (a new machine
+booted from the snapshot, every create check, a fresh bind). Create, delete and restore are money ops (a
+signed-in person, per-team limit). Snapshots stay after their machine is deleted; a snapshot still being
+taken when its machine is deleted finishes first (intent order), so "snapshot, then delete" keeps the state. `size_mb` is the
+machine's disk size when it was taken (Freestyle reports no snapshot size).
 

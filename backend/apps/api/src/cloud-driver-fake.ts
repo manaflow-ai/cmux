@@ -8,8 +8,9 @@ import { createBody, LIST_PAGE, type CreateOptions, type ListedVm, type RawCloud
  */
 export class FakeCloudDriver implements RawCloudDriver {
   constructor(private readonly sql: SqlStore) {
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0, resizes INTEGER NOT NULL DEFAULT 0, resize_refuse INTEGER NOT NULL DEFAULT 0, resize_partial INTEGER NOT NULL DEFAULT 0, image_cpu INTEGER NOT NULL DEFAULT 2, image_memory INTEGER NOT NULL DEFAULT 4096, image_storage INTEGER NOT NULL DEFAULT 16384)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_snapshot (slug TEXT PRIMARY KEY, id TEXT NOT NULL, source TEXT NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384, snapshot TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0, resizes INTEGER NOT NULL DEFAULT 0, resize_refuse INTEGER NOT NULL DEFAULT 0, resize_partial INTEGER NOT NULL DEFAULT 0, image_cpu INTEGER NOT NULL DEFAULT 2, image_memory INTEGER NOT NULL DEFAULT 4096, image_storage INTEGER NOT NULL DEFAULT 16384, state_reads INTEGER NOT NULL DEFAULT 0, power_refuse INTEGER NOT NULL DEFAULT 0, power_calls INTEGER NOT NULL DEFAULT 0, snapshot_delete_refuse INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
   }
@@ -24,8 +25,10 @@ export class FakeCloudDriver implements RawCloudDriver {
 
   async find(name: string) {
     this.maybeFail()
-    const row = this.sql.exec<{ id: string; tag: string }>(`SELECT id, tag FROM cloud_fake_vm WHERE name = ?`, name)[0]
-    return row ? { id: row.id, tag: JSON.parse(row.tag) as Record<string, unknown> } : null
+    const row = this.sql.exec<{ id: string; tag: string; state: string }>(`SELECT id, tag, state FROM cloud_fake_vm WHERE name = ?`, name)[0]
+    this.sql.exec(`UPDATE cloud_fake_ctl SET state_reads = state_reads + 1 WHERE id = 1`)
+    // "<none>" stands for an answer without a state field.
+    return row ? { id: row.id, tag: JSON.parse(row.tag) as Record<string, unknown>, state: row.state === "<none>" ? null : row.state } : null
   }
 
   async create(name: string, tag: VmTag, opts: CreateOptions) {
@@ -33,7 +36,7 @@ export class FakeCloudDriver implements RawCloudDriver {
     const body = createBody(name, "fake", tag, opts)
     // The image decides the size (Freestyle has no size at create); image_size in fakeControl sets it.
     const img = this.sql.exec<{ image_cpu: number; image_memory: number; image_storage: number }>(`SELECT image_cpu, image_memory, image_storage FROM cloud_fake_ctl WHERE id = 1`)[0]!
-    this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle, cpu, memory, storage) VALUES (?, ?, ?, ?, ?, ?, ?)`, name, `fs-${name}`, JSON.stringify(body.metadata), body.idleTimeoutSeconds, img.image_cpu, img.image_memory, img.image_storage)
+    this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle, cpu, memory, storage, snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, name, `fs-${name}`, JSON.stringify(body.metadata), body.idleTimeoutSeconds, img.image_cpu, img.image_memory, img.image_storage, opts.snapshot ?? null)
     this.sql.exec(`UPDATE cloud_fake_ctl SET creates = creates + 1 WHERE id = 1`)
     return { id: `fs-${name}`, tag: null }
   }
@@ -69,6 +72,11 @@ export class FakeCloudDriver implements RawCloudDriver {
   /** Like Freestyle: 409 when the VM is already in that state; `power_then_fail` changes the VM, then answers 409 (a lost answer, then a retry). */
   private power(id: string, target: string, counter: "pauses" | "starts") {
     this.maybeFail()
+    this.sql.exec(`UPDATE cloud_fake_ctl SET power_calls = power_calls + 1 WHERE id = 1`)
+    if (Number(this.sql.exec<{ n: number }>(`SELECT power_refuse AS n FROM cloud_fake_ctl WHERE id = 1`)[0]!.n) > 0) {
+      this.sql.exec(`UPDATE cloud_fake_ctl SET power_refuse = power_refuse - 1 WHERE id = 1`)
+      throw new DriverError("cloud.provider.refused", "fake provider: 400 refused", true)
+    }
     const vm = this.sql.exec<{ state: string }>(`SELECT state FROM cloud_fake_vm WHERE id = ?`, id)[0]
     if (!vm) throw new DriverError("cloud.provider.vm_missing", "fake provider: 404", true)
     if (vm.state === target) throw new DriverError("cloud.provider.conflict", "fake provider: 409 already in that state", true)
@@ -82,7 +90,8 @@ export class FakeCloudDriver implements RawCloudDriver {
   }
 
   async state(id: string) {
-    return this.sql.exec<{ state: string }>(`SELECT state FROM cloud_fake_vm WHERE id = ?`, id)[0]?.state ?? null
+    const st = this.sql.exec<{ state: string }>(`SELECT state FROM cloud_fake_vm WHERE id = ?`, id)[0]?.state ?? null
+    return st === "<none>" ? null : st
   }
 
   /** Like Freestyle: grow only (400), the disk only on a running VM (409); `resize_refuse` refuses the next call (400, final). */
@@ -105,6 +114,28 @@ export class FakeCloudDriver implements RawCloudDriver {
     if (size.storage > vm.storage && vm.state !== "running") throw new DriverError("cloud.provider.conflict", "fake provider: 409 disk grows only on a running VM", true)
     this.sql.exec(`UPDATE cloud_fake_vm SET cpu = ?, memory = ?, storage = ? WHERE id = ?`, size.cpu, size.memory, size.storage, id)
     this.sql.exec(`UPDATE cloud_fake_ctl SET resizes = resizes + 1 WHERE id = 1`)
+  }
+
+  async findSnapshot(slug: string) {
+    this.maybeFail()
+    const r = this.sql.exec<{ id: string; source: string }>(`SELECT id, source FROM cloud_fake_snapshot WHERE slug = ?`, slug)[0]
+    return r ? { id: r.id, sourceVmId: r.source } : null
+  }
+
+  async createSnapshot(vmId: string, slug: string) {
+    this.maybeFail()
+    if (!this.sql.exec(`SELECT 1 FROM cloud_fake_vm WHERE id = ?`, vmId).length) throw new DriverError("cloud.provider.vm_missing", "fake provider: 404", true)
+    this.sql.exec(`INSERT INTO cloud_fake_snapshot (slug, id, source) VALUES (?, ?, ?)`, slug, `sh-${slug}`, vmId)
+    return { id: `sh-${slug}` }
+  }
+
+  async deleteSnapshot(id: string) {
+    this.maybeFail()
+    if (Number(this.sql.exec<{ n: number }>(`SELECT snapshot_delete_refuse AS n FROM cloud_fake_ctl WHERE id = 1`)[0]!.n) > 0) {
+      this.sql.exec(`UPDATE cloud_fake_ctl SET snapshot_delete_refuse = snapshot_delete_refuse - 1 WHERE id = 1`)
+      throw new DriverError("cloud.provider.refused", "fake provider: 409 snapshot in use", true)
+    }
+    this.sql.exec(`DELETE FROM cloud_fake_snapshot WHERE id = ?`, id)
   }
 
   async resources(id: string) {
