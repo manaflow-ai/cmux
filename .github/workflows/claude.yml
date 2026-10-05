@@ -22,6 +22,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ignore:
+    name: Ignore non-mention event
+    # Webhook events do not support body or actor filters. Keep the real Claude
+    # job narrowed to human @claude mentions while acknowledging other events
+    # successfully instead of publishing a skipped workflow run.
+    if: >-
+      !(
+        (github.event_name == 'issue_comment' && github.event.comment.user.type == 'User' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && github.event.comment.user.type == 'User' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && github.event.review.user.type == 'User' && contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && github.event.issue.user.type == 'User' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      )
+    runs-on: ubuntu-24.04 # github-hosted-required: webhook payloads are untrusted
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Record that this event is outside the Claude scope
+        run: echo "Claude Code runs only for human-authored @claude mentions."
+
   claude:
     name: Claude request
     # Webhook events cannot filter on comment text. Admit only human-authored
