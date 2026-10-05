@@ -257,6 +257,29 @@ public struct BrowserReplEventSpec: Sendable, Equatable {
         /// The session the download is routed to, judged by its source
         /// (every hop and its initiator, ``BrowserReplDownloadSource``).
         case download
+
+        /// The path this delivery takes.
+        public var route: Route {
+            switch self {
+            case .everyAttached: return .everyAttached
+            case .oneSession: return .oneSession
+            case .network: return .network
+            case .fromDocument: return .fromDocument
+            case .routedFromDocument: return .routedFromDocument
+            case .download: return .download
+            }
+        }
+    }
+
+    /// A delivery path, without the table's reason: what a sending call
+    /// site says it does (``BrowserReplDriverEvent/isDelivered(through:)``).
+    public enum Route: Sendable, Equatable, CaseIterable {
+        case everyAttached
+        case oneSession
+        case network
+        case fromDocument
+        case routedFromDocument
+        case download
     }
 
     public var delivery: Delivery
@@ -292,15 +315,9 @@ extension BrowserReplDriverEvent {
         }
     }
 
-    /// Whether this event may be sent through a path that delivers it as
-    /// `delivery`: a path that does not match the table drops it.
-    public func isDelivered(as delivery: BrowserReplEventSpec.Delivery) -> Bool {
-        switch (spec.delivery, delivery) {
-        case (.everyAttached, .everyAttached), (.oneSession, .oneSession), (.network, .network),
-             (.fromDocument, .fromDocument), (.routedFromDocument, .routedFromDocument), (.download, .download):
-            return true
-        default:
-            return false
-        }
+    /// Whether this event may be sent through `route`: a path that does not
+    /// match the table's delivery drops it.
+    public func isDelivered(through route: BrowserReplEventSpec.Route) -> Bool {
+        spec.delivery.route == route
     }
 }

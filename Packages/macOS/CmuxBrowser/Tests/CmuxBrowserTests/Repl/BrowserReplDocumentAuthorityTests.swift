@@ -55,7 +55,9 @@ struct BrowserReplDocumentAuthorityTests {
     func everyEventHasASpec() {
         for event in BrowserReplDriverEvent.allCases {
             #expect(BrowserReplEventSpec.spec(for: event.rawValue) == event.spec, "\(event.rawValue)")
-            #expect(event.isDelivered(as: event.spec.delivery), "\(event.rawValue)")
+            #expect(event.isDelivered(through: event.spec.delivery.route), "\(event.rawValue)")
+            // Exactly one path delivers each event.
+            #expect(BrowserReplEventSpec.Route.allCases.filter(event.isDelivered(through:)) == [event.spec.delivery.route], "\(event.rawValue)")
             switch event.spec.delivery {
             case .everyAttached(let reason), .oneSession(let reason): #expect(!reason.isEmpty, "\(event.rawValue)")
             default: break
@@ -64,9 +66,9 @@ struct BrowserReplDocumentAuthorityTests {
         #expect(BrowserReplEventSpec.spec(for: "permission.requested") == nil)
         // A page's console message sent to every attached session is dropped:
         // it must go through the path that judges its document.
-        #expect(!BrowserReplDriverEvent.console.isDelivered(as: .everyAttached("")))
-        #expect(!BrowserReplDriverEvent.dialogOpened.isDelivered(as: .everyAttached("")))
-        #expect(!BrowserReplDriverEvent.downloadStarted.isDelivered(as: .everyAttached("")))
+        #expect(!BrowserReplDriverEvent.console.isDelivered(through: .everyAttached))
+        #expect(!BrowserReplDriverEvent.dialogOpened.isDelivered(through: .everyAttached))
+        #expect(!BrowserReplDriverEvent.downloadStarted.isDelivered(through: .everyAttached))
     }
 
     @Test("A load is judged by the domain policy")

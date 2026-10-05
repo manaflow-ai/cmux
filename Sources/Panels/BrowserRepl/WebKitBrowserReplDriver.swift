@@ -49,12 +49,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// session's directories, whatever the policy.
     @MainActor private lazy var frameGate: BrowserReplFrameGate = {
         let gate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
-        let sessionID = self.sessionID
-        gate.localDocumentRoots = { [weak self] webView in
-            guard let self,
-                  BrowserReplTabAttachments.shared.attachment(showing: webView)?.creatorSessionID != sessionID else { return nil }
-            return self.currentFileRoots
-        }
+        gate.scope = { [weak self] webView in self?.frameGateScope(webView) }
         return gate
     }()
     /// Ties `<iframe>` elements to their child frames' ids.
@@ -215,6 +210,18 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func tabFacts(_ panel: BrowserPanel) -> BrowserReplTabFacts {
         tabFacts(panel, workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id)
+    }
+
+    /// The frame gate's scope in `webView`: this session, its directories,
+    /// and the tab that shows the web view as the authority judges it (a
+    /// web view no attached tab shows counts as a user's tab). Document
+    /// verdicts ask no tab capability, so the tab's workspace is not read.
+    @MainActor
+    private func frameGateScope(_ webView: WKWebView) -> BrowserReplFrameGate.Scope {
+        let tab = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel
+            .map { tabFacts($0, workspaceID: nil) }
+            ?? BrowserReplTabFacts(mainFrameURL: webView.url)
+        return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: tab)
     }
 
     /// `panel`, held by the workspace `workspaceID`, as the authority judges it.

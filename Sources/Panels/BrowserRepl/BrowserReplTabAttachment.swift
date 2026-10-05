@@ -829,7 +829,7 @@ final class BrowserReplTabAttachment {
     /// Sends an event to every attached session, when the guard table
     /// delivers it that way (``BrowserReplEventSpec/Delivery/everyAttached(_:)``).
     func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any]) {
-        guard event.isDelivered(as: .everyAttached("")) else { return }
+        guard event.isDelivered(through: .everyAttached) else { return }
         var body = payload
         body["targetId"] = targetID
         for sink in sinks.values { sink(event.rawValue, body) }
@@ -860,7 +860,7 @@ final class BrowserReplTabAttachment {
     /// sessions whose authority allows that document
     /// (``BrowserReplPageTelemetry``).
     private func emitTelemetry(_ event: BrowserReplDriverEvent, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
-        guard event.isDelivered(as: .fromDocument) else { return }
+        guard event.isDelivered(through: .fromDocument) else { return }
         var body = payload
         body["targetId"] = targetID
         let recipients = BrowserReplPageTelemetry().recipients(of: document, in: authorityFacts, among: Array(sinks.keys)) {
@@ -877,7 +877,7 @@ final class BrowserReplTabAttachment {
     /// ``BrowserReplPageHeaders``): only the tab's live creator reads their
     /// credentials.
     private func emitNetwork(_ name: String, _ payload: [String: Any], from sender: BrowserReplNetworkSender) {
-        guard let event = BrowserReplDriverEvent(rawValue: name), event.isDelivered(as: .network) else { return }
+        guard let event = BrowserReplDriverEvent(rawValue: name), event.isDelivered(through: .network) else { return }
         let requestID = payload["requestId"] as? String ?? ""
         var body = payload
         body["targetId"] = targetID
@@ -899,7 +899,7 @@ final class BrowserReplTabAttachment {
     /// reading the tab's frame tree for a document it does not know yet.
     private lazy var networkGate = BrowserReplNetworkGate<NetworkEvent>(
         tab: { [weak self] in self?.authorityFacts },
-        authority: { Self.authority(for: $0) },
+        authority: { BrowserReplTabAttachment.authority(for: $0) },
         readDocuments: { [weak self] in
             guard let webView = self?.panel?.webView else { return [:] }
             let frames = await BrowserReplFrameTree.frames(of: webView)
@@ -927,7 +927,7 @@ final class BrowserReplTabAttachment {
     /// session it was routed to, when the guard table routes it
     /// (``BrowserReplEventSpec/Delivery``).
     private func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any], to sessionID: String) {
-        guard event.isDelivered(as: .routedFromDocument) || event.isDelivered(as: .download) else { return }
+        guard event.isDelivered(through: .routedFromDocument) || event.isDelivered(through: .download) else { return }
         var body = payload
         body["targetId"] = targetID
         sinks[sessionID]?(event.rawValue, body)
@@ -1281,7 +1281,7 @@ final class BrowserReplTabAttachment {
             "url": pageURL(url.absoluteString),
         ]
         if forInputSession != nil { payload["userOwned"] = true }
-        guard BrowserReplDriverEvent.tabCreated.isDelivered(as: .oneSession("")) else { return }
+        guard BrowserReplDriverEvent.tabCreated.isDelivered(through: .oneSession) else { return }
         for sink in recipients.values {
             sink(BrowserReplDriverEvent.tabCreated.rawValue, payload)
         }
@@ -1475,7 +1475,7 @@ final class BrowserReplTabAttachment {
             // gets the URLs as written (the reason names the refused hop),
             // the others their credential values replaced.
             for (sessionID, sink) in sinks {
-                guard BrowserReplDriverEvent.navigationBlocked.isDelivered(as: .everyAttached("")) else { continue }
+                guard BrowserReplDriverEvent.navigationBlocked.isDelivered(through: .everyAttached) else { continue }
                 sink(BrowserReplDriverEvent.navigationBlocked.rawValue, [
                     "url": pageURL(url?.absoluteString ?? ""),
                     "reason": refusal.reason(seesCredentials: isLiveCreator(sessionID)),

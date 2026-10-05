@@ -86,7 +86,7 @@ struct BrowserReplLocalFrameGateTests {
     static func gate(_ page: LocalPage) -> BrowserReplFrameGate {
         let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
         let root = page.scratch.root
-        gate.localDocumentRoots = { _ in [root] }
+        gate.scope = { .init(sessionID: "s", fileRoots: [root], tab: BrowserReplTabFacts(mainFrameURL: $0.url)) }
         return gate
     }
 
@@ -161,7 +161,7 @@ struct BrowserReplLocalFrameGateTests {
         let page = try await PivotPage.load(scratch, recording: true)
         let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
         let root = scratch.root
-        gate.localDocumentRoots = { _ in [root] }
+        gate.scope = { .init(sessionID: "s", fileRoots: [root], tab: BrowserReplTabFacts(mainFrameURL: $0.url)) }
         let read = "return document.body.innerText"
         let outside = try #require(page.frame(showing: "outside data secret"))
         let error = await BrowserReplFrameGateTests.error {
@@ -183,7 +183,7 @@ struct BrowserReplLocalFrameGateTests {
         let page = try await PivotPage.load(scratch, recording: false)
         let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
         let root = scratch.root
-        gate.localDocumentRoots = { _ in [root] }
+        gate.scope = { .init(sessionID: "s", fileRoots: [root], tab: BrowserReplTabFacts(mainFrameURL: $0.url)) }
         let outside = try #require(page.frame(showing: "outside data secret"))
         let error = await BrowserReplFrameGateTests.error {
             try await gate.callAsyncJavaScript("return document.body.innerText", arguments: [:], in: page.webView, frame: outside, contentWorld: .page)

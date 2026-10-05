@@ -279,40 +279,47 @@ extension BrowserReplDomainPolicy {
 public final class BrowserReplFrameGate {
     /// The session's policy; only the native session sets it.
     public var policy = BrowserReplDomainPolicy()
-    /// For a tab the session did not create, the directories whose local
-    /// files the session may read (its working and temporary directories);
-    /// nil for the session's own tabs, whose content rules and navigation
-    /// checks keep other files out. Set by the driver.
-    ///
-    /// In such a tab a frame that shows any other local document (a file
-    /// outside the directories, or a document of a local file's origin
-    /// under another URL, whose file cannot be told) is judged like a frame
-    /// the policy blocks, whatever the policy
-    /// (``BrowserReplFileSandbox/localPageRefusal(url:documentOrigin:roots:)``):
-    /// a user's tab on a local page inside the directories may show such
-    /// files in its child frames. Only a local document can show a local
-    /// file in a frame, so a tab whose main frame shows a web page
-    /// (`http`, `https`) is left to the policy alone.
-    public var localDocumentRoots: @MainActor (WKWebView) -> [String]? = { _ in nil }
+    /// Whom the gate judges for in one web view: the session, its
+    /// directories and the tab as the authority sees it.
+    public struct Scope: Sendable, Equatable {
+        /// The session the gate serves.
+        public var sessionID: String
+        /// The session's working and temporary directories (canonical), the
+        /// only ones a tab it did not create may show local files from;
+        /// nil when not known, and then local files are not judged.
+        public var fileRoots: [String]?
+        /// The tab that shows the web view (its creator, main-frame URL,
+        /// attached sessions), as ``BrowserReplDocumentAuthority`` judges it.
+        public var tab: BrowserReplTabFacts
 
-    /// The authority that judges `webView`'s documents, and the tab as it
-    /// needs it: the gate's policy, and the session's directories when
-    /// ``localDocumentRoots`` names them for this tab (a tab the session did
-    /// not create). The gate decides nothing itself.
-    private func authority(in webView: WKWebView) -> (BrowserReplDocumentAuthority, BrowserReplTabFacts) {
-        let roots = localDocumentRoots(webView)
-        let authority = BrowserReplDocumentAuthority(sessionID: Self.gateSession, policy: policy, fileRoots: roots)
-        // `localDocumentRoots` answers nil for the session's own tab: such a
-        // tab is the gate session's, and its local documents are not judged.
-        let tab = BrowserReplTabFacts(mainFrameURL: webView.url, creatorSessionID: roots == nil ? Self.gateSession : nil)
-        return (authority, tab)
+        public init(sessionID: String, fileRoots: [String]?, tab: BrowserReplTabFacts) {
+            self.sessionID = sessionID
+            self.fileRoots = fileRoots
+            self.tab = tab
+        }
     }
 
-    /// The session the gate's authority speaks for; the gate serves one.
-    private static let gateSession = "frame-gate"
+    /// The scope of `webView`, from the real tab facts; set by the driver.
+    /// In a tab the session did not create whose main frame does not show
+    /// a web page, a frame that shows a local document outside the
+    /// session's directories (a file outside them, or a document of a local
+    /// file's origin under another URL, whose file cannot be told) is judged
+    /// like a frame the policy blocks, whatever the policy
+    /// (``BrowserReplDocumentAuthority/judgesLocalDocuments(in:)``). Without
+    /// a scope (a gate made for one check of a session's own tab) the gate
+    /// judges by ``policy`` alone, in no tab.
+    public var scope: @MainActor (WKWebView) -> Scope? = { _ in nil }
+
+    /// The authority that judges `webView`'s documents, and the tab as it
+    /// needs it: the gate's policy, with the session, its directories and
+    /// the tab from ``scope``. The gate decides nothing itself.
+    private func authority(in webView: WKWebView) -> (BrowserReplDocumentAuthority, BrowserReplTabFacts?) {
+        guard let scope = scope(webView) else { return (.judging(policy), nil) }
+        return (BrowserReplDocumentAuthority(sessionID: scope.sessionID, policy: policy, fileRoots: scope.fileRoots), scope.tab)
+    }
 
     /// Whether the gate judges `webView`'s frames: a domain policy is in
-    /// force, or its local documents are judged (``localDocumentRoots``).
+    /// force, or its local documents are judged (``scope``).
     public func isActive(in webView: WKWebView) -> Bool {
         let (authority, tab) = authority(in: webView)
         return authority.isActive(in: tab)

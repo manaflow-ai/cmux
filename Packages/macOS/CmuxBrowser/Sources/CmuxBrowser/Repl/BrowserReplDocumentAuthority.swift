@@ -136,6 +136,14 @@ public struct BrowserReplDocumentAuthority: Sendable {
         self.workspaceID = workspaceID
     }
 
+    /// An authority that judges documents, URLs and loads by `policy`
+    /// alone, for no session's tab: with no tab and no directories, no
+    /// verdict it gives asks who the session is (only a tab capability
+    /// does, and a check without a tab has none).
+    public static func judging(_ policy: BrowserReplDomainPolicy) -> BrowserReplDocumentAuthority {
+        BrowserReplDocumentAuthority(sessionID: "", policy: policy)
+    }
+
     /// Whether the authority judges local documents (``BrowserReplDocumentSubject/document(_:)``)
     /// in `tab`: a tab the session did not create whose main frame does not
     /// show a web page. A tab the session created keeps other files out
