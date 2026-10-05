@@ -8,8 +8,11 @@ nonisolated enum CEFLinkPlacement: Equatable, Sendable {
     /// No new tab: the opener loads the URL (a modified click mapped to
     /// the current tab).
     case opener
-    /// Chromium handles it alone (the current tab, a download, an ignored
-    /// action, picture in picture): no cmux tab.
+    /// No new tab: the opener downloads the URL into the Downloads folder
+    /// (`CEFDownloads`).
+    case download
+    /// Chromium handles it alone (the current tab, an ignored action,
+    /// picture in picture): no cmux tab.
     case chromium
 }
 
@@ -28,9 +31,11 @@ nonisolated enum CEFLinkClicks {
     /// read only to tell those two apart; a stale or missing click means a
     /// plain target=_blank (a selected tab). Every other disposition keeps
     /// Chromium's meaning, so NEW_BACKGROUND_TAB is `cmdClick` (Chromium
-    /// does not tell a middle click from Cmd-click).
-    static func placement(for disposition: CEFDisposition, click: CEFLinkClickRecord?, now: TimeInterval,
-                          mapping: BrowserLinkClickMapping) -> CEFLinkPlacement {
+    /// does not tell a middle click from Cmd-click). A request without a
+    /// user gesture (a script) never follows a modified-click setting: it
+    /// gets Chrome's default for its disposition.
+    static func placement(for disposition: CEFDisposition, userGesture: Bool, click: CEFLinkClickRecord?,
+                          now: TimeInterval, mapping: BrowserLinkClickMapping) -> CEFLinkPlacement {
         let recent: BrowserLinkGesture? = click.flatMap { record in
             now >= record.timestamp && now - record.timestamp <= clickLifetime ? record.gesture : nil
         }
@@ -57,13 +62,14 @@ nonisolated enum CEFLinkClicks {
         case .currentTab:
             return .opener
         case .download:
-            // Chromium saves an Option-click itself; the shim has no other
-            // way to start a download, so a download mapped to another
-            // gesture keeps Chrome's default for it.
             return gesture == .option ? .chromium : placement(chromeDefault: gesture)
         case let action:
             return action.newTabDisposition.map(CEFLinkPlacement.tab) ?? .tab(.foregroundTab)
         }
+    }
+
+    private static func placement(chromeDefault gesture: BrowserLinkGesture) -> CEFLinkPlacement {
+        BrowserLinkClickMapping.chrome.action(for: gesture).newTabDisposition.map(CEFLinkPlacement.tab) ?? .tab(.foregroundTab)
     }
 
     /// Pure: the page a mouse-up landed on. Only a click in a page window
@@ -77,10 +83,6 @@ nonisolated enum CEFLinkClicks {
             target.hostWindow == parent && target.frame.contains(point) && !target.occlusions.contains { $0.contains(point) }
         }?.browser
     }
-
-    private static func placement(chromeDefault gesture: BrowserLinkGesture) -> CEFLinkPlacement {
-        BrowserLinkClickMapping.chrome.action(for: gesture).newTabDisposition.map(CEFLinkPlacement.tab) ?? .tab(.foregroundTab)
-    }
 }
 
 /// What the runtime knows when it places a tab Chromium wants to open: the
@@ -93,7 +95,8 @@ nonisolated struct CEFLinkContext: Equatable, Sendable {
     var now: TimeInterval = 0
 
     /// How a request from page `source` (0: no page) opens.
-    func placement(for disposition: CEFDisposition, source: Int32) -> CEFLinkPlacement {
-        CEFLinkClicks.placement(for: disposition, click: source != 0 ? clicks[source] : nil, now: now, mapping: mapping)
+    func placement(for disposition: CEFDisposition, source: Int32, userGesture: Bool) -> CEFLinkPlacement {
+        CEFLinkClicks.placement(for: disposition, userGesture: userGesture, click: source != 0 ? clicks[source] : nil,
+                                now: now, mapping: mapping)
     }
 }

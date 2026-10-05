@@ -13,6 +13,7 @@ let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, 
         sourceBrowser: source,
         bounds: hasBounds != 0 ? CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height)) : nil,
         url: url.map { String(cString: $0) } ?? "",
+        userGesture: true, // red: the shim does not report it yet
         profilePath: CEFRuntime.normalizedPath(profile.map { String(cString: $0) } ?? "")
     )
     let address = UInt(bitPattern: context)
