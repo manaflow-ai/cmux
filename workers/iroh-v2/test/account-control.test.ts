@@ -489,3 +489,37 @@ test("a Mac whose team authority lease lapsed is no longer listed, so a stale te
   expect(seen.macs).toEqual([]);
   expect(seen.inboundMacs).toEqual([]);
 });
+
+test("an idle Mac that renews its ticket at refreshAfter stays listed across lease periods without a gap", async () => {
+  const w = await world();
+  const [aKey, bKey] = await Promise.all([230, 231].map(deviceKey));
+  const a = descriptor(aKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const b = descriptor(bKey!, identity("team-y", "user-u", "mac-b"), "mac", HOST);
+  w.x.enroll(a, NOW - 100); w.y.enroll(b, NOW - 100);
+  const broker = w.account("user-u");
+  // The only lease refresh is a new Stack verification: ticket.request.v1 through the team broker.
+  const renew = async (verifiedAt: number, at: number) => {
+    w.setClock(at);
+    const result = await w.y.broker.execute(w.y.session(b, verifiedAt), { schemaId: "ticket.request.v1", requestId: `renew-${at}`, stackAccessToken: "stack" });
+    if (result.response.schemaId !== "ticket.result.v1") throw new Error("expected a ticket");
+    return result.response.ticket;
+  };
+  const listedAt = async (at: number) => {
+    w.setClock(at);
+    w.x.store.observeAuthority("user-u", at, at + 3600, at); // A's own session stays current
+    return directoryOf((await call(broker, aKey!, a, "account.directory.v1", at)).response).macs.map(mac => mac.descriptor.identity.deviceId);
+  };
+  let ticket = await renew(NOW - 3600, NOW);
+  await call(broker, bKey!, b, "account.publish.v1");
+  for (let cycle = 0; cycle < 4; cycle++) {
+    expect(ticket.expiresAt - ticket.refreshAfter).toBe(300);
+    // Just before the client renews (55 minutes after the last renewal) B is still listed.
+    expect(await listedAt(ticket.refreshAfter - 1)).toEqual(["mac-b"]);
+    const previous = ticket.expiresAt - 3600;
+    ticket = await renew(previous, ticket.refreshAfter);
+    expect(await listedAt(ticket.expiresAt - 3600 + 1)).toEqual(["mac-b"]);
+  }
+  // A Mac that misses renewal entirely drops out once its lease ends, not before.
+  expect(await listedAt(ticket.expiresAt - 1)).toEqual(["mac-b"]);
+  expect(await listedAt(ticket.expiresAt)).toEqual([]);
+});
