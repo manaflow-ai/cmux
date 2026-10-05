@@ -42,6 +42,9 @@ pub struct Gate {
     /// `net.fetch` calls in flight: the request filter stays installed
     /// while any runs, so every redirect hop meets the range rule.
     fetches: std::sync::atomic::AtomicUsize,
+    /// HOST-FETCH-CORS relaxations (policy op "corsLog"), kept apart from
+    /// the blocked-request log the runtime shows as blockedNavigations().
+    cors_log: Mutex<Vec<Value>>,
     /// The newest requests the filter refused (URL, reason), so a fetch
     /// that failed on a redirect hop can say which hop and why. Not the
     /// agent-visible log: main logs navigations and fetches, not
@@ -72,6 +75,7 @@ impl Gate {
             grants,
             log: Arc::default(),
             fetches: std::sync::atomic::AtomicUsize::new(0),
+            cors_log: Mutex::new(Vec::new()),
             filtered: Arc::default(),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
@@ -117,7 +121,12 @@ impl Gate {
     }
 
     /// Masks a driver event for this session; a closed tab's record ends.
+    /// A response from a refused address stops the tab's load (DNS
+    /// rebinding, after the fact).
     pub fn mask_event(&self, name: &str, payload: &Value) -> Value {
+        if name == "response" {
+            self.check_rebinding(payload);
+        }
         let target = payload.get("targetId").and_then(Value::as_str);
         let masked = self.mask_for_target(target, payload);
         if matches!(name, "tab.gone" | "tab.closed")
@@ -150,10 +159,11 @@ impl Gate {
         };
         let fetching = self.fetches.load(std::sync::atomic::Ordering::SeqCst) > 0;
         let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
-            let (policy, filtered, remote) =
-                (self.policy.clone(), self.filtered.clone(), self.grants.remote);
+            let (policy, filtered, log, remote) =
+                (self.policy.clone(), self.filtered.clone(), self.log.clone(), self.grants.remote);
             // The session's policy is the same for every tab it drives.
-            let filter: crate::driver::RequestFilter = Arc::new(move |_target: &str, url: &str| {
+            let filter: crate::driver::RequestFilter = Arc::new(move |request| {
+                let url = request.url;
                 let parsed = url::Url::parse(url).ok()?;
                 let reason = {
                     let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
@@ -167,6 +177,15 @@ impl Gate {
                 }
                 let seq = filtered.back().map_or(1, |entry| entry.0 + 1);
                 filtered.push_back((seq, url.to_owned(), reason.clone()));
+                drop(filtered);
+                // The kind changes only the log: main logs blocked
+                // documents (navigations), never subresources.
+                if request.kind == crate::driver::RequestKind::Document {
+                    push_log(
+                        &log,
+                        json!({"url": url, "reason": reason, "at": now_ms(), "blocked": "before"}),
+                    );
+                }
                 Some(reason)
             });
             filter
@@ -507,6 +526,9 @@ impl Gate {
             "site" => Ok(json!(crate::policy::site_of(args["host"].as_str().unwrap_or("")))),
             // The host's own log of blocked navigations (cmux-next: the host
             // blocks before the request, so the runtime does not see these).
+            "corsLog" => Ok(Value::Array(
+                self.cors_log.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+            )),
             "log" => {
                 Ok(Value::Array(self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()))
             }

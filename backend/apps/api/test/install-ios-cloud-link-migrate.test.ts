@@ -1,6 +1,8 @@
 import type { ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { IOS_CLOUD_LINK_CUTOFF, iosGrantsToMigrate, userDomain, type UserState } from "../src/domains/user.ts"
+import { env } from "cloudflare:workers"
+import { runInDurableObject } from "cloudflare:test"
 import { post, sessionToken } from "./cloud-bind-support.ts"
 
 /**
@@ -80,5 +82,25 @@ describe("old iPhone grants get cloud-link once", () => {
     const list = await post("/v1/read", session, { op: "install.list", params: {} })
     const i = list.body.value.installs.find((x: any) => x.id === reg.body.value.id)
     expect([...list.body.value.grants.find((g: any) => g.id === i.grant).op_classes].sort()).toEqual(["mutate-own", "read"])
+  })
+
+  it("the per-request grant check (installGrant) migrates an old iPhone grant first, so its first link_token works (review P3)", { timeout: 60_000 }, async () => {
+    const session = await sessionToken("ios-cloud-link-grant-path")
+    const user = (await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })).body.value.id as string
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const j = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const reg = await post("/v1/ops", session, { op: "install.register", params: { public_jwk: { kty: "EC", crv: "P-256", x: j.x, y: j.y }, kind: "ios", name: "p", device_name: "p", platform: "ios", op_classes: ["read", "mutate-own"] }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const install = reg.body.value.id as string
+    const grant = reg.body.value.grant as string
+    const ns = (env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO
+    const stub = ns.get(ns.idFromName(user))
+    // Make the install look older than the cloud-link default (in memory only; the head was written before).
+    await (runInDurableObject as unknown as (s: unknown, f: (i: any) => Promise<void>) => Promise<void>)(stub, async (i) => {
+      const st = i.boundEngine.currentState
+      st.installs[install] = { ...st.installs[install], created_at: 0 }
+    })
+    const r = await (stub as unknown as { installGrant(e: string, i: string, g: string): Promise<{ ok: boolean; op_classes?: ReadonlyArray<string> }> }).installGrant(user, install, grant)
+    expect(r.ok).toBe(true)
+    expect([...(r.op_classes ?? [])].sort()).toEqual(["cloud-link", "mutate-own", "read"])
   })
 })

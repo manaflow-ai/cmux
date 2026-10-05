@@ -13,10 +13,6 @@ extension SettingsWindowService {
         return (personal ? [.room, .workspace] : []) + [.terminal]
     }
 
-    var themeNames: [String] { services.themes.catalog.names }
-
-    func themeSwatches(_ name: String) -> [ThemeRGB] { services.themes.catalog.swatches(for: name) }
-
     func theme(at level: SettingsThemeLevel) -> String? {
         let current = services.themes.currentChoice(Self.action(level, reset: false), target: nil)
         return current == ActionArgument.themeConfigValue ? nil : current

@@ -5,8 +5,7 @@ import Testing
 /// Link clicks and the link context menu in WebKit tabs, as in Chrome and
 /// Safari: Cmd-click and middle click open a background tab, Shift-Cmd-click
 /// a foreground tab, Shift-click a new window, Option-click downloads.
-/// "Open Link in New Tab" opens a background tab; "Open Link in New Window"
-/// opens a window.
+/// The link menu's rows are the host's (`WebKitContextHit`), as in Chromium.
 @MainActor
 @Suite(.serialized)
 struct LinkClickDispositionTests {
@@ -20,33 +19,57 @@ struct LinkClickDispositionTests {
         #expect(WebKitTab.linkClick(flags: [.option], button: 0) == A.download)
     }
 
-    final class Probe: NSObject {
-        var fired = 0
-        @objc func open(_ sender: Any?) { fired += 1 }
+    /// A host that answers the link menu with one row.
+    final class Host: BrowserTabDelegate {
+        let row = NSMenuItem(title: "Open Link in New Tab", action: nil, keyEquivalent: "")
+        var targets: [BrowserContextMenuTarget] = []
+        func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+            guard case .contextMenu(let request) = intent else { return }
+            targets.append(request.target)
+            request.insertLeading?([row])
+        }
     }
 
-    /// WebKit's own "Open Link in New Window" item still runs (it creates the
-    /// page with its opener); cmux records where the page goes first.
-    @Test func linkMenuItemsOpenABackgroundTabAndANewWindow() throws {
-        let tab = WebKitEngine().makeWebKitTab(BrowserTabConfiguration(profile: .default))
-        let probe = Probe()
+    static func webKitMenu() -> NSMenu {
         let menu = NSMenu()
-        let item = NSMenuItem(title: "Open Link in New Window", action: #selector(Probe.open(_:)), keyEquivalent: "")
-        item.target = probe
-        item.identifier = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierOpenLinkInNewWindow")
-        menu.addItem(item)
+        for id in ["WKMenuItemIdentifierOpenLink", "WKMenuItemIdentifierOpenLinkInNewWindow", "WKMenuItemIdentifierDownloadLinkedFile",
+                   "WKMenuItemIdentifierCopyLink", "", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierLookUp", "",
+                   "WKMenuItemIdentifierInspectElement"] {
+            if id.isEmpty { menu.addItem(.separator()); continue }
+            let item = NSMenuItem(title: id, action: nil, keyEquivalent: "")
+            item.identifier = NSUserInterfaceItemIdentifier(id)
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    /// The hit script's report turns WebKit's link rows into the host's
+    /// rows (the same rows Chromium shows); WebKit's other rows stay.
+    @Test func linkMenuRowsComeFromTheHost() throws {
+        let tab = WebKitEngine().makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let host = Host()
+        tab.delegate = host
+        let hit = BrowserContextMenuTarget(linkURL: URL(string: "https://example.com/a"), linkText: "A", selection: "A")
+        tab.contextHit = (target: hit, at: ContinuousClock.now)
+        let menu = Self.webKitMenu()
         try #require(tab.webView as? WebKitWebView).adjustContextMenu(menu)
+        #expect(host.targets == [hit])
+        let ids = menu.items.map { $0.isSeparatorItem ? "---" : ($0.identifier?.rawValue ?? $0.title) }
+        #expect(ids == ["Open Link in New Tab", "---", "WKMenuItemIdentifierInspectElement"])
+        #expect(tab.takeContextHit() == nil, "one menu per report")
+    }
 
-        let newTab = try #require(menu.items.first { $0.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow" })
-        #expect(newTab.title == Strings.openLinkInNewTab)
-        menu.performActionForItem(at: menu.index(of: newTab))
-        #expect(probe.fired == 1)
-        #expect(tab.takeContextMenuDisposition() == .backgroundTab)
-
-        let newWindow = try #require(menu.items.first { $0.title == Strings.openLinkInNewWindow })
-        menu.performActionForItem(at: menu.index(of: newWindow))
-        #expect(probe.fired == 2)
-        #expect(tab.takeContextMenuDisposition() == .newWindow)
-        #expect(tab.takeContextMenuDisposition() == nil, "one page per pick")
+    /// Without a fresh report (a PDF, a click the script did not see) WebKit's
+    /// own rows stay.
+    @Test func aStaleHitKeepsWebKitsRows() throws {
+        let tab = WebKitEngine().makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let host = Host()
+        tab.delegate = host
+        tab.contextHit = (target: BrowserContextMenuTarget(linkURL: URL(string: "https://example.com/a")), at: ContinuousClock.now - .seconds(5))
+        let menu = Self.webKitMenu()
+        let before = menu.items.map(\.title)
+        try #require(tab.webView as? WebKitWebView).adjustContextMenu(menu)
+        #expect(host.targets.isEmpty)
+        #expect(menu.items.map(\.title) == before)
     }
 }

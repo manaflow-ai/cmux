@@ -224,8 +224,21 @@ Hard gates before ANY link token format goes live (the daemon refuses to start w
 - G3 (every OS, ad349 2026-10-04): the daemon logs its verifier mode (`deny_all` or
   `control_plane`) ONCE at start, with no token or secret in the line.
 - G4 (every OS, ad349 2026-10-04): the daemon strips `CMUX_LINK_TOKEN_VERIFIER` from the
-  environment it passes to terminals and other children, in `daemon_env.rs` (the one place that
-  builds child env), with a test that a child never sees it.
+  environment it passes to terminals and other children, with a test that a child never sees it.
+  Lane 10 finding (2026-10-05): `daemon_env.rs` builds only the caller-merged `extra_env`; a
+  terminal (`PtyCommand`) and the other spawn paths inherit the daemon's process environment, so
+  the strip must remove the variable from that inherited environment (every spawn path, or the
+  daemon's own environment once, before any thread starts), not only in `daemon_env.rs`.
+- G3 and G4 are implemented (lane 10, 2026-10-05): `main` calls
+  `cmux_link::token::take_from_process_env` as its first statement (read, then `remove_var`),
+  and `start_link_entry` logs one `cmux link: token verifier mode ...` line. A `cmux` client
+  strips the variable too, so an owner started by `cmux server ensure` runs `deny_all`; only a
+  daemon its supervisor execs directly with the variable can ask for `control_plane`.
+- Keyset (VM side, lane 10, 2026-10-05): `cmux_link::keyset` reads `GET /v1/cloud/keyset` and
+  the bind answer's `keyset` (schemas/link-token/keyset-vectors.json) and schedules refreshes:
+  one daily deadline at a per-host jittered time, at most one unknown-kid fetch per 60 s, a 429
+  holds every fetch for `retry-after` (60 s default), only an accepted 200 replaces the held
+  keyset. The HTTP fetch and the timer task wire in with `host_inbound` (not in `serve` yet).
 
 Limits that remain: (1) the host uses `DenyAllTokens` until a token format ships, so no Cloud
 stream reaches the entry yet, and G1/G2 block a real verifier until F1 and F2 land; (2) a paired
@@ -241,7 +254,7 @@ Mapping to `link.dial` errors: `unknown_host` = `cloud.machine.not_found`; `not_
 
 Dependencies: VM bind (the backend lead: CloudDO records `host`, `epoch`, `wg_public_key` at bind
 from the image's bind agent); the driver writes `/var/lib/cmux/bind.json` (0600 root, dir 0700 root)
-as `{team, machine, bind_token, api_origin, env}` on every create, retry and restore: `api_origin`
+as `{team, machine, bind_token, api_origin, env}` on every create, retry and restore (the bind request adds `install_public_jwk`, the VM's ES256 P-256 install key made per clone and kept in /var/lib/cmux/install/ 0600 root; the bind answer adds `install {id, user, grant}`: a kind "vm" install of the machine's creator, bound to the team and the machine, grant `vm-self`, tokens through /v1/auth/challenge and /v1/auth/token; an epoch raise replaces it, and an old VM install can do nothing because the machine names only the current one): `api_origin`
 is the https origin from the Worker var `CLOUD_API_ORIGIN` (no write if it is not https) and `env`
 is `dev`, `stg` or `prod`, the same tag as the token's `iss` `cmux:cloud:<env>`; the image's agent
 refuses an origin not on its per-environment allowlist, binds, deletes `bind.json` and writes
@@ -439,3 +452,26 @@ and for classic VMs before upgrade.
 - The terminal on the new backend depends on lane 12's VM overlay endpoint and bind, and on a new
   cmux-next image (owner: backend lead now that the classic pipeline is out).
 - The classic export needs Lawrence's choice of operator and read credential.
+
+### VM daemon ops (VM install at bind, coordinator and a9, 2026-10-05)
+
+Only a kind "vm" install with grant `vm-self`, for its own bound machine (and only while the machine
+names that install), may call these; a VM install has no team read, no execute and no cloud-link, and
+cannot subscribe to the team's cloud stream. No idempotency key (fresh facts, never replayed).
+
+- `cloud.vm.self.get {machine}` (read): the machine's public view.
+- `cloud.vm.status.report {machine, state: running|degraded|stopping, daemon {version, capabilities},
+  health?, activity {last_user_input_at?, last_agent_action_at?, active_sessions}}`: answers
+  `{applied}`; at most one applied per 10 s per machine, a newer report in the window replaces the
+  held one (latest wins). Activity feeds CloudDO's idle pause (no polling of the VM); only a daemon
+  change emits `cloud.machine.upsert`.
+- `cloud.vm.event.emit {machine, kind, at, data}`: v1 kinds agent.started, agent.finished,
+  agent.needs_input, notification, browser.lease.changed {tab, state}, cua.session.started,
+  cua.session.ended, service.port.opened {port, proto, process?}, service.port.closed {port}; data at
+  most 4 KB, unknown fields refused, URL query strings and fragments removed, never secrets or page
+  content; 10 per second, burst 50 per install (`cloud.rate_limited {retry_after_ms}`). Delivered to
+  team members as the ephemeral frame `{t: "ephemeral", stream, event: "cloud.machine.event", data:
+  {machine, host, kind, at, data}}`: never stored, no seq, no cursor.
+
+Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` events).
+

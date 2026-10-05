@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab'
+IR_SHA256 = 'c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c'
 
 
 @dataclass(frozen=True)
@@ -104,6 +104,7 @@ COMMANDS = {
             'mode': CommandFieldMetadata(7, None),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+            'snapshot_local_history': CommandFieldMetadata(None, 'terminal-snapshot-local-history-v1'),
             'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'surface': CommandFieldMetadata(None, None),
             'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
@@ -1601,12 +1602,15 @@ COMMANDS = {
             'color': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'env': CommandFieldMetadata(12, 'screen-terminal-env-v1'),
             'group': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'pinned': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'screen_name': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'screen-terminal-env-v1'),
+            'terminal_id': CommandFieldMetadata(12, 'screen-terminal-env-v1'),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),

@@ -37,9 +37,13 @@ impl Driver for FakeDriver {
             "net.fetch" => {
                 if let Some(hop) = self.fetch_hop.lock().unwrap().clone() {
                     let filter = self.filter.lock().unwrap().clone();
-                    let refused = filter
-                        .as_ref()
-                        .and_then(|f| f(params["targetId"].as_str().unwrap_or(""), &hop));
+                    let refused = filter.as_ref().and_then(|f| {
+                        f(&crate::driver::RequestInfo {
+                            target: params["targetId"].as_str().unwrap_or(""),
+                            url: &hop,
+                            kind: crate::driver::RequestKind::Subresource,
+                        })
+                    });
                     if refused.is_some() {
                         return Err(DriverError::new(
                             ErrorCode::Evaluation,
@@ -306,6 +310,10 @@ fn error_names_are_masked() {
     assert_eq!(error.error_name.as_deref(), Some("<secret:pw>"));
 }
 
+fn sub(url: &str) -> crate::driver::RequestInfo<'_> {
+    crate::driver::RequestInfo { target: "T", url, kind: crate::driver::RequestKind::Subresource }
+}
+
 #[test]
 fn an_active_policy_installs_a_request_filter_on_the_driver() {
     let (gate, driver) = make_gate(Value::Null, false);
@@ -316,15 +324,15 @@ fn an_active_policy_installs_a_request_filter_on_the_driver() {
     };
     gate.set_owner_policy(layer, false).unwrap();
     let filter = driver.filter.lock().unwrap().clone().expect("a request filter");
-    assert!(filter("T", "https://example.com/app.js").is_none());
+    assert!(filter(&sub("https://example.com/app.js")).is_none());
     assert!(
-        filter("T", "https://evil.test/beacon?d=1").unwrap().contains("session.allowedDomains")
+        filter(&sub("https://evil.test/beacon?d=1")).unwrap().contains("session.allowedDomains")
     );
-    assert!(filter("T", "data:text/plain,x").is_none());
+    assert!(filter(&sub("data:text/plain,x")).is_none());
     // Narrowing from the VM updates the filter.
     policy(&gate, "set", json!({"prohibited": ["example.com"]})).unwrap();
     let filter = driver.filter.lock().unwrap().clone().unwrap();
-    assert!(filter("T", "https://example.com/").is_some());
+    assert!(filter(&sub("https://example.com/")).is_some());
 }
 
 #[test]
@@ -630,11 +638,7 @@ fn fetch_runs_in_the_engine_with_the_body_masked() {
 fn fetch_refuses_policy_ranges_and_forbidden_headers_before_the_engine() {
     let (gate, driver) = make_gate(Value::Null, false);
     let call = |params: Value| gate.driver_call("net.fetch", params).unwrap_err();
-    assert_eq!(
-        call(json!({"url": "https://a.test/"})).code,
-        ErrorCode::Invalid,
-        "a fetch needs a tab"
-    );
+    // Without a tab the engine runs the fetch in a shell tab of its own.
     let header =
         call(json!({"targetId": "T", "url": "https://a.test/", "headers": [["Host", "b.test"]]}));
     assert_eq!(header.code, ErrorCode::Invalid, "{header}");
@@ -679,4 +683,86 @@ fn fetch_checks_every_redirect_hop_and_the_address_it_reached() {
         .unwrap_err();
     assert_eq!(rebound.code, ErrorCode::Forbidden);
     assert!(rebound.message.contains("resolved to 169.254.169.254"), "{}", rebound.message);
+}
+
+/// DNS rebinding for navigations and page requests (a9, v1 after the fact):
+/// a response that came from a refused address stops the tab's load and
+/// is logged; other responses change nothing.
+#[test]
+fn a_response_from_a_refused_address_stops_the_load() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    let response = |url: &str, ip: &str| json!({"targetId": "T", "url": url, "resourceType": "document", "remoteIPAddress": ip});
+    gate.mask_event("response", &response("https://fine.test/", "93.184.216.34"));
+    gate.mask_event("response", &response("https://rebind.test/", "169.254.169.254"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !methods(&driver).contains(&"tab.stop".to_owned()) {
+        assert!(std::time::Instant::now() < deadline, "the load was never stopped");
+        std::thread::yield_now();
+    }
+    let stops: Vec<Value> = driver
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _)| m == "tab.stop")
+        .map(|(_, p)| p.clone())
+        .collect();
+    assert_eq!(stops, vec![json!({"targetId": "T"})], "only the refused response stops");
+    let log = policy(&gate, "log", json!({})).unwrap();
+    let entry =
+        log.as_array().unwrap().iter().find(|e| e["url"] == "https://rebind.test/").cloned();
+    let entry = entry.unwrap_or_else(|| panic!("not logged: {log}"));
+    assert_eq!(entry["blocked"], "after");
+    assert!(entry["reason"].as_str().unwrap().contains("169.254.169.254"), "{entry}");
+}
+
+/// RequestFilter v2 (5c, a9): `kind` changes only logging, never allow or
+/// deny. A Subresource (a script; WebSockets never reach Fetch and are
+/// blocked by URL pattern) to a blocked host is refused and
+/// writes no `blocked: before` line; a Document to it is refused and logged
+/// (main logs navigations, not subresources).
+#[test]
+fn request_kind_changes_logging_only() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    policy(&gate, "set", json!({"prohibited": ["peer.test"]})).unwrap();
+    let filter = driver.filter.lock().unwrap().clone().expect("a request filter");
+    let ws = crate::driver::RequestInfo {
+        target: "T",
+        url: "https://peer.test/app.js",
+        kind: crate::driver::RequestKind::Subresource,
+    };
+    assert!(filter(&ws).is_some(), "a subresource to a blocked host is refused");
+    let log = |gate: &Gate| policy(gate, "log", json!({})).unwrap().as_array().unwrap().clone();
+    assert!(log(&gate).is_empty(), "a subresource refusal is not logged: {:?}", log(&gate));
+    let document = crate::driver::RequestInfo {
+        target: "T",
+        url: "https://peer.test/page",
+        kind: crate::driver::RequestKind::Document,
+    };
+    assert!(filter(&document).is_some(), "a document to it is refused too");
+    let entries = log(&gate);
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_eq!(
+        (entries[0]["url"].as_str(), entries[0]["blocked"].as_str()),
+        (Some("https://peer.test/page"), Some("before"))
+    );
+    // A blocked iframe document is refused and not logged (main logs only
+    // main-frame navigations).
+    let iframe = crate::driver::RequestInfo {
+        url: "https://peer.test/frame",
+        kind: crate::driver::RequestKind::SubframeDocument,
+        ..document
+    };
+    assert!(filter(&iframe).is_some(), "an iframe document to it is refused");
+    assert_eq!(log(&gate).len(), 1, "and not logged");
+    // Allowed stays allowed whatever the kind.
+    let fine = crate::driver::RequestInfo { url: "https://a.test/", ..document };
+    assert!(filter(&fine).is_none());
+    assert!(
+        filter(&crate::driver::RequestInfo {
+            kind: crate::driver::RequestKind::Subresource,
+            ..fine
+        })
+        .is_none()
+    );
 }

@@ -54,7 +54,7 @@ impl ProviderDriver {
         let app_id = app_id.to_owned();
         // The relay's own ids (the page's CDP target, its frames) never
         // reach the filters: every request on this relay is the app tab's.
-        Some(Arc::new(move |_cdp_target: &str, url: &str| {
+        Some(Arc::new(move |request: &crate::driver::RequestInfo<'_>| {
             let Some(provider) = weak.upgrade() else {
                 return Some("the cmux app disconnected".to_owned());
             };
@@ -66,7 +66,8 @@ impl ProviderDriver {
                 .filter(|s| s.tabs.contains(&app_id))
                 .map(|s| s.filter.clone())
                 .collect();
-            filters.iter().find_map(|f| f(&app_id, url))
+            let info = crate::driver::RequestInfo { target: &app_id, ..*request };
+            filters.iter().find_map(|f| f(&info))
         }))
     }
 

@@ -73,6 +73,11 @@ fn spawn_with_env(command: &str, caller_env: &[(&str, &str)]) -> Spawned {
                    "shell_args": ["-c", script], "origin": "test",
                    "mutation_id": "daemon-env-create"})
         }
+        "new-screen" => {
+            let workspace = mux.with_state(|state| state.workspaces[0].id);
+            json!({"cmd": "new-screen", "workspace": workspace, "cols": 80, "rows": 24,
+                   "env": env, "shell_args": ["-c", script]})
+        }
         _ => json!({"cmd": "new-tab", "pane": pane, "env": env, "shell_args": ["-c", script]}),
     };
     run(request);
@@ -169,6 +174,21 @@ fn create_terminal_drops_a_caller_socket() {
     let spawned = spawn_with_env("create-terminal", &[("CMUX_TUI_SOCKET", CALLER_VALUE)]);
     let socket = spawned.env.get("CMUX_TUI_SOCKET").map(String::as_str);
     assert_eq!(socket, Some("/daemon/cmux-tui.sock"));
+}
+
+/// `new-screen` (`screen-terminal-env-v1`) takes the same merge as
+/// `new-tab`: a caller value for a daemon-owned key never reaches the child,
+/// and the shim directory stays first on a caller PATH.
+#[test]
+fn new_screen_drops_a_caller_owned_key_and_keeps_the_shim_first() {
+    let caller = [("CMUX_TUI_SOCKET", CALLER_VALUE), ("PATH", "/opt/caller/bin:/usr/bin:/bin")];
+    let spawned = spawn_with_env("new-screen", &caller);
+    let socket = spawned.env.get("CMUX_TUI_SOCKET").map(String::as_str);
+    assert_eq!(socket, Some("/daemon/cmux-tui.sock"));
+    assert_eq!(
+        spawned.env.get("PATH").map(String::as_str),
+        Some("/daemon/cmux-tui/shims:/opt/caller/bin:/usr/bin:/bin")
+    );
 }
 
 /// The app sends its login-shell PATH, which does not hold the shim

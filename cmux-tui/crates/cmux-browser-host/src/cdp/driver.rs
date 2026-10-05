@@ -40,6 +40,8 @@ pub(super) struct Inner {
     pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
     /// Paused requests to decide: (session, request id, URL).
     pub(super) paused: Mutex<mpsc::Sender<super::requests::PausedRequest>>,
+    /// HOST-FETCH-CORS tokens of the host's fetches in flight.
+    pub(super) cors: Arc<Mutex<super::cors::Cors>>,
     /// Headless Chromium: every tab gets the protocol's hidden-tab viewport
     /// (new headless takes its window chrome out of --window-size). None
     /// for an app tab, which keeps its real size.
@@ -111,7 +113,9 @@ impl Inner {
             })
             .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
         let request_filter = Arc::new(Mutex::new(None));
-        let paused = super::requests::start_worker(conn.clone(), request_filter.clone())?;
+        let cors: Arc<Mutex<super::cors::Cors>> = Arc::default();
+        let paused =
+            super::requests::start_worker(conn.clone(), request_filter.clone(), cors.clone())?;
         let inner = Arc::new(Inner {
             conn: conn.clone(),
             agent_source,
@@ -120,6 +124,7 @@ impl Inner {
             changed: Condvar::new(),
             request_filter,
             paused: Mutex::new(paused),
+            cors,
             hidden_viewport,
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
@@ -210,6 +215,13 @@ impl Driver for CdpDriver {
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
             "tab.pdf" => inner.pdf(params),
+            // The host stops a load whose response came from a refused
+            // address (DNS rebinding).
+            "tab.stop" => {
+                let session = inner.session(params)?;
+                inner.send(&session, "Page.stopLoading", json!({}))?;
+                Ok(Value::Null)
+            }
             "net.fetch" => inner.net_fetch(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),
@@ -522,7 +534,7 @@ impl Inner {
         Value::Array(tabs)
     }
 
-    fn tabs_open(&self, params: &Value) -> Result<Value, DriverError> {
+    pub(super) fn tabs_open(&self, params: &Value) -> Result<Value, DriverError> {
         let deadline = Instant::now() + timeout_of(params);
         let background = params.get("background").and_then(Value::as_bool).unwrap_or(false);
         let created = self.conn.call(
@@ -571,7 +583,7 @@ impl Inner {
         Ok(json!({"targetId": target_id}))
     }
 
-    fn tabs_close(&self, params: &Value) -> Result<Value, DriverError> {
+    pub(super) fn tabs_close(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let deadline = Instant::now() + timeout_of(params);
         if params.get("runBeforeUnload").and_then(Value::as_bool) == Some(true) {

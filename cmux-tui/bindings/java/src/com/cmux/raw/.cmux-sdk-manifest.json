@@ -62,8 +62,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "f6ccfc67fc40031322c5e4a280c00fe01add93ad1a736a92b5e443b6f99068ba",
-      "size": 7981
+      "sha256": "0406b2083cd97f0189a21e836a892bb4bf45f99ecff566e5fd5fd9a324cf9f51",
+      "size": 8852
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -372,8 +372,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "ed0b20177b6db630397e43fea62df86c0ee2ab89b58f1d6ac8ccd21bb080569b",
-      "size": 56895
+      "sha256": "b4bdcd10ae0fee3c1328f386c4cbcec8c2a4d73c2051388318ca51ef2d2eb4fc",
+      "size": 57211
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1227,8 +1227,8 @@
     },
     {
       "path": "NewScreenRequest.java",
-      "sha256": "4fd17bf510fdbf5066a99f2b89ba5deda2ff362dd7751dcdfaed0bf91b16faf7",
-      "size": 7514
+      "sha256": "e070262455f63fe22c832a9622c74be7bdb776e6326abf82971dbe2552c73991",
+      "size": 9779
     },
     {
       "path": "NewTabRequest.java",
@@ -1382,7 +1382,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "dba3fe377a578b11596a1c29ee40213091cd1490ddf57b4bb4cb25b65b032fe0",
+      "sha256": "a39dd21ad7650929da0e658f0c5825612a7f57068956c0bcfbea93558c3ebea9",
       "size": 4943
     },
     {
@@ -2457,7 +2457,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab",
+  "ir_sha256": "c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

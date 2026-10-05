@@ -1609,8 +1609,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() -> std::process::ExitCode {
-    // One binary ships as `cmux` (this CLI and mux) and as `acpmux` through a
-    // symlink, so both always have the same version.
+    // SAFETY: the first statement of main: no other thread runs yet (G4).
+    unsafe { cmux_link::token::take_from_process_env() };
+    // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
         .next()
@@ -1629,9 +1630,8 @@ fn main() -> std::process::ExitCode {
         return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
     }
     run_main();
-    // Reached only by the normal return paths, which never call
-    // client_log::exit; flush so the last queued records (final status,
-    // shutdown diagnostics) reach the client log on every platform.
+    // Reached only by the normal return paths (never client_log::exit): flush
+    // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
 }

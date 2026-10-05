@@ -124,7 +124,7 @@ declare namespace Cmux {
   type HostId = string
   type HostKind = "device" | "server"
   type InputModifier = "shift" | "control" | "alt" | "meta"
-  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId; sso_team?: Cmux.TeamId }
+  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId; sso_team?: Cmux.TeamId; bound_machine?: string }
   type InstallId = string
   type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
   type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
@@ -180,7 +180,7 @@ declare namespace Cmux {
   type NotificationClearResult = { cleared: Array<string /* notification_… */> }
   type NotificationLevel = "info" | "warning" | "error"
   type NotificationSnapshot = { id: string /* notification_… */; session_id: string /* session_… */; title: string; subtitle?: string; body: string; level: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; created_at_ms: string; unread: boolean; read_by: Array<string>; extra?: Record<string, Cmux.JsonValue> }
-  type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link"
+  type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link" | "vm-self"
   type OriginConfirmation = { token: string; expires_at: string }
   type OriginForbiddenDetails = { derived: Cmux.RequestOrigin; required?: Cmux.RequestOrigin; claim?: Cmux.RequestOrigin; reason?: string }
   type PairingCode = string
@@ -544,6 +544,20 @@ interface CmuxGlobal {
     snapshot: {
       /** `cloud.snapshot.list` (read, scope `cloud:read`): Snapshots of one machine, or of the team. */
       list: CmuxOp<{ machine?: Cmux.MachineId }, { snapshots: Array<Cmux.CloudSnapshot> }>
+    }
+    vm: {
+      event: {
+        /** `cloud.vm.event.emit` (mutation, scope `cloud:execute`): Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+        emit: CmuxOp<{ machine: Cmux.MachineId; kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"; at: number; data: string }, Cmux.MutationResult<{ delivered: boolean }>>
+      }
+      self: {
+        /** `cloud.vm.self.get` (read, scope `cloud:read`): The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
+        get: CmuxOp<{ machine: Cmux.MachineId }, { machine: Cmux.CloudMachine }>
+      }
+      status: {
+        /** `cloud.vm.status.report` (mutation, scope `cloud:execute`): Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+        report: CmuxOp<{ machine: Cmux.MachineId; state: "running" | "degraded" | "stopping"; daemon: { version: string; capabilities: Array<string> }; health?: { disk_free_mb?: number; load?: unknown }; activity: { last_user_input_at?: number; last_agent_action_at?: number; active_sessions: number } }, Cmux.MutationResult<{ applied: boolean }>>
+      }
     }
   }
   codemirror: {

@@ -39,9 +39,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
     @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
-    /// Where the page the link menu's next pick creates goes
-    /// (WebKitTab+LinkClicks.swift); nil after it is taken.
-    @ObservationIgnored var contextMenuDisposition: BrowserNewTabDisposition?
+    /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
+    @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
+    /// Files the person chose for a download (Save Link As…), by download.
+    @ObservationIgnored var chosenDestinations: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
@@ -76,6 +77,7 @@ public final class WebKitTab: NSObject, BrowserTab {
             forMainFrameOnly: false
         ))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
+        WebKitContextHit.install(self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
 
         observeWebView()

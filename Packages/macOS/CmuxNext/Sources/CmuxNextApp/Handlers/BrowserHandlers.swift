@@ -145,7 +145,7 @@ enum BrowserHandlers {
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
-        unavailable(["openLinkInNewTab", "openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
+        unavailable(["openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
         unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
         unavailable(["saveFilePreview", "toggleFileEditorWordWrap"], MiscHandlerStrings.filePreview)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)

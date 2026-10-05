@@ -5,6 +5,8 @@
 //! accidentally fall back to the private command protocol.
 
 #[cfg(unix)]
+mod action_hint;
+#[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod apps_run;
@@ -293,6 +295,7 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     }
     let name = command_args[..words].join(" ");
     app::run_cli_action(&global, &name, &command_args[words..])
+        .or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {

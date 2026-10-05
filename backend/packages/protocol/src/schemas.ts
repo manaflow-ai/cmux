@@ -33,7 +33,8 @@ export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "we
 export const OP_RISKS = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
 export const OpRisk = Schema.Literals(OP_RISKS).annotate({ identifier: "OpRisk" })
 
-export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link"]).annotate({
+/** `vm-self` (VM install at bind, 2026-10-05): the VM daemon's own-machine ops (cloud.vm.*) only; no op declares it as its risk. */
+export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link", "vm-self"]).annotate({
   identifier: "OpClass"
 })
 
@@ -60,7 +61,9 @@ export const Install = Schema.Struct({
   /** The team whose TeamDO may revoke this install (a paired cmux server; plans/cmux-next/server.md 6.5). */
   bound_team: Schema.optionalKey(TeamId),
   /** The team whose SSO session registered this install (enterprise P17-4: sso.enforce keeps installs to SSO-registered ones). */
-  sso_team: Schema.optionalKey(TeamId)
+  sso_team: Schema.optionalKey(TeamId),
+  /** A VM install (kind vm, made at bind): the one Cloud machine it speaks for. */
+  bound_machine: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)))
 }).annotate({ identifier: "Install" })
 
 export const Grant = Schema.Struct({
