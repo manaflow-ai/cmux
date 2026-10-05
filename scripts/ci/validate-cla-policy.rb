@@ -256,7 +256,9 @@ GUARD_VALIDATE_NAME = GUARD_WORKFLOW_NAME
 GUARD_METADATA_NAME = GUARD_WORKFLOW_NAME
 GUARD_CONCURRENCY = {
   "group" => "cla-policy-${{ github.event.pull_request.number }}",
-  "cancel-in-progress" => true
+  # Body/title edits must not cancel a full policy validation that is already
+  # checking the new head. Base-branch edits remain replaceable.
+  "cancel-in-progress" => "${{ github.event.action != 'edited' || github.event.changes.base }}"
 }.freeze
 GUARD_VERIFY_ENV = {
   "WORKFLOW_SHA" => "${{ github.workflow_sha }}"
@@ -336,8 +338,8 @@ CLA_WRITER_CONDITION = <<~EXPRESSION.gsub(/\s+/, " ").strip.freeze
     github.event.issue.pull_request &&
     github.event.comment.user.type == 'User' &&
     (
-      github.event.comment.body == 'recheck' ||
-      github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+      contains(github.event.comment.body, 'recheck') ||
+      contains(github.event.comment.body, 'I have read the CLA Document v2.2 and I hereby sign the CLA')
     )
   )
 EXPRESSION
@@ -354,11 +356,17 @@ CLA_STATUS_RUN = <<~'SH'.strip.freeze
   [[ "$PR_AUTHOR_ID" =~ ^[1-9][0-9]*$ ]]
   [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
   ledger="$(mktemp)"
-  trap 'rm -f "$ledger"' EXIT
-  encoded="$(gh api --raw-field ref=cla-signatures "repos/$GH_REPO/contents/signatures/version2/cla.json" --jq .content)"
+  commits_file="$(mktemp)"
+  trap 'rm -f "$ledger" "$commits_file"' EXIT
+  encoded="$(gh api --method GET --raw-field ref=cla-signatures "repos/$GH_REPO/contents/signatures/version2/cla.json" --jq .content)"
+  [[ -n "$encoded" ]]
   printf '%s' "$encoded" | tr -d '[:space:]' | base64 --decode >"$ledger"
-  commits="$(gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/commits?per_page=100")"
-  jq -e --argjson author "$PR_AUTHOR_ID" --argjson commits "$commits" '
+  pr_commit_count="$(gh api --method GET "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .commits)"
+  [[ "$pr_commit_count" =~ ^[0-9]+$ ]] && (( pr_commit_count <= 250 ))
+  gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/commits?per_page=100" >"$commits_file"
+  jq -e '[.[].[]?] | length <= 250' "$commits_file" >/dev/null
+  jq -e --argjson author "$PR_AUTHOR_ID" --slurpfile commit_pages "$commits_file" '
+    ($commit_pages[0]) as $commits |
     . as $ledger |
     ($ledger.signedContributors | type == "array") and
     ([ $author ] + [ $commits[].[]? | .author.id ] | all(.[]; type == "number")) and
@@ -368,7 +376,7 @@ CLA_STATUS_RUN = <<~'SH'.strip.freeze
          any($ledger.signedContributors[]?; .id == $id))))
   ' "$ledger" >/dev/null
 SH
-CLA_STATUS_RUN_HASH = "4fbc739e6ee8833352c22fd8bab38712f5ccd8f63533e06ebe324bde01b20309"
+CLA_STATUS_RUN_HASH = "07957b16a6c193c3a8300f50def3dce1b839bb9d7aab24d6c3c2e03896083217"
 
 # The guard validates a deliberately closed workflow vocabulary. A policy
 # change may alter messages and implementation details inside the listed
