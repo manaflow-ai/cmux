@@ -510,7 +510,9 @@ jobs:
     # testing; publishing remains main-only.
     if: >-
       needs.decide.outputs.should_build == 'true' &&
-      (github.ref == 'refs/heads/main' || github.event.inputs.prepare_only == 'true')
+      (github.ref == 'refs/heads/main' ||
+       github.event.inputs.prepare_only == 'true' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.variant == 'beta'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     # Saves the iOS compilation cache. Every R2 cache writer declares this
