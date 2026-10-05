@@ -28,7 +28,11 @@ extension AgentPaneView {
             }
         }
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
-        pageEvents?.replay = { [weak self] in self?.currentPageEvents() ?? [] }
+        pageEvents?.replay = { [weak self] in
+            // A new subscriber is a page that loaded again: its registry renderers are gone.
+            self?.runPageHostRegistry()
+            return self?.currentPageEvents() ?? []
+        }
         addSubview(page)
     }
 
