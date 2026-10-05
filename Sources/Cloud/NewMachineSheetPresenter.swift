@@ -243,11 +243,22 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let selectionID = UUID()
         pendingSelectionID = selectionID
         let coordinator = MachineCreateCoordinator.shared
+        // Seed the model from the shared cache before the first SwiftUI layout.
+        // A warmed cache is still revalidated below, but it should not make a
+        // ready sheet flash its loading state while that happens.
+        let cachedData = dataCache?.currentData
+        let cachedLimits = cachedData?.limits
+        let hasCachedPlan = cachedData?.hasPlan == true
         let model = NewMachineModel(
             mode: .newMachine,
-            plan: nil,
+            plan: cachedData?.plan,
+            memoryOptionsMb: cachedLimits?.memoryOptionsMb ?? [],
+            lockedMemoryOptionsMb: cachedLimits?.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: cachedLimits?.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: cachedLimits?.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: cachedLimits?.vcpusByMemoryMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
-            planIsLoading: true,
+            planIsLoading: !hasCachedPlan,
             submit: { [weak self] request in
                 guard let self, self.pendingSelectionID == selectionID else { return false }
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
