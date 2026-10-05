@@ -2,12 +2,18 @@ public import Foundation
 
 /// The Downloads names that running downloads of both engines hold, so two
 /// downloads that start together never pick the same name. A name is held
-/// from `BrowserDownloadPolicy.place` until its download ends.
+/// from `BrowserDownloadPolicy.place` until its download ends. The shared
+/// reservations also record each temporary file (`BrowserDownloadTempFiles`)
+/// so the next launch can delete what a crash left.
 public final class BrowserDownloadReservations {
-    public static let shared = BrowserDownloadReservations()
+    public static let shared = BrowserDownloadReservations(tempFiles: .shared)
     private var paths: Set<String> = []
+    /// Records each running download's temporary file (nil: no record).
+    let tempFiles: BrowserDownloadTempFiles?
 
-    public init() {}
+    public init(tempFiles: BrowserDownloadTempFiles? = nil) {
+        self.tempFiles = tempFiles
+    }
 
     func contains(_ url: URL) -> Bool { paths.contains(Self.key(url)) }
     func insert(_ url: URL) { paths.insert(Self.key(url)) }
@@ -23,7 +29,8 @@ public final class BrowserDownloadReservations {
 /// and the download takes the next free name. A file the person confirmed
 /// in a save panel is replaced only by a complete download, so a failed one
 /// keeps the old file. Failure and cancel delete the temporary file
-/// (`discard`).
+/// (`discard`). The temporary file is in the reservations' record
+/// (`BrowserDownloadTempFiles`) from start to `discard`.
 public final class BrowserDownloadPlacement {
     /// The engine writes here (Chromium adds `.crdownload` while it runs).
     public let temporaryURL: URL
@@ -45,6 +52,7 @@ public final class BrowserDownloadPlacement {
         self.reservations = reservations
         temporaryURL = Self.temporarySibling(of: finalURL)
         reservations.insert(finalURL)
+        reservations.tempFiles?.add(temporaryURL)
     }
 
     /// Moves the complete temporary file into place; returns where it
@@ -92,6 +100,7 @@ public final class BrowserDownloadPlacement {
         for url in [temporaryURL, temporaryURL.appendingPathExtension("crdownload")] {
             try? FileManager.default.removeItem(at: url)
         }
+        reservations.tempFiles?.remove(temporaryURL)
     }
 
     /// `renamex_np(RENAME_EXCL)`: fails with EEXIST when anything (a file,

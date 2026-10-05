@@ -240,9 +240,9 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugWindowList.list(services: services))
             },
-            .mainActor("debug.window_snapshot") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugWindowSnapshot.capture(call.params, services: services))
+            .async("debug.window_snapshot") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugWindowSnapshot.captureAsync(call.params, services: services)
             },
             .mainActor("debug.window_frame") { [weak services] call in
                 guard let services else { return .value(.null) }

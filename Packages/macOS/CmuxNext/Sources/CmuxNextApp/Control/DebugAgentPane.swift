@@ -26,7 +26,7 @@ import WebKit
 /// `select_session` (`session`), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`),
-/// `pid` (the WebContent process, for profiling), or
+/// `readiness` (page body, transcript and composer metrics), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
@@ -47,7 +47,11 @@ enum DebugAgentPane {
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
     private static let script = """
-        const debug = window.cmuxAcpmuxDebug;
+        let debug = window.cmuxAcpmuxDebug;
+        for (let frame = 0; !debug && frame < 120; frame += 1) {
+            await new Promise(requestAnimationFrame);
+            debug = window.cmuxAcpmuxDebug;
+        }
         if (!debug || typeof debug[fn] !== "function") return JSON.stringify({ error: "the page has no cmuxAcpmuxDebug." + fn });
         return JSON.stringify((await debug[fn](...args)) ?? null);
         """
@@ -70,8 +74,11 @@ enum DebugAgentPane {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
+        if action == "readiness" {
+            return await readiness(pane: pane, view: view)
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -83,6 +90,37 @@ enum DebugAgentPane {
                 return .object(["pane": .string(pane), "error": .string("the page returned no JSON")])
             }
             guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
+            members["pane"] = .string(pane)
+            return .object(members)
+        } catch {
+            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        }
+    }
+
+    private static func readiness(pane: String, view: AgentPaneView) async -> JSONValue {
+        let script = """
+        const bodyText = (document.body?.innerText || '').trim();
+        const composer = document.querySelector('.acpmux-composer');
+        const composerRect = composer?.getBoundingClientRect();
+        const debug = window.cmuxAcpmuxDebug;
+        const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
+        const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
+        return JSON.stringify({
+          body_text_length: bodyText.length,
+          transcript_rows: transcriptRows,
+          composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
+          composer_text_length: (composer?.innerText || '').trim().length,
+          document_ready: document.readyState === 'complete'
+        });
+        """
+        do {
+            let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+            guard let text = result as? String,
+                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                  let value = JSONValue(foundation: object),
+                  case .object(var members) = value else {
+                return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
+            }
             members["pane"] = .string(pane)
             return .object(members)
         } catch {
