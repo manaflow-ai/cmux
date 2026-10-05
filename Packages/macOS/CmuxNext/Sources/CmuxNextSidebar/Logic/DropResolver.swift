@@ -1,8 +1,5 @@
 public import CoreGraphics
 import Foundation
-#if CMUX_LAYOUT_REDUCER_FFI
-import CCmuxLayoutReducerFFI
-#endif
 
 /// Swift model adapter for the shared Rust sidebar drop reducer.
 public nonisolated enum DropResolver {

@@ -164,7 +164,9 @@ pub unsafe extern "C" fn cmux_rd_input_push(
 
 /// Applies an `InputAck` datagram (header included, as
 /// `cmux_rd_receiver_pop_message` hands it out with kind
-/// `CMUX_RD_MESSAGE_DATAGRAM`). `CMUX_RD_ERR_INVALID` for any other datagram.
+/// `CMUX_RD_MESSAGE_DATAGRAM`). `CMUX_RD_ERR_INVALID` for any other datagram
+/// and no state change, so a caller may offer every datagram message here
+/// and ignore that code.
 ///
 /// # Safety
 /// `input` is valid; `datagram` is readable for `len` bytes.
@@ -200,6 +202,9 @@ pub unsafe extern "C" fn cmux_rd_input_packet(
     if out_len.is_null() {
         return CMUX_RD_ERR_NULL;
     }
+    // SAFETY: checked non-NULL; writable by contract. Every path, including a
+    // NULL or unusable handle, leaves a defined length.
+    unsafe { *out_len = 0 };
     with_input(input, |h| {
         let Some(packet) = h.stashed.take().or_else(|| h.inner.packet(now_us)) else {
             // SAFETY: checked non-NULL; writable by contract.

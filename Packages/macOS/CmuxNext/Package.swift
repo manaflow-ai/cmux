@@ -87,32 +87,22 @@ let daemonSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("InternalImportsByDefault"),
 ]
 
-/// The remote desktop viewer core (Rust crate cmux-tui/crates/cmux-rd-ffi) as the
-/// client xcframework, linked only into CmuxNextRemoteView and only when
-/// CMUX_NEXT_RD_FFI=1 after scripts/cmux-next/build-rd-ffi.sh built it. Every
-/// other build compiles the remote view without it: RemoteRdCore is
-/// `#if CMUX_RD_FFI` (plans/cmux-next/remote-desktop.md section 3).
-/// An environment switch, not a file check: SwiftPM caches the manifest by
-/// its environment, so a file check would go stale.
-let remoteDesktopCoreLinked = Context.environment["CMUX_NEXT_RD_FFI"] == "1"
-let remoteDesktopCoreTargets: [Target] = remoteDesktopCoreLinked
-    ? [.binaryTarget(name: "CCmuxRdFFI", path: "../../../cmux-tui/target/cmux-rd-ffi/CCmuxRdFFI.xcframework")]
-    : []
-let remoteDesktopCoreDependency: [Target.Dependency] = remoteDesktopCoreLinked ? ["CCmuxRdFFI"] : []
-/// A compiler define, not `canImport`: a changed define recompiles the
-/// module, so switching CMUX_NEXT_RD_FFI in one .build never links stale objects.
-let remoteDesktopCoreSettings: [SwiftSetting] = remoteDesktopCoreLinked ? [.define("CMUX_RD_FFI")] : []
-
-/// The sidebar's hit testing and reorder rules live in the shared Rust
-/// `cmux-layout-reducer` crate. The fleet build produces this client
-/// xcframework with `scripts/cmux-next/build-layout-reducer-ffi.sh` before
-/// setting CMUX_NEXT_LAYOUT_REDUCER_FFI=1.
-let layoutReducerLinked = Context.environment["CMUX_NEXT_LAYOUT_REDUCER_FFI"] == "1"
-let layoutReducerTargets: [Target] = layoutReducerLinked
-    ? [.binaryTarget(name: "CCmuxLayoutReducerFFI", path: "../../../cmux-tui/target/cmux-layout-reducer-ffi/CCmuxLayoutReducerFFI.xcframework")]
-    : []
-let layoutReducerDependency: [Target.Dependency] = layoutReducerLinked ? ["CCmuxLayoutReducerFFI"] : []
-let layoutReducerSettings: [SwiftSetting] = layoutReducerLinked ? [.define("CMUX_LAYOUT_REDUCER_FFI")] : []
+/// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
+/// the remote desktop core C ABI (module CCmuxRdFFI) and the sidebar layout
+/// reducer C ABI (module CCmuxLayoutReducerFFI) over one Rust runtime. Every
+/// build links it from one pinned release
+/// (.github/workflows/app-ffi-release.yml). Apple's compact unwind
+/// holds at most three personality routines per image (C++, iroh, this one),
+/// so a new in-tree C ABI joins cmux-app-ffi, never another static library
+/// (scripts/cmux-next/check-app-personalities.sh fails the app build above
+/// three). A pin change updates the URL (tag cmux-app-ffi-<source sha>) and the
+/// checksum together; scripts/cmux-next/check-app-ffi-pin.sh fails CI
+/// when the FFI sources differ from the pinned source sha.
+let appFFI: Target = .binaryTarget(
+    name: "CCmuxAppFFI",
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-40cd86303a2d616cbdcc31a843c03a1b3f8b6a41/CCmuxAppFFI.xcframework.zip",
+    checksum: "10a70e1ef5df827839333144fee8b87f02713d7077070672125d4583fc499e9f"
+)
 
 let package = Package(
     name: "CmuxNext",
@@ -501,17 +491,17 @@ let package = Package(
         // `remote_view` tabs (cmux://remote-view records, development builds).
         .target(
             name: "CmuxNextRemoteView",
-            dependencies: ["CmuxNextDesign"] + remoteDesktopCoreDependency,
+            dependencies: ["CmuxNextDesign", "CCmuxAppFFI"],
             exclude: ["README.md"],
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings + remoteDesktopCoreSettings
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign"] + remoteDesktopCoreDependency,
-            swiftSettings: uiSwiftSettings + remoteDesktopCoreSettings
+            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign", "CCmuxAppFFI"],
+            swiftSettings: uiSwiftSettings
         ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
         // menubar panel, pairing, approver sheet and health prototypes over a
@@ -783,16 +773,16 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")] + layoutReducerDependency,
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings + layoutReducerSettings
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources"] + layoutReducerDependency,
-            swiftSettings: uiSwiftSettings + layoutReducerSettings
+            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources", "CCmuxAppFFI"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextPalette",
@@ -946,5 +936,5 @@ let package = Package(
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
-    ] + remoteDesktopCoreTargets + layoutReducerTargets
+    ] + [appFFI]
 )

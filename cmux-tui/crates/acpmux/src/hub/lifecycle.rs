@@ -500,9 +500,11 @@ impl Hub {
                     "new"
                 };
                 m.agent_session_id = sid.clone();
-                m.modes = Some(modes);
-                m.config_options = Some(opts);
                 drop(m);
+                self.write_mode_state(
+                    session,
+                    [ModeWrite::Modes(modes), ModeWrite::ConfigOptions(opts)],
+                );
                 if fork_from.is_some() {
                     session.fork_from.lock().unwrap().take();
                 }
@@ -594,8 +596,8 @@ impl Hub {
                 .await
             {
                 tracing::warn!(session = %session.id, "replay mode {mode}: {}", e.message);
-            } else if let Some(m) = session.meta.lock().unwrap().modes.as_mut() {
-                m["currentModeId"] = json!(mode);
+            } else {
+                self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
             }
         }
         let opts: Vec<(String, Value)> = saved
@@ -630,7 +632,7 @@ impl Hub {
             {
                 Ok(res) => {
                     if let Some(o) = res.get("configOptions") {
-                        session.meta.lock().unwrap().config_options = Some(o.clone());
+                        self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
                     }
                 }
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
@@ -829,21 +831,13 @@ impl Hub {
     }
 
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {
-        let mut m = session.meta.lock().unwrap();
-        if let Some(modes) = v.get("modes")
-            && !modes.is_null()
-        {
-            m.modes = Some(modes.clone());
-        }
-        if let Some(opts) = v.get("configOptions")
-            && !opts.is_null()
-        {
-            m.config_options = Some(opts.clone());
-        }
-        if let Some(models) = v.get("models")
-            && !models.is_null()
-        {
-            m.models = Some(models.clone());
+        let present = |k: &str| v.get(k).filter(|x| !x.is_null()).cloned();
+        let mut writes = Vec::new();
+        writes.extend(present("modes").map(ModeWrite::Modes));
+        writes.extend(present("configOptions").map(ModeWrite::ConfigOptions));
+        self.write_mode_state(session, writes);
+        if let Some(models) = present("models") {
+            session.meta.lock().unwrap().models = Some(models);
         }
     }
 

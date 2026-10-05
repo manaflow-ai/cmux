@@ -54,14 +54,16 @@ on:
   # checks. This is pull_request_target so the workflow definition and publish
   # steps come from the trusted base branch; the build job receives no R2
   # credentials and only hands the publisher an opaque binary artifact.
+  # Keep this filter identical to cmux-tui-tree-inputs.txt. The merge ref can
+  # still differ from the PR head, so tree-preflight remains the cheap check
+  # that skips macOS work when the complete key is already published.
   pull_request_target:
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/**"
       - "ghostty"
       - "ghostty-next"
-      - ".github/workflows/cmux-tui-artifacts.yml"
-      - ".github/workflows/cmux-tui-build-package.yml"
+      - "scripts/cmux-next/build-layout-reducer-ffi.sh"
   workflow_dispatch:
     inputs:
       macos_runner:
@@ -74,21 +76,14 @@ on:
         type: string
 
 concurrency:
-  # Main remains serialized because each main run also updates latest/.
-  # A first-attempt push to any other branch shares one group per ref: GitHub
-  # keeps one running and one pending run, and a newer push replaces the
-  # pending one (2026-10-05: 28 superseded feat-cmux-next runs sat queued for
-  # one macOS runner). The same-tree wait (pin-cmux-tui.sh fetch) polls R2 for
-  # its tree key and reads the runs of its own commit, so a replaced run makes
-  # that wait fail fast instead of hanging; the newest push publishes its tree.
-  # Dispatches and reruns (the requeue job below, the owned-pool rescue) keep a
-  # per-commit group: a dispatch for an exact SHA is never dropped, and a rerun
-  # of an older push never replaces the newest pending run. Pull requests keep
-  # one group per PR.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.run_attempt == '1' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
-  # Raw immutable objects are write-once. Queue a rerun of the same commit
-  # instead of cancelling a half-written publication.
-  cancel-in-progress: false
+  # Main remains serialized because each main run also updates latest/. Branch
+  # dogfood runs publish commit-addressed objects only, so different commits
+  # can build in parallel instead of waiting behind an obsolete branch run.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.ref == 'refs/heads/feat-cmux-next' && 'feat-cmux-next-push' || github.event.pull_request.number || github.sha }}
+  # A queued feat-cmux-next push is superseded by the newest branch head. Keep
+  # main, PR and pin publications non-cancelling because their objects are
+  # write-once and may be the only recovery path for a key.
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
 permissions: {}
 
@@ -100,7 +95,7 @@ env:
 
 jobs:
   # Keep the common path cheap: a tree-addressed publication is complete when
-  # its checksum marker exists, so there is no reason to spend a macOS build
+  # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
   # or daemon-test slot on another commit with the same inputs. The source
   # checkout is used only for git plumbing and never executes PR code.
   tree-preflight:
@@ -159,24 +154,49 @@ jobs:
             echo "Fork pull request: no trusted cmux-tui build is run."
           fi
 
-          tui_tree="$(git rev-parse --verify "$SOURCE_COMMIT:cmux-tui")"
-          ghostty_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty")"
-          entries="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty' "$tui_tree" "$ghostty_commit")"
-          if ghostty_next_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty-next" 2>/dev/null)"; then
-            entries+="$(printf '\n160000 commit %s\tghostty-next' "$ghostty_next_commit")"
-          fi
-          key="$(printf '%s\n' "$entries" | git mktree --missing)"
+          key="$(python3 scripts/ci/cmux_tui_tree_key.py "$SOURCE_COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
-          tree_ready=false
-          marker="https://files.cmux.com/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256?preflight=$RUN_ID"
-          if digest="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 "$marker" 2>/dev/null)" \
-            && [[ "$digest" =~ ^[0-9a-f]{64}[[:space:]] ]]; then
-            tree_ready=true
-            echo "Published tree $key is ready; macOS build can be skipped."
-          else
-            echo "Tree $key is missing or has no valid checksum marker; macOS publication is required."
+          tree_ready=true
+          base="https://files.cmux.com/cmux-tui/tree/$key"
+          # A daemon marker alone can belong to a legacy or interrupted
+          # publication. All arm64 runtime binaries and checksums must exist.
+          for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            if ! digest="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                "$base/$asset.sha256?preflight=$RUN_ID" 2>/dev/null)" \
+              || [[ ! "$digest" =~ ^[0-9a-f]{64}[[:space:]] ]] \
+              || ! curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                -o /dev/null "$base/$asset?preflight=$RUN_ID"; then
+              tree_ready=false
+              echo "Tree $key is missing $asset or its checksum; publication repair is required (see cmuxterm-hq REPAIR.md)."
+            fi
+          done
+          completion="$RUNNER_TEMP/cmux-tui-completion.json"
+          if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              "$base/completion.json?preflight=$RUN_ID" -o "$completion" \
+              || ! python3 - "$key" "$completion" <<'PY'
+          import json, re, sys
+          key, path = sys.argv[1:]
+          data = json.load(open(path, encoding="utf-8"))
+          names = (
+              "cmux-tui-aarch64-apple-darwin",
+              "cmux-tui-app-host-aarch64-apple-darwin",
+              "cmux-tui-cloud-server-aarch64-apple-darwin",
+          )
+          if data.get("key") != key or not isinstance(data.get("binaries"), dict):
+              raise SystemExit("completion manifest key or binaries object is invalid")
+          for name in names:
+              digest = data["binaries"].get(name)
+              if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                  raise SystemExit(f"completion manifest is missing {name}")
+          PY
+          then
+            tree_ready=false
+            echo "Tree $key is missing a complete completion manifest; publication repair is required (see cmuxterm-hq REPAIR.md)."
+          fi
+          if [[ "$tree_ready" == true ]]; then
+            echo "Published tree $key and all daemon companions are ready; macOS build can be skipped."
           fi
           echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
 
@@ -949,7 +969,7 @@ jobs:
           name: cmux-tui-aarch64-apple-darwin
           path: assets/tree
 
-      - name: Upload to R2
+      - name: Publish the complete tree with the trusted helper
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -960,69 +980,51 @@ jobs:
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(scripts/cmux-next/pin-cmux-tui.sh key)" == "$KEY" ]] || {
-            echo "tree key $KEY does not match this checkout" >&2; exit 1; }
-          name=cmux-tui-aarch64-apple-darwin
-          binary="assets/tree/$name"
-          [[ -f "$binary" ]] || { echo "missing $binary" >&2; exit 1; }
-          fetch() { curl -fsSL --proto '=https' "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
-          # The binary the commit-addressed manifest published for this commit.
-          fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
-          manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"][sys.argv[2]])' manifest.json "$name")"
-          sha="$(sha256sum "$binary" | awk '{print $1}')"
-          [[ "$sha" == "$manifest_sha" ]] || { echo "$binary does not match the commit manifest" >&2; exit 1; }
+            echo "tree key $KEY does not match this checkout; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
+            exit 1; }
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          if fetch "$base/$name.sha256" existing.sha256 2>/dev/null; then
-            echo "tree $KEY is already published ($(cat existing.sha256)); an earlier commit with this tree built it"
-            exit 0
-          fi
-          upload() {
-            python3 scripts/ci/upload-r2-object.py --write-once \
-              --file "$1" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --bucket cmux-binaries \
-              --key "cmux-tui/tree/$KEY/$2" \
-              --cache-control "public, max-age=31536000, immutable"
-          }
+          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
+          fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
           mkdir -p tree
-          python3 - "$KEY" "$GITHUB_SHA" "$sha" > tree/source.json <<'PY'
+          if fetch "$base/source.json" tree/source.json 2>/dev/null; then
+            source_args=(--source-file tree/source.json)
+            source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/source.json)"
+            [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
+            fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
+            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+              fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
+            done
+          else
+            source_commit="$GITHUB_SHA"
+            python3 - "$KEY" "$GITHUB_SHA" manifest.json > tree/source.json <<'PY'
           import json, os, subprocess, sys
-          key, commit, sha = sys.argv[1:4]
+          key, commit, manifest_path = sys.argv[1:]
+          manifest = json.load(open(manifest_path))
+          names = ("cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin")
           def rev(spec):
               return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
           print(json.dumps({
               "key": key,
               "cmuxTuiTree": rev("HEAD:cmux-tui"),
               "ghosttyCommit": rev("HEAD:ghostty"),
-              # libghostty-vt's source (cmux-tui builds it from ghostty-next).
               "ghosttyNextCommit": rev("HEAD:ghostty-next"),
               "commit": commit,
               "run": os.environ["GITHUB_RUN_ID"],
               "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
-              "binaries": {"cmux-tui-aarch64-apple-darwin": sha},
+              "binaries": {name: manifest["binaries"][name] for name in names},
           }, indent=2))
           PY
-          # source.json goes first and decides the key's binary. When an earlier
-          # run of this key stopped part way, its source.json stands: that
-          # commit also passed the daemon tests with this tree, and its binary
-          # is at its commit-addressed URL. Finish that publication.
-          if ! upload tree/source.json source.json; then
-            fetch "$base/source.json" tree/source.json || { echo "source.json upload failed and none is published" >&2; exit 1; }
-            echo "completing the earlier publication: $(tr -d '\n' < tree/source.json)"
+            source_args=(--source-file tree/source.json --publish-source)
           fi
-          read -r owner sha < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["commit"], d["binaries"][sys.argv[2]])' tree/source.json "$name")
-          [[ "$owner" =~ ^[0-9a-f]{40}$ && "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "published source.json is malformed" >&2; exit 1; }
-          if [[ "$owner" == "$GITHUB_SHA" ]]; then
-            cp "$binary" "tree/$name"
-          else
-            fetch "https://files.cmux.com/cmux-tui/$owner/$name" "tree/$name"
-          fi
-          [[ "$(sha256sum "tree/$name" | awk '{print $1}')" == "$sha" ]] || { echo "binary for $owner does not match source.json" >&2; exit 1; }
-          chmod 0755 "tree/$name"
-          upload "tree/$name" "$name"
-          printf '%s  %s\n' "$sha" "$name" > "tree/$name.sha256"
-          # The sha256 file goes last: its presence means the key is complete.
-          upload "tree/$name.sha256" "$name.sha256"
-          echo "Published: $base/$name ($sha, built by $owner)"
+          python3 scripts/ci/publish-cmux-tui-tree.py \
+            --key "$KEY" \
+            --source-commit "$source_commit" \
+            --assets-dir assets/tree \
+            --manifest-file manifest.json \
+            "${source_args[@]}" \
+            --uploader scripts/ci/upload-r2-object.py \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries
 
       - name: Verify the tree publication
         env:
@@ -1065,7 +1067,7 @@ jobs:
           name: cmux-tui-aarch64-apple-darwin
           path: assets/tree
 
-      - name: Publish the PR tree with the trusted uploader
+      - name: Publish the PR tree with the trusted helper
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -1079,75 +1081,70 @@ jobs:
           git fetch --no-tags origin "$BASE_COMMIT"
           git fetch --no-tags origin "$SOURCE_COMMIT"
           [[ "$(git cat-file -t "$SOURCE_COMMIT")" == commit ]]
-          tui_tree="$(git rev-parse "$SOURCE_COMMIT:cmux-tui")"
-          ghostty_commit="$(git rev-parse "$SOURCE_COMMIT:ghostty")"
-          ghostty_next_commit="$(git rev-parse "$SOURCE_COMMIT:ghostty-next")"
-          computed_key="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty\n160000 commit %s\tghostty-next\n' \
-            "$tui_tree" "$ghostty_commit" "$ghostty_next_commit" | git mktree --missing)"
+          computed_key="$(python3 scripts/ci/cmux_tui_tree_key.py "$SOURCE_COMMIT")"
           [[ "$computed_key" == "$KEY" ]] || {
-            echo "PR tree key $KEY does not match the trusted merge-tree calculation $computed_key" >&2
+            echo "PR tree key $KEY does not match trusted merge-tree calculation $computed_key; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
             exit 1
           }
-          name=cmux-tui-aarch64-apple-darwin
-          binary="assets/tree/$name"
-          [[ -f "$binary" ]] || { echo "missing $binary" >&2; exit 1; }
-          sha="$(sha256sum "$binary" | awk '{print $1}')"
+          tui_tree="$(git rev-parse "$SOURCE_COMMIT:cmux-tui")"
+          ghostty_commit="$(git rev-parse "$SOURCE_COMMIT:ghostty")"
+          ghostty_next_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty-next" 2>/dev/null || true)"
+          mkdir -p assets/tree tree
+          uploader="$RUNNER_TEMP/upload-r2-object.py"
+          helper="$RUNNER_TEMP/publish-cmux-tui-tree.py"
+          git show "$BASE_COMMIT:scripts/ci/upload-r2-object.py" > "$uploader"
+          git show "$BASE_COMMIT:scripts/ci/publish-cmux-tui-tree.py" > "$helper"
+          chmod 0755 "$uploader" "$helper"
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
           fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
-          if fetch "$base/$name.sha256" existing.sha256 2>/dev/null; then
-            existing_sha="$(awk 'NR==1{print $1}' existing.sha256)"
-            [[ "$existing_sha" =~ ^[0-9a-f]{64}$ ]] || {
-              echo "published tree $KEY has a malformed checksum" >&2
-              exit 1
-            }
-            # The key covers the daemon inputs, not the merge commit. A second
-            # PR with the same tree can therefore produce different bytes
-            # because the build embeds its commit. The first write-once
-            # publication is authoritative; adopt it after validating its
-            # source metadata instead of turning a harmless race red.
-            fetch "$base/source.json" existing.source.json || {
-              echo "tree $KEY has a checksum but no source metadata" >&2
-              exit 1
-            }
-            python3 - "$KEY" existing.source.json <<'PY'
-          import json, sys
-          key, path = sys.argv[1:]
-          with open(path) as source:
-              metadata = json.load(source)
-          if metadata.get("key") != key or metadata.get("binaries", {}).get("cmux-tui-aarch64-apple-darwin") != open("existing.sha256").read().split()[0]:
-              raise SystemExit("published source metadata does not match the immutable tree key/checksum")
-          PY
-            echo "tree $KEY is already published; adopting the verified write-once binary (existing=$existing_sha built=$sha)"
-            exit 0
+          source_commit="$SOURCE_COMMIT"
+          if fetch "$base/source.json" tree/existing-source.json 2>/dev/null; then
+            source_args=(--source-file tree/existing-source.json)
+            source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/existing-source.json)"
+            [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
+            fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
+            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+              fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
+            done
+          else
+            source_args=(--source-file tree/source.json --publish-source)
           fi
-          uploader="$RUNNER_TEMP/upload-r2-object.py"
-          git show "$BASE_COMMIT:scripts/ci/upload-r2-object.py" > "$uploader"
-          upload() {
-            python3 "$uploader" --write-once \
-              --file "$1" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --bucket cmux-binaries \
-              --key "cmux-tui/tree/$KEY/$2" \
-              --cache-control "public, max-age=31536000, immutable"
-          }
-          mkdir -p tree
-          python3 - "$KEY" "$SOURCE_COMMIT" "$sha" "$tui_tree" "$ghostty_commit" "$ghostty_next_commit" > tree/source.json <<'PY'
+          python3 - "$source_commit" "$KEY" > manifest.json.tmp <<'PY'
+          import hashlib, json, pathlib, sys
+          commit, key = sys.argv[1:]
+          names = ("cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin")
+          binaries = {}
+          for name in names:
+              path = pathlib.Path("assets/tree") / name
+              if not path.is_file():
+                  raise SystemExit(f"missing opaque build companion {name}; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication")
+              binaries[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+          print(json.dumps({"commit": commit, "key": key, "binaries": binaries}, indent=2))
+          PY
+          mv manifest.json.tmp manifest.json
+          if [[ "${source_args[*]}" == *"--publish-source"* ]]; then
+            python3 - "$KEY" "$SOURCE_COMMIT" "$tui_tree" "$ghostty_commit" "$ghostty_next_commit" manifest.json > tree/source.json <<'PY'
           import json, os, sys
-          key, commit, sha, tui, ghostty, ghostty_next = sys.argv[1:]
+          key, commit, tui_tree, ghostty_commit, ghostty_next_commit, manifest_path = sys.argv[1:]
+          manifest = json.load(open(manifest_path))
           print(json.dumps({
               "key": key,
-              "cmuxTuiTree": tui,
-              "ghosttyCommit": ghostty,
-              "ghosttyNextCommit": ghostty_next,
+              "cmuxTuiTree": tui_tree,
+              "ghosttyCommit": ghostty_commit,
+              "ghosttyNextCommit": ghostty_next_commit,
               "commit": commit,
               "run": os.environ["GITHUB_RUN_ID"],
               "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
-              "binaries": {"cmux-tui-aarch64-apple-darwin": sha},
+              "binaries": manifest["binaries"],
           }, indent=2))
           PY
-          upload tree/source.json source.json
-          chmod 0755 "$binary"
-          upload "$binary" "$name"
-          printf '%s  %s\n' "$sha" "$name" > "tree/$name.sha256"
-          upload "tree/$name.sha256" "$name.sha256"
-          echo "Published PR tree $KEY: $base/$name"
+          fi
+          python3 "$helper" \
+            --key "$KEY" \
+            --source-commit "$source_commit" \
+            --assets-dir assets/tree \
+            --manifest-file manifest.json \
+            "${source_args[@]}" \
+            --uploader "$uploader" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries

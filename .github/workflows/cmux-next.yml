@@ -474,13 +474,10 @@ jobs:
         if: ${{ always() }}
         run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
 
-      - name: Build sidebar layout reducer FFI
-        env:
-          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
-        run: scripts/cmux-next/build-layout-reducer-ffi.sh
-
-      - name: Enable sidebar layout reducer FFI for SwiftPM
-        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
+      # Package.swift links the app FFI from one pinned release; the pin must
+      # match these sources and the release must be built from them.
+      - name: Check the app FFI pin
+        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
 
       # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
       # server helper" phase writes the server helper and agent plists without
@@ -632,17 +629,6 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Install Rust (sidebar layout reducer)
-        run: ./scripts/install-rust-ci.sh
-
-      - name: Build sidebar layout reducer FFI
-        env:
-          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
-        run: scripts/cmux-next/build-layout-reducer-ffi.sh
-
-      - name: Enable sidebar layout reducer FFI for SwiftPM
-        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
-
       - name: Release compile
         run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
 
@@ -761,14 +747,6 @@ jobs:
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
 
-      - name: Build sidebar layout reducer FFI
-        env:
-          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
-        run: scripts/cmux-next/build-layout-reducer-ffi.sh
-
-      - name: Enable sidebar layout reducer FFI for SwiftPM
-        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
-
       - name: Build in-tree acpmux for the app bundle
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64
@@ -793,3 +771,6 @@ jobs:
             derived_data="$RUNNER_TEMP/cmux-scheme-compile"
           fi
           scripts/cmux-next/check-cmux-scheme-compile.sh "$derived_data"
+          # The app links C++, iroh-ffi and CCmuxAppFFI; compact unwind holds
+          # three personality routines (decision 2026-10-05).
+          scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"

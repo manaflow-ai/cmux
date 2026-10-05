@@ -41,6 +41,8 @@ pub struct Peer {
     pub generation: u64,
     pub url: String,
     token: Option<String>,
+    /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
+    peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     out: mpsc::Sender<String>,
@@ -51,6 +53,9 @@ pub struct Peer {
     pub last_error: StdMutex<Option<String>>,
     /// Version and build the peer reported at handshake.
     pub remote_version: StdMutex<Option<(String, String)>>,
+    /// The origin the peer serves this daemon as (its initialize reply):
+    /// `peer` when it accepted the peer token, `remote` (Web) otherwise.
+    served_as: StdMutex<Option<String>>,
     attached: StdMutex<HashSet<String>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
@@ -66,6 +71,7 @@ impl Peer {
         name: &str,
         url: &str,
         token: Option<String>,
+        peer_token: Option<String>,
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
@@ -74,6 +80,7 @@ impl Peer {
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),
             token,
+            peer_token,
             tunnel: Mutex::new(None),
             out,
             out_rx: Mutex::new(Some(out_rx)),
@@ -82,6 +89,7 @@ impl Peer {
             connected: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
+            served_as: StdMutex::new(None),
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
@@ -144,25 +152,33 @@ impl Peer {
         Ok((tokio::io::join(stdout, stdin), remote_port))
     }
 
-    /// The configured token, else the remote daemon's own, read once over
-    /// the same SSH access.
-    async fn remote_token(&self) -> Result<String, String> {
+    /// The dashboard token (configured, else the remote daemon's own) and
+    /// the remote daemon's peer token of this launch (configured, else none
+    /// when the remote has none: an older daemon serves this one as Web),
+    /// read over the same ssh access at each connect.
+    async fn remote_tokens(&self) -> Result<(String, Option<String>), String> {
         let (host, _) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        if let Some(t) = &self.token {
-            return Ok(t.clone());
+        if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
+            return Ok((t.clone(), Some(p.clone())));
         }
-        // Read the remote token once over ssh.
         let out = tokio::process::Command::new("ssh")
             .args(read_config_argv(&host))
             .output()
             .await
             .map_err(|e| format!("read remote config: {e}"))?;
-        let cfg: Value = serde_json::from_slice(&out.stdout)
+        let (config, peer) = split_remote_read(&out.stdout);
+        let peer = self.peer_token.clone().or(peer);
+        if let Some(t) = &self.token {
+            return Ok((t.clone(), peer));
+        }
+        let cfg: Value = serde_json::from_slice(config)
             .map_err(|_| format!("remote {host} has no readable ~/.acpmux/config.json"))?;
-        cfg.pointer("/websocket/token")
+        let token = cfg
+            .pointer("/websocket/token")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .ok_or_else(|| format!("remote {host} config has no websocket token"))
+            .ok_or_else(|| format!("remote {host} config has no websocket token"))?;
+        Ok((token, peer))
     }
 
     pub fn remote_build(&self) -> Option<String> {
@@ -178,6 +194,7 @@ impl Peer {
             "remoteVersion": self.remote_version.lock().unwrap().as_ref().map(|(v, _)| v.clone()),
             "remoteBuild": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone()),
             "localBuild": crate::hub::BUILD,
+            "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
         })
     }
@@ -246,9 +263,13 @@ impl Peer {
         out_rx: &mut mpsc::Receiver<String>,
     ) -> Result<(), String> {
         if self.ssh_parts().is_some() {
-            let token = self.remote_token().await?;
+            let (token, peer_token) = self.remote_tokens().await?;
             let (stream, remote_port) = self.open_tunnel().await?;
-            let req = self.ws_request(&format!("ws://127.0.0.1:{remote_port}"), Some(&token))?;
+            let req = self.ws_request(
+                &format!("ws://127.0.0.1:{remote_port}"),
+                Some(&token),
+                peer_token.as_deref(),
+            )?;
             let (ws, _) = tokio::time::timeout(
                 Duration::from_secs(10),
                 tokio_tungstenite::client_async(req, stream),
@@ -258,7 +279,7 @@ impl Peer {
             .map_err(|e| e.to_string())?;
             return self.serve(ws, out_rx).await;
         }
-        let req = self.ws_request(&self.url, self.token.as_deref())?;
+        let req = self.ws_request(&self.url, self.token.as_deref(), self.peer_token.as_deref())?;
         let (ws, _) =
             tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(req))
                 .await
@@ -271,12 +292,19 @@ impl Peer {
         &self,
         url: &str,
         token: Option<&str>,
+        peer_token: Option<&str>,
     ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request, String> {
         let mut req = url.into_client_request().map_err(|e| e.to_string())?;
         if let Some(t) = token {
             req.headers_mut().insert(
                 "authorization",
                 format!("Bearer {t}").parse().map_err(|_| "bad token".to_owned())?,
+            );
+        }
+        if let Some(p) = peer_token {
+            req.headers_mut().insert(
+                crate::server::peer_auth::HEADER,
+                p.parse().map_err(|_| "bad peer token".to_owned())?,
             );
         }
         Ok(req)
@@ -316,6 +344,8 @@ impl Peer {
                 .unwrap_or("unknown")
                 .to_owned();
             *me.remote_version.lock().unwrap() = Some((v, b));
+            *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
+                init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions =
                 watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -491,7 +521,8 @@ pub fn tunnel_argv(destination: &str, port: u16) -> Vec<String> {
     argv
 }
 
-/// `ssh ... -- DESTINATION 'cat ~/.acpmux/config.json'` (a fixed command).
+/// `ssh ... -- DESTINATION '<fixed command>'`: the remote config, a NUL,
+/// then the remote daemon's peer token of this launch, if it has one.
 pub fn read_config_argv(destination: &str) -> Vec<String> {
     [
         "-o",
@@ -500,11 +531,20 @@ pub fn read_config_argv(destination: &str) -> Vec<String> {
         "ConnectTimeout=10",
         "--",
         destination,
-        "cat ~/.acpmux/config.json",
+        "cat ~/.acpmux/config.json; printf '\\0'; cat ~/.acpmux/run/peer.token 2>/dev/null",
     ]
     .iter()
     .map(|s| s.to_string())
     .collect()
+}
+
+/// The output of `read_config_argv`: the config bytes and the peer token
+/// (None when absent or not a 64-digit hex token).
+pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
+    let Some(at) = out.iter().position(|b| *b == 0) else { return (out, None) };
+    let token = std::str::from_utf8(&out[at + 1..]).ok().map(str::trim);
+    let token = token.filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()));
+    (&out[..at], token.map(str::to_owned))
 }
 
 #[cfg(test)]
@@ -574,6 +614,19 @@ mod ssh_tests {
         let secret = "ssh://-oProxyCommand=SECRETVALUE";
         let reason = ssh_target(secret).unwrap_err();
         assert!(!reason.contains("SECRETVALUE"));
+    }
+
+    #[test]
+    fn the_remote_read_splits_the_config_from_the_peer_token() {
+        let token = "ab".repeat(32);
+        let out = format!("{{\"websocket\":{{}}}}\0{token}\n");
+        let (config, peer) = split_remote_read(out.as_bytes());
+        assert_eq!(config, b"{\"websocket\":{}}");
+        assert_eq!(peer.as_deref(), Some(token.as_str()));
+        // An older remote daemon has no peer token: it serves us as Web.
+        assert_eq!(split_remote_read(b"{}\0").1, None);
+        assert_eq!(split_remote_read(b"{}").1, None);
+        assert_eq!(split_remote_read(b"{}\0not a token").1, None);
     }
 
     #[test]

@@ -40,6 +40,8 @@ mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
+pub use web_control::Control;
+pub(crate) use web_control::ModeWrite;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -126,6 +128,8 @@ pub struct PromptOptions {
     /// example after its daemon connection closed: also look in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// The rules the prompt runs under, checked again at dispatch.
+    pub control: Control,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -366,7 +370,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc.url, pc.token.clone());
+                hub.start_peer(&name, &pc);
             }
         }
         hub
