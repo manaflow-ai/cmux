@@ -89,8 +89,8 @@ import Testing
         #expect(registry.effectiveShortcut(for: "openBrowser") == Shortcut("b", modifiers: [.control, .command]))
     }
 
-    /// The Terminal.app base keymap renames tabs with Cmd-Shift-I, so New
-    /// Agent Chat moves to Ctrl-Cmd-Shift-I instead of losing the key (#16621).
+    /// The Terminal.app base keymap renames tabs with Cmd-Shift-I, so Show
+    /// Feed moves to Ctrl-Cmd-Shift-I while New Agent Chat keeps Cmd-I.
     @Test func theTerminalPresetMovesNewAgentChatAside() throws {
         let registry = ActionRegistry.standard()
         let applier = SettingsApplier(design: DesignSettings(), registry: registry)
@@ -98,8 +98,11 @@ import Testing
         let root = JSONValue.object(["shortcuts": .object(["bindings": .object(bindings)])])
         _ = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
         #expect(registry.effectiveShortcut(for: "renameTab") == Shortcut("i", modifiers: [.command, .shift]))
-        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.control, .command, .shift]))
-        #expect(!registry.shortcutConflicts().contains { $0.contains("palette.newAgentChat") || $0.contains("renameTab") })
+        #expect(registry.effectiveShortcut(for: "feed.show") == Shortcut("i", modifiers: [.control, .command, .shift]))
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command]))
+        #expect(!registry.shortcutConflicts().contains {
+            $0.contains("feed.show") || $0.contains("palette.newAgentChat") || $0.contains("renameTab")
+        })
     }
 
     @Test func appliesAndRevertsFileSettings() throws {

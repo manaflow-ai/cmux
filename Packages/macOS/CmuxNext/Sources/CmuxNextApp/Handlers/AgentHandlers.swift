@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextControl
 import CmuxNextDaemon
 import Observation
 
@@ -51,16 +52,11 @@ enum AgentHandlers {
             guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
             _ = context.registry.perform("newTab.sameKind", invocation: invocation)
             context.registry.track(Task { @MainActor in
-                let pane = await withTaskGroup(of: PaneController?.self) { group -> PaneController? in
-                    group.addTask { await Self.waitForPaneController(in: workspace, context: context) }
-                    group.addTask {
-                        // One-shot mount deadline; cancelled when the
-                        // event-driven observation wins.
-                        try? await Task.sleep(for: .seconds(10))
-                        return nil
-                    }
-                    defer { group.cancelAll() }
-                    return await group.next() ?? nil
+                let pane = try? await ControlDeadline.shared.run(
+                    method: "agent-pane.mount",
+                    deadline: .now + .seconds(10)
+                ) { @MainActor in
+                    await Self.waitForPaneController(in: workspace, context: context)
                 }
                 guard let pane else {
                     context.refuse(MiscHandlerStrings.noPane)
