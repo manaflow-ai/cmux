@@ -8,7 +8,8 @@ extension BonsplitConfiguration {
         configuration.allowCloseLastPane = false
         configuration.allowTabReordering = false
         configuration.allowCrossPaneTabMove = false
-        configuration.allowsTabContextMenu = false
+        configuration.allowsTabContextMenu = true
+        configuration.tabContextMenuActions = [.rename]
         configuration.autoCloseEmptyPanes = false
         configuration.contentViewLifecycle = .keepAllAlive
         configuration.newTabPosition = .end
@@ -19,6 +20,7 @@ extension BonsplitConfiguration {
         configuration.appearance.minimumPaneHeight = 1
         configuration.appearance.tabBarLeadingInset = 0
         configuration.appearance.enableAnimations = false
+        configuration.appearance.collapseSplitButtonsWhenNarrow = false
         configuration.appearance.splitButtons = configuration.appearance.splitButtons.filter {
             switch $0.action {
             case .splitRight, .splitDown:

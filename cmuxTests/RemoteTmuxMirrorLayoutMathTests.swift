@@ -193,13 +193,15 @@ import Testing
         appearance.tabBarLeadingInset = 72
         let configuration = BonsplitConfiguration(appearance: appearance).remoteTmuxEmbedded
 
-        #expect(!configuration.allowsTabContextMenu)
+        #expect(configuration.allowsTabContextMenu)
+        #expect(configuration.tabContextMenuActions == [.rename])
         #expect(!configuration.allowTabReordering)
         #expect(!configuration.allowCrossPaneTabMove)
         #expect(configuration.dividerPositionRange == 0...1)
         #expect(configuration.appearance.minimumPaneWidth == 1)
         #expect(configuration.appearance.minimumPaneHeight == 1)
         #expect(configuration.appearance.tabBarLeadingInset == 0)
+        #expect(!configuration.appearance.collapseSplitButtonsWhenNarrow)
         #expect(configuration.appearance.splitButtons.allSatisfy {
             $0.action == .splitRight || $0.action == .splitDown
         })

@@ -13069,9 +13069,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Bonsplit tabs have no inline title editor, so a tab's "Rename Tab"
     /// opens the palette rename editor for that exact tab (not the focused one).
-    private func requestPaletteRenamePanel(tabId: TabID) {
-        guard let panelId = panelIdFromSurfaceId(tabId),
-              let panel = panels[panelId] else { return }
+    func requestPaletteRenamePanel(tabId: TabID) {
+        let remoteTmuxPane = remoteTmuxControlPane(surfaceID: tabId.uuid)
+        guard let panelId = panelIdFromSurfaceId(tabId) ?? remoteTmuxPane?.pane.panel.id,
+              let panel = panels[panelId] ?? remoteTmuxPane?.pane.panel else { return }
         let currentTitle = panelCustomTitles[panelId] ?? panelTitles[panelId] ?? panel.displayTitle
         AppDelegate.shared?.requestCommandPaletteRename(
             CommandPaletteRenameTarget(

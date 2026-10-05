@@ -217,7 +217,9 @@ import Testing
         #expect(mirror.bonsplitController.configuration.appearance.tabTitleFontSize == 14)
         #expect(mirror.bonsplitController.configuration.appearance.tabBarLeadingInset == 0)
         #expect(!mirror.bonsplitController.configuration.allowCloseTabs)
-        #expect(!mirror.bonsplitController.configuration.allowsTabContextMenu)
+        #expect(mirror.bonsplitController.configuration.allowsTabContextMenu)
+        #expect(mirror.bonsplitController.configuration.tabContextMenuActions == [.rename])
+        #expect(!mirror.bonsplitController.configuration.appearance.collapseSplitButtonsWhenNarrow)
         #expect(!mirror.bonsplitController.tabShortcutHintsEnabled)
 
         workspaceConfiguration.appearance.tabBarHeight = 42
