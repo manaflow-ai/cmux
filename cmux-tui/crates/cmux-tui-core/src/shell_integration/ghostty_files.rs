@@ -230,8 +230,12 @@ impl Reader<'_> {
                         self.settings.features = features;
                     }
                 }
-                // Red: shell-integration is not read yet.
-                MODE_KEY if Mode::parse(value).is_some() && value.is_empty() => {}
+                MODE_KEY if value.is_empty() => self.settings.mode = Mode::Detect,
+                MODE_KEY => {
+                    if let Some(mode) = Mode::parse(value) {
+                        self.settings.mode = mode;
+                    }
+                }
                 BLINK_KEY if value.is_empty() => self.settings.cursor_blink = None,
                 BLINK_KEY => {
                     if let Some(on) = parse_bool(value) {
