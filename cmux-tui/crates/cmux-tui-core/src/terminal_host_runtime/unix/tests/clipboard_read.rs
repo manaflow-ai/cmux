@@ -169,12 +169,27 @@ fn next_clipboard_request(client: &mut UnixStream) -> ClipboardReadRequest {
     }
 }
 
+/// The next clipboard cancel sent to `client`, skipping live frames; no
+/// clipboard read may arrive before it.
+fn next_clipboard_cancel(client: &mut UnixStream) -> u64 {
+    loop {
+        let frame = read_required_frame(client, "clipboard read cancel").unwrap();
+        assert_ne!(frame.kind, MessageKind::ClipboardReadRequest, "unexpected clipboard read");
+        if frame.kind != MessageKind::ClipboardReadCancel {
+            continue;
+        }
+        assert_eq!((frame.request_id, frame.sequence, frame.flags), (0, 0, 0));
+        return u64::from_le_bytes(frame.payload.as_slice().try_into().unwrap());
+    }
+}
+
 /// Reads live frames up to the Output carrying `marker`; no clipboard read
-/// may arrive before it.
+/// or cancel may arrive before it.
 fn read_until_output(client: &mut UnixStream, marker: &[u8]) {
     loop {
         let frame = read_required_frame(client, "marker output").unwrap();
         assert_ne!(frame.kind, MessageKind::ClipboardReadRequest, "unexpected clipboard read");
+        assert_ne!(frame.kind, MessageKind::ClipboardReadCancel, "unexpected clipboard cancel");
         if frame.kind == MessageKind::Output
             && frame.payload.windows(marker.len()).any(|window| window == marker)
         {
@@ -316,6 +331,63 @@ fn terminal_drain_refuses_the_open_read() {
     assert_eq!(h.pty_reply(), REFUSED);
     reply(&mut owner, request.token, Some(b"hi"));
     h.assert_pty_quiet();
+}
+
+#[test]
+fn the_timeout_refusal_cancels_the_owners_open_read() {
+    let mut h = Harness::new();
+    let mut owner = h.owner();
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    h.clock.advance(Duration::from_secs(61));
+    h.host.clipboard.notify_timer();
+    assert_eq!(h.pty_reply(), REFUSED);
+    assert_eq!(next_clipboard_cancel(&mut owner), request.token);
+}
+
+#[test]
+fn terminal_drain_cancels_the_owners_open_read() {
+    let mut h = Harness::new();
+    let mut owner = h.owner();
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    h.host.parser_commands.send(ParserCommand::Drain).unwrap();
+    assert_eq!(h.pty_reply(), REFUSED);
+    assert_eq!(next_clipboard_cancel(&mut owner), request.token);
+}
+
+/// A normal reply ends the read: no cancel follows, even past the timeout.
+#[test]
+fn a_replied_read_is_never_cancelled() {
+    let mut h = Harness::new();
+    let mut owner = h.owner();
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    reply(&mut owner, request.token, Some(b"hi"));
+    assert_eq!(h.pty_reply(), GRANTED_HI);
+    h.clock.advance(Duration::from_secs(61));
+    h.host.clipboard.notify_timer();
+    h.output(b"marker-five");
+    read_until_output(&mut owner, b"marker-five");
+    h.assert_pty_quiet();
+}
+
+/// The newest owner is asked; when it leaves, the older one is asked again.
+#[test]
+fn a_closed_newer_owner_falls_back_to_the_older_one() {
+    let mut h = Harness::new();
+    let mut older = h.owner();
+    let newer = h.owner();
+    newer.shutdown(std::net::Shutdown::Both).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while h.host.clipboard.owner_count_for_test() != 1 {
+        assert!(Instant::now() < deadline, "the host never dropped the closed owner");
+        thread::sleep(Duration::from_millis(1));
+    }
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut older);
+    reply(&mut older, request.token, Some(b"hi"));
+    assert_eq!(h.pty_reply(), GRANTED_HI);
 }
 
 /// An older daemon asks for plain ADMIN: the host keeps deferral off and

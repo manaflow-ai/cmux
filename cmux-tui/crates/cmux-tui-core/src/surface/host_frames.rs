@@ -393,26 +393,118 @@ mod tests {
     }
 
     /// A host-originated clipboard read is outside the live sequence: the
-    /// reader thread hands it to the connection's inbox and keeps reading.
+    /// reader thread hands it to the connection's inbox and broker handler
+    /// and keeps reading.
     #[test]
     fn negotiated_clipboard_read_requests_reach_the_inbox_outside_the_stream() {
         let version = version();
         let responses = ControlResponses::new_for_test();
         responses.negotiate_clipboard_reads_for_test();
+        let signals = recording_handler(&responses);
         let queue = queue();
         let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
         output.version = version;
         let stream = stream_of(&[clipboard_request(7, 1, version), output]);
         read_stream(stream, &responses, version, SMART, &queue);
         assert_eq!(
-            responses.pending_clipboard_read(),
-            Some(ghostty_vt::ClipboardReadRequest {
-                token: 7,
-                location: ghostty_vt::ClipboardLocation::Selection,
-            })
+            signals.lock().unwrap().first(),
+            Some(&crate::terminal_host_runtime::ClipboardReadSignal::Request(
+                ghostty_vt::ClipboardReadRequest {
+                    token: 7,
+                    location: ghostty_vt::ClipboardLocation::Selection,
+                }
+            ))
         );
         let state = queue.state.lock().unwrap();
         assert_eq!(state.frames.len(), 1, "only the Output frame is ordered");
+    }
+
+    fn clipboard_cancel(token: u64, version: u16) -> Frame {
+        let mut frame = Frame::new(MessageKind::ClipboardReadCancel, token.to_le_bytes().to_vec());
+        frame.version = version;
+        frame
+    }
+
+    fn recording_handler(
+        responses: &ControlResponses,
+    ) -> Arc<Mutex<Vec<crate::terminal_host_runtime::ClipboardReadSignal>>> {
+        let signals = Arc::new(Mutex::new(Vec::new()));
+        let recorded = signals.clone();
+        responses.set_clipboard_read_handler(Arc::new(move |signal| {
+            recorded.lock().unwrap().push(signal);
+        }));
+        signals
+    }
+
+    /// The host's cancel drops exactly the pending read it names and tells
+    /// the broker; a cancel for another token is stale and ignored.
+    #[test]
+    fn clipboard_signals_reach_the_handler_and_a_cancel_drops_its_read() {
+        use crate::terminal_host_runtime::ClipboardReadSignal;
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        responses.negotiate_clipboard_reads_for_test();
+        let signals = recording_handler(&responses);
+        let queue = queue();
+        let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
+        output.version = version;
+        let stream = stream_of(&[
+            clipboard_request(7, 0, version),
+            clipboard_cancel(8, version),
+            clipboard_cancel(7, version),
+            output,
+        ]);
+        read_stream(stream, &responses, version, SMART, &queue);
+        assert_eq!(responses.pending_clipboard_read(), None);
+        let request = ghostty_vt::ClipboardReadRequest {
+            token: 7,
+            location: ghostty_vt::ClipboardLocation::Standard,
+        };
+        assert_eq!(
+            *signals.lock().unwrap(),
+            vec![ClipboardReadSignal::Request(request), ClipboardReadSignal::Cancel(7)]
+        );
+        assert_eq!(queue.state.lock().unwrap().frames.len(), 1, "only the Output is ordered");
+    }
+
+    /// The host refuses the open read of a connection that ends, so the end
+    /// of the stream cancels the pending read too.
+    #[test]
+    fn the_end_of_the_stream_cancels_a_pending_clipboard_read() {
+        use crate::terminal_host_runtime::ClipboardReadSignal;
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        responses.negotiate_clipboard_reads_for_test();
+        let signals = recording_handler(&responses);
+        read_stream(stream_of(&[clipboard_request(9, 2, version)]), &responses, version, SMART, &queue());
+        assert_eq!(responses.pending_clipboard_read(), None);
+        assert_eq!(signals.lock().unwrap().last(), Some(&ClipboardReadSignal::Cancel(9)));
+    }
+
+    #[test]
+    fn unnegotiated_or_malformed_clipboard_cancels_end_the_stream() {
+        let version = version();
+        let mut with_request_id = clipboard_cancel(7, version);
+        with_request_id.request_id = 3;
+        let mut long = clipboard_cancel(7, version);
+        long.payload.push(0);
+        for (negotiated, cancel) in [
+            (false, clipboard_cancel(7, version)),
+            (true, clipboard_cancel(0, version)),
+            (true, with_request_id),
+            (true, long),
+        ] {
+            let responses = ControlResponses::new_for_test();
+            if negotiated {
+                responses.negotiate_clipboard_reads_for_test();
+            }
+            let queue = queue();
+            let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
+            output.version = version;
+            read_stream(stream_of(&[cancel, output]), &responses, version, SMART, &queue);
+            let state = queue.state.lock().unwrap();
+            assert!(state.ended && state.frames.is_empty(), "the connection must end there");
+        }
     }
 
     /// A clipboard read on a connection that did not negotiate the right,

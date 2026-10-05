@@ -420,6 +420,8 @@ fn clipboard_read_messages_have_stable_additive_kinds() {
     assert_eq!(MessageKind::try_from(24).unwrap(), MessageKind::ClipboardReadRequest);
     assert_eq!(MessageKind::ClipboardReadReply as u16, 112);
     assert_eq!(MessageKind::try_from(112).unwrap(), MessageKind::ClipboardReadReply);
-    assert!(matches!(MessageKind::try_from(25), Err(ProtocolError::UnknownMessageKind(25))));
+    assert_eq!(MessageKind::ClipboardReadCancel as u16, 25);
+    assert_eq!(MessageKind::try_from(25).unwrap(), MessageKind::ClipboardReadCancel);
+    assert!(matches!(MessageKind::try_from(26), Err(ProtocolError::UnknownMessageKind(26))));
     assert!(matches!(MessageKind::try_from(113), Err(ProtocolError::UnknownMessageKind(113))));
 }
