@@ -15,14 +15,6 @@ function prewarmDevCloudRoutes(): void {
   const port = process.env.CMUX_PORT ?? process.env.PORT ?? "3000";
   const origin = `http://127.0.0.1:${port}`;
   void (async () => {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      try {
-        await fetch(`${origin}/api/vm`, { signal: AbortSignal.timeout(2_000) });
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-    }
     await Promise.all([
       "/api/vm",
       "/api/vm/network-presets",
@@ -30,7 +22,11 @@ function prewarmDevCloudRoutes(): void {
       "/api/vm/tunnel",
     ].map(async (path) => {
       try {
-        await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
+        const response = await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
+        // A direct fetch is deliberately best effort. Instrumentation runs as
+        // the dev server is brought up, so a refused connection or a transient
+        // startup response must never delay or fail application startup.
+        void response.body?.cancel();
       } catch {
         // Startup warming is best effort. The real request remains authoritative.
       }
