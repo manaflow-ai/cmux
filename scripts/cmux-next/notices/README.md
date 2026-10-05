@@ -50,6 +50,20 @@ nightly-next collects a second tree from that submodule
 puts the tree and its Zig packages in the source archive. A product that
 builds cmux-tui with its own Ghostty pin passes `--ghostty-revision-file`.
 
+Linked set: `vt_link_graph.py generate` (Testbox or CI; it runs zig) builds
+libghostty-vt with `-Dstrip=false` and an empty Zig cache for aarch64/x86_64
+macOS and aarch64/x86_64 Linux musl, reads the archive's DWARF source paths and
+writes `vt-link-graph.json`. `check_ghostty_vt_notices.py --link-graph` checks
+it (the graph's commit is the resolved gitlink, nothing unattributed, linked
+packages declared and covered) and prints linked vs declared. The source
+archive dry run runs it non-blocking. Regenerate the graph after a ghostty-next
+bump.
+
+Open item: the bundle check's scan for rustc std paths in a Mach-O without
+`rust-std` (Release merges Iroh's Rust code into the app binary) landed with
+its fix in one commit; the next change to that code adds a red test first as
+its own commit.
+
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache
 of the build), release-time regeneration in nightly-next, and the exact `cargo tree`

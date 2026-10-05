@@ -20,6 +20,9 @@ on:
       - "cmux-tui/crates/ghostty-vt-sys/build.rs"
       - "scripts/cmux-next/notices/check_ghostty_vt_notices.py"
       - "scripts/cmux-next/notices/test_check_ghostty_vt_notices.py"
+      - "scripts/cmux-next/notices/vt_link_graph.py"
+      - "scripts/cmux-next/notices/test_vt_link_graph.py"
+      - "scripts/cmux-next/notices/vt-link-graph.json"
       - "scripts/cmux-next/check-ghostty-fetch-list.sh"
       - "scripts/build-ghostty-cli-helper.sh"
       - "scripts/install-zig-ci.sh"
@@ -70,6 +73,7 @@ jobs:
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 scripts/cmux-next/notices/test_vt_link_graph.py
 
       # No build fetches a package it does not use, so the archive below equals
       # the real fetch list (-Demit-themes=false: no iterm2_themes). Fresh
@@ -95,6 +99,20 @@ jobs:
           manifests=(--license-manifest "$RUNNER_TEMP/source-archive/ghostty-licenses/SOURCE-MANIFEST.json")
           [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$RUNNER_TEMP/source-archive/$source-licenses/SOURCE-MANIFEST.json")
           python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}"
+
+      # The linked set: the packages whose code libghostty-vt.a contains, from
+      # its DWARF (vt_link_graph.py on a Testbox, -Dstrip=false, empty Zig
+      # cache; aarch64/x86_64 macOS and Linux musl). The graph names the
+      # gitlink commit, so a ghostty-next bump needs a regenerated graph.
+      # Non-blocking first; make it blocking after it has run green.
+      - name: libghostty-vt link graph (non-blocking)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          source="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p' | awk '{print $1}')"
+          manifests=(--license-manifest "$RUNNER_TEMP/source-archive/ghostty-licenses/SOURCE-MANIFEST.json")
+          [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$RUNNER_TEMP/source-archive/$source-licenses/SOURCE-MANIFEST.json")
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}" --link-graph scripts/cmux-next/notices/vt-link-graph.json
 
       - name: Upload the archive and the license tree (workflow artifact only)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
