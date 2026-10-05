@@ -256,15 +256,14 @@ struct RemoteTmuxControlStreamParser {
             // middle fields vary by tmux version, but tmux documents a pane id
             // before the separator; retain the first sigil-prefixed one without
             // depending on a fixed field index.
-            guard let separator = line.range(of: " : ") else {
-                return .subscriptionChanged(name: name, paneId: nil, value: "")
-            }
-            let header = line[..<separator.lowerBound].split(separator: " ")
+            let separator = line.range(of: " : ")
+            let header = (separator.map { line[..<$0.lowerBound] } ?? line[...])
+                .split(separator: " ")
             let paneId = header.dropFirst(2).compactMap { Self.id($0, sigil: "%") }.first
             return .subscriptionChanged(
                 name: name,
                 paneId: paneId,
-                value: String(line[separator.upperBound...])
+                value: separator.map { String(line[$0.upperBound...]) } ?? ""
             )
         }
         if line.hasPrefix("%") { return .ignoredNotification(line) }

@@ -78,9 +78,9 @@ struct RemoteTmuxMirrorRenameTests {
         let commands = try harness.finishCommands()
         #expect(commands.filter { $0.hasPrefix("rename-window ") }.isEmpty)
         #expect(commands.filter { $0.hasPrefix("select-pane ") } == [
-            "select-pane -t @2.%4 -T 'multi-pane-renamed-0'",
-            "select-pane -t @2.%5 -T 'multi-pane-renamed-1'",
-            "select-pane -t @2.%4 -T 'multi-pane-renamed-focused'",
+            "select-pane -t %4 -T 'multi-pane-renamed-0'",
+            "select-pane -t %5 -T 'multi-pane-renamed-1'",
+            "select-pane -t %4 -T 'multi-pane-renamed-focused'",
         ])
     }
 
@@ -113,7 +113,7 @@ struct RemoteTmuxMirrorRenameTests {
         let commands = try harness.finishCommands()
         #expect(commands.filter { $0.hasPrefix("rename-window ") }.isEmpty)
         #expect(commands.filter { $0.hasPrefix("select-pane ") } == [
-            "select-pane -t @2.%4 -T ''",
+            "select-pane -t %4 -T ''",
         ])
     }
 
@@ -152,7 +152,7 @@ struct RemoteTmuxMirrorRenameTests {
         let commands = try harness.finishCommands()
         #expect(commands.filter { $0.hasPrefix("rename-window ") }.isEmpty)
         #expect(commands.filter { $0.hasPrefix("select-pane ") } == [
-            "select-pane -t @3.%6 -T 'pane-routed'",
+            "select-pane -t %6 -T 'pane-routed'",
         ])
     }
 }

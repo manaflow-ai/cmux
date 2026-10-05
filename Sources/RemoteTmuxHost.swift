@@ -321,7 +321,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     }
 
     /// Returns a line-safe pane title. Unlike session and window names, tmux
-    /// accepts an empty pane title to restore its default title behavior.
+    /// accepts an empty pane title, which clears the explicitly set pane title.
     static func controlModeCommandPaneTitle(_ value: String?) -> String? {
         let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let forbidden = CharacterSet.controlCharacters.union(.newlines)

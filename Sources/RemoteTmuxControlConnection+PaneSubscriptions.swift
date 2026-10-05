@@ -46,8 +46,16 @@ extension RemoteTmuxControlConnection {
     /// renames after reconnect or session restoration.
     func subscribePaneTitlesIfNeeded() {
         guard !paneTitleSubscriptionActive else { return }
-        if send(Self.paneTitleSubscriptionCommand()) {
-            paneTitleSubscriptionActive = true
+        // Keep the flag set while the command is in flight, otherwise every
+        // pane seed can enqueue another session-wide watcher. A `%error` or
+        // stream reset clears it through `sendTracked`, allowing the next
+        // topology publication to retry.
+        paneTitleSubscriptionActive = true
+        guard sendTracked(Self.paneTitleSubscriptionCommand(), completion: { [weak self] accepted in
+            if !accepted { self?.paneTitleSubscriptionActive = false }
+        }) else {
+            paneTitleSubscriptionActive = false
+            return
         }
     }
 
@@ -176,25 +184,18 @@ extension RemoteTmuxControlConnection {
     }
 
     /// Registers every live pane subscription in one control command. tmux
-    /// accepts multiple `-B` flags, avoiding three extra FIFO entries each time
-    /// a pane is seeded. The session-wide title watcher is included only with
-    /// the first registration for this control client.
+    /// accepts multiple `-B` flags, avoiding two extra FIFO entries each time
+    /// a pane is seeded. The session-wide title watcher is issued separately so
+    /// a rejection cannot disable the pane-local subscriptions or wedge retries.
     func subscribePaneAll(paneId: Int) {
-        let includesTitleWatcher = !paneTitleSubscriptionActive
-        let titleWatcher = includesTitleWatcher
-            ? " -B \"\(Self.paneTitleSubscriptionName):%*:\(Self.paneTitleSubscriptionFormat)\""
-            : ""
-        let accepted = send(
+        send(
             "refresh-client"
                 + " -B \"\(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
                 + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
                 + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
                 + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
-                + titleWatcher
         )
-        if includesTitleWatcher, accepted {
-            paneTitleSubscriptionActive = true
-        }
+        subscribePaneTitlesIfNeeded()
     }
 
 

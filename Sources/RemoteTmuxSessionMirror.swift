@@ -319,14 +319,19 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowIdByPane[paneId]
     }
 
-    func requestRenamePane(_ tmuxPaneID: Int, title: String) -> Bool {
-        guard let windowId = windowIdByPane[tmuxPaneID],
+    func requestRenamePane(
+        _ tmuxPaneID: Int,
+        title: String,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard windowIdByPane[tmuxPaneID] != nil,
               let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
               connection.connectionState == .connected else {
             return false
         }
-        return connection.send(
-            "select-pane -t @\(windowId).%\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
+        return connection.sendTracked(
+            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))",
+            completion: completion
         )
     }
 
@@ -515,7 +520,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         mirror.updatePaneTitleMetadata(paneId)
         if let panel = mirror.panel(forPane: paneId),
            let workspace {
-            workspace.updateRemoteTmuxTabTitle(
+            workspace.updateRemoteTmuxPaneTitle(
                 panelId: panel.id,
                 title: mirror.title(forPane: paneId)
             )

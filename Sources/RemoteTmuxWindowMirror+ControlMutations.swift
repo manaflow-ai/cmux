@@ -3,13 +3,18 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
-    func requestRenamePane(_ tmuxPaneID: Int, title: String) -> Bool {
+    func requestRenamePane(
+        _ tmuxPaneID: Int,
+        title: String,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
         guard !isTornDown,
               panelsByPaneId[tmuxPaneID] != nil,
               let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
               let connection else { return false }
-        return connection.send(
-            "select-pane -t @\(windowId).%\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
+        return connection.sendTracked(
+            "select-pane -t %\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))",
+            completion: completion
         )
     }
 
