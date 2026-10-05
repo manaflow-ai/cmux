@@ -12218,6 +12218,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "browser.prompt.allow",
@@ -12239,6 +12242,9 @@
       "cli_name" : "action browser-prompt-block",
       "context_menu" : "liveInput",
       "context_menus" : [
+
+      ],
+      "default_aliases" : [
 
       ],
       "default_chord" : null,
