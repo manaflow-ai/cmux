@@ -41,6 +41,28 @@ struct CertificateWarningRevokeTests {
             == .defaultHandling)
     }
 
+    /// Live finding (nxbp15-v1): after the warnings are turned on again,
+    /// WebKit reloads over the kept-alive connection the old exception
+    /// trusted, gets no new challenge, and showed the page. The host's next
+    /// committed page is verified again until it passes or the user
+    /// proceeds once more.
+    @Test func turningWarningsOnAgainVerifiesTheNextPageOfThatHost() {
+        let engine = WebKitEngine()
+        let work = BrowserProfileID(rawValue: UUID())
+        engine.allowCertificateException(host: host, profile: .default)
+        engine.allowCertificateException(host: host, profile: work)
+        #expect(!engine.needsCertificateRecheck(host, profile: .default), "an excepted host is not rechecked")
+
+        engine.forgetCertificateException(host: host, profile: .default)
+        #expect(engine.needsCertificateRecheck(host, profile: .default))
+        #expect(!engine.needsCertificateRecheck(host, profile: work), "only the profile whose warnings were turned on")
+        #expect(!engine.needsCertificateRecheck("other.test", profile: .default))
+
+        engine.allowCertificateException(host: host, profile: .default)
+        #expect(!engine.needsCertificateRecheck(host, profile: .default), "Proceed again ends the recheck")
+        #expect(engine.hasCertificateException(host, profile: .default))
+    }
+
     /// A WebKit page loaded past an untrusted certificate is "Not secure",
     /// as in Chrome; it showed "Connection is secure".
     @Test func aWebKitPageLoadedPastAWarningIsNotSecure() {

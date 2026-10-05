@@ -38,7 +38,7 @@ extension WebKitTab: BrowserCertificateBypassing {
 
     public func proceedPastCertificateError() {
         guard let url = state.loadError?.failingURL, let host = url.host() else { return }
-        engine?.certificateExceptions[profileID, default: []].insert(host)
+        engine?.allowCertificateException(host: host, profile: profileID)
         load(url)
     }
 }

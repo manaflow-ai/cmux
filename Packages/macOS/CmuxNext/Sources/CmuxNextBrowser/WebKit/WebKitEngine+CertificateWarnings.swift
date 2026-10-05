@@ -16,6 +16,18 @@ extension WebKitEngine {
         certificateExceptions[profile]?.remove(host) != nil
     }
 
+    /// The user proceeded past `host`'s certificate in `profile` (the
+    /// interstitial's Proceed).
+    func allowCertificateException(host: String, profile: BrowserProfileID) {
+        certificateExceptions[profile, default: []].insert(host)
+    }
+
+    /// The next committed page of `host` in `profile` must have its server
+    /// trust verified again: warnings were turned on again, and WebKit may
+    /// reuse a kept-alive connection that was trusted by the old exception
+    /// (no new TLS challenge, so the page would load without the warning).
+    func needsCertificateRecheck(_ host: String, profile: BrowserProfileID) -> Bool { false }
+
     /// `tab`'s page is from a host whose certificate warning the user
     /// turned off. The interstitial itself is not: the user has not
     /// proceeded yet.
