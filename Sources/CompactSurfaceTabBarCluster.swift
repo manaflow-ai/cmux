@@ -4,7 +4,7 @@ import Foundation
 /// The compact pane tab bar button cluster used when `cmux.json` does not set
 /// `surfaceTabBarButtons` / `ui.surfaceTabBar.buttons`.
 ///
-/// At most three buttons: "+" (click creates the primary new surface,
+/// At most three buttons: "+" (click opens a terminal tab, like Cmd-T;
 /// right-click or press-and-hold lists every new-surface kind), split (click
 /// splits right, Option-click splits down, right-click or hold lists both),
 /// and "..." (click lists the remaining pane actions). Agent chat panes drop
@@ -100,11 +100,9 @@ enum CompactSurfaceTabBarCluster {
         }
     }
 
-    /// What a plain click on "+" creates: an agent chat when it is available,
-    /// otherwise a terminal.
-    static func addClickItem(availability: Availability) -> Item {
-        availability.agentChat ? .agentChat : .terminal
-    }
+    /// What a plain click on "+" creates: a terminal, as Cmd-T does. Agent
+    /// Chat stays in the "+" menu.
+    static let addClickItem: Item = .terminal
 
     static func bonsplitButtons(
         for content: PaneContent,
@@ -121,13 +119,7 @@ enum CompactSurfaceTabBarCluster {
     ) -> BonsplitConfiguration.SplitActionButton? {
         switch id {
         case addButtonID:
-            let tooltip: String
-            switch addClickItem(availability: availability) {
-            case .agentChat:
-                tooltip = String(localized: "surfaceTabBar.compact.add.tooltip.agentChat", defaultValue: "New Agent Chat")
-            default:
-                tooltip = String(localized: "surfaceTabBar.compact.add.tooltip.terminal", defaultValue: "New Terminal")
-            }
+            let tooltip = String(localized: "surfaceTabBar.compact.add.tooltip.terminal", defaultValue: "New Terminal")
             return BonsplitConfiguration.SplitActionButton(
                 id: addButtonID,
                 systemImage: "plus",

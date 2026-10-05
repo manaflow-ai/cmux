@@ -78,10 +78,7 @@ extension Workspace {
         guard surfaceTabBarUsesCompactCluster else { return false }
         switch identifier {
         case CompactSurfaceTabBarCluster.addButtonID:
-            performCompactSurfaceTabBarItem(
-                CompactSurfaceTabBarCluster.addClickItem(availability: compactSurfaceTabBarAvailability()),
-                inPane: pane
-            )
+            performCompactSurfaceTabBarItem(CompactSurfaceTabBarCluster.addClickItem, inPane: pane)
             return true
         case CompactSurfaceTabBarCluster.moreButtonID, CompactSurfaceTabBarCluster.splitButtonID:
             // "..." only opens its menu; Bonsplit presents it directly.

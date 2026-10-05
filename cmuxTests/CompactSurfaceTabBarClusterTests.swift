@@ -30,10 +30,11 @@ import Testing
         }
     }
 
-    @Test func plusClickCreatesAgentChatWhenAvailableElseTerminal() {
-        #expect(Cluster.addClickItem(availability: everything) == .agentChat)
-        let noAgentChat = Cluster.Availability(agentChat: false, browser: true)
-        #expect(Cluster.addClickItem(availability: noAgentChat) == .terminal)
+    @Test func plusClickOpensATerminalLikeCmdT() throws {
+        #expect(Cluster.addClickItem == .terminal)
+        #expect(Cluster.addClickItem.shortcutAction == CmuxSurfaceTabBarBuiltInAction.newTerminal.shortcutAction)
+        let add = try #require(Cluster.bonsplitButtons(for: .standard, availability: everything).first { $0.id == Cluster.addButtonID })
+        #expect(add.tooltip == String(localized: "surfaceTabBar.compact.add.tooltip.terminal", defaultValue: "New Terminal"))
     }
 
     @Test func plusButtonHasSecondaryMenuAndKeepsDoubleClickTerminal() throws {
