@@ -26,6 +26,8 @@ public nonisolated struct KeyBindingDefaults {
     static let down = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey)) ?? UnicodeScalar(0)))
     public static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
     public static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey))!))
+    public static let home = String(Character(UnicodeScalar(UInt32(NSHomeFunctionKey)) ?? UnicodeScalar(0)))
+    public static let end = String(Character(UnicodeScalar(UInt32(NSEndFunctionKey)) ?? UnicodeScalar(0)))
 
     public static let notTerminal = WhenClause.notEquals(KeyContext.surfaceKind, .string("terminal"))
     static let terminalCopyMode = WhenClause.and([
@@ -69,6 +71,46 @@ public nonisolated struct KeyBindingDefaults {
         "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
     ]
 
+    /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
+    /// table order: a later applicable entry wins, so a more specific
+    /// `when` follows a general one for the same key.
+    public static let paletteKeys: [KeyBinding] = {
+        typealias K = KeyContext
+        let open = WhenClause.has("paletteOpen")
+        func when(_ clauses: WhenClause...) -> WhenClause { .and([open] + clauses) }
+        let tree = WhenClause.has(K.paletteHierarchical), menu = WhenClause.has(K.paletteActionsMenuOpen)
+        let empty = WhenClause.has(K.paletteQueryEmpty)
+        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ clause: WhenClause) -> KeyBinding {
+            KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, when: clause)
+        }
+        return [
+            bind(Shortcut.upArrowKey, [], "commandPalettePrevious", open),
+            bind(Shortcut.downArrowKey, [], "commandPaletteNext", open),
+            bind(Shortcut.upArrowKey, [.command], "paletteKey.firstItem", open),
+            bind(Shortcut.upArrowKey, [.command], "paletteKey.leaveLevel", when(tree, .not(menu))),
+            bind(Shortcut.downArrowKey, [.command], "paletteKey.lastItem", open),
+            bind(pageUp, [], "paletteKey.pageUp", open),
+            bind(pageDown, [], "paletteKey.pageDown", open),
+            bind(home, [], "paletteKey.firstItem", when(.or([menu, .and([tree, empty])]))),
+            bind(end, [], "paletteKey.lastItem", when(.or([menu, .and([tree, empty])]))),
+            bind(Shortcut.returnKey, [], "paletteKey.submit", open),
+            bind(Shortcut.returnKey, [.shift], "paletteKey.submit", open),
+            bind(Shortcut.returnKey, [.option], "paletteKey.submit", open),
+            bind(Shortcut.returnKey, [.command], "paletteKey.submitAlternate", open),
+            bind(Shortcut.returnKey, [.command, .shift], "paletteKey.submitAlternate", open),
+            bind(Shortcut.spaceKey, [], "paletteKey.submit", when(empty, .has(K.paletteTogglesInPlace), .not(menu))),
+            bind(Shortcut.tabKey, [], "paletteKey.openActions", open),
+            bind(Shortcut.tabKey, [.shift], "paletteKey.closeActions", open),
+            bind("k", [.command], "paletteKey.toggleActions", open),
+            bind(Shortcut.escapeKey, [], "paletteKey.escape", open),
+            bind(Shortcut.rightArrowKey, [], "paletteKey.enterRow", when(tree, .not(menu), .has(K.paletteCaretAtEnd))),
+            bind(Shortcut.leftArrowKey, [], "paletteKey.leaveLevel", when(tree, .not(menu), .has(K.paletteCaretAtStart))),
+            bind(Shortcut.deleteKey, [], "paletteKey.back", when(empty, .not(menu))),
+            bind(Shortcut.deleteKey, [], "paletteKey.filterDeleteBackward", when(menu)),
+            bind("w", [.command], "paletteKey.closeItem", open),
+        ]
+    }()
+
     /// List navigation (R85): Ctrl-N / Ctrl-J move down and Ctrl-P /
     /// Ctrl-K move up wherever a list-like control has the keyboard
     /// (`listFocus`: comboboxes, menus, pickers, the sidebar list). Never in
@@ -93,6 +135,7 @@ public nonisolated struct KeyBindingDefaults {
                 && registry.chordOverrides[binding.command] == nil
         }
         entries += listNavigation.filter { registry.disabledFeature(for: $0.command) == nil }
+        entries += paletteKeys
         return entries
     }
 }

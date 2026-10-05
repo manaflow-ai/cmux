@@ -4062,137 +4062,6 @@
         }
       }
     },
-    "action.browser.download.openBlockedSiteSettings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Site Settings of Blocked Download"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブロックされたダウンロードのサイト設定を開く"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح إعدادات موقع التنزيل المحظور"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori postavke stranice blokiranog preuzimanja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn webstedsindstillinger for blokeret download"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Website-Einstellungen des blockierten Downloads öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir la configuración del sitio de la descarga bloqueada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir les paramètres du site du téléchargement bloqué"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri le impostazioni del sito del download bloccato"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកការកំណត់គេហទំព័រនៃការទាញយកដែលបានទប់ស្កាត់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "차단된 다운로드의 사이트 설정 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne nettstedsinnstillinger for blokkert nedlasting"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz ustawienia witryny zablokowanego pobierania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir configurações do site do download bloqueado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть настройки сайта заблокированной загрузки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดการตั้งค่าไซต์ของการดาวน์โหลดที่ถูกบล็อก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Engellenen indirmenin site ayarlarını aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити налаштування сайту заблокованого завантаження"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở cài đặt trang của lượt tải xuống bị chặn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "打开被阻止下载的网站设置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "打開被封鎖下載的網站設定"
-          }
-        }
-      }
-    },
     "action.browser.openInChromium": {
       "extractionState": "manual",
       "localizations": {
@@ -66021,6 +65890,392 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Hide Announcements"
+          }
+        }
+      }
+    },
+    "action.paletteKey.firstItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: First Item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 最初の項目"
+          }
+        }
+      }
+    },
+    "action.paletteKey.lastItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Last Item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 最後の項目"
+          }
+        }
+      }
+    },
+    "action.paletteKey.pageUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Page Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 前のページ"
+          }
+        }
+      }
+    },
+    "action.paletteKey.pageDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Page Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 次のページ"
+          }
+        }
+      }
+    },
+    "action.paletteKey.submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Run Item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 項目を実行"
+          }
+        }
+      }
+    },
+    "action.paletteKey.submitAlternate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Run Item's Other Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 項目の別のコマンドを実行"
+          }
+        }
+      }
+    },
+    "action.paletteKey.openActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Show Actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: アクションを表示"
+          }
+        }
+      }
+    },
+    "action.paletteKey.closeActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Hide Actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: アクションを隠す"
+          }
+        }
+      }
+    },
+    "action.paletteKey.toggleActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Show or Hide Actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: アクションの表示を切り替え"
+          }
+        }
+      }
+    },
+    "action.paletteKey.escape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Clear or Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: クリアまたは閉じる"
+          }
+        }
+      }
+    },
+    "action.paletteKey.enterRow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Open Item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 項目を開く"
+          }
+        }
+      }
+    },
+    "action.paletteKey.leaveLevel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Up One Level"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 1つ上の階層へ"
+          }
+        }
+      }
+    },
+    "action.paletteKey.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 戻る"
+          }
+        }
+      }
+    },
+    "action.paletteKey.filterDeleteBackward": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Delete Filter Character"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: フィルタの1文字を削除"
+          }
+        }
+      }
+    },
+    "action.paletteKey.closeItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette: Close Item's Object"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット: 項目の対象を閉じる"
+          }
+        }
+      }
+    },
+    "action.browser.download.openBlockedSiteSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Site Settings of Blocked Download"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロックされたダウンロードのサイト設定を開く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح إعدادات موقع التنزيل المحظور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori postavke stranice blokiranog preuzimanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn webstedsindstillinger for blokeret download"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Website-Einstellungen des blockierten Downloads öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir la configuración del sitio de la descarga bloqueada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les paramètres du site du téléchargement bloqué"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri le impostazioni del sito del download bloccato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកការកំណត់គេហទំព័រនៃការទាញយកដែលបានទប់ស្កាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "차단된 다운로드의 사이트 설정 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne nettstedsinnstillinger for blokkert nedlasting"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz ustawienia witryny zablokowanego pobierania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir configurações do site do download bloqueado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть настройки сайта заблокированной загрузки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการตั้งค่าไซต์ของการดาวน์โหลดที่ถูกบล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Engellenen indirmenin site ayarlarını aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити налаштування сайту заблокованого завантаження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở cài đặt trang của lượt tải xuống bị chặn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开被阻止下载的网站设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開被封鎖下載的網站設定"
           }
         }
       }
