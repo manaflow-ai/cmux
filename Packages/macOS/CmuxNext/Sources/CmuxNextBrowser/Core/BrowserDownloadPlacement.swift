@@ -6,8 +6,12 @@ public import Foundation
 public final class BrowserDownloadReservations {
     public static let shared = BrowserDownloadReservations()
     private var paths: Set<String> = []
+    /// Records each running download's temporary file (nil: no record).
+    let tempFiles: BrowserDownloadTempFiles?
 
-    public init() {}
+    public init(tempFiles: BrowserDownloadTempFiles? = nil) {
+        self.tempFiles = tempFiles
+    }
 
     func contains(_ url: URL) -> Bool { paths.contains(Self.key(url)) }
     func insert(_ url: URL) { paths.insert(Self.key(url)) }
