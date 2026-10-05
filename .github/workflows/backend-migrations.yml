@@ -25,6 +25,13 @@ on:
     # edited: a base-branch change (for example main -> feat-cmux-next) re-runs the gate.
     types: [opened, synchronize, reopened, labeled, edited]
     branches: [main, feat-cmux-next]
+    # The gate only reads migration SQL and the base branch's parser/tooling.
+    paths:
+      - backend/db/migrations/**
+      - backend/db/migrate.ts
+      - backend/db/package.json
+      - backend/package.json
+      - backend/bun.lock
   merge_group:
     branches: [main, feat-cmux-next]
 
