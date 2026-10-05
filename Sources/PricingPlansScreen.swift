@@ -50,9 +50,12 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
-        if let auth = AppDelegate.shared?.auth,
-           auth.coordinator.isAuthenticated {
+        if AppDelegate.shared?.auth?.coordinator.isAuthenticated == true {
             Task { @MainActor in
+                guard let auth = AppDelegate.shared?.auth else {
+                    presentAppPricingWebWithoutSession(url: url)
+                    return
+                }
                 let outcome = await auth.browserAppSession.request(destinationURL: url)
                 if case let .navigation(navigation) = outcome,
                    presentBrowserSplit(navigation: navigation) {
