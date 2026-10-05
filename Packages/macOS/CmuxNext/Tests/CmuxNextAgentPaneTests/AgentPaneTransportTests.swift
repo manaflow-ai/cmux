@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import CmuxNextAgentPane
 
 /// Flushes only when the test says so.
@@ -7,6 +8,39 @@ import Testing
     var pending: (@MainActor @Sendable () -> AgentPaneFlush)?
     func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) { pending = flush }
     func drain() { while let pending, pending().more {} ; pending = nil }
+}
+
+/// One wait for the socket's page queue to reach a length, resumed exactly once.
+private nonisolated final class QueueEvent: Sendable {
+    private let state: Mutex<(reached: Bool, waiter: CheckedContinuation<Void, Never>?)>
+    private let count: Int
+
+    init(_ count: Int) {
+        self.count = count
+        state = Mutex((false, nil))
+    }
+
+    func queued(_ length: Int) {
+        guard length >= count else { return }
+        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            guard !state.reached else { return nil }
+            state.reached = true
+            defer { state.waiter = nil }
+            return state.waiter
+        }
+        waiter?.resume()
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let resumeNow = state.withLock { state -> Bool in
+                if state.reached { return true }
+                state.waiter = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
 }
 
 /// A host whose LocalApp token is read from a file at each handshake, as AcpmuxHost reads
@@ -30,6 +64,16 @@ private actor FileTokenHost: AgentPaneHostProviding {
     }
 
     /// Waits for `condition` while the main actor keeps running.
+    /// Runs `start`, then returns once the socket's page queue holds `count` frames (its enqueue
+    /// event says so; no clock and no timeout: the suite's watchdog ends a hang).
+    static func queued(_ count: Int, on socket: AcpmuxPaneSocket, after start: () async -> Void) async {
+        let reached = QueueEvent(count)
+        socket.observeQueued { reached.queued($0) }
+        defer { socket.observeQueued(nil) }
+        await start()
+        await reached.wait()
+    }
+
     private func eventually(_ seconds: Double = 10, _ condition: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(seconds)
         while ContinuousClock.now < deadline {
@@ -126,12 +170,15 @@ private actor FileTokenHost: AgentPaneHostProviding {
         var frames: [String] = []
         transport.deliver = { event, done in frames += event.frames; done() }
         let id = try await transport.open(connection(server))
-        _ = await transport.send(connection: id, frames: [Self.initialize])
-        #expect(await eventually { transport.queuedFrames == 1 })
+        let socket = try #require(transport.socket)
+        // Waits on the socket's own enqueue events, not on a clock: deterministic under load.
+        await Self.queued(1, on: socket) { _ = await transport.send(connection: id, frames: [Self.initialize]) }
         pacer.drain()
         let before = transport.flushes
-        for seq in 0..<2000 { server.push(#"{"jsonrpc":"2.0","method":"session/update","params":{"s":\#(seq)}}"#, to: 0) }
-        #expect(await eventually { transport.queuedFrames == 2000 })
+        await Self.queued(2000, on: socket) {
+            for seq in 0..<2000 { server.push(#"{"jsonrpc":"2.0","method":"session/update","params":{"s":\#(seq)}}"#, to: 0) }
+        }
+        #expect(transport.queuedFrames == 2000)
         pacer.drain()
         #expect(frames.count == 2001)
         let seqs = frames.dropFirst().compactMap { text -> Int? in

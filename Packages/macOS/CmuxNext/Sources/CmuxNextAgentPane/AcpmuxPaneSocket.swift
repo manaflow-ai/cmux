@@ -26,6 +26,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var outstandingBytes = 0
         var closed: AgentPaneTransportClose?
         var closeDelivered = false
+        /// Told the queue's length after each enqueue (tests wait on it instead of a clock).
+        var onQueued: (@Sendable (Int) -> Void)?
     }
 
     private let request: URLRequest
@@ -150,16 +152,20 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private func enqueue(_ frames: [String]) {
         guard !frames.isEmpty else { return }
         let bytes = frames.reduce(0) { $0 + $1.utf8.count }
-        let wake = state.withLock { state -> Bool in
-            guard state.closed == nil else { return false }
+        let (wake, queued, onQueued) = state.withLock { state -> (Bool, Int, (@Sendable (Int) -> Void)?) in
+            guard state.closed == nil else { return (false, 0, nil) }
             state.inbox.append(contentsOf: frames)
             state.inboxBytes += bytes
-            guard !state.signaled else { return false }
+            let wake = !state.signaled
             state.signaled = true
-            return true
+            return (wake, state.inbox.count, state.onQueued)
         }
         if wake { signal() }
+        onQueued?(queued)
     }
+
+    /// Calls `hook` with the page queue's length after every enqueue (an event, not a poll).
+    func observeQueued(_ hook: (@Sendable (Int) -> Void)?) { state.withLock { $0.onQueued = hook } }
 
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
