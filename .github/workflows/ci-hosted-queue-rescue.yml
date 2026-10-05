@@ -1,0 +1,93 @@
+name: CI hosted queue rescue
+
+# GitHub-hosted jobs can be cancelled by the Actions service after waiting
+# about fifteen minutes without ever receiving a runner. A cancelled required
+# check is reported as a failure even though no step ran. This trusted watcher
+# runs on the Blacksmith pool, identifies that exact no-runner queue timeout,
+# and reruns the original hosted workflow. It never runs pull-request code and
+# it never cancels a rescue that is already inspecting or rerunning a job.
+on:
+  workflow_run:
+    workflows:
+      - CLA policy guard
+      - CLA Assistant
+      - CI fast guards
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+env:
+  # Keep the workflow_run display names tied to their source files. The
+  # workflow-source guard will fail if one of these workflows is renamed or
+  # moved without updating this rescue.
+  SOURCE_WORKFLOW_PATHS: >-
+    .github/workflows/cla-policy-guard.yml
+    .github/workflows/cla.yml
+    .github/workflows/ci-fast-guards.yml
+
+concurrency:
+  # A rescue is an Actions mutation. Keep duplicate notifications serialized
+  # and never cancel the one that may be about to rerun the hosted check.
+  group: ci-hosted-queue-rescue-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  rescue:
+    name: Rescue a hosted queue timeout
+    if: >-
+      github.repository == 'manaflow-ai/cmux' &&
+      contains(fromJSON('["failure","cancelled"]'), github.event.workflow_run.conclusion) &&
+      contains(fromJSON('["pull_request","pull_request_target","issue_comment","merge_group"]'), github.event.workflow_run.event)
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Rerun only a no-runner hosted queue timeout
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          MIN_QUEUE_AGE_SECONDS: "840"
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EVENT_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+
+          run_json="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID")"
+          current_attempt="$(jq -r '.run_attempt // 0' <<<"$run_json")"
+          [[ "$current_attempt" == "$EVENT_ATTEMPT" ]] || {
+            echo "run attempt already changed; another rescue owns it"
+            exit 0
+          }
+          (( current_attempt < 3 )) || {
+            echo "retry limit reached for run $RUN_ID"
+            exit 0
+          }
+
+          created_at="$(jq -r '.created_at // empty' <<<"$run_json")"
+          updated_at="$(jq -r '.updated_at // empty' <<<"$run_json")"
+          [[ -n "$created_at" && -n "$updated_at" ]]
+          age_seconds=$(( $(date -u -d "$updated_at" +%s) - $(date -u -d "$created_at" +%s) ))
+          (( age_seconds >= MIN_QUEUE_AGE_SECONDS )) || {
+            echo "run ended before the hosted queue timeout (${age_seconds}s)"
+            exit 0
+          }
+
+          jobs_json="$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100")"
+          jq -e '
+            (.jobs | length > 0) and
+            all(.jobs[];
+              .conclusion == "cancelled" and
+              ((.runner_id // 0) == 0) and
+              ((.runner_name // "") == "") and
+              ((.steps // []) | length == 0))
+          ' <<<"$jobs_json" >/dev/null || {
+            echo "cancelled run had a runner, steps, or a mixed result; leaving it for normal failure handling"
+            exit 0
+          }
+
+          echo "rerunning hosted queue timeout $RUN_ID (attempt $current_attempt, ${age_seconds}s)"
+          gh api -X POST "repos/$GH_REPO/actions/runs/$RUN_ID/rerun" >/dev/null
