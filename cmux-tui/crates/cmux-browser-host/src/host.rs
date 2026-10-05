@@ -291,7 +291,7 @@ impl Host {
                 idle: idle.clone(),
             }),
         );
-        let _ = idle;
+        watch_idle(idle, name.clone(), Arc::downgrade(&self.sessions), self.reaped.clone());
         Ok(json!({"session": name, "engine": resolved, "created": true}))
     }
 
@@ -395,7 +395,12 @@ fn end_session(session: &Session) {
 
 /// One thread per session waits for its idle deadline and then ends it
 /// through the same `end_session` as `browser.repl.close`.
-fn watch_idle(idle: Arc<Idle>, name: String, sessions: std::sync::Weak<Mutex<BTreeMap<String, Arc<Session>>>>, reaped: ReapedSink) {
+fn watch_idle(
+    idle: Arc<Idle>,
+    name: String,
+    sessions: std::sync::Weak<Mutex<BTreeMap<String, Arc<Session>>>>,
+    reaped: ReapedSink,
+) {
     let spawned = std::thread::Builder::new().name(format!("cmux-browser-host-idle-{name}")).spawn(
         move || {
             while idle.wait_expired() {
@@ -414,7 +419,8 @@ fn watch_idle(idle: Arc<Idle>, name: String, sessions: std::sync::Weak<Mutex<BTr
                 };
                 if let Some(session) = removed {
                     end_session(&session);
-                    if let Some(tx) = reaped.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+                    if let Some(tx) = reaped.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
+                    {
                         let _ = tx.send(name.clone());
                     }
                 }
@@ -540,7 +546,10 @@ mod tests {
         }
     }
 
-    fn idle_host(tag: &str, idle: Duration) -> (Host, Arc<WatchedEngines>, std::sync::mpsc::Receiver<String>, std::path::PathBuf) {
+    fn idle_host(
+        tag: &str,
+        idle: Duration,
+    ) -> (Host, Arc<WatchedEngines>, std::sync::mpsc::Receiver<String>, std::path::PathBuf) {
         let engines = Arc::new(WatchedEngines(Mutex::new(Vec::new())));
         let root = std::env::temp_dir().join(format!("idle-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -559,8 +568,12 @@ mod tests {
     #[test]
     fn a_session_without_calls_ends_at_its_idle_deadline() {
         let (host, engines, ended, root) = idle_host("quiet", Duration::from_millis(200));
-        host.dispatch(&mcp(), "browser.repl.open", &json!({"session": "quiet", "engine": "headless"}))
-            .unwrap();
+        host.dispatch(
+            &mcp(),
+            "browser.repl.open",
+            &json!({"session": "quiet", "engine": "headless"}),
+        )
+        .unwrap();
         assert_eq!(ended.recv_timeout(Duration::from_secs(10)).as_deref(), Ok("quiet"));
         assert_eq!(host.list(), json!([]), "the idle end removed the session");
         let weak = engines.0.lock().unwrap()[0].clone();

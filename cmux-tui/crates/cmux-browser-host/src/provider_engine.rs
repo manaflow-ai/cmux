@@ -16,7 +16,8 @@ use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider_link::ProviderDriver;
 use serde_json::{Value, json};
-use std::sync::{Arc, PoisonError};
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// The relay alias of a CEF tab's page session.
 const PAGE_ALIAS: &str = "cmux-page";
@@ -96,6 +97,9 @@ pub struct ProviderEngine {
     events: EventSink,
     /// The session's lease identity (stamped from its connection).
     lease: LeaseCaller,
+    /// Tabs the session created (`tabs.open` and their popups) and did not
+    /// keep (`tab.keep`): they close when the session ends.
+    created: Arc<Mutex<BTreeSet<String>>>,
     /// Set once the session's end released its leases (close, or the
     /// backstop drop), so a late drop of a closed engine never clears the
     /// leases of a new session with the same name.
@@ -142,8 +146,26 @@ impl ProviderEngine {
         if let Some(reason) = provider.closed_reason() {
             return Err(DriverError::closed(reason));
         }
-        let subscription = provider.subscribe(events.clone());
+        // A popup of a tab the session created is the session's too.
+        let created: Arc<Mutex<BTreeSet<String>>> = Arc::default();
+        let popups = created.clone();
+        let session_events = events.clone();
+        let subscription = provider.subscribe(Arc::new(move |event: DriverEvent| {
+            if event.name == "tab.created"
+                && let (Some(target), Some(opener)) = (
+                    event.payload.get("targetId").and_then(Value::as_str),
+                    event.payload.get("openerTargetId").and_then(Value::as_str),
+                )
+            {
+                let mut created = popups.lock().unwrap_or_else(PoisonError::into_inner);
+                if created.contains(opener) {
+                    created.insert(target.to_owned());
+                }
+            }
+            session_events(event);
+        }));
         Ok(ProviderEngine {
+            created,
             provider,
             engine: engine.to_owned(),
             agent_source,
@@ -311,7 +333,11 @@ impl ProviderEngine {
                 }
                 open.insert("engine".into(), Value::String(self.engine.clone()));
                 announce();
-                return self.provider.call(method, &Value::Object(open));
+                let opened = self.provider.call(method, &Value::Object(open))?;
+                if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
+                    self.created_tabs().insert(target.to_owned());
+                }
+                return Ok(opened);
             }
             _ => {}
         }
@@ -340,6 +366,12 @@ impl ProviderEngine {
         }
         if let Some(error) = self.provider.refusal(method, target_id) {
             return Err(error);
+        }
+        // Kept: the tab stays open when the session ends (the host owns the
+        // session's tabs; the app has no part in it).
+        if method == "tab.keep" {
+            self.created_tabs().remove(target_id);
+            return Ok(Value::Null);
         }
         // A structured read: refused before the lease sees it unless it
         // calls an allowlisted page agent function.
@@ -448,8 +480,32 @@ impl Driver for ProviderEngine {
 impl ProviderEngine {
     /// The session ends: its leases go (the app clears the badges). Runs
     /// once, from `end_session` (close) or, as a backstop, from drop.
+    fn created_tabs(&self) -> std::sync::MutexGuard<'_, BTreeSet<String>> {
+        self.created.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The session's end (close, reset, idle, the backstop drop), one path:
+    /// the tabs it created and did not keep close (classic main), except a
+    /// tab whose lease the person has taken (driving or paused), which stays
+    /// as theirs; then every lease of the session is released.
     fn release_session(&self) {
         if !self.ended.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let created = std::mem::take(&mut *self.created_tabs());
+            for target in created {
+                let users = matches!(
+                    self.provider.lease_state(&target),
+                    Some(
+                        crate::provider::LeaseState::UserDriving
+                            | crate::provider::LeaseState::Paused
+                    )
+                );
+                if !users && self.provider.tab_engine(&target).is_some() {
+                    let _ = self.provider.call(
+                        "tabs.close",
+                        &json!({"targetId": target, "timeoutMs": SESSION_END_CLOSE_MS}),
+                    );
+                }
+            }
             let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
             let removed = self
                 .provider
@@ -464,6 +520,9 @@ impl ProviderEngine {
         }
     }
 }
+
+/// How long the session's end waits for the app to close one tab.
+const SESSION_END_CLOSE_MS: u64 = 5000;
 
 impl Drop for ProviderEngine {
     fn drop(&mut self) {

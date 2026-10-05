@@ -68,11 +68,9 @@ impl Fixture {
         let (app, provider) = FakeApp::start(tabs.iter().map(|t| tab(t, "webkit")).collect());
         let engines =
             Arc::new(AppEngines { provider: provider.clone(), drivers: Mutex::new(Vec::new()) });
-        let root =
-            std::env::temp_dir().join(format!("reaper-{tag}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("reaper-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let host =
-            Host::new(engines.clone(), root.display().to_string()).with_idle_timeout(idle);
+        let host = Host::new(engines.clone(), root.display().to_string()).with_idle_timeout(idle);
         let (tx, ended) = mpsc::channel();
         host.on_idle_end(tx);
         let caller = Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() };
@@ -147,7 +145,11 @@ fn idle_end_closes_only_the_session_tabs_nobody_kept() {
     for target in ["N3", "N4", "U"] {
         f.act(target);
     }
-    f.app.send(Frame::LeaseUser { op: "take_over".into(), target_id: Some("N3".into()), actor: None });
+    f.app.send(Frame::LeaseUser {
+        op: "take_over".into(),
+        target_id: Some("N3".into()),
+        actor: None,
+    });
     f.app.send(Frame::UserInput { target_id: "N4".into() });
     f.barrier();
     assert!(f.closed_tabs().is_empty(), "nothing closes before the session ends");
@@ -193,12 +195,13 @@ fn idle_end_sends_the_app_what_close_sends() {
         f.barrier();
         let from = f.app.frames.lock().unwrap().len();
         if close {
-            f.host.dispatch(
-                &Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() },
-                "browser.repl.close",
-                &json!({"session": "s"}),
-            )
-            .unwrap();
+            f.host
+                .dispatch(
+                    &Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() },
+                    "browser.repl.close",
+                    &json!({"session": "s"}),
+                )
+                .unwrap();
         } else {
             f.wait_idle_end();
         }
@@ -212,5 +215,8 @@ fn idle_end_sends_the_app_what_close_sends() {
             && closed.iter().any(|f| f["lease"] == "U" && f["state"].is_null()),
         "close ends the session in the app: {closed:?}"
     );
-    assert_eq!(idle, closed, "the idle end clears the agent cursor and driving state exactly as close does");
+    assert_eq!(
+        idle, closed,
+        "the idle end clears the agent cursor and driving state exactly as close does"
+    );
 }

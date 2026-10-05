@@ -306,6 +306,15 @@ impl ProviderDriver {
     }
 
     /// Adds an event receiver (one per session); returns its id.
+    /// The lease state of a tab, if it has a lease.
+    pub fn lease_state(&self, target_id: &str) -> Option<crate::provider::LeaseState> {
+        self.leases
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(target_id)
+            .map(|record| record.lease.state)
+    }
+
     pub fn subscribe(&self, sink: EventSink) -> u64 {
         let id = self.next_subscriber.fetch_add(1, Ordering::Relaxed);
         self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).push((id, sink));
