@@ -911,6 +911,8 @@ function AcpmuxPane() {
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
+  // An unsent chat can choose its folder even before an agent is available.
+  const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -1284,9 +1286,24 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
-  const composerSnapshot = useMemo(
-    () => (catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog }),
-    [snapshot, catalog],
+  const composerSnapshot = useMemo(() => {
+    const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
+    return projectDraft && !snapshot.sessionId
+      ? { ...current, summary: { sessionId: "", cwd: projectDraft } }
+      : current;
+  }, [snapshot, catalog, projectDraft]);
+  useEffect(() => {
+    if (snapshot.sessionId) setProjectDraft(undefined);
+  }, [snapshot.sessionId]);
+  const chooseProject = useCallback(
+    (cwd: string, peer?: string) => {
+      if (freshChat && !snapshot.sessionId && !peer) {
+        setProjectDraft(cwd);
+        return;
+      }
+      void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined);
+    },
+    [freshChat, snapshot.sessionId],
   );
   useEffect(() => {
     window.React = React;
@@ -1863,19 +1880,21 @@ function AcpmuxPane() {
         onSend={(text, attachments) => {
           // Until acpmux connects nothing takes a prompt; the composer keeps it.
           if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-          callNative("chat.send", { text, attachments }).then(() => promptLanded.current(), cancelOpenInWindow);
+          const send = async () => {
+            if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
+            return callNative("chat.send", { text, attachments });
+          };
+          send().then(() => promptLanded.current(), cancelOpenInWindow);
         }}
         onStop={() => void callNative("chat.cancel")}
-        onProject={(cwd, peer) =>
-          void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined)
-        }
+        onProject={chooseProject}
         projectChoices={freshChat && !quick ? newTabProjects : undefined}
         onBrowseProject={
           freshChat && !quick
             ? () => {
                 void callNative<{ cwd?: string }>("project.browse")
                   .then((result) => {
-                    if (result?.cwd) return callNative("chat.new", { cwd: result.cwd });
+                    if (result?.cwd) chooseProject(result.cwd);
                   })
                   .catch(() => undefined);
               }
@@ -1884,7 +1903,7 @@ function AcpmuxPane() {
         onTerminal={
           freshChat && !quick
             ? (text) => {
-                const cwd = snapshot.summary?.cwd;
+                const cwd = composerSnapshot.summary?.cwd;
                 void callNative("tab.open", { kind: "terminal", text, run: false, ...(cwd ? { cwd } : {}) });
               }
             : undefined

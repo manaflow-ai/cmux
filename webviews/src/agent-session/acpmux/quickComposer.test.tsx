@@ -287,11 +287,35 @@ test("an unstarted chat keeps its chosen project for terminal conversion without
   };
   await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
   const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
-  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+  await act(async () =>
+    project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
   expect(container().querySelector(".acpmux-project-button")?.textContent).toContain("app");
   await key("Enter");
   expect(methods()).not.toContain("chat.send");
   expect(methods()).not.toContain("chat.new");
   await act(async () => prompt().handle.insertTyped("!"));
   expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "", run: false, cwd: "/src/app" }]);
+});
+
+test("the first prompt starts the chat in the inline project's folder", async () => {
+  const fresh = snapshot(undefined);
+  fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
+  await mount(undefined, fresh, true);
+  host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
+    calls.push(["chat.new", params]);
+  };
+  await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
+  const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
+  await act(async () =>
+    project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  await key("Enter");
+  expect(calls).toEqual([]);
+  await type("hello");
+  await key("Enter");
+  expect(calls).toEqual([
+    ["chat.new", { cwd: "/src/app" }],
+    ["chat.send", { text: "hello", attachments: [] }],
+  ]);
 });
