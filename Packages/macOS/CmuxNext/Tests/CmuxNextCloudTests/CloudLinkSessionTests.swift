@@ -129,21 +129,67 @@ import Testing
         #expect(try await link.endpoint(newer) == second.path)
     }
 
+    /// The daemon's `apps-server-event` lines for the Cloud server's link
+    /// events (first-party-apps/cloud/server/src/link/ops.rs
+    /// `take_event_lines`, fields nested under `data`): the daemon
+    /// broadcasts only the event's `data`, so a field outside it never
+    /// reaches the app.
+    static let downLine = #"{"event":"apps-server-event","app":"cmux/cloud","name":"cmux.cloud.link.changed","data":{"machine":"vm_1","state":"down","generation":7,"retryable":true,"reason":"lost","error_code":"cmux.cloud.link_down"}}"#
+    static let revokedLine = #"{"event":"apps-server-event","app":"cmux/cloud","name":"cmux.cloud.link.changed","data":{"machine":"vm_1","state":"revoked","reason":"r","error_code":"cmux.cloud.link_revoked"}}"#
+
     @Test func linkChangedEventsParseFromTheAppServerEvent() throws {
-        let event = Data(#"""
-        {"event":"apps-server-event","app":"cmux/cloud","name":"cmux.cloud.link.changed",
-         "data":{"machine":"vm_1","state":"down","generation":7,"retryable":true,"reason":"lost"}}
-        """#.utf8)
-        #expect(CloudLinkChange.parse(appServerEvent: event)
+        #expect(CloudLinkChange.parse(appServerEvent: Data(Self.downLine.utf8))
             == CloudLinkChange(key: key, state: .down, generation: 7, reason: "lost"))
-        let revoked = Data(#"{"app":"cmux/cloud","name":"cmux.cloud.link.changed","data":{"machine":"vm_1","state":"revoked","reason":"r"}}"#.utf8)
-        #expect(CloudLinkChange.parse(appServerEvent: revoked) == CloudLinkChange(key: key, state: .revoked, generation: nil, reason: "r"))
+        #expect(CloudLinkChange.parse(appServerEvent: Data(Self.revokedLine.utf8))
+            == CloudLinkChange(key: key, state: .revoked, generation: nil, reason: "r"))
         for other in [#"{"app":"cmux/other","name":"cmux.cloud.link.changed","data":{"machine":"vm_1","state":"down"}}"#,
                       #"{"app":"cmux/cloud","name":"cmux.cloud.port.changed","data":{"machine":"vm_1","state":"down"}}"#,
                       #"{"app":"cmux/cloud","name":"cmux.cloud.link.changed","data":null}"#,
                       #"{"app":"cmux/cloud","name":"cmux.cloud.link.changed","data":{"machine":"vm_1","state":"sideways"}}"#] {
             #expect(CloudLinkChange.parse(appServerEvent: Data(other.utf8)) == nil, "\(other)")
         }
+    }
+}
+
+extension CloudLinkSessionTests {
+    /// Answers `open` only after `release` opens; `entered` opens on entry.
+    final class GatedResolver: CloudLinkResolver {
+        let entered = AsyncGate()
+        let release = AsyncGate()
+
+        func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+            entered.open()
+            await release.wait()
+            return CloudLinkSocket(key: key, path: "/tmp/never/cmux-link-0123456789ab.sock", generation: 3)
+        }
+
+        func close(_ key: CloudLinkKey) async {}
+    }
+
+    /// A revoke while a connect is in flight is kept: the connect's answer
+    /// cannot bring a revoked link back.
+    @Test func aRevokeDuringAConnectEndsThatConnect() async throws {
+        let resolver = GatedResolver()
+        let link = CloudLinkSession(key: key, resolver: resolver)
+        let connect = Task { try await link.connect(origin: .user) }
+        await resolver.entered.wait()
+        #expect(await link.apply(CloudLinkChange(key: key, state: .revoked, generation: nil, reason: "r")) == nil, "no connection to close yet")
+        resolver.release.open()
+        await #expect(throws: CloudLinkError.revoked(reason: "r")) { _ = try await connect.value }
+        #expect(await link.isEnded)
+    }
+
+    /// A `down` while a connect is in flight changes nothing: the connect's
+    /// answer names the carrier that counts.
+    @Test func aDownDuringAConnectChangesNothing() async throws {
+        let resolver = GatedResolver()
+        let link = CloudLinkSession(key: key, resolver: resolver)
+        let connect = Task { try await link.connect(origin: .user) }
+        await resolver.entered.wait()
+        #expect(await link.apply(CloudLinkChange(key: key, state: .down, generation: 2, reason: "lost")) == nil)
+        resolver.release.open()
+        let ticket = try await connect.value
+        #expect(try await link.endpoint(ticket) == "/tmp/never/cmux-link-0123456789ab.sock")
     }
 }
 
