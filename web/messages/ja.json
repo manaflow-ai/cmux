@@ -3478,7 +3478,7 @@
         "wn-quit": "終了"
       },
       "metaTitle": "キーボードショートカット",
-      "paneResizeDescription": "Ctrl+Shift+H/J/K/L（左/下/上/右）でフォーカス中のペインをリサイズします。キーを押し続けると連続してリサイズできます。設定 → キーボードショートカットでキー割り当てとペインのリサイズ幅を変更できます。移動幅は cmux.json の app.paneResizeStepPixels でも設定でき、範囲は 1～200、既定値は 20 です。",
+      "paneResizeDescription": "Ctrl+Cmd+H/J/K/L（左/下/上/右）でフォーカス中のペインをリサイズします。キーを押し続けると連続してリサイズできます。設定 → キーボードショートカットでキー割り当てとペインのリサイズ幅を変更できます。移動幅は cmux.json の app.paneResizeStepPixels でも設定でき、範囲は 1～200、既定値は 20 です。",
       "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z)."
     },
     "api": {
