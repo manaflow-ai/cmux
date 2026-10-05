@@ -1642,6 +1642,19 @@ jobs:
             --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
           rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
           cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
+          # bin/cmux's libghostty-vt: the submodule ghostty-vt-sys's build.rs
+          # selects, at this commit's gitlink (the resolved cmux-tui client
+          # commit has the same cmux-tui tree and gitlinks: pin-cmux-tui.sh key).
+          # Today: Contents/Resources/ghostty-next-licenses.
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
+          vt_name="${vt%% *}" vt_revision="${vt##* }"
+          if [[ "$vt_name" != ghostty ]]; then
+            next_tree="nightly-inputs/source-archive/$vt_name-licenses"
+            python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
+              --root "$next_tree" --revision "$vt_revision"
+            rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
+            cp -R "$next_tree" "$APP_DIR/Contents/Resources/$vt_name-licenses"
+          fi
 
       # Every variant installs the one commit resolve-nightly-cmux-tui-client
       # chose, from its attested immutable manifest, before thinning.
@@ -2208,9 +2221,15 @@ jobs:
           short="${HEAD_SHA:0:11}"
           src=(source-archive/cmux-next-source-*.tar.gz)
           [[ ${#src[@]} -eq 1 && -f "${src[0]}" ]] || { echo "expected one source archive, found: ${src[*]}" >&2; exit 1; }
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --rev "$HEAD_SHA" --print-source | sed -n 's/^libghostty-vt source: //p')"
+          next=()
+          if [[ "${vt%% *}" != ghostty ]]; then
+            next=(--next-name "${vt%% *}" --next-revision "${vt##* }"
+              --next-license-manifest "source-archive/${vt%% *}-licenses/SOURCE-MANIFEST.json")
+          fi
           python3 scripts/cmux-next/notices/ghostty_source_archive.py verify --archive "${src[0]}" \
             --license-manifest source-archive/ghostty-licenses/SOURCE-MANIFEST.json \
-            --revision "$(git rev-parse "$HEAD_SHA:ghostty")"
+            --revision "$(git rev-parse "$HEAD_SHA:ghostty")" ${next[@]+"${next[@]}"}
           mkdir -p source-out
           cp "${src[0]}" "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
           if existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/cmux-next-src-$short" --jq .object.sha 2>/dev/null)"; then

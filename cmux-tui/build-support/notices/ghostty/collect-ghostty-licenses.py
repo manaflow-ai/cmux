@@ -43,7 +43,7 @@ MAX_LICENSE_BYTES = 2 * 1024 * 1024
 # also changes this script, which keys the Ghostty helper caches.
 PINNED_LICENSES = Path(__file__).resolve().parent / "pinned-licenses"
 PINNED_MANIFEST_SHA256 = (
-    "451507a87ce2255c8734f1f3787520c56e9a8a40dbea5f2cd153f95ab998b5d7"
+    "a1a7298dd4ae562fd152f245a9ea9e27102b78b0e7e24f3930f1c5318a6c2773"
 )
 
 
@@ -378,6 +378,16 @@ def main() -> int:
             unresolved.append(package.name)
             return
         known_name, extra_files = known_license
+        # A package family (z2d) can have one entry per reviewed version:
+        # "z2d" and "z2d@0.12.1", each with its own texts and source offer.
+        known_name = next(
+            (
+                key for key in sorted(KNOWN_LICENSES)
+                if key.startswith(known_name + "@")
+                and package.name in KNOWN_LICENSES[key].get("packages", [])
+            ),
+            known_name,
+        )
         pinned = KNOWN_LICENSES[known_name].get("packages")
         if pinned is not None and package.name not in pinned:
             raise ValueError(

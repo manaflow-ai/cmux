@@ -25,9 +25,10 @@
           "upstream": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/c3968b385e8072d61651eb8e32f498703058c2fd/LICENSE"
         }
       ],
-      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes).",
+      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes). ghostty-next fetches release-20260921-150923-0b55a9e (https://deps.files.ghostty.org/ghostty-themes-release-20260921-150923-0b55a9e.tgz, sha256 da83fb32fcef53c8cb1dca868fb700a904d5d86420d7588e574a0f81a75008d5, theme files only); its LICENSE at commit 0b55a9e6 is byte-equal to this text.",
       "packages": [
-        "N-V-__8AALZGBAAS5NLVH-c8eC-6VtCdcH-9nUvVfUSkWS__"
+        "N-V-__8AALZGBAAS5NLVH-c8eC-6VtCdcH-9nUvVfUSkWS__",
+        "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB"
       ]
     },
     "unicode-16": {
@@ -67,6 +68,32 @@
         "upstream_tag": "v0.11.0"
       }
     },
+    "z2d@0.12.1": {
+      "files": [
+        {
+          "filename": "z2d-LICENSE.txt",
+          "path": "z2d-0.12.1/LICENSE",
+          "sha256": "c3c0b845181a67c2f926485299855769afa675bc90b18904c3087ae884cb1873",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/7dbae85c81784dba9988320bf9543ed9a81350c8/LICENSE"
+        },
+        {
+          "filename": "z2d-COPYING-MPL-2.0.txt",
+          "path": "z2d-0.12.1/COPYING",
+          "sha256": "d8d2562a7cb68ffdfe91fc66af1ed4a8a4e272aa4ab59bea7451ba34b9aba3d4",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/7dbae85c81784dba9988320bf9543ed9a81350c8/COPYING"
+        }
+      ],
+      "note": "vancluever/z2d tag v0.12.1 (commit 7dbae85c), the version ghostty-next (bin/cmux's libghostty-vt source) fetches. Both files are byte-equal to the archive https://deps.files.ghostty.org/z2d-7dbae85c81784dba9988320bf9543ed9a81350c8.tar.gz (sha256 e55c9d0b156edaddfea32fb1c0e3597e1b6306b9a4ec1888e2f8008c598bced8); the package's build.zig.zon .paths drops them. COPYING is byte-equal to 0.11.0's; LICENSE changes the copyright years to 2024-2026.",
+      "packages": [
+        "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-"
+      ],
+      "source_offer": {
+        "license": "Mozilla Public License 2.0 (MPL-2.0)",
+        "name": "z2d 0.12.1",
+        "upstream": "https://github.com/vancluever/z2d/tree/7dbae85c81784dba9988320bf9543ed9a81350c8",
+        "upstream_tag": "v0.12.1"
+      }
+    },
     "zig-gobject": {
       "files": [
         {
@@ -76,9 +103,10 @@
           "upstream": "https://raw.githubusercontent.com/ghostty-org/zig-gobject/6971b412dc77003c52f5e8d16e7d0a828fc95539/LICENSE"
         }
       ],
-      "note": "ghostty-org/zig-gobject release 0.8.0-2026-04-23-26-1 (commit 6971b412), the generated GTK bindings Ghostty's gobject dependency fetches: https://deps.files.ghostty.org/gobject-2026-04-23-26-1.tar.zst is byte-equal to that release's ghostty-gobject-0.8.0-2026-04-23-26-1.tar.zst (sha256 642e324b3644c00464a2161e4af497f73cbbe8ce02a4c0edb92aacb365748047); its build.zig.zon .paths drops the LICENSE.",
+      "note": "ghostty-org/zig-gobject release 0.8.0-2026-04-23-26-1 (commit 6971b412), the generated GTK bindings Ghostty's gobject dependency fetches: https://deps.files.ghostty.org/gobject-2026-04-23-26-1.tar.zst is byte-equal to that release's ghostty-gobject-0.8.0-2026-04-23-26-1.tar.zst (sha256 642e324b3644c00464a2161e4af497f73cbbe8ce02a4c0edb92aacb365748047); its build.zig.zon .paths drops the LICENSE. ghostty-next fetches gobject 0.3.2 (https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst, release 0.10.0-2026-07-28-36-1, commit 5c8e70b0); its build.zig.zon .paths also drops the LICENSE, and the LICENSE at commit 5c8e70b0 is byte-equal to this text.",
       "packages": [
-        "gobject-0.3.1-Skun7E1KnwBGMX5nslHYG1yWHaSevywxQO8oM7tTOgIp"
+        "gobject-0.3.1-Skun7E1KnwBGMX5nslHYG1yWHaSevywxQO8oM7tTOgIp",
+        "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3"
       ]
     },
     "simdutf": {
@@ -113,7 +141,7 @@
           "upstream": "https://raw.githubusercontent.com/manaflow-ai/ghostty/b1a49b6015235d2b36a8473ff5ae72aa16db82b0/pkg/breakpad/vendor/third_party/lss/linux_syscall_support.h"
         }
       ],
-      "note": "Linux Syscall Support (Google LLC, BSD-3-Clause), vendored by Ghostty as pkg/breakpad/vendor/third_party/lss/linux_syscall_support.h. The text is lines 1-31 of that header (its license comment); the URL is the Ghostty fork commit b1a49b60 that the reviewed trees share (same blob c80fbfd7 in every reviewed tree). Breakpad and LSS build only for Linux targets; the notice ships anyway (remove-doubt rule)."
+      "note": "Linux Syscall Support (Google LLC, BSD-3-Clause), vendored by Ghostty as pkg/breakpad/vendor/third_party/lss/linux_syscall_support.h. The text is lines 1-31 of that header (its license comment); the URL is the Ghostty fork commit b1a49b60 that the reviewed trees share (same blob c80fbfd7 in every reviewed tree). Breakpad and LSS build only for Linux targets; the notice ships anyway (remove-doubt rule). Upstream source: https://chromium.googlesource.com/linux-syscall-support commit ed31caa60f20a4f6569883b2d752ef7522de51e0 (linux_syscall_support.h is the same blob c80fbfd7 there); the fork URL stays the immutable fetch source."
     },
     "glad": {
       "files": [
@@ -130,7 +158,7 @@
           "upstream": "https://raw.githubusercontent.com/manaflow-ai/ghostty/b1a49b6015235d2b36a8473ff5ae72aa16db82b0/vendor/glad/include/KHR/khrplatform.h"
         }
       ],
-      "note": "Dav1dde/glad tag v2.0.8 (commit 73db193f), the generator of Ghostty's vendor/glad (gl.h: 'Loader generated by glad 2.0.8', SPDX (WTFPL OR CC0-1.0) AND Apache-2.0). The LICENSE covers the generator (MIT), the Khronos specifications (Apache-2.0 notice) and the EGL headers (Khronos MIT-style text, as in khrplatform.h); the full Apache-2.0 text ships with simdutf. khrplatform-NOTICE.txt is lines 4-25 of vendor/glad/include/KHR/khrplatform.h (the Khronos license comment) at Ghostty fork commit b1a49b60 (same blob 01646449 in every reviewed tree)."
+      "note": "Dav1dde/glad tag v2.0.8 (commit 73db193f), the generator of Ghostty's vendor/glad (gl.h: 'Loader generated by glad 2.0.8', SPDX (WTFPL OR CC0-1.0) AND Apache-2.0). The LICENSE covers the generator (MIT), the Khronos specifications (Apache-2.0 notice) and the EGL headers (Khronos MIT-style text, as in khrplatform.h); the full Apache-2.0 text ships with simdutf. khrplatform-NOTICE.txt is lines 4-25 of vendor/glad/include/KHR/khrplatform.h (the Khronos license comment) at Ghostty fork commit b1a49b60 (same blob 01646449 in every reviewed tree). Upstream source of khrplatform.h: https://github.com/KhronosGroup/EGL-Registry commit 57b4876de0f33677ece92dd9de0ef105ce69139d (api/KHR/khrplatform.h, same blob 01646449); the fork URL stays the immutable fetch source."
     },
     "fira-code": {
       "files": [

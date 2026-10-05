@@ -34,6 +34,10 @@ which also checks a git revision without zig). bin/cmux links libghostty-vt
 from the submodule that `ghostty-vt-sys/build.rs` names (`ghostty-next` today);
 `check_ghostty_vt_notices.py` resolves that source and commit from the tree and
 checks that its declared Zig packages are in a collected license manifest.
+nightly-next collects a second tree from that submodule
+(`Contents/Resources/ghostty-next-licenses/`, its own bundle-map entry) and
+puts the tree and its Zig packages in the source archive. A product that
+builds cmux-tui with its own Ghostty pin passes `--ghostty-revision-file`.
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache

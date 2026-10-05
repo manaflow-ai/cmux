@@ -146,6 +146,21 @@ class CheckBundleNoticesTest(unittest.TestCase):
             self.assertIn(f"ghostty-license-tree:{tree}", entries[0]["notices"])
             self.assertIn("section:manual-ghostty", entries[0]["notices"])
 
+    def test_each_license_tree_names_its_own_revision(self) -> None:
+        next_revision = "e" * 40
+        write_ghostty_license_tree(self.app / TREE)
+        write_ghostty_license_tree(self.app / NEXT_TREE, next_revision)
+        bundle_map = {**MAP, "resources": [
+            {"path": TREE, "notices": [f"ghostty-license-tree:{TREE}"]},
+            {"path": NEXT_TREE, "notices": [f"ghostty-license-tree:{NEXT_TREE}"]},
+        ]}
+        self.assertEqual(checker.check(self.app, bundle_map, ghostty_revision=GHOSTTY_REVISION,
+                                       tree_revisions={NEXT_TREE: next_revision}), [])
+        errors = checker.check(self.app, bundle_map, ghostty_revision=GHOSTTY_REVISION,
+                               tree_revisions={NEXT_TREE: GHOSTTY_REVISION})
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(NEXT_TREE, errors[0])
+
     def test_bundled_ghostty_next_license_tree_needs_a_map_entry(self) -> None:
         # bin/cmux's libghostty-vt comes from ghostty-next; its own tree ships.
         write_ghostty_license_tree(self.app / NEXT_TREE)
