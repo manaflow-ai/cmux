@@ -114,6 +114,7 @@ All notable changes to cmux are documented here.
 - Browser file-input uploads are available through the CLI ([#14550](https://github.com/manaflow-ai/cmux/pull/14550))
 
 ### Changed
+- Cloud is available to everyone: the Cloud tab appears in Settings and the right sidebar, where you can enable Cloud Machines
 - Dock is now enabled by default for new and existing users, and its former Beta Features toggle has been removed; hide or reorder it under Settings > Sidebar > Right Sidebar Tabs ([#15453](https://github.com/manaflow-ai/cmux/issues/15453), [#15456](https://github.com/manaflow-ai/cmux/pull/15456))
 - Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
