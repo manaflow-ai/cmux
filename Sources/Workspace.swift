@@ -14410,7 +14410,7 @@ extension Workspace: BonsplitDelegate {
 
                     let confirmed = await self.confirmClosePanel(
                         for: tabId,
-                        agentName: self.activeAgentCloseWarningInfo(panelId: panelId)?.displayName,
+                        agentName: self.activeAgentCloseWarningInfo(panelId: panelId),
                         dontAskAgain: warningKinds
                     )
                     guard confirmed else {
