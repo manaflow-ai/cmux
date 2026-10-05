@@ -50,7 +50,9 @@ enum ProUpgradePresenter {
             return
         }
         if AppDelegate.shared?.auth?.coordinator.isAuthenticated == true {
-            Task { await presentAuthenticatedPricing(url: url) }
+            Task { @MainActor in
+                await presentAuthenticatedPricing(url: url)
+            }
             return
         }
         presentAppPricingWebWithoutSession(url: url)
