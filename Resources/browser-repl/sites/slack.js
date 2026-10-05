@@ -170,19 +170,34 @@
             return {
               category: "[9] representational communication",
               summary: `Post to ${where}${threadTs ? ` (thread ${threadTs})` : ""} in workspace ${team.name || team.id} (${team.id}) as ${user.name || user.id} (${user.id})`,
-              preview: { team, user, channel, threadTs, text },
-              run: async () => {
-                // The token of the drafted workspace only (never the
-                // last-active one), checked in the same page call to be the
-                // drafted member's before chat.postMessage sends with it.
-                const r = await withSlack((call) => call(team.id, "chat.postMessage", { channel: channel.id, text, thread_ts: threadTs || undefined }, { teamId: team.id, userId: user.id }));
-                return { status: "posted", channel: r.channel, ts: r.ts };
-              },
+              account: { team, user },
+              target: { channel },
+              content: { threadTs, text },
+              // chat.postMessage sends both from the draft.
+              sent: ["threadTs", "text"],
+              commit: (c) =>
+                withSlack(async (call) => {
+                  // Read back with the drafted workspace's token only (never
+                  // the last-active one): who it acts as and the channel's
+                  // id and name. chat.postMessage then checks, in the same
+                  // page call, that the token is still the drafted member's.
+                  return c.write(
+                    async () => {
+                      const auth = await call(team.id, "auth.test", {});
+                      const info = await call(team.id, "conversations.info", { channel: channel.id });
+                      return { team: { id: auth.team_id, name: auth.team || null }, user: { id: auth.user_id, name: auth.user || null }, channel: { id: info.channel.id, name: info.channel.name || null } };
+                    },
+                    async () => {
+                      const r = await call(team.id, "chat.postMessage", { channel: channel.id, text, thread_ts: threadTs || undefined }, { teamId: team.id, userId: user.id });
+                      return { status: "posted", channel: r.channel, ts: r.ts };
+                    },
+                  );
+                }),
             };
           });
         },
       };
     },
-    { summary: "Slack workspaces, channels, history, replies, search, users; confirmed-draft posts" },
+    { summary: "Slack workspaces, channels, history, replies, search, users; confirmed-draft posts", writes: ["post"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

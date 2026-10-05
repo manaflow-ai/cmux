@@ -127,58 +127,75 @@
     const rows = Array.isArray(data) && Array.isArray(data[1]) ? data[1] : [];
     return rows
       .filter((a) => Array.isArray(a) && typeof a[3] === "string")
-      .map((a, i) => ({ uid: i, name: typeof a[2] === "string" ? a[2] : "", email: a[3], signedOut: a[14] === 1 || a[14] === true }));
+      .map((a, i) => ({ uid: i, id: typeof a[10] === "string" && a[10] ? a[10] : null, name: typeof a[2] === "string" ? a[2] : "", email: a[3], signedOut: a[14] === 1 || a[14] === true }));
   }
 
-  // The email of the signed-in account at /u/{uid}/. A draft pins it: the
-  // index is positional, so signing an account in or out (another session
-  // can) moves another account to that index.
-  async function accountEmail(t, name, uid) {
+  // The signed-in account at /u/{uid}/, { uid, email, id } (id: Google's
+  // stable account id, ListAccounts [10]). A draft pins it: the index is
+  // positional, so signing an account in or out (another session can)
+  // moves another account to that index.
+  async function accountAt(t, name, uid) {
     const account = (await listAccounts(t, name)).find((a) => a.uid === uid);
     if (!account || account.signedOut) throw new S.SiteError("not_signed_in", `${name}: no signed-in Google account at /u/${uid}/; see sites.googleAccounts.list()`);
-    return account.email;
+    if (!account.id) throw new S.SiteError("account_unverified", `${name}: Google did not give the account id of /u/${uid}/; nothing was drafted`);
+    return { uid, email: account.email, id: account.id };
   }
 
-  // Fails (account_changed) unless /u/{uid}/ is still the account `email`.
-  async function checkAccount(t, name, uid, email) {
-    const account = (await listAccounts(t, name)).find((a) => a.uid === uid);
-    const now = account && !account.signedOut ? account.email : null;
-    if (now !== email) throw new S.SiteError("account_changed", `${name}: account u/${uid} is now ${now || "signed out"}, not ${email} as drafted; nothing was sent. Make a new draft and show it to the user again`);
-  }
-
-  // Runs in a Gmail or Calendar page: the emails of the Google account the
-  // page is signed in as, from its title ("Inbox - ada@example.com -
-  // Gmail") and its Google Account button ("Google Account: Ada
-  // (ada@example.com)"); null when the page names none yet.
+  // Runs in a Gmail, Calendar or editor page: the emails of the Google
+  // account the page names in its own chrome, null when it names none
+  // yet. Only the app's title suffix ("Inbox - ada@example.com - Gmail":
+  // the last " - <email> - <app>", so a subject that holds an address does
+  // not count) and Google Account buttons outside the page's content (the
+  // main area, dialogs, editable text and message bodies, which senders
+  // and collaborators write) count.
   function pageAccountEmails() {
     const out = new Set();
     const email = /[^\s()<>"',;:]+@[^\s()<>"',;:]+\.[A-Za-z]{2,}/g;
-    const title = / - ([^\s]+@[^\s]+\.[A-Za-z]{2,}) - /.exec(document.title || "");
+    const title = / - ([^\s]+@[^\s]+\.[A-Za-z]{2,}) - [^-]*$/.exec(document.title || "");
     if (title) out.add(title[1].toLowerCase());
-    for (const el of document.querySelectorAll('[aria-label^="Google Account"]')) for (const m of (el.getAttribute("aria-label") || "").matchAll(email)) out.add(m[0].toLowerCase());
+    for (const el of document.querySelectorAll('[aria-label^="Google Account"]')) {
+      if (el.closest('[role="main"], [role="dialog"], [contenteditable], .a3s, .kix-appview-editor')) continue;
+      for (const m of (el.getAttribute("aria-label") || "").matchAll(email)) out.add(m[0].toLowerCase());
+    }
     return out.size ? [...out] : null;
   }
 
-  // Fails unless the loaded page (the one whose button the caller clicks
-  // next) is signed in as `email`: account_changed when it names another
-  // account, account_unknown when it names none. The /u/ index is
-  // positional, so a sign-in by another session while the page loads can
-  // put another account behind the drafted index after checkAccount.
-  async function checkPageAccount(t, name, page, email, nothing = "nothing was sent") {
-    const found = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account" }).catch(() => null);
-    if (!found) throw new S.SiteError("account_unknown", `${name}: could not tell which Google account ${page.url().split("?")[0]} is signed in as; ${nothing}`);
-    const other = found.find((e) => e !== String(email).toLowerCase());
-    if (other) throw new S.SiteError("account_changed", `${name}: the page is signed in as ${other}, not ${email} as drafted; ${nothing}. Make a new draft and show it to the user again`);
-  }
-
-  // The one Google account the loaded page is signed in as (an editor's
-  // header names it), which a draft shows and its confirmation requires
-  // again: account_unknown when the page names none, or more than one.
+  // The one Google account the loaded page names (an editor's header, a
+  // Gmail title), which a draft shows: account_unverified when the page
+  // names none, or more than one.
   async function pageAccount(t, name, page) {
     const found = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account" }).catch(() => null);
-    if (!found || found.length !== 1) throw new S.SiteError("account_unknown", `${name}: could not tell which Google account ${page.url().split("?")[0]} is signed in as${found ? ` (it names ${found.join(", ")})` : ""}; nothing was changed`);
+    if (!found || found.length !== 1) throw new S.SiteError("account_unverified", `${name}: could not tell which Google account ${page.url().split("?")[0]} is signed in as${found ? ` (it names ${found.join(", ")})` : ""}; nothing was changed`);
     return found[0];
   }
 
-  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText, listAccounts, accountEmail, checkAccount, checkPageAccount, pageAccount };
+  // For a commit's observe(), right before the write: the account `page`
+  // acts as, { account: uid, accountEmail, accountId }. uid is the page's
+  // own /u/N/ (or authuser) index, or `uid` for a page whose URL has none
+  // (an editor opened without one acts as /u/0/); the email and id come
+  // from Google's ListAccounts (server state) for that index, read last,
+  // and count only when the page's own chrome names that same email and no
+  // other. A field it cannot establish is left out (unverified); a page
+  // that names another account than Google's list makes the email a
+  // mismatch.
+  async function observeAccount(t, name, page, uid) {
+    let at = uid;
+    try {
+      const u = new URL(page.url());
+      const m = /\/u\/(\d+)(?:\/|$)/.exec(u.pathname);
+      if (m) at = Number(m[1]);
+      else if (/^\d+$/.test(u.searchParams.get("authuser") || "")) at = Number(u.searchParams.get("authuser"));
+    } catch (e) {}
+    if (at === undefined || at === null) at = 0;
+    const named = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account" }).catch(() => null);
+    const row = (await listAccounts(t, name)).find((a) => a.uid === at);
+    const out = { account: at };
+    if (!row || row.signedOut || !named) return out;
+    const other = named.find((e) => e !== row.email.toLowerCase());
+    out.accountEmail = other ? `${row.email} (the page names ${other})` : row.email;
+    if (row.id) out.accountId = row.id;
+    return out;
+  }
+
+  S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText, listAccounts, accountAt, pageAccount, observeAccount, pageAccountEmails };
 })(typeof globalThis !== "undefined" ? globalThis : this);

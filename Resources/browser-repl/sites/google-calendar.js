@@ -101,45 +101,52 @@
     if ((rule.COUNT || null) !== (count ? count[1] : null)) return false;
     return !!rule.UNTIL === /\buntil\b/i.test(text);
   }
-  async function checkForm(page, draft) {
-    const problems = [];
+  // What the event form in `page` would save, for a commit's observe(): per
+  // drafted field, the drafted value when the form shows it (dates and
+  // times in the draft's time zone, the recurrence as Calendar words it),
+  // else what the form shows; a field the form does not show is left out
+  // (unverified). Guests are the addresses the form lists besides the
+  // account's own.
+  async function observeForm(page, draft, accountEmail) {
+    const out = {};
+    const norm = (v) => String(v || "").replace(/[​-‍⁠﻿]/g, "").replace(/\s+/g, " ").trim();
     const field = (label) => fieldText(page.locator(`[role="main"] [aria-label="${label}"]`));
     const title = await field("Title");
-    if (title === null || title.trim() !== draft.title.trim()) problems.push(`title ${JSON.stringify(title)}`);
+    if (title !== null) out.title = title.trim();
     const zone = draft.timeZone || new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const startDate = new Date(draft.start);
+    const endDate = new Date(draft.end);
     // All-day dates are calendar days (UTC in the template); the form shows
     // the last day, not the day after.
-    const start = draft.allDay ? zonedParts(draft.start, "UTC") : zonedParts(draft.start, zone);
-    const end = draft.allDay ? zonedParts(new Date(draft.end.getTime() - 86400000), "UTC") : zonedParts(draft.end, zone);
-    const startDate = await field("Start date");
-    const endDate = await field("End date");
-    if (!dateShows(startDate, start)) problems.push(`start date ${JSON.stringify(startDate)}`);
+    const start = draft.allDay ? zonedParts(startDate, "UTC") : zonedParts(startDate, zone);
+    const end = draft.allDay ? zonedParts(new Date(endDate.getTime() - 86400000), "UTC") : zonedParts(endDate, zone);
+    const startDay = await field("Start date");
+    const endDay = await field("End date");
+    const startTime = await field("Start time");
+    const endTime = await field("End time");
+    // An all-day event's form shows no times.
+    if (startDay !== null) out.allDay = !startTime && !endTime;
+    const sameDay = start.y === end.y && start.m === end.m && start.d === end.d;
     // The end date is shown only when it differs from the start.
-    if (endDate === null ? start.y !== end.y || start.m !== end.m || start.d !== end.d : !dateShows(endDate, end)) problems.push(`end date ${JSON.stringify(endDate)}`);
-    if (!draft.allDay) {
-      const startTime = await field("Start time");
-      const endTime = await field("End time");
-      if (!timeShows(startTime, start)) problems.push(`start time ${JSON.stringify(startTime)}`);
-      if (!timeShows(endTime, end)) problems.push(`end time ${JSON.stringify(endTime)}`);
-    }
-    // The location, description and recurrence the preview showed. A
-    // field the form does not show reads as unknown and fails the check.
-    const norm = (v) => String(v || "").replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
+    const startShown = startDay !== null && dateShows(startDay, start) && (draft.allDay || timeShows(startTime, start));
+    const endShown = (endDay === null ? sameDay : dateShows(endDay, end)) && (draft.allDay || timeShows(endTime, end));
+    if (startDay !== null) out.start = startShown ? draft.start : `${startDay} ${startTime || ""}`.trim();
+    if (startDay !== null) out.end = endShown ? draft.end : `${endDay || startDay} ${endTime || ""}`.trim();
     const location = await fieldText(page.locator('[role="main"] [aria-label="Location"], [role="main"] [aria-label="Add location"]'));
-    if (location === null || norm(location) !== norm(draft.location)) problems.push(`location ${JSON.stringify(location)}`);
+    if (location !== null) out.location = norm(location);
     const description = await fieldText(page.locator('[role="main"] [aria-label="Description"]'));
-    if (description === null || norm(description) !== norm(draft.description)) problems.push(`description ${JSON.stringify(description && description.length > 200 ? description.slice(0, 199) + "…" : description)}`);
+    if (description !== null) out.description = norm(description);
     const recurrence = await fieldText(page.locator('[role="main"] [aria-label="Recurrence"]'));
-    if (recurrence === null || !repeatsAs(norm(recurrence), draft.recurrence)) problems.push(`recurrence ${JSON.stringify(recurrence)}`);
+    if (recurrence !== null) out.recurrence = repeatsAs(norm(recurrence), draft.recurrence) ? draft.recurrence : norm(recurrence);
     const listed = page.locator('[role="main"] [data-email]');
     const n = await listed.count();
-    const shown = new Set();
-    for (let i = 0; i < n && i < 200; i++) shown.add(String((await listed.nth(i).getAttribute("data-email", { timeout: 2000 })) || "").trim().toLowerCase());
-    if (n >= 200) problems.push("more than 200 guests");
-    shown.delete(String(draft.accountEmail).toLowerCase());
-    const want = new Set(draft.guests.map((g) => g.toLowerCase()));
-    if (shown.size !== want.size || [...want].some((g) => !shown.has(g))) problems.push(`guests ${[...shown].join(", ") || "none"}`);
-    return problems;
+    if (n < 200) {
+      const shown = new Set();
+      for (let i = 0; i < n; i++) shown.add(String((await listed.nth(i).getAttribute("data-email", { timeout: 2000 })) || "").trim().toLowerCase());
+      shown.delete(String(accountEmail).toLowerCase());
+      out.guests = [...shown];
+    }
+    return out;
   }
 
   S.register(
@@ -196,39 +203,46 @@
             base(uid);
             q.set("authuser", String(uid));
             const url = `https://calendar.google.com/calendar/render?${q}`;
-            // The draft pins the account by email: u/N is positional.
+            // The draft pins the account by Google's account id and email:
+            // u/N is positional.
             const g = S.shared.google;
-            const accountEmail = await g.accountEmail(t, "googleCalendar.create", uid);
+            const who = await g.accountAt(t, "googleCalendar.create", uid);
+            const set = (list) => [...new Set((list || []).map((x) => String(x).trim().toLowerCase()))].sort();
+            const norm = (v) => String(v || "").replace(/[​-‍⁠﻿]/g, "").replace(/\s+/g, " ").trim();
             return {
               category: guests.length ? "[9] create appointments; [14] sends invitations to guests" : "[9] create appointments",
-              summary: `Create "${e.title}" ${e.allDay ? "all day" : ""} ${start.toISOString()} to ${end.toISOString()} as ${accountEmail} (u/${uid})${guests.length ? `, inviting ${guests.join(", ")}` : ""}`.replace(/\s+/g, " "),
-              preview: { account: uid, accountEmail, title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, description: e.description || "", location: e.location || "", guests, timeZone: e.timeZone || null, recurrence: e.recurrence || null },
-              run: async () => {
-                await g.checkAccount(t, "googleCalendar.create", uid, accountEmail);
-                return t.withTab(url, async (page) => {
+              summary: `Create "${e.title}" ${e.allDay ? "all day" : ""} ${start.toISOString()} to ${end.toISOString()} as ${who.email} (u/${uid})${guests.length ? `, inviting ${guests.join(", ")}` : ""}`.replace(/\s+/g, " "),
+              account: { account: uid, accountEmail: who.email, accountId: who.id },
+              target: { guests },
+              content: { title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, description: e.description ? String(e.description) : "", location: e.location ? String(e.location) : "", timeZone: e.timeZone || null, recurrence: e.recurrence ? String(e.recurrence) : null },
+              // The zone the form's times are read in (Calendar shows none).
+              sent: ["timeZone"],
+              canon: { guests: set, title: (v) => String(v).trim(), description: norm, location: norm, accountEmail: (v) => String(v).toLowerCase() },
+              commit: (c) =>
+                t.withTab(url, async (page) => {
                   t.assertSignedIn("googleCalendar.create", page, SIGN_IN);
                   const save = page.getByRole("button", { name: "Save", exact: true });
                   await save.first().waitFor({ timeout: 30000 });
-                  // The account this event editor saves as, read in the page
-                  // right before Save (see gmail.send).
-                  await g.checkPageAccount(t, "googleCalendar.create", page, accountEmail);
-                  // The form holds the drafted event, nothing else.
-                  const problems = await checkForm(page, { title: String(e.title), start, end, allDay: !!e.allDay, timeZone: e.timeZone || null, guests, accountEmail, description: e.description ? String(e.description) : "", location: e.location ? String(e.location) : "", recurrence: e.recurrence ? String(e.recurrence) : null });
-                  if (problems.length) throw new S.SiteError("form_mismatch", `googleCalendar.create: the event form does not hold the drafted event (${problems.join("; ")}); nothing was saved. Make a new draft and show it to the user again`);
-                  await save.first().click();
-                  if (guests.length) {
-                    const send = page.getByRole("button", { name: /^Send$/ });
-                    await send.first().waitFor({ timeout: 8000 }).then(() => send.first().click(), () => {});
-                  }
-                  await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
-                  return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
-                });
-              },
+                  // The account this event editor saves as and the event the
+                  // form holds, read right before Save.
+                  return c.write(
+                    async () => ({ ...(await g.observeAccount(t, "googleCalendar.create", page, uid)), ...(await observeForm(page, c.intent, who.email)) }),
+                    async () => {
+                      await save.first().click();
+                      if (guests.length) {
+                        const send = page.getByRole("button", { name: /^Send$/ });
+                        await send.first().waitFor({ timeout: 8000 }).then(() => send.first().click(), () => {});
+                      }
+                      await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
+                      return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
+                    },
+                  );
+                }),
             };
           });
         },
       };
     },
-    { summary: "Google Calendar events in a view or search; confirmed-draft event creation" },
+    { summary: "Google Calendar events in a view or search; confirmed-draft event creation", writes: ["create"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

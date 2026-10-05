@@ -34,53 +34,48 @@ rules neither reference enforces together:
    afterwards changes nothing: the confirmed call performs the action the
    preview showed. The status and expiry the confirm step checks stay in the
    session; `sites.drafts.get(id)` reads the current status.
-   The draft also names its destination and sending account concretely,
-   resolved when it is made, and the confirmed call acts only there, so a
-   change of shared browser state another session can make between the
-   preview and the confirmation never redirects it: a Slack draft holds the
-   workspace and channel ids and the member's user id (`team` omitted means
-   Slack's last-active workspace at draft time, a `#name` the channel it
-   named then), Gmail and Calendar drafts the account's email for their
-   `/u/` index, a Gmail reply the ids of the thread's messages and the To, Cc
-   and Bcc Gmail's Reply (all) addresses (read from its reply composer at
-   draft time and shown in the preview; ids name the thread, never who
-   the reply goes to), a LinkedIn
-   draft the signed-in member, an X draft the screen name of the account
-   X's account settings endpoint (`/i/api/1.1/account/settings.json`, the
-   one X's web client calls) says its session cookie authenticates, never
-   the page-writable `twid` cookie, a Docs, Sheets, Slides or Drive trash
-   draft the email of the account the file's editor is signed in as, and a Notion draft the
-   Notion user (`{ userId }`, or the one user the session holds; with
-   several, the draft fails as `invalid` until `{ userId }` names one). When the account at that index, the
-   signed-in account or the replied thread has changed, the confirmation
-   fails with `account_changed` or `thread_changed` and sends nothing; make
-   a new draft. The account is checked again where the write happens,
-   right before it, since another session can switch the shared profile's
-   account while the composer loads: Slack posts in one page call that
-   runs `auth.test` with the same token first (a token names one member);
-   Gmail and Calendar read the account the compose, thread or event page
-   is signed in as (its title, its Google Account button) right before
-   Send or Save, and fail closed with `account_unknown`, sending nothing, when the page names no account; LinkedIn
-   reads the member in the composer page right before Post; X asks its
-   account endpoint again from the composer page right before Post (and
-   makes no draft, `account_unknown`, when X names no account); the Google
-   editors read the account in the editor's header when they reload it
-   right before the first input (see "Editing Google files"); Notion checks
-   the session's users and then reads and writes with
+   Every write goes through one draft and commit protocol in
+   `sites/loader.js`, so a change of shared browser state another session
+   (or the page) makes between the preview and the confirmation never
+   redirects it. The draft records a typed intent, which is its preview:
+   the **account** that acts, by stable ids (Google's account id from
+   ListAccounts and the email at the `/u/` index, the Slack workspace and
+   member ids, the LinkedIn member id, the Notion user id, the X screen
+   name X's account settings endpoint authenticates, never the
+   page-writable `twid` cookie); the **target**, by stable ids (Slack
+   channel id and name, the Gmail thread and its message ids and the To,
+   Cc and Bcc Gmail's Reply (all) addresses, the Google file id with its
+   title and sharing, a Slides object id with its title and position, the
+   Notion page, the WebMCP tool's descriptor); and every other field the
+   preview shows (**content**). The confirmation prepares the write (opens
+   the composer, fills it) and then, right before the click or request
+   that writes, reads every one of those fields back from the site and
+   compares it with the draft: a difference fails with
+   `account_mismatch`, `target_mismatch` or `content_mismatch`, a field it
+   cannot read with `account_unverified`, `target_unverified` or
+   `content_unverified`, and nothing is sent. Only content the write sends
+   from the draft itself (a Slack message's text in `chat.postMessage`, a
+   Sheets paste's values) is not read back; `sites.drafts.get(id).checked`
+   lists the fields a confirmation read back. A tool whose commit writes
+   without reading back fails with `commit_unverified`, and
+   `tests/browser-parity/sites/commit-protocol.test.mjs` enumerates every
+   site method so that each write is a declared one that uses the protocol.
+   Google's account is read from Google's account list (server state for
+   the page's `/u/` index), read last, and counts only when the page's
+   own chrome (its title suffix, its Google Account button outside the
+   page's content) names that same account: page labels never stand in
+   for it. Composer text (Gmail, LinkedIn, X) is read whole in the agent's
+   isolated world, whitespace collapsed, Gmail's own signature and quoted
+   text left out, so a composer that keeps the drafted opening and holds
+   more fails. The remaining window is between the read-back and the
+   click (Gmail, Calendar, LinkedIn, X, the Google editors), which no site
+   API closes: none binds a click to an account. Slack's
+   `chat.postMessage` checks the member again in the same page call
+   (`account_changed`); Notion reads and writes with
    `x-notion-active-user-header` set to the drafted user, so Notion runs
-   the write as that user or refuses it. The remaining window is between
-   that last check and the click (Gmail, Calendar, LinkedIn, X), which no
-   site API closes: none binds a click to an account. Before Send or Post,
-   Gmail, LinkedIn and X compare the composer's whole text (read in the
-   agent's isolated world, hidden text included, whitespace collapsed)
-   with the confirmed draft, never just its start: a composer that holds
-   more or other text than the draft (a page script or another session
-   added to it) fails with `compose_mismatch` and sends nothing. Gmail's
-   own signature and quoted thread text are left out of the comparison.
-   Drive, Docs, Sheets
-   and Slides drafts name the file by id (see "Editing Google files" for
-   what else they bind), and a WebMCP draft fails when its tab left the
-   previewed URL or document or the page's tool changed (see "WebMCP calls").
+   the write as that user or refuses it; a WebMCP call runs only in the
+   listed document while the tool's descriptor is the previewed one
+   (`page_changed`, `tool_changed`).
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -151,21 +146,22 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `not_found`, `forbidden`, `timeout`, `captcha`, `consent_required`,
 `no_captions`, `confirm_required`, `draft_required`, `draft_not_found`,
 `draft_mismatch`, `draft_used`, `draft_expired`, `draft_changed`,
-`compose_mismatch`, `account_changed`, `account_unknown`, `thread_changed`,
-`tool_changed`, `sharing_changed`, `document_changed`, `sheet_changed`,
-`slide_changed`, `origin_changed`, `write_requires_draft`, `unsupported`.
+`account_mismatch`, `account_unverified`, `target_mismatch`,
+`target_unverified`, `content_mismatch`, `content_unverified`,
+`commit_unverified`, `account_changed`, `account_unknown`, `tool_changed`,
+`page_changed`, `origin_changed`, `write_requires_draft`, `unsupported`.
 
 | Method | Mechanism | Kind |
 | --- | --- | --- |
-| `googleAccounts.list()` | POST accounts.google.com/ListAccounts (cookie) | read |
+| `googleAccounts.list()` | POST accounts.google.com/ListAccounts (cookie): `{ uid, id, name, email, signedOut }`, `id` Google's stable account id | read |
 | `googleDocs.read(url, { format, uid })`, `.export(url, { format, path, uid })` | docs.google.com `/export?format=` (cookie) | read |
 | `googleSheets.info(url)`, `.read(url, { gid, sheet, range })`, `.readAll(url)`, `.export(url, { format, gid })` | `/htmlview` for sheet names, `/export?format=csv&gid=` | read |
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
-| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) checked against the draft, and for a new message the subject (`compose_mismatch` on any difference or a missing subject field); a reply's rows are those its draft read from Gmail's reply composer, so a changed Reply-To or Cc sends nothing, and a reply composer whose To row cannot be read, or that holds a chip outside its rows, fails closed with `compose_unverified` at the draft and at Send; `to`, `cc` and `bcc` cannot be set on a reply, the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
+| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) checked against the draft, and for a new message the subject (`target_mismatch` or `content_mismatch` on any difference, `*_unverified` for a field it cannot read); a reply's rows are those its draft read from Gmail's reply composer, so a changed Reply-To or Cc sends nothing, and a reply composer whose To row cannot be read, or that holds a chip outside its rows, fails closed with `target_unverified` at the draft and at Send; `to`, `cc` and `bcc` cannot be set on a reply; the page's account (Google's account list for its `/u/` index, which its title and account button must name) checked against the drafted account id and email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
-| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked against the drafted email, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's; location and description with whitespace collapsed; the recurrence menu's words against the drafted rule: "Does not repeat" without one, else its frequency and interval, `COUNT` and whether it has an `UNTIL`; the guests, organizer aside), failing with `form_mismatch` and saving nothing on any difference or a field it cannot read; Save, Send invitations only when the draft has guests | write [9], [14] |
+| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked as for Gmail, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's; location and description with whitespace collapsed; the recurrence menu's words against the drafted rule: "Does not repeat" without one, else its frequency and interval, `COUNT` and whether it has an `UNTIL`; the guests, organizer aside), failing with `target_mismatch` or `content_mismatch` (`*_unverified` for a field it cannot read) and saving nothing on any difference or a field it cannot read; Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
 | `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com` (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
@@ -209,50 +205,36 @@ the file back to verify.
 | `googleSheets.cells(url, { sheet, gid, range })` | xlsx export unzipped in a docs.google.com page (`DecompressionStream`): `{ cell, value, formula }` | read |
 | `googleSheets.find(url, text)` | the same, every tab | read |
 | `googleSheets.write(url, range, rows)` | name box selects the top-left cell, then one Meta+V of the rows as TSV from the tab's clipboard (a trusted `paste` whose `clipboardData` Sheets reads; `=` makes a formula); if the export does not show the values within about 5 s, each value is typed with real keys (Tab between cells, Enter after a row). Verified through the xlsx export | write |
-| `googleSheets.append(url, rows)` | the same after the last non-empty row; right before the paste the CSV export is read again and the write fails (`sheet_changed`) when the last row moved since the target was chosen, so rows added meanwhile are never overwritten (the web editor has no insert-at-end the session can call; a row added between that read and the paste is the remaining window) | write |
+| `googleSheets.append(url, rows)` | the same after the last non-empty row; right before the paste the CSV export is read again and the write fails (`content_mismatch`: the range) when the last row moved since the target was chosen, so rows added meanwhile are never overwritten (the web editor has no insert-at-end the session can call; a row added between that read and the paste is the remaining window) | write |
 | `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
 | `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |
-| `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export. The draft states the match count and offsets in the text export (case ignored, as Find and replace matches by default); right before Replace all the export is read again and the write fails (`document_changed`) unless it is the same text, so a match added since the preview is never edited | write |
-| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once, also with case ignored (as Find and replace matches). The draft shows the match count (1) and its offset in the text export; right before Replace all the export is read again and the write fails (`document_changed`) unless it is the same text, so a second match or another change is never edited (an edit not yet saved to the export when it is read is the remaining window) | write |
+| `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export. The draft states the match count and offsets in the text export (case ignored, as Find and replace matches by default); the draft also shows the text's hash; right before Replace all the export is read again and the write fails (`content_mismatch`) unless the count, offsets and hash are the same, so a match added since the preview is never edited | write |
+| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once, also with case ignored (as Find and replace matches). The draft shows the match count (1) and its offset in the text export; right before Replace all the export is read again and the write fails (`content_mismatch`) unless it is the same text (its hash), so a second match or another change is never edited (an edit not yet saved to the export when it is read is the remaining window) | write |
 | `googleDocs.append(url, text)` | end of document (Meta+ArrowDown), Enter, typed text, verified | write |
 | `googleSlides.slides(url)` | pptx export: `{ index, title, text, notes }` per slide | read |
-| `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`); the draft names the slide by its object id (`<page>`) and title, and the write clicks the thumbnail with that object id wherever the slide moved (a deleted slide fails with `slide_changed`); the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
-| `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export. The draft states the match count per slide (slide text and notes, case ignored); right before Replace all the pptx export is read again and the write fails (`document_changed`) unless the deck is unchanged | write |
+| `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`); the draft names the slide by its object id (`<page>`), its title and its position, read from one consistent view of the deck (the filmstrip's object ids read before and after the pptx export must agree, else `target_unverified`), and the write reads all three again and fails with `target_mismatch` when the slide moved or was deleted; the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
+| `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export. The draft states the match count per slide (slide text and notes, case ignored); the draft also shows the deck's hash; right before Replace all the pptx export is read again and the write fails (`content_mismatch`) unless the deck is unchanged | write |
 | `googleDrive.create(kind, title, { uid })` | `docs.google.com/<kind>/create?authuser=<email>`, with the email of the account at `/u/<uid>/` (default 0) read first, so a sign-in by another session that moves accounts to other indexes cannot put the file in another account; then the title field. Returns `account` | creates a private file |
 | `googleDrive.trash(url)` | the editor's File > Move to trash, after the sharing check below | delete |
 
 Rule for writes (reference B's confirmation taxonomy, [9] edits others can see):
-a write first opens the file's editor and reads its Share button. If it
-says "Private to only me", nobody else sees the edit and it runs at once.
-The label is read only from the editor's own Share button (the one
-element with its id, in the editor's header) and the labels inside it,
-which must agree; a sharing label anywhere else in the page counts for
+every write is a draft, also on a file whose Share button says "Private
+to only me": the label is page text, so it never decides that an edit can
+skip the confirmation. The draft opens the file's editor and shows the
+file id, its title, the Share button's label, the account the editor acts
+as (Google's account id and email; see the draft protocol above) and the
+change. The label is read only from the editor's own Share button (the
+one element with its id, in the editor's header) and the labels inside
+it, which must agree; a sharing label anywhere else in the page counts for
 nothing, and a second, different one in the button makes the sharing
-unknown.
-Otherwise, including when the sharing cannot be read, the write returns a
-draft with the file, its title, the sharing text and the change, and runs
-only on `method(draftId, { confirm: true })`. Either way the write reloads
-the editor right before its first input and fails with `sharing_changed`,
-changing nothing, unless the Share button still shows the label the
-decision was made on (the private label, or the previewed one): a file
-shared after that read is not edited without a draft, and a draft whose
-file's sharing changed since the preview does not run. The editor's
-header names the Google account it is signed in as (its Google Account
-button): the decision and the draft read it (the draft shows it as
-`account`, and fails with `account_unknown` when the header names none or
-several), and the reload before the first input fails with
-`account_changed`, changing nothing, unless the editor is still signed in
-as it, since the editor's `/u/` index is positional and another session can
-sign an account in or out. A sharing or account change during the input
-itself is the remaining window. `googleDrive.trash` deletes
-data ([1]): it is a draft (with the file's title and sharing), except for a
-file `googleDrive.create` made in the same REPL session while its Share
-button still says "Private to only me"; a created file another session
-shared since gets a draft too. The editor is reloaded right before File >
-Move to trash, and the trash fails with `sharing_changed` unless the
-sharing is still the one the decision or the preview was made on, or with
-`account_changed` unless the editor is still signed in as the account the
-draft shows.
+unknown, which drafts nothing (`target_unverified`). The confirmed draft
+opens the editor again and reads the file, title, sharing and account back
+right before its first input, failing with `target_mismatch` or
+`account_mismatch` and changing nothing when one differs (a file shared
+since the preview, an account signed in at its `/u/` index). A sharing or
+account change during the input itself is the remaining window.
+`googleDrive.trash` deletes data ([1]) and is a draft the same way, also
+for a file `googleDrive.create` made in the same session.
 
 ## Confirmation taxonomy
 
@@ -380,7 +362,10 @@ are routed to the mock in the browser and in the REPL's `fetch`; any other
 https request is blocked. Each host checks the session the way the site does,
 so the tests prove the tools use the session, keep secrets in the page (the
 REPL scope is scanned for them), write only after a confirmed draft, and
-report sign-in pages.
+report sign-in pages. `commit-protocol.test.mjs` lists every site method:
+each must be a declared write (`register(name, factory, { writes })`) whose
+confirmed draft reads every bound field back, or a read or local action
+listed there.
 
 ```sh
 node --test tests/browser-parity/sites/*.test.mjs

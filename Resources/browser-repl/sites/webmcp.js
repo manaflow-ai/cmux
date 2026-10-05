@@ -78,11 +78,7 @@
       const UNSUPPORTED = "webmcp: this page declares no WebMCP tools (no navigator.modelContext). WebKit has no built-in WebMCP; only pages that ship their own implementation expose tools.";
       // 64-bit FNV-1a of a descriptor, shown in a draft's preview. The
       // confirmation compares the whole descriptor, not this hash.
-      const hash = (s) => {
-        let h = 0xcbf29ce484222325n;
-        for (let i = 0; i < s.length; i++) h = ((h ^ BigInt(s.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
-        return h.toString(16).padStart(16, "0");
-      };
+      const hash = t.hash;
       // A fresh mark for a document listed for the first time.
       const newMark = () => `${t.now().toString(36)}.${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
       // Tools with their descriptors (internal), and the document (mark)
@@ -125,20 +121,32 @@
           // Both run only in the document and at the URL the tool was listed in.
           if (options.trustReadOnlyHint === true && tool.annotations && tool.annotations.readOnlyHint === true) return run(page, name, input, descriptor, at);
           const url = page.url();
+          const shape = (x) => ({ tool: x.name, description: x.description, inputSchema: x.inputSchema, annotations: x.annotations, toolHash: hash(x.descriptor) });
           return t.write("webmcp", "call", { name, input }, undefined, () => ({
             category: "[9]/[14] a page tool that may change or send data",
             summary: `Call WebMCP tool "${name}" on ${url.split("?")[0]}`,
-            preview: { page: url, tool: name, description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations, toolHash: hash(descriptor), input: input === undefined ? {} : input },
+            // The principal is the page document that runs the tool.
+            account: { page: url },
+            target: shape(tool),
+            content: { input: input === undefined ? {} : input },
+            sent: ["input"],
             // The confirmed call sends the previewed (frozen) input to the
-            // previewed tool: same tab URL, same name, same descriptor.
-            run: async (preview) => {
-              if (page.url() !== url) throw new S.SiteError("page_changed", `webmcp.call: the tab navigated away from ${url}; nothing was called`);
-              return run(page, preview.tool, preview.input, descriptor, at);
-            },
+            // previewed tool: the tab's URL and the tool are read back, and
+            // the call itself runs only in the document the tool was listed
+            // in and only while its descriptor is the previewed one.
+            commit: (c) =>
+              c.write(
+                async () => {
+                  const now = await listRaw(page);
+                  const found = (now.tools || []).find((x) => x.name === name);
+                  return { page: page.url(), ...(found ? shape(found) : { tool: null }) };
+                },
+                () => run(page, c.intent.tool, c.intent.input, descriptor, at),
+              ),
           }));
         },
       };
     },
-    { summary: "List and call tools a page declares through WebMCP (calls are confirmed drafts)" },
+    { summary: "List and call tools a page declares through WebMCP (calls are confirmed drafts)", writes: ["call"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

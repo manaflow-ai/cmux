@@ -5,6 +5,7 @@
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
+  const { URL } = root.CmuxBrowserRepl.core;
   S.register(
     "googleSheets",
     (t) => {
@@ -19,6 +20,15 @@
         await box.press("Enter");
         await t.sleep(300);
       }
+      // The tab the editor shows: its gid in the editor's URL (null: the
+      // sheet's default tab, as the call named none).
+      const tabOf = (page) => {
+        try {
+          return (/(?:^|[#&])gid=(\d+)/.exec(new URL(page.url()).hash.slice(1)) || [])[1] || null;
+        } catch (e) {
+          return undefined;
+        }
+      };
       // The number of rows up to the last non-empty one in the sheet's CSV export.
       const usedRows = (rows) => {
         let last = rows.length;
@@ -45,19 +55,24 @@
         const target = `${start}:${ed.colName(c0 + width - 1)}${r0 + values.length - 1}`;
         if (values.some((row) => row.some((v) => /[\n\t]/.test(String(v === null || v === undefined ? "" : v))))) throw new S.SiteError("invalid", `${name}: a value contains a tab or a line break; Sheets cells are typed and cannot hold one this way`);
         const rowOps = [];
+        const tab = r.gid === undefined || r.gid === null ? null : String(r.gid);
         return ed.edit("googleSheets", action, name, r, { range: target }, options, () => ({
           summary: `Write ${values.length} row(s) at ${target} in Google Sheet ${r.id}`,
-          preview: { file: sheet, range: target, values },
-          run: async (page, gate) => {
-            await gate();
-            // An append goes after the last row as drafted: rows added since
-            // would be overwritten, so it fails instead (Sheets' web editor
-            // has no insert-at-end the session can call; the export read is
-            // the last step before the paste).
-            if (appendAfter !== undefined) {
-              const now = usedRows((await api.read(sheet, options || {})).rows);
-              if (now !== appendAfter) throw new S.SiteError("sheet_changed", `${name}: the sheet's last row is now ${now}, not ${appendAfter} as when ${target} was chosen (rows were added or removed); nothing was written. Make a new call (a new draft for a shared sheet)`);
-            }
+          target: { tab },
+          content: { range: target, values },
+          // An append goes after the last row as drafted: rows added since
+          // would be overwritten, so its range is read again from the
+          // export right before the paste (Sheets' web editor has no
+          // insert-at-end the session can call). A write's range is the
+          // address the call named.
+          sent: appendAfter === undefined ? ["range", "values"] : ["values"],
+          observe: async (page) => {
+            const at = { tab: tabOf(page) };
+            if (appendAfter === undefined) return at;
+            const now = usedRows((await api.read(sheet, options || {})).rows);
+            return { ...at, range: `A${now + 1}:${ed.colName(c0 + width - 1)}${now + values.length}` };
+          },
+          act: async (page) => {
             const want = new Map();
             values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
             const check = async () => {
@@ -199,9 +214,11 @@
           S.parseA1Range(range);
           return ed.edit("googleSheets", "clear", "googleSheets.clear", r, { range }, options, () => ({
             summary: `Clear ${range} in Google Sheet ${r.id}`,
-            preview: { file: sheet, range },
-            run: async (page, gate) => {
-              await gate();
+            target: { tab: r.gid === undefined || r.gid === null ? null : String(r.gid) },
+            content: { range },
+            sent: ["range"],
+            observe: async (page) => ({ tab: tabOf(page) }),
+            act: async (page) => {
               await selectRange(page, range);
               await page.keyboard.press("Delete");
               await ed.saved(page);
@@ -219,6 +236,6 @@
       };
       return api;
     },
-    { summary: "Sheet list, cell values (whole sheet or A1 range) and exports of Google Sheets" },
+    { summary: "Sheet list, cell values (whole sheet or A1 range) and exports of Google Sheets; confirmed-draft writes", writes: ["write", "append", "clear"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

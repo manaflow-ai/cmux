@@ -245,43 +245,58 @@
             return {
               category: "[9] edit shared content",
               summary: `Append ${newBlocks.length} block(s) to Notion page ${id} as ${account.email || account.userId}`,
-              preview: { page: id, account, blocks: newBlocks.length, markdown: input.markdown },
-              run: async () => {
-                // Who the session holds now (no user named, so another user
-                // answers as themself), then the page and the write, both
-                // naming the drafted user in x-notion-active-user-header:
-                // Notion runs them as that user or refuses them, also when
-                // the session switches users between these calls.
-                const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined });
-                const holder = rec(((nowSpaces && nowSpaces[account.userId] && nowSpaces[account.userId].notion_user) || {})[account.userId]);
-                if (!holder || (holder.email || null) !== account.email) {
-                  const others = Object.entries(nowSpaces || {}).map(([uid, v]) => (rec((v.notion_user || {})[uid]) || {}).email || uid);
-                  throw new S.SiteError("account_changed", `notion.append: the signed-in Notion user is now ${others.join(", ") || "nobody"}, not ${account.email || account.userId} as drafted; nothing was written. Make a new draft and show it to the user again`);
-                }
-                const [r] = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], as);
-                const parent = rec(((r.recordMap || {}).block || {})[id]);
-                if (!parent) throw new S.SiteError("not_found", `notion.append: page ${id} was not found`);
-                const spaceId = parent.space_id;
-                const now = t.now();
-                const ops = [];
-                let after = (parent.content || []).slice(-1)[0];
-                const ids = [];
-                for (const b of newBlocks) {
-                  const bid = uuid();
-                  ids.push(bid);
-                  ops.push({ pointer: { table: "block", id: bid, spaceId }, path: [], command: "set", args: { type: b.type, id: bid, version: 1, alive: true, parent_id: id, parent_table: "block", space_id: spaceId, properties: b.properties, created_time: now, last_edited_time: now } });
-                  ops.push({ pointer: { table: "block", id, spaceId }, path: ["content"], command: "listAfter", args: after ? { after, id: bid } : { id: bid } });
-                  after = bid;
-                }
-                await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], as);
-                return { status: "appended", page: id, blockIds: ids };
+              account: { account },
+              target: { page: id },
+              content: { blocks: newBlocks.length, markdown: input.markdown },
+              // The blocks are made from the drafted Markdown.
+              sent: ["blocks", "markdown"],
+              commit: async (c) => {
+                let parent = null;
+                return c.write(
+                  async () => {
+                    // Who the session holds now (no user named, so another
+                    // user answers as themself), then the page as the
+                    // drafted user (x-notion-active-user-header: Notion
+                    // answers as that user or refuses).
+                    const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined });
+                    const holder = rec(((nowSpaces && nowSpaces[account.userId] && nowSpaces[account.userId].notion_user) || {})[account.userId]);
+                    const others = Object.entries(nowSpaces || {}).map(([uid, v]) => ({ userId: uid, email: (rec((v.notion_user || {})[uid]) || {}).email || null }));
+                    const out = { account: holder ? { userId: account.userId, email: holder.email || null } : others.find((o) => o.userId !== account.userId) || { userId: null, email: null } };
+                    // A refusal (the session no longer holds that user)
+                    // leaves the page unverified.
+                    const r = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], as).then(([x]) => x, () => null);
+                    if (!r) return out;
+                    parent = rec(((r.recordMap || {}).block || {})[id]);
+                    out.page = parent && parent.alive !== false ? parent.id : null;
+                    return out;
+                  },
+                  async () => {
+                    // The write names the drafted user too: Notion runs it as
+                    // that user or refuses it, also when the session switches
+                    // users after the read.
+                    const spaceId = parent.space_id;
+                    const now = t.now();
+                    const ops = [];
+                    let after = (parent.content || []).slice(-1)[0];
+                    const ids = [];
+                    for (const b of newBlocks) {
+                      const bid = uuid();
+                      ids.push(bid);
+                      ops.push({ pointer: { table: "block", id: bid, spaceId }, path: [], command: "set", args: { type: b.type, id: bid, version: 1, alive: true, parent_id: id, parent_table: "block", space_id: spaceId, properties: b.properties, created_time: now, last_edited_time: now } });
+                      ops.push({ pointer: { table: "block", id, spaceId }, path: ["content"], command: "listAfter", args: after ? { after, id: bid } : { id: bid } });
+                      after = bid;
+                    }
+                    await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], as);
+                    return { status: "appended", page: id, blockIds: ids };
+                  },
+                );
               },
             };
           });
         },
       };
     },
-    { summary: "Notion accounts, search, pages as Markdown; confirmed-draft Markdown append" },
+    { summary: "Notion accounts, search, pages as Markdown; confirmed-draft Markdown append", writes: ["append"] },
   );
   S.shared.notion = { toMarkdown, blocksFromMarkdown, richText, pageId };
 })(typeof globalThis !== "undefined" ? globalThis : this);
