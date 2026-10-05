@@ -17,6 +17,14 @@ import Testing
         #expect(result.stderr?.utf8.count == 65_537)
     }
 
+    @Test func boundedUTF8CaptureCannotDisappearAtAMultibyteBoundary() async {
+        let result = await CommandRunner(maximumCaptureBytes: 1).run(directory: tempDir,
+            executable: "/usr/bin/printf", arguments: ["%s", "é"], timeout: 5)
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout != nil)
+        #expect((result.stdout?.utf8.count ?? 0) >= 1)
+    }
+
     @Test func capturesStdoutAndCleanExit() async {
         let result = await runner.run(
             directory: tempDir,
