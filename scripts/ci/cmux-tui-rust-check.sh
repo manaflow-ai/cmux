@@ -37,6 +37,13 @@ if ! rustup component add clippy rustfmt; then
 fi
 echo "rust toolchain: $(rustup show active-toolchain)"
 rustup component list --installed
+# Run the pinned toolchain's own cargo, whose bin dir also holds cargo-fmt and
+# cargo-clippy. The cargo on the step's PATH is not always the rustup proxy;
+# then `cargo fmt` looks for cargo-fmt on PATH only (2026-10-05: step fafed265
+# on cmux7 had rustfmt installed and still failed with "no such command").
+toolchain_cargo="$(rustup which cargo)" || { echo "error: rustup which cargo failed" >&2; exit 3; }
+export PATH="$(dirname "$toolchain_cargo"):$PATH"
+echo "cargo: $toolchain_cargo"
 if [[ "$mode" == fmt || "$mode" == all ]]; then
   cargo fmt --all --check
 fi
