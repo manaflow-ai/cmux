@@ -7,7 +7,7 @@ import { personalTeamIdFor } from "./user.ts"
 import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { applyVmStatus } from "./cloud-vm-status.ts"
 import { powerIntent, powerResult, resizeIntent } from "./cloud-power.ts"
-import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
+import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 
 /**
  * CloudDO's reducer (plans/cmux-next/state-placement.md 5.1-5.3). Pure: provider calls run in the
@@ -207,7 +207,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   const plan = teamPlan(config, state.team ?? p.team)
   if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan", planRequiredDetails())
   if (d.value.from_snapshot !== undefined) return reject("cloud.snapshot.not_found", "no such snapshot")
-  const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? 4096
+  const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? DEFAULT_MEMORY_MB
   if (sizeLocked(plan, memory)) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { memory_mb: memory }))
   const cpu = d.value.size.cpu ?? DEFAULT_SIZE.cpu
   const disk = d.value.size.disk_mb ?? DEFAULT_SIZE.disk_mb
@@ -348,7 +348,8 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
   if (l.op === "create" && machine && r.bind_token_sha256) {
     const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
-    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind }, machine.n)] }
+    // The record takes the VM's real size (Freestyle has no size at create).
+    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
   const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev) }
