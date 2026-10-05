@@ -149,6 +149,7 @@ public final class UpdaterService {
         guard !started else { return }
         started = true
         observeFlowPhase()
+        loadWhatsNew()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
