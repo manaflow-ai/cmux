@@ -50,6 +50,7 @@
   var subtitleWeight = 65;
   var accessoryWeight = 50;
   var maximumBoost = 60;
+  var wholeTitleBonus = 500;
   var defaultHalfLife = 3 * 24 * 60 * 60;
   var cachedVersion;
   var cachedFields = [];
@@ -425,6 +426,8 @@
       if (!match)
         return;
       let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
+      if (titleIsQuery(entry.title, query.raw))
+        score += wholeTitleBonus;
       if (entry.isEnabled === false)
         score -= disabledPenalty;
       scored.push({ index, score, highlights: match.highlights });
@@ -465,6 +468,11 @@
     if (request.keepsSectionOrder)
       sectionOrder(order, request.sectionOrders ?? []);
     return order.map((sectionIndex) => ({ sectionIndex, rows: rowsBySection.get(sectionIndex) ?? [] }));
+  }
+  function titleIsQuery(title, raw) {
+    const normalize = (text) => text.trim().replace(/(\u2026|\.\.\.)$/u, "").trim().toLocaleLowerCase();
+    const query = normalize(raw);
+    return query !== "" && normalize(title) === query;
   }
   function rankPaletteRequest(request) {
     return request.operation === "rankEmpty" ? rankPaletteEmpty(request) : rankPalette(request);
