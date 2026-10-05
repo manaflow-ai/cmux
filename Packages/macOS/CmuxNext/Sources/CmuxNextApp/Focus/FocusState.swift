@@ -167,10 +167,6 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var terminal = false
         var browser = false
         var agent = false
-        /// A diff viewer tab (`diffViewerFocused`, its navigation actions).
-        var diff = false
-        /// A code editor page tab (`filePreviewFocused`, diff-host S7).
-        var filePreview = false
     }
 
     var windowKey = false
@@ -246,8 +242,6 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         case .terminal: return Context(terminal: true)
         case .browserPage, .addressBar, .findBar, .devTools: return Context(browser: true)
         case .agentPage: return Context(agent: true)
-        case .page(_, let tab) where LocalPageTab.page(of: tab) == .diff: return Context(diff: true)
-        case .page(_, let tab) where LocalPageTab.page(of: tab) == .editor: return Context(filePreview: true)
         default: return Context()
         }
     }

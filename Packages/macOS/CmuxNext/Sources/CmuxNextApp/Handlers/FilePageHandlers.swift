@@ -7,7 +7,7 @@ import CmuxNextSettings
 /// The code editor page's actions (diff-host S7; the markdown page's are PageCommandHandlers').
 /// Each sends its page command (``EditorPageCommand/forAction``) to the focused editor page; the
 /// keys stay in the one key dispatcher, which offers them only while that page has the keyboard
-/// (`filePreviewFocused`). The shared find actions reach the editor
+/// (`codeEditorFocused`). The shared find actions reach the editor
 /// through ``sendFind(_:_:_:)`` from their terminal and browser handlers.
 enum FilePageHandlers {
     /// The shared actions bound elsewhere (TerminalHandlers' find) that also drive the editor.
