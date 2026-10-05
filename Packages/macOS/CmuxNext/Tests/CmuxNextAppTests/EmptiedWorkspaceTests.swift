@@ -39,6 +39,19 @@ struct EmptiedWorkspaceTests {
         for _ in 0..<500 where !condition() { await Task.yield() }
     }
 
+    @Test func initiallyEmptyWorkspaceMountsItsActionsDuringInitialization() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.daemon.store.applyProvisional(snapshot: Self.emptied(1))
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        defer { controller.teardown() }
+        let actions = try #require(controller.emptyView)
+        #expect(controller.contentView.emptyView === actions)
+        #expect(controller.contentView.layoutView.isHidden)
+        withExtendedLifetime((services, state)) {}
+    }
+
     /// The launch snapshot drew the workspace with its pane before the
     /// daemon answered; the live tree then shows it empty (the daemon
     /// restarted without its terminals). No connection saw it with a pane,
