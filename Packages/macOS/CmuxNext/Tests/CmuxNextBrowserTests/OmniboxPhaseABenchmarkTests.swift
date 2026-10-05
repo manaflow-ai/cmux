@@ -5,9 +5,9 @@ import Testing
 /// The phase A budget (plans/cmux-next/omnibar-suggestions.md, "Verification"):
 /// 20,000 history rows (the cap), 500 bookmarks and 12 open tabs; 2,000 one-
 /// and two-token word prefixes; the whole phase A call, merge included, timed
-/// one query at a time. The design budget is 8 ms p99 in a release build; the
-/// gate runs a debug build on a shared fleet Mac, so it asserts a generous
-/// 3x bound and prints the measured p99 for the record.
+/// one query at a time. The design budget is 8 ms p99: an optimized build
+/// (CMUX_SWIFT_SUITE_CONFIGURATION=release) asserts it; the default debug gate
+/// asserts 10 ms. Both print the measured numbers.
 nonisolated struct OmniboxPhaseABenchmarkTests {
     @Test func phaseAStaysInsideItsBudgetOverTwentyThousandRows() {
         let rows = OmniboxFixtures.rows(OmniboxQuickIndex.defaultCap, seed: 2026)
@@ -45,10 +45,11 @@ nonisolated struct OmniboxPhaseABenchmarkTests {
         func percentile99(_ values: [Duration]) -> Duration { values.isEmpty ? .zero : values.sorted()[values.count * 99 / 100] }
         durations.sort()
         let p50 = durations[durations.count / 2], p99 = percentile99(durations)
-        print("R110 phase A over \(history.count) rows, \(queries.count) queries: p50 \(p50), p99 \(p99), max \(durations.last ?? .zero)")
+        let optimized = !_isDebugAssertConfiguration()
+        print("R110 phase A (\(optimized ? "optimized" : "debug") build) over \(history.count) rows, \(queries.count) queries: p50 \(p50), p99 \(p99), max \(durations.last ?? .zero)")
         print("R110 phase A p99 by part: what-you-typed \(percentile99(primary)), history lookup \(percentile99(lookup)); by input length "
               + byLength.keys.sorted().map { "\($0)\($0 == 4 ? "+" : ""): \(percentile99(byLength[$0] ?? []))" }.joined(separator: ", "))
         #expect(answered > queries.count / 2, "most prefixes find rows")
-        #expect(p99 < .milliseconds(24), "p99 \(p99)")
+        #expect(p99 < .milliseconds(optimized ? 8 : 10), "p99 \(p99)")
     }
 }

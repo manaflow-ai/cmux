@@ -37,25 +37,21 @@ nonisolated extension OmniboxQuickIndex {
         var best: [OmniboxQuickMatch] = []
         var bestIDs: [Int] = []
         best.reserveCapacity(limit + 1)
-        for pair in seed.range {
-            let id = Int(wordEntries[pair])
-            if fixed[id] + (seedLeads && !wordStartsHost[pair] ? otherBound : hostBound) < floor { continue }
-            guard !bestIDs.contains(id), let entry = entries[id],
-                  others.allSatisfy({ word in entry.words.contains { $0.hasPrefix(word) } }),
+        func consider(_ id: Int, _ entry: Entry) {
+            guard !bestIDs.contains(id), others.allSatisfy({ word in entry.words.contains { $0.hasPrefix(word) } }),
                   let match = OmniboxQuickScore.match(tokens: tokens, spaced: spaced, host: entry.host, url: entry.url,
-                                                      titleSpaced: entry.titleSpaced) else { continue }
+                                                      titleSpaced: entry.titleSpaced) else { return }
             let row = entry.row
             let hostPrefix = single && entry.bare.hasPrefix(prefix)
             let candidate = OmniboxQuickMatch(
                 row: row,
-                score: match + entry.usage + OmniboxQuickScore.recency(lastVisit: row.lastVisit, now: now)
-                    + entry.brevity,
+                score: match + entry.usage + OmniboxQuickScore.recency(lastVisit: row.lastVisit, now: now) + entry.brevity,
                 hostPrefix: hostPrefix,
                 allowsInlineCompletion: OmniboxQuickScore.allowsInlineCompletion(
                     hostPrefix: hostPrefix, visitCount: row.visitCount, typedCount: row.typedCount),
                 key: entry.key, display: entry.display
             )
-            guard best.count < limit || OmniboxQuickMatch.ranks(candidate, before: best[best.count - 1]) else { continue }
+            guard best.count < limit || OmniboxQuickMatch.ranks(candidate, before: best[best.count - 1]) else { return }
             let index = best.firstIndex { OmniboxQuickMatch.ranks(candidate, before: $0) } ?? best.count
             best.insert(candidate, at: index)
             bestIDs.insert(id, at: index)
@@ -64,6 +60,31 @@ nonisolated extension OmniboxQuickIndex {
                 bestIDs.removeLast()
             }
             if best.count == limit { floor = best[limit - 1].score }
+        }
+
+        if seed.word.count <= Self.shortLength, let list = shortLists[seed.word] {
+            // One token whose first word is the seed: an item's key plus the
+            // most recency is the row's best score, and keys only fall, so the
+            // walk stops at the first item below the floor.
+            let exact = tokens.count == 1 && seedLeads
+            for item in list {
+                let id = Int(item.id)
+                if exact {
+                    if item.key + OmniboxQuickScore.maxRecency < floor { break }
+                } else if fixed[id] + hostBound < floor {
+                    continue
+                }
+                guard let entry = entries[id] else { continue }
+                if !exact, seedLeads, !entry.leadsPrefix(seed.word), fixed[id] + otherBound < floor { continue }
+                consider(id, entry)
+            }
+            return best
+        }
+        for pair in seed.range {
+            let id = Int(wordEntries[pair])
+            if fixed[id] + (seedLeads && !wordStartsHost[pair] ? otherBound : hostBound) < floor { continue }
+            guard let entry = entries[id] else { continue }
+            consider(id, entry)
         }
         return best
     }

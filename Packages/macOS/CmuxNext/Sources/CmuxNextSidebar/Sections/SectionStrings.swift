@@ -14,6 +14,10 @@ enum SectionStrings {
     static var newAgentChat: String { String(localized: "sidebar.builtin.newAgentChat", defaultValue: "New Agent Chat", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.builtin.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     static var importSync: String { String(localized: "sidebar.builtin.importSync", defaultValue: "Import and Sync", bundle: .module) }
+    /// Short tile captions (a tiles section's items, Safari's favorites).
+    static var appStoreCaption: String { String(localized: "sidebar.builtin.appStore.caption", defaultValue: "Apps", bundle: .module) }
+    static var newWorkspaceCaption: String { String(localized: "sidebar.builtin.newWorkspace.caption", defaultValue: "New", bundle: .module) }
+    static var importSyncCaption: String { String(localized: "sidebar.builtin.importSync.caption", defaultValue: "Import", bundle: .module) }
     /// The rail's button for items that do not fit.
     static var customize: String { String(localized: "sidebar.builtin.customize", defaultValue: "Customize Appearance", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.sections.collapse", defaultValue: "Collapse", bundle: .module) }
