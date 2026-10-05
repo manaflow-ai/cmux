@@ -368,11 +368,12 @@ final class BrowserReplTabAttachment {
     }
 
     /// Where a dialog or file chooser `frame` opened goes: never to a
-    /// session whose domain policy blocks that frame's document
-    /// (``BrowserReplTabOwnership/route(for:from:policy:)``).
+    /// session whose authority refuses that frame's document in this tab
+    /// (its domain policy, or in a tab it did not create a local file
+    /// outside its directories; ``BrowserReplTabOwnership/route(for:from:in:authority:)``).
     private func route(for event: BrowserReplTabEvent, from frame: WKFrameInfo) -> BrowserReplEventRoute {
         guard isAttached else { return .user }
-        return deliverable(ownership.route(for: event, from: BrowserReplFrameDocument(info: frame), in: nil) {
+        return deliverable(ownership.route(for: event, from: BrowserReplFrameDocument(info: frame), in: authorityFacts) {
             Self.authority(for: $0)
         })
     }
@@ -618,7 +619,7 @@ final class BrowserReplTabAttachment {
     /// only to tabs the session created; a user's tab keeps cmux's own answer.
     func grants(_ request: BrowserReplPermissionRequest) -> Bool {
         guard let creator = creatorSessionID else { return false }
-        return request.isGranted(by: contextOptions.permissions, authority: Self.authority(for: creator), in: nil)
+        return request.isGranted(by: contextOptions.permissions, authority: Self.authority(for: creator), in: authorityFacts)
     }
 
     /// Puts ``contextOptions`` (user agent, headers, domain rule list) on
@@ -862,7 +863,7 @@ final class BrowserReplTabAttachment {
         guard event.isDelivered(as: .fromDocument) else { return }
         var body = payload
         body["targetId"] = targetID
-        let recipients = BrowserReplPageTelemetry().recipients(of: document, in: nil, among: Array(sinks.keys)) {
+        let recipients = BrowserReplPageTelemetry().recipients(of: document, in: authorityFacts, among: Array(sinks.keys)) {
             Self.authority(for: $0)
         }
         for sessionID in recipients { sinks[sessionID]?(event.rawValue, body) }
@@ -1060,13 +1061,14 @@ final class BrowserReplTabAttachment {
 
     /// Answers dialog `id` when `sessionID` is the session it was routed to.
     /// - Returns: `false` when the dialog is gone or another session's.
-    /// - Throws: `blocked` when `sessionID`'s domain policy now blocks the
-    ///   document that opened the dialog (it changed since the dialog
-    ///   opened): the dialog is dismissed, as an unhandled one is, and the
-    ///   session's answer never reaches that page.
+    /// - Throws: `blocked` when `sessionID`'s authority now refuses the
+    ///   document that opened the dialog in this tab (its policy changed
+    ///   since the dialog opened, or the document is a local file outside
+    ///   its directories): the dialog is dismissed, as an unhandled one is,
+    ///   and the session's answer never reaches that page.
     func respondToDialog(id: String, sessionID: String, accept: Bool, promptText: String?) throws -> Bool {
         guard let dialog = dialogs.take(id: id, sessionID: sessionID) else { return false }
-        if let reason = Self.authority(for: sessionID).verdict(BrowserReplAccess(.document(dialog.document))).reason {
+        if let reason = Self.authority(for: sessionID).verdict(BrowserReplAccess(.document(dialog.document), in: authorityFacts)).reason {
             dialog.respond(false, nil)
             throw WebKitBrowserReplDriver.error("blocked", "Dialog \(id) came from a frame showing \(dialog.document.origin ?? dialog.document.place), which the domain policy blocks: \(reason); it was dismissed")
         }
