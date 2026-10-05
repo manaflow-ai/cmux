@@ -17,6 +17,8 @@ import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMac
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
 const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start"])
+/** A cloud.machine.vm_status commit that applied the report (a held report from a replaced install is dropped). */
+export const statusApplied = (frames: ReadonlyArray<OwnerFrame>) => frames.some((f) => f.t === "result" && (f as { value?: { applied?: unknown } }).value?.applied === true)
 const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
 const forbidden = (entity: string, key: string): SubmitResult => ({
   frames: [
@@ -67,7 +69,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (!engine || !idleFromReport(row, (report as { activity?: ReportedActivity } | null)?.activity, now)) return
     if (!(await this.teamCloudPolicy(entity).catch(() => ({ idle_pause: false }))).idle_pause) return
     const limit = this.env.CLOUD_MUTATION_LIMIT
-    if (limit && !(await limit.limit({ key: `cloud:${entity}` })).success) return
+    // Per machine (review P3): a VM whose pauses keep failing cannot use up the team's create/delete budget.
+    if (limit && !(await limit.limit({ key: `cloud-idle:${machine}` })).success) return
     const r = this.submitSystem("cloud.machine.idle_pause", { machine }, `idle-pause:${machine}:${engine.currentSeq}`)
     if (r.frames.some((f) => f.t === "result")) await this.runMachine(machine, null)
   }
@@ -83,16 +86,26 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   protected readonly config: CloudConfig
   protected readonly flights = new Map<string, Promise<void>>()
   /** Test only: moves the alarm's clock forward, and drops the next driver_result commits (a crash). */
-  protected skewMs = 0
+  /** Test only (fakeControl advance_ms): the object's clock offset, also the engine's clock (commits see the same time). */
+  private readonly clock: { skew: number }
+  protected get skewMs(): number {
+    return this.clock.skew
+  }
+  protected set skewMs(v: number) {
+    this.clock.skew = v
+  }
   protected dropResults = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
+    const clock = { skew: 0 }
     super(ctx, env, cloudDomain(cloudConfig(env)) as Domain<CloudState>, "cloud", undefined, {
+      now: () => Date.now() + clock.skew,
       rowMode: { snapshotTable: TABLE_MACHINE, snapshotTail: 0 },
       // P3-8: internal ops carry ledger keys and provider error text; subscribers see neither.
       redact: { privateTables: CLOUD_PRIVATE_TABLES, state: headView, params: (op, params) => (INTERNAL_OPS.has(op) ? {} : params) }
     })
     this.config = cloudConfig(env)
+    this.clock = clock
   }
 
   /** P3-8: a member of the team this object is bound to, also while the head has no team yet. */
@@ -345,8 +358,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
     for (const d of this.vmStatus.takeDue(now)) {
-      this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
-      await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
+      const r = this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
+      if (statusApplied(r.frames)) await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
     }
     const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team

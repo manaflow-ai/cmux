@@ -6,7 +6,7 @@ import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
-import { CloudCore } from "./cloud-do-core.ts"
+import { CloudCore, statusApplied } from "./cloud-do-core.ts"
 
 /**
  * CloudDO, one per team (plans/cmux-next/state-placement.md 5): the machine registry, the
@@ -84,7 +84,9 @@ export class CloudDO extends CloudCore {
     const now = Date.now() + this.skewMs
     if (op === "cloud.vm.status.report") {
       let applied: { machine: string; report: unknown } | undefined
-      const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => ((applied = { machine, report }), this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`)), now)
+      const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {
+        if (statusApplied(this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`).frames)) applied = { machine, report }
+      }, now)
       if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
       return r
     }

@@ -42,6 +42,8 @@ describe("idle pause", { timeout: 60_000 }, () => {
   it("with cloud.idlePause on, a report of no sessions and no activity past the idle policy pauses the machine through the money-op path", async () => {
     const s = await vmSetup("cloud-bind-2")
     expect((await s.policy(true, 0)).body.ok).toBe(true)
+    // Idle counts from the bind at the earliest: move past the 30 min idle policy.
+    await s.stub.fakeControl({ advance_ms: 31 * 60_000 } as never)
     expect((await s.report({ active_sessions: 0, last_user_input_at: hoursAgo(5), last_agent_action_at: hoursAgo(4) })).body.ok).toBe(true)
     expect(["pausing", "paused"]).toContain(await s.status())
     expect(((await s.stub.fakeControl({})) as unknown as { pauses: number }).pauses).toBe(1)
@@ -68,6 +70,7 @@ describe("idle pause", { timeout: 60_000 }, () => {
     const s = await vmSetup("cloud-bind-4")
     expect((await s.policy(true, 0)).body.ok).toBe(true)
     const old = { active_sessions: 0, last_user_input_at: hoursAgo(5) }
+    await s.stub.fakeControl({ advance_ms: 31 * 60_000 } as never)
     await s.report(old)
     expect(await s.status()).toBe("paused")
     expect((await op(s.a.session, "cloud.machine.start", { machine: s.machine }, crypto.randomUUID())).body.ok).toBe(true)
