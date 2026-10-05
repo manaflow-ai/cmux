@@ -412,9 +412,8 @@ struct NewMachineSheet: View {
     private var sizeMenu: some View { makeSizeMenu(borderless: false).disabled(model.isFork) }
 
     /// The pop-up's ideal width is its longest machine name, which can exceed
-    /// the sheet; pinned to it, the overflow sent AppKit into an Update
-    /// Constraints loop while the sheet opened. It narrows like the size
-    /// pop-up and truncates the selected title instead.
+    /// the sheet. It narrows like the size pop-up and truncates the selected
+    /// title instead of overflowing the fixed-width sheet.
     private var baseImageMenu: some View {
         Picker(selection: Binding(
             get: { model.baseImage },
