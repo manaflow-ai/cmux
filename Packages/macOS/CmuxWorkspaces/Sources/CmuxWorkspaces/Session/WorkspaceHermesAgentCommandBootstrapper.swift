@@ -53,7 +53,7 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         }
         guard let command = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty,
-              terminalCommandLooksLikeManagedHud(command) else {
+              terminalCommandLooksLikeOMXHud(command) else {
             return nil
         }
         return command
@@ -318,60 +318,13 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private func terminalCommandLooksLikeManagedHud(_ command: String) -> Bool {
+    private func terminalCommandLooksLikeOMXHud(_ command: String) -> Bool {
         let lowered = command.lowercased()
-        guard terminalCommandTextContainsWord(lowered, word: "hud"),
-              // The providers run the HUD as a watch loop. Requiring the flag keeps an
-              // unrelated `echo "omp hud"` startup command out of the restorable set,
-              // where replaying it would repeat its side effects on every restore.
-              lowered.contains("--watch") else {
+        guard terminalCommandTextContainsWord(lowered, word: "hud") else {
             return false
         }
-        // The provider must identify the command being executed — its program,
-        // or the script an interpreter runs, after any leading `env`/`NAME=value`
-        // prefix — not just any word in the argument text. Otherwise a command
-        // such as `sh -c 'printf x >> /tmp/log; echo omp hud --watch'` would be
-        // replayed as a startup command on every restore.
-        let tokens = shellWords(in: command).map(\.value)
-        return terminalCommandLaunchesProviderHud(tokens)
+        return lowered.contains("omx") || lowered.contains("oh-my-codex")
     }
-
-    private func terminalCommandLaunchesProviderHud(_ tokens: [String]) -> Bool {
-        var index = 0
-        while index < tokens.count,
-              tokens[index] == "env" || isShellAssignment(tokens[index]) {
-            index += 1
-        }
-        guard index < tokens.count else {
-            return false
-        }
-        if terminalExecutableIsProviderHud(tokens[index]) {
-            return true
-        }
-        guard terminalHudInterpreterNames.contains(terminalExecutableName(tokens[index])),
-              index + 1 < tokens.count else {
-            return false
-        }
-        return tokens[index + 1].split(separator: "/")
-            .contains { terminalExecutableIsProviderHud(String($0)) }
-    }
-
-    private func terminalExecutableIsProviderHud(_ token: String) -> Bool {
-        let name = terminalExecutableName(token)
-        return name == "omx" || name == "oh-my-codex" || name == "omp" || name == "oh-my-pi"
-    }
-
-    /// Reduces a path token to its extensionless basename, so `omp.js`
-    /// identifies the omp provider the way a directly executed `omp` does.
-    private func terminalExecutableName(_ token: String) -> String {
-        let base = (token as NSString).lastPathComponent.lowercased()
-        guard let dot = base.lastIndex(of: "."), dot != base.startIndex else {
-            return base
-        }
-        return String(base[..<dot])
-    }
-
-    private var terminalHudInterpreterNames: Set<String> { ["node", "bun", "deno"] }
 
     private func terminalCommandTextContainsWord(_ command: String, word: String) -> Bool {
         let escapedWord = NSRegularExpression.escapedPattern(for: word)

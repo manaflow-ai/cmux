@@ -169,6 +169,26 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "resume", "--help"]))
     }
 
+    @Test("OMX rejects sessions, unknown commands, and command-shaped values")
+    func omxLaunches() {
+        for args in [
+            ["resume"],
+            ["team"],
+            ["team", "resume"],
+            ["unknown-command"],
+            ["--scope", "project", "setup"],
+            ["--scope", "project", "ask"],
+            ["--scope", "--version"],
+            ["--", "--version"],
+            ["--high"],
+        ] {
+            #expect(
+                !classifier.omxLaunchIsNonLaunch(args: args),
+                "OMX input \(args) must stay launch-capable"
+            )
+        }
+    }
+
     @Test("OMP preserves documented management commands")
     func ompManagementCommands() {
         for command in [
@@ -188,6 +208,10 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.ompLaunchIsNonLaunch(args: ["-h"]))
         #expect(classifier.ompLaunchIsNonLaunch(args: ["--version"]))
         #expect(classifier.ompLaunchIsNonLaunch(args: ["config", "--help"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--model", "opus", "--help"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--model=opus", "config"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--config", "agent.yml", "--version"]))
+        #expect(!classifier.ompLaunchIsNonLaunch(args: ["--model", "--help", "explain this repo"]))
     }
 
     @Test("OMP rejects interactive surfaces, option dispatches, and prompts")

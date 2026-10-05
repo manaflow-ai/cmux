@@ -19352,15 +19352,7 @@ struct CMUXCLI {
             return String(localized: "cli.omp.usage", defaultValue: """
             Usage: cmux omp [omp-args...]
 
-            Launch oh-my-pi (OMP) with native cmux pane integration.
-
-            OMP is a coding agent harness. This command sets up a tmux shim so
-            the OMP HUD and its tmux-backed panes become native cmux splits.
-
-            This command:
-              - sets a tmux-like environment so OMP uses cmux splits
-              - prepends a private tmux shim to PATH
-              - forwards all remaining arguments to omp
+            Launch oh-my-pi (OMP) in a cmux-managed terminal.
 
             Install: bun install -g @oh-my-pi/pi-coding-agent
 
@@ -26900,7 +26892,10 @@ struct CMUXCLI {
         }
 
         guard let ompExecutablePath = resolveOMPExecutable(searchPath: launcherEnvironment["PATH"]) else {
-            throw CLIError(message: "omp is not installed. Install it first:\n  bun install -g @oh-my-pi/pi-coding-agent\n\nThen run: cmux omp")
+            throw CLIError(message: missingProviderExecutableMessage(
+                displayName: "oh-my-pi (omp)",
+                executableName: "omp"
+            ))
         }
         launcherEnvironment["PATH"] = providerExecutableSearchPath(
             searchPath: launcherEnvironment["PATH"],
@@ -26944,7 +26939,11 @@ struct CMUXCLI {
         let code = cliExecFailureErrno {
             execv(launchPath, &argv)
         }
-        throw CLIError(message: "Failed to launch omp: \(String(cString: strerror(code)))\n\nIs oh-my-pi installed? Install with:\n  bun install -g @oh-my-pi/pi-coding-agent")
+        let message = String(
+            localized: "cli.omp.error.launchFailed",
+            defaultValue: "Failed to launch omp: %@\n\nCheck that oh-my-pi is installed. Install with:\n  bun install -g @oh-my-pi/pi-coding-agent"
+        )
+        throw CLIError(message: String(format: message, String(cString: strerror(code))))
     }
 
     // MARK: - cmux omc (Oh My Claude Code)
@@ -27161,10 +27160,10 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-l", "-t"],
                 boolFlags: ["-P", "-b", "-d", "-f", "-h", "-v"]
             )
-            let hudProvider = tmuxHudProviderForCommand(parsed.positional)
-            if let hudProvider, tmuxHudConfigDisablesHud(cwd: parsed.value("-c"), provider: hudProvider) {
+            let isOMXHud = tmuxCommandLooksLikeOMXHud(parsed.positional)
+            if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: parsed.value("-c")) {
                 tmuxWriteDebugDiagnostic(
-                    "\(hudProvider.displayName) HUD disabled by config; cwd=\(parsed.value("-c") ?? "<default>") command=\(parsed.positional.joined(separator: " "))"
+                    "OMX HUD disabled by config; cwd=\(parsed.value("-c") ?? "<default>") command=\(parsed.positional.joined(separator: " "))"
                 )
                 return
             }
@@ -27208,7 +27207,7 @@ struct CMUXCLI {
                !cwd.isEmpty {
                 splitParams["working_directory"] = resolvePath(cwd)
             }
-            let startupScript = hudProvider != nil
+            let startupScript = isOMXHud
                 ? tmuxStartupScript(commandTokens: parsed.positional, cwd: parsed.value("-c"))
                 : nil
             if let startupScript {
@@ -27255,7 +27254,7 @@ struct CMUXCLI {
             let paneId = created["pane_id"] as? String
 
             // Track the newly created pane for main-vertical layout.
-            if hudProvider == nil {
+            if !isOMXHud {
                 try withLockedTmuxCompatStore { store in
                     store.lastSplitSurface[target.workspaceId] = surfaceId
                     if store.mainVerticalLayouts[target.workspaceId] != nil {
@@ -27472,7 +27471,7 @@ struct CMUXCLI {
                 if tmuxFormatRequestsPaneCommand(parsed.value("-F")),
                    context["pane_start_command"] == nil,
                    let surfaceId = context["surface_id"],
-                   let legacyHudStartCommand = tmuxLegacyManagedHudStartCommand(
+                   let legacyHudStartCommand = tmuxLegacyOMXHudStartCommand(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -27511,7 +27510,7 @@ struct CMUXCLI {
                 && parsed.value("-x") == nil
                 && parsed.value("-y") != nil
             if isAbsoluteHeightOnlyResize,
-               tmuxPaneLooksLikeManagedHud(
+               tmuxPaneLooksLikeOMXHud(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
                     client: client

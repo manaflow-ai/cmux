@@ -586607,6 +586607,256 @@
           }
         }
       }
+    },
+    "cli.omp.error.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokretanje omp nije uspjelo: %@\n\nProvjerite je li oh-my-pi instaliran. Instalirajte pomoću:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke starte omp: %@\n\nKontrollér, at oh-my-pi er installeret. Installér med:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare omp: %@\n\nVerifica che oh-my-pi sia installato. Installa con:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកដំណើរការ omp មិនបានទេ៖ %@\n\nសូមពិនិត្យថាបានដំឡើង oh-my-pi ហើយ។ ដំឡើងដោយ៖\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke starte omp: %@\n\nKontroller at oh-my-pi er installert. Installer med:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się uruchomić omp: %@\n\nSprawdź, czy oh-my-pi jest zainstalowany. Zainstaluj poleceniem:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao iniciar o omp: %@\n\nVerifique se o oh-my-pi está instalado. Instale com:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить omp: %@\n\nПроверьте, установлен ли oh-my-pi. Установите командой:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้ omp ไม่สำเร็จ: %@\n\nตรวจสอบว่าติดตั้ง oh-my-pi แล้ว ติดตั้งด้วย:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "omp başlatılamadı: %@\n\noh-my-pi uygulamasının yüklü olduğunu kontrol edin. Şununla yükleyin:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося запустити omp: %@\n\nПеревірте, чи встановлено oh-my-pi. Встановіть командою:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to launch omp: %@\n\nCheck that oh-my-pi is installed. Install with:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تشغيل omp: %@\n\nتحقق من تثبيت oh-my-pi. للتثبيت:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler beim Starten von omp: %@\n\nPrüfen Sie, ob oh-my-pi installiert ist. Installation mit:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar omp: %@\n\nComprueba que oh-my-pi esté instalado. Instálalo con:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec du lancement d'omp : %@\n\nVérifiez que oh-my-pi est installé. Installation :\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "omp の起動に失敗しました: %@\n\noh-my-pi がインストールされていることを確認してください。インストール コマンド:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "omp을(를) 시작하지 못했습니다: %@\n\noh-my-pi가 설치되어 있는지 확인하세요. 설치 명령:\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动 omp：%@\n\n请确认已安装 oh-my-pi。安装命令：\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動 omp：%@\n\n請確認已安裝 oh-my-pi。安裝指令：\n  bun install -g @oh-my-pi/pi-coding-agent"
+          }
+        }
+      }
+    },
+    "cli.omp.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux omp [omp-args...]\n\nPokrenite oh-my-pi (OMP) u cmux upravljanom terminalu.\n\nInstalacija: bun install -g @oh-my-pi/pi-coding-agent\n\nPrimjeri:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux omp [omp-args...]\n\nStart oh-my-pi (OMP) i en cmux-administreret terminal.\n\nInstallation: bun install -g @oh-my-pi/pi-coding-agent\n\nEksempler:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux omp [omp-args...]\n\nAvvia oh-my-pi (OMP) in un terminale gestito da cmux.\n\nInstallazione: bun install -g @oh-my-pi/pi-coding-agent\n\nEsempi:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux omp [omp-args...]\n\nបើកដំណើរការ oh-my-pi (OMP) ក្នុងស្ថានីយដែលគ្រប់គ្រងដោយ cmux។\n\nដំឡើង៖ bun install -g @oh-my-pi/pi-coding-agent\n\nឧទាហរណ៍៖\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux omp [omp-args...]\n\nStart oh-my-pi (OMP) i en cmux-administrert terminal.\n\nInstallasjon: bun install -g @oh-my-pi/pi-coding-agent\n\nEksempler:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux omp [omp-args...]\n\nUruchamia oh-my-pi (OMP) w terminalu zarządzanym przez cmux.\n\nInstalacja: bun install -g @oh-my-pi/pi-coding-agent\n\nPrzykłady:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux omp [omp-args...]\n\nInicia o oh-my-pi (OMP) em um terminal gerenciado pelo cmux.\n\nInstalação: bun install -g @oh-my-pi/pi-coding-agent\n\nExemplos:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux omp [omp-args...]\n\nЗапускает oh-my-pi (OMP) в терминале под управлением cmux.\n\nУстановка: bun install -g @oh-my-pi/pi-coding-agent\n\nПримеры:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้: cmux omp [omp-args...]\n\nเปิดใช้ oh-my-pi (OMP) ในเทอร์มินัลที่ cmux จัดการ\n\nติดตั้ง: bun install -g @oh-my-pi/pi-coding-agent\n\nตัวอย่าง:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux omp [omp-args...]\n\noh-my-pi (OMP) uygulamasını cmux tarafından yönetilen bir terminalde başlatır.\n\nYükleme: bun install -g @oh-my-pi/pi-coding-agent\n\nÖrnekler:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux omp [omp-args...]\n\nЗапускає oh-my-pi (OMP) у терміналі під керуванням cmux.\n\nВстановлення: bun install -g @oh-my-pi/pi-coding-agent\n\nПриклади:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux omp [omp-args...]\n\nLaunch oh-my-pi (OMP) in a cmux-managed terminal.\n\nInstall: bun install -g @oh-my-pi/pi-coding-agent\n\nExamples:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux omp [omp-args...]\n\nشغّل oh-my-pi (OMP) في طرفية يديرها cmux.\n\nالتثبيت: bun install -g @oh-my-pi/pi-coding-agent\n\nأمثلة:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux omp [omp-args...]\n\nStartet oh-my-pi (OMP) in einem von cmux verwalteten Terminal.\n\nInstallation: bun install -g @oh-my-pi/pi-coding-agent\n\nBeispiele:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux omp [omp-args...]\n\nInicia oh-my-pi (OMP) en un terminal administrado por cmux.\n\nInstalación: bun install -g @oh-my-pi/pi-coding-agent\n\nEjemplos:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux omp [omp-args...]\n\nLance oh-my-pi (OMP) dans un terminal géré par cmux.\n\nInstallation : bun install -g @oh-my-pi/pi-coding-agent\n\nExemples :\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux omp [omp-args...]\n\noh-my-pi (OMP) を cmux が管理するターミナルで起動します。\n\nインストール: bun install -g @oh-my-pi/pi-coding-agent\n\n例:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux omp [omp-args...]\n\ncmux가 관리하는 터미널에서 oh-my-pi (OMP)를 실행합니다.\n\n설치: bun install -g @oh-my-pi/pi-coding-agent\n\n예시:\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux omp [omp-args...]\n\n在 cmux 管理的终端中启动 oh-my-pi (OMP)。\n\n安装：bun install -g @oh-my-pi/pi-coding-agent\n\n示例：\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux omp [omp-args...]\n\n在 cmux 管理的終端機中啟動 oh-my-pi (OMP)。\n\n安裝：bun install -g @oh-my-pi/pi-coding-agent\n\n範例：\n  cmux omp\n  cmux omp --continue\n  cmux omp -p \"explain this repo\""
+          }
+        }
+      }
     }
   },
   "version": "1.0"
