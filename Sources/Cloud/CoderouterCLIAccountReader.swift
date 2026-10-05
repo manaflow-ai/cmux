@@ -5,10 +5,17 @@ import Foundation
 /// passed to CodeRouter directly.
 enum CoderouterCLIAccountReader {
     static func accounts(for cmuxTeamName: String?) async throws -> [CloudTreeNode.CoderouterAccount] {
-        if let cmuxTeamName,
-           let organizationID = try await matchingOrganizationID(for: cmuxTeamName),
-           try await currentOrganizationID() != organizationID {
-            _ = try await run(["org", "switch", organizationID])
+        guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cmuxTeamName.isEmpty,
+              let organizationID = try await matchingOrganizationID(for: cmuxTeamName) else {
+            throw accountError("The selected cmux team is not mapped to a CodeRouter organization.")
+        }
+
+        // `accounts` reads the CLI's active organization. Always select and verify it
+        // immediately before reading so a stale CLI org can never leak into the sidebar.
+        _ = try await run(["org", "switch", organizationID])
+        guard try await currentOrganizationID() == organizationID else {
+            throw accountError("CodeRouter organization did not switch to the selected team.")
         }
         let output = try await run(["accounts", "--json"])
         let object = try JSONSerialization.jsonObject(with: output) as? [String: Any]
@@ -60,6 +67,10 @@ enum CoderouterCLIAccountReader {
             CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : " "
         }.reduce(into: "") { $0.append($1) }
         return result.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func accountError(_ message: String) -> NSError {
+        NSError(domain: "CoderouterCLI", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     private static func run(_ arguments: [String]) async throws -> Data {
