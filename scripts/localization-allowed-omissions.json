@@ -4316,7 +4316,10 @@
     "identityLocales": {
       "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
       "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
-      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "ar": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ja": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ko": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale."
     }
   },
   "terminalSharing.device.mac": {
@@ -4764,5 +4767,176 @@
   "coderouter.guide.title": {
     "class": "brand",
     "source": "coderouter"
+  },
+  "cli.help.agents.inbox": {
+    "source": "agent inbox [--surface <target>] [--state <state>] [--mark-read]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.help.agents.message": {
+    "source": "agent message <target> [--from <name>] <text|->",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.help.agents.reply": {
+    "source": "agent message --reply-to <id> [--from <name>] <text|->",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cloudTree.device.build.dev": {
+    "source": "DEV",
+    "identityLocales": {
+      "ar": "DEV is the invariant cmux build channel name.",
+      "de": "DEV is the invariant cmux build channel name.",
+      "es": "DEV is the invariant cmux build channel name.",
+      "fr": "DEV is the invariant cmux build channel name.",
+      "ja": "DEV is the invariant cmux build channel name.",
+      "ko": "DEV is the invariant cmux build channel name.",
+      "zh-Hans": "DEV is the invariant cmux build channel name.",
+      "zh-Hant": "DEV is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "ar": "Nightly is the invariant cmux build channel name.",
+      "de": "Nightly is the invariant cmux build channel name.",
+      "es": "Nightly is the invariant cmux build channel name.",
+      "fr": "Nightly is the invariant cmux build channel name.",
+      "ja": "Nightly is the invariant cmux build channel name.",
+      "ko": "Nightly is the invariant cmux build channel name.",
+      "zh-Hans": "Nightly is the invariant cmux build channel name.",
+      "zh-Hant": "Nightly is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.rc": {
+    "source": "RC",
+    "identityLocales": {
+      "ar": "RC is the invariant cmux build channel name.",
+      "de": "RC is the invariant cmux build channel name.",
+      "es": "RC is the invariant cmux build channel name.",
+      "fr": "RC is the invariant cmux build channel name.",
+      "ja": "RC is the invariant cmux build channel name.",
+      "ko": "RC is the invariant cmux build channel name.",
+      "zh-Hans": "RC is the invariant cmux build channel name.",
+      "zh-Hant": "RC is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.staging": {
+    "source": "Staging",
+    "identityLocales": {
+      "ar": "Staging is the invariant cmux build channel name.",
+      "de": "Staging is the invariant cmux build channel name.",
+      "es": "Staging is the invariant cmux build channel name.",
+      "fr": "Staging is the invariant cmux build channel name.",
+      "ja": "Staging is the invariant cmux build channel name.",
+      "ko": "Staging is the invariant cmux build channel name.",
+      "zh-Hans": "Staging is the invariant cmux build channel name.",
+      "zh-Hant": "Staging is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.tagged": {
+    "source": "%1$@ · %2$@",
+    "identityLocales": {
+      "ar": "Format-only string; the placeholders and separator are invariant.",
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ja": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hans": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hant": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.filter": {
+    "source": "Filter",
+    "identityLocales": {
+      "de": "Filter has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.agentFeed.title": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.tabs.feed": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.domains.label": {
+    "source": "Domains (HTTPS)",
+    "identityLocales": {
+      "de": "Domains and HTTPS are the established technical terms in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.ranges.port": {
+    "source": "Port",
+    "identityLocales": {
+      "de": "Port is the established networking term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Port is the established networking term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "machines.new.row.agents.short": {
+    "source": "Agents",
+    "identityLocales": {
+      "de": "Agents has the same spelling in this locale; a translated entry is still required.",
+      "fr": "Agents has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "sidebar.account.settingsLabel": {
+    "source": "%1$@, %2$@",
+    "identityLocales": {
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.question.pageLabel": {
+    "source": "Question %lld",
+    "identityLocales": {
+      "fr": "Question has the same spelling in this locale; the placeholder is invariant."
+    }
   }
 }
