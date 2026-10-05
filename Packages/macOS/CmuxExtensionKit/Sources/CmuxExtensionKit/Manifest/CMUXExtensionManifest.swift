@@ -17,6 +17,9 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
     /// Host action scopes the extension asks CMUX to allow.
     public var actionScopes: [CmuxExtensionActionScope]
 
+    /// Whether this transport acknowledges pushed snapshots; absent in legacy SDKs.
+    @_spi(CmuxHostTransport) public var supportsSnapshotAcknowledgement: Bool = false
+
     /// Creates a sidebar extension manifest.
     ///
     /// - Parameters:
@@ -45,12 +48,14 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         case minimumAPIVersion
         case readScopes
         case actionScopes
+        case supportsSnapshotAcknowledgement
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
+        supportsSnapshotAcknowledgement = try container.decodeIfPresent(Bool.self, forKey: .supportsSnapshotAcknowledgement) ?? false
         minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2_3
         readScopes = try container.decode([CmuxExtensionScope].self, forKey: .readScopes)
         actionScopes = try container.decodeIfPresent(

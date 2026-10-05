@@ -66,7 +66,17 @@ struct CMUXExtensionKitTests {
 
         #expect(manifest.readScopes == [.workspaceMetadata])
         #expect(manifest.actionScopes.isEmpty)
+        #expect(!manifest.supportsSnapshotAcknowledgement)
         try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testManifestRoundTripsSnapshotAcknowledgementCapability() throws {
+        var manifest = CmuxExtensionManifest(id: "dev.example.sidebar", displayName: "Example")
+        manifest.supportsSnapshotAcknowledgement = true
+        let payload = try CmuxSidebarXPCCodec.encodeManifest(manifest)
+        let decoded = try CmuxSidebarXPCCodec.decodeManifest(payload)
+        #expect(decoded.supportsSnapshotAcknowledgement)
     }
 
     @Test
