@@ -736,6 +736,8 @@ fn images_bytes(event: &Value, ready: &Value) -> Vec<u8> {
     assert!(event.get("compression").is_none(), "images are not compressed again: {event}");
     assert_eq!(event["generation"], ready["generation"], "{event}");
     assert_eq!(event["offset"], ready["offset"], "{event}");
+    assert!(event["version"].is_u64(), "an images chunk names its snapshot version: {event}");
+    assert_eq!(event["version"], ready["version"], "{event}");
     let bytes = data(event);
     assert!(bytes.len() <= 1 << 20, "an images chunk holds at most 1 MiB");
     bytes

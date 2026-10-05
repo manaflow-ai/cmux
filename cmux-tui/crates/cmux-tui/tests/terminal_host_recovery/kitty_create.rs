@@ -145,6 +145,9 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
             Some("history") => history_done = message["done"] == true,
             Some("images") => {
                 assert!(history_done, "images before the history ended");
+                let ready_version = ready.as_ref().map(|ready| ready["version"].clone());
+                assert!(message["version"].is_u64(), "images chunk without version: {message}");
+                assert_eq!(Some(message["version"].clone()), ready_version, "{message}");
                 let data = message["data"].as_str().unwrap();
                 images.extend(base64::engine::general_purpose::STANDARD.decode(data).unwrap());
                 if message["done"] == true {
