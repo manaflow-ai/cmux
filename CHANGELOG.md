@@ -73,7 +73,7 @@ All notable changes to cmux are documented here.
 - `cmux pr <url-or-number>` attaches, replaces, or clears a workspace's pull request link without changing app focus ([#12809](https://github.com/manaflow-ai/cmux/pull/12809))
 - Actions · cmux.json lists configured actions and their placements; setting actions, presets, and `cmux config set` apply validated settings through the shared config writer ([#13232](https://github.com/manaflow-ai/cmux/pull/13232), [#14868](https://github.com/manaflow-ai/cmux/pull/14868), [#16222](https://github.com/manaflow-ai/cmux/pull/16222), [#16223](https://github.com/manaflow-ai/cmux/pull/16223))
 - Setting changes can return an undo receipt that restores the previous value only while the changed setting still holds its installed value; unrelated existing config issues no longer prevent Computer Use toggles from saving ([#13254](https://github.com/manaflow-ai/cmux/pull/13254), [#14183](https://github.com/manaflow-ai/cmux/pull/14183))
-- The opt-in Conversations sidebar lists live agent sessions and searchable history across providers, with provider filters and normal workspace routing for reopening sessions ([#13322](https://github.com/manaflow-ai/cmux/pull/13322))
+- Conversations sidebar (beta): The opt-in Conversations sidebar lists live agent sessions and searchable history across providers, with provider filters and normal workspace routing for reopening sessions ([#13322](https://github.com/manaflow-ai/cmux/pull/13322))
 - Import Browser Data recognizes Aside and its Chromium profiles ([#13379](https://github.com/manaflow-ai/cmux/pull/13379)) -- thanks @gurbaaz27!
 - `notifications.suppressWhenAppFocused` can suppress notifications while cmux is the active app (off by default) ([#14701](https://github.com/manaflow-ai/cmux/pull/14701))
 - Settings > Sidebar > Compact Agent Status (`sidebar.compactAgentStatus`, off by default) combines agent, PR, and branch state into a compact status glyph with tooltip and VoiceOver details ([#14838](https://github.com/manaflow-ai/cmux/pull/14838))
@@ -102,7 +102,6 @@ All notable changes to cmux are documented here.
 - Opt-in `automation.canonicalAgentScratch` gives native Claude, Codex, and OpenCode sessions an owned per-session temporary directory, with ownership metadata in session listings ([#15610](https://github.com/manaflow-ai/cmux/pull/15610), [#15615](https://github.com/manaflow-ai/cmux/pull/15615))
 - A Codex `/goal` resume action is clickable ([#15639](https://github.com/manaflow-ai/cmux/pull/15639))
 - Agent state distinguishes pending background work from an idle completed turn, keeping those sessions protected from hibernation ([#15666](https://github.com/manaflow-ai/cmux/pull/15666))
-- `cmux recover` finds interrupted local agent sessions and opens an isolated recovery workspace for an exact session ([#15697](https://github.com/manaflow-ai/cmux/pull/15697))
 - View > Focus TextBox Input focuses an editable text field through a configurable action ([#15730](https://github.com/manaflow-ai/cmux/pull/15730))
 - Custom Sidebars has a gallery of six bundled templates with live previews and editable installed copies ([#15931](https://github.com/manaflow-ai/cmux/pull/15931))
 - Cloud browser and display rows can be named and renamed ([#15999](https://github.com/manaflow-ai/cmux/pull/15999))
@@ -533,7 +532,7 @@ All notable changes to cmux are documented here.
 - Mosh sessions discard the unused SSH launcher when Mosh takes over ([#15896](https://github.com/manaflow-ai/cmux/pull/15896))
 - Agent product names remain unchanged across translations ([#15903](https://github.com/manaflow-ai/cmux/pull/15903))
 
-### Thanks to 115 contributors!
+### Thanks to 120 contributors!
 
 - [@aerosmooth](https://github.com/aerosmooth)
 - [@agoodkind](https://github.com/agoodkind)
@@ -586,6 +585,8 @@ All notable changes to cmux are documented here.
 - [@hemster](https://github.com/hemster)
 - [@hiromasa-hayashi](https://github.com/hiromasa-hayashi)
 - [@hohoShin](https://github.com/hohoShin)
+- [@hongmono](https://github.com/hongmono)
+- [@hyzyla](https://github.com/hyzyla)
 - [@i-am-the-slime](https://github.com/i-am-the-slime)
 - [@iamcobolt](https://github.com/iamcobolt)
 - [@Idan-Or](https://github.com/Idan-Or)
@@ -629,6 +630,7 @@ All notable changes to cmux are documented here.
 - [@praxstack](https://github.com/praxstack)
 - [@ptntp](https://github.com/ptntp)
 - [@sabinm677](https://github.com/sabinm677)
+- [@scarere](https://github.com/scarere)
 - [@seanperkins](https://github.com/seanperkins)
 - [@sebikoux](https://github.com/sebikoux)
 - [@sergeykaplich](https://github.com/sergeykaplich)
@@ -636,6 +638,7 @@ All notable changes to cmux are documented here.
 - [@smoreg](https://github.com/smoreg)
 - [@soyeladice-svg](https://github.com/soyeladice-svg)
 - [@stoptypingnow](https://github.com/stoptypingnow)
+- [@stormjing](https://github.com/stormjing)
 - [@STRML](https://github.com/STRML)
 - [@su-record](https://github.com/su-record)
 - [@taiseii](https://github.com/taiseii)
@@ -645,6 +648,7 @@ All notable changes to cmux are documented here.
 - [@thingnoy](https://github.com/thingnoy)
 - [@tizerluo](https://github.com/tizerluo)
 - [@tk1475](https://github.com/tk1475)
+- [@tuzisang](https://github.com/tuzisang)
 - [@wooters](https://github.com/wooters)
 - [@WTF-Am-ID](https://github.com/WTF-Am-ID)
 - [@xhqing](https://github.com/xhqing)

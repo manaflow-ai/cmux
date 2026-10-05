@@ -72,12 +72,13 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "Crash-Proof Sessions",
         description:
           "Terminal scrollback is checkpointed, and interrupted Claude sessions can be recovered after a crash. Agents whose turn ends on a retryable error, such as model capacity or a dropped connection, are told to continue automatically.",
-        tryIt: "Run `cmux recover` after an unexpected quit.",
+        tryIt: "Run `cmux session restore` to bring back interrupted agent sessions.",
       },
       {
         title: "Redesigned Settings",
         description:
           "Settings shows one categorized section at a time, with a theme gallery and controls for Ghostty fonts, cursor, and opacity.",
+        tryIt: "Open Settings with `⌘,` and pick a section from the sidebar.",
       },
       {
         title: "Bring Your Terminal Setup",

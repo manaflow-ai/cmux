@@ -106744,19 +106744,19 @@
               "zero": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld جهاز آخر"
+                  "value": "لا أجهزة أخرى"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld جهاز آخر"
+                  "value": "جهاز آخر"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld جهازان آخران"
+                  "value": "جهازان آخران"
                 }
               },
               "few": {
