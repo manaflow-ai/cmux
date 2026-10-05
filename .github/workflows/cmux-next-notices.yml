@@ -25,6 +25,7 @@ on:
       - "Native/DiffSidecar/rust-toolchain.toml"
       - "ghostty"
       - "ghostty-next"
+      - "cmux-tui/crates/ghostty-vt-sys/build.rs"
       - "scripts/verify-app-bundle-licenses.sh"
       - "Resources/ghostty/themes/**"
       - ".github/workflows/cmux-next-notices.yml"
@@ -66,6 +67,7 @@ jobs:
           python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 scripts/cmux-next/notices/test_vt_link_graph.py
           python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
 
       - name: Rust and Zig standard library notices match the toolchain pins
@@ -73,6 +75,9 @@ jobs:
           # build.zig.zon of both Ghostty sources sets the Zig version; a missing one fails the check.
           git submodule update --init --depth 1 --filter=blob:none ghostty ghostty-next
           python3 cmux-tui/build-support/notices/toolchains/toolchain_notices.py check-repo --repo .
+
+      - name: vt-link-graph.json is for the libghostty-vt gitlink
+        run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
 
       - name: THIRD_PARTY_LICENSES.md and REVIEW.md are current
         run: ./scripts/cmux-next/generate-third-party-notices.sh --check
