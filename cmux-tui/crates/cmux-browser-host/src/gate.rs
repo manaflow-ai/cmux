@@ -27,6 +27,11 @@ pub struct Grants {
     /// The session's origin is not the machine the browser runs on (a
     /// relay): loopback and private ranges are refused (FETCH-PRIVATE-RANGES).
     pub remote: bool,
+    /// The session drives a profile other than the agent's (the person's
+    /// signed-in one): a tab-less fetch is refused, since its shell tab
+    /// would enter that profile's history (a9 shell-tab condition e, until
+    /// cmux.18+ candidate 9).
+    pub signed_in_profile: bool,
 }
 
 /// Entries the host keeps in its log of blocked requests.

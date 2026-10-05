@@ -132,3 +132,31 @@ fn a_fetch_shell_document_is_answered_locally_for_its_tab_only() {
     cors.remove_shell("BG");
     assert_eq!(cors.on_request("BG", "s3", "GET", shell, &page), RequestAction::Continue);
 }
+
+/// a9 shell-tab condition (a): the shell document is empty and never
+/// stored, and its main world may load nothing. Connects stay open: the
+/// host world takes the main world's CSP (Chromium 143 probe, 2026-10-04),
+/// so `default-src 'none'` alone also blocked the host's own fetch.
+#[test]
+fn a_fetch_shell_document_is_empty_uncached_and_locked_down() {
+    let mut cors = Cors::default();
+    let shell = "https://api.peer.test/.well-known/cmux-fetch-shell";
+    cors.add_shell("BG", shell);
+    let RequestAction::Fulfill { status, headers, body } =
+        cors.on_request("BG", "s1", "GET", shell, &json!({}))
+    else {
+        panic!("the shell document is answered locally");
+    };
+    assert_eq!((status, body.as_str()), (200, ""));
+    let header = |name: &str| {
+        headers
+            .iter()
+            .find(|h| h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+            .and_then(|h| h["value"].as_str())
+    };
+    assert_eq!(header("Cache-Control"), Some("no-store"));
+    assert_eq!(
+        header("Content-Security-Policy"),
+        Some("default-src 'none'; connect-src http: https:; base-uri 'none'; form-action 'none'")
+    );
+}

@@ -787,6 +787,22 @@ fn a_session_that_ended_starts_no_fetch() {
     });
 }
 
+/// a9 shell-tab condition (e): on a signed-in profile a tab-less fetch is
+/// refused before the engine; a fetch in the page's tab runs.
+#[test]
+fn a_tab_less_fetch_is_refused_on_a_signed_in_profile() {
+    let (_, driver) = make_gate(Value::Null, false);
+    *driver.fetch_reply.lock().unwrap() =
+        json!({"url": "https://a.test/x", "status": 200, "headers": [], "bodyBase64": ""});
+    let gate = Gate::new(driver.clone(), Grants { signed_in_profile: true, ..Grants::default() });
+    let refused = gate.driver_call("net.fetch", json!({"url": "https://a.test/x"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
+    assert!(refused.message.contains("open a page first"), "{}", refused.message);
+    assert!(!methods(&driver).contains(&"net.fetch".to_owned()), "it reached the engine");
+    gate.driver_call("net.fetch", json!({"targetId": "T", "url": "https://a.test/x"}))
+        .expect("a fetch in the page's tab runs");
+}
+
 /// DNS rebinding for navigations and page requests (a9, v1 after the fact):
 /// a response that came from a refused address stops the tab's load and
 /// is logged; other responses change nothing.
