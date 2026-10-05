@@ -24,25 +24,30 @@ extension KeyRouter {
 
     /// Escape with no modifier where a cmux dialog blocks the keyboard: the
     /// whole window (a window-scope dialog), the tab that holds the window's
-    /// first responder, or, while the keyboard is in the window's chrome
-    /// (the sidebar list after a click), the focused pane's tab (a tab-scope
-    /// dialog). Runs the dialog's Escape (its cancel button). Another tab's
-    /// keys, and a text field's Escape, stay theirs.
+    /// first responder, or the focused pane's tab (a tab-scope dialog) while
+    /// the keyboard is in the window's chrome (the sidebar list after a
+    /// click) or in the pane's Chromium page window. Runs the dialog's
+    /// Escape (its cancel button). Another tab's keys, and a text field's
+    /// Escape, stay theirs.
     func cancelsBlockingDialog(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard Self.isBareEscape(event), let window,
-              let id = CmuxDialogCenter.shared.dialogBlockingKeys(in: window, focusedArea: chromeFocusedPane(in: window))
-        else { return false }
+        guard Self.isBareEscape(event), let window else { return false }
+        let (host, area) = dialogKeyTarget(for: window)
+        guard let id = CmuxDialogCenter.shared.dialogBlockingKeys(in: host, focusedArea: area) else { return false }
         return CmuxDialogCenter.shared.key(.escape, in: id)
     }
 
-    /// The focused pane's view while the window's keyboard is in its chrome
-    /// (no content and no text field has it); nil otherwise.
-    private func chromeFocusedPane(in window: NSWindow) -> NSView? {
+    /// The cmux window whose dialogs a key in `window` may answer, and the
+    /// focused pane's view when the keyboard is in no view of a tab: a
+    /// Chromium page (or DevTools) child window, which the focus follows to
+    /// its pane, or the window's chrome (no content and no text field).
+    private func dialogKeyTarget(for window: NSWindow) -> (NSWindow, NSView?) {
         let (controller, kind) = focus(for: window)
-        guard kind == .content, let controller else { return nil }
+        guard kind == .content, let controller, let shell = controller.window else { return (window, nil) }
+        let pane = controller.content?.focusedPane?.view
+        if window !== shell { return (shell, pane) }
         switch controller.focus.state.resolved {
-        case .sidebar, .none: return controller.content?.focusedPane?.view
-        default: return nil
+        case .sidebar, .none: return (shell, pane)
+        default: return (shell, nil)
         }
     }
 

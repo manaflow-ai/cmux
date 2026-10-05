@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextTerminal
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -72,6 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
+        // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
+        GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(registry: services.registry)
         DebugTimings.markLaunch("dfl.settings")
