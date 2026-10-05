@@ -56,6 +56,9 @@ struct IrxAccountMacPeerAuthorization: Sendable {
         guard device.metadata.platform == .mac,
               identity.deviceID.lowercased() == deviceID, identity.buildTag == tag,
               identity.userID == localIdentity.userID,
+              // Same-team Macs belong to the team directory alone, so
+              // same-team behavior never depends on the account route.
+              identity.teamID != localIdentity.teamID,
               identity.environment == localIdentity.environment, identity.projectID == localIdentity.projectID,
               identity.appNamespace == localIdentity.appNamespace,
               device.endpointID != own.descriptor.endpointID,

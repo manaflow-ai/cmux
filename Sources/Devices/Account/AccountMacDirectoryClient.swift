@@ -39,6 +39,10 @@ actor AccountMacDirectoryClient {
         let connect: @Sendable (URLRequest) async throws -> any V2ControlSocket
         let http: @Sendable (URLRequest) async throws -> V2HTTPResponse
         let sign: @Sendable (Data) async throws -> Data
+        /// Signs the withdrawal. It runs after the account scope has already
+        /// moved (a team switch), so it must not require the current scope:
+        /// it only proves possession of the old endpoint key.
+        let signWithdrawal: @Sendable (Data) async throws -> Data
         let now: @Sendable () -> Date
         let sleep: @Sendable (TimeInterval) async throws -> Void
         let journal: IrxJournal?
@@ -51,6 +55,7 @@ actor AccountMacDirectoryClient {
                 try await V2URLSessionHTTPTransport(session: .shared).send(request)
             },
             sign: @escaping @Sendable (Data) async throws -> Data,
+            signWithdrawal: (@Sendable (Data) async throws -> Data)? = nil,
             now: @escaping @Sendable () -> Date = { Date() },
             sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
                 try await Task.sleep(for: .seconds(max(0, seconds)))
@@ -60,6 +65,7 @@ actor AccountMacDirectoryClient {
             self.connect = connect
             self.http = http
             self.sign = sign
+            self.signWithdrawal = signWithdrawal ?? sign
             self.now = now
             self.sleep = sleep
             self.journal = journal
@@ -331,12 +337,14 @@ actor AccountMacDirectoryClient {
         var rereadQueued = false
         var resyncAttempts = 0
         var refreshTask: Task<Void, Never>?
+        var readTimeoutTask: Task<Void, Never>?
     }
 
     private var exchange = Exchange()
 
     private func endExchange() {
         exchange.refreshTask?.cancel()
+        exchange.readTimeoutTask?.cancel()
         exchange = Exchange()
     }
 
@@ -345,7 +353,6 @@ actor AccountMacDirectoryClient {
         guard isCurrent(id) else { throw CancellationError() }
         guard ready.schemaId == "account.ready.v1" else { throw Self.failure(ready) }
         phase = .ready
-        consecutiveFailures = 0
         mayBePublished = true
         endExchange()
         exchange.socket = socket
@@ -399,6 +406,7 @@ actor AccountMacDirectoryClient {
         exchange.rereadQueued = false
         let id = Self.newRequestID()
         exchange.directoryID = id
+        armReadTimeout(id)
         try await send(.directory(id))
     }
 
@@ -420,14 +428,19 @@ actor AccountMacDirectoryClient {
             }
             let id = Self.newRequestID()
             exchange.directoryID = id
+            armReadTimeout(id)
             try await send(.directory(id, cursor: cursor, haveRevision: page.revision))
             return
         }
         let complete = AccountMacDirectory.assembled(exchange.pages)
         exchange.directoryID = nil
+        exchange.readTimeoutTask?.cancel()
         exchange.pages = []
         exchange.resyncAttempts = 0
         guard let complete else { throw AccountMacDirectoryFailure.invalidFrame }
+        // Only a complete read proves the session works; a socket that
+        // reaches ready and then fails keeps climbing the backoff ladder.
+        consecutiveFailures = 0
         accept(complete, credentials: credentials)
         scheduleRefresh(for: complete)
         if exchange.rereadQueued { try await beginDirectoryRead() }
@@ -453,6 +466,27 @@ actor AccountMacDirectoryClient {
             try await beginDirectoryRead()
         }
     }
+
+    /// A directory request with no answer fails the socket, which reconnects
+    /// with backoff, instead of blocking every later read while leases lapse.
+    private func armReadTimeout(_ requestID: String) {
+        exchange.readTimeoutTask?.cancel()
+        guard let run = exchange.runID else { return }
+        let sleep = dependencies.sleep
+        exchange.readTimeoutTask = Task { [weak self] in
+            do { try await sleep(Self.readTimeout) } catch { return }
+            await self?.readTimedOut(run, requestID: requestID)
+        }
+    }
+
+    private func readTimedOut(_ run: UUID, requestID: String) async {
+        guard runID == run, exchange.runID == run, exchange.directoryID == requestID,
+              let socket = exchange.socket else { return }
+        dependencies.journal?.record("account-directory", "read-timed-out", [:])
+        await socket.close()
+    }
+
+    static let readTimeout: TimeInterval = 15
 
     /// Re-reads before the earliest inbound grant or the directory lapses, so
     /// a host keeps admitting a still-authorized Mac without a gap.
@@ -523,7 +557,8 @@ actor AccountMacDirectoryClient {
     }
 
     /// Signs `body` with the account purpose for `credentials.device`.
-    private func proof<Body: Encodable>(_ credentials: Credentials, requestID: String, body: Body) async throws -> V2DeviceProof {
+    private func proof<Body: Encodable>(_ credentials: Credentials, requestID: String, body: Body,
+                                        sign: (@Sendable (Data) async throws -> Data)? = nil) async throws -> V2DeviceProof {
         let issuedAt = Int(dependencies.now().timeIntervalSince1970)
         let nonce = Self.newProofNonce()
         let device = credentials.device
@@ -531,7 +566,7 @@ actor AccountMacDirectoryClient {
             identity: device.identity, endpointId: device.endpointID,
             identityGeneration: device.identityGeneration, requestId: requestID,
             issuedAt: issuedAt, nonce: nonce, body: body))
-        let signature = try await dependencies.sign(bytes)
+        let signature = try await (sign ?? dependencies.sign)(bytes)
         return V2DeviceProof(issuedAt: issuedAt, nonce: nonce, requestID: requestID, signature: codec.base64URL(signature))
     }
 
@@ -567,7 +602,8 @@ actor AccountMacDirectoryClient {
             requestID: requestID, schemaID: .sessionOpenV1)
         let operation = AccountMacDirectoryWire.Request.withdraw(requestID)
         let proof = try await proof(credentials, requestID: requestID,
-            body: AccountMacDirectoryWire.HTTPProofBody(setup: unsigned, request: operation))
+            body: AccountMacDirectoryWire.HTTPProofBody(setup: unsigned, request: operation),
+            sign: dependencies.signWithdrawal)
         var request = URLRequest(url: baseURL.appendingPathComponent("v2/account/requests"))
         request.httpMethod = "POST"
         request.timeoutInterval = Self.withdrawTimeout

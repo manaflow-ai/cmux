@@ -85,6 +85,8 @@ final class V2AccountMacAdmissionAuthority: Sendable {
                       device.metadata.capabilities.contains("cmux.mac-devices.v1"),
                       !record.revoked, !record.deviceRecordID.isEmpty,
                       identity.userID == host.identity.userID,
+                      // Same-team Macs are admitted by the team authority only.
+                      identity.teamID != host.identity.teamID,
                       identity.environment == host.identity.environment,
                       identity.projectID == host.identity.projectID,
                       identity.appNamespace == host.identity.appNamespace,

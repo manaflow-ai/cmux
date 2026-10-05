@@ -1,5 +1,6 @@
 import CmuxIrxTransport
 import Foundation
+import os
 
 /// The host runtime's rules for combining the team authority with the
 /// same-user Mac authority. Kept free of runtime state so each rule is tested
@@ -31,19 +32,19 @@ enum AccountMacAdmissionPolicy {
         }
     }
 
-    /// Whether a live session admitted only by the same-user Mac authority
-    /// closes: it does when incoming Mac access is off. Nil defers to the
-    /// existing team and legacy rules, which covers every session the team
-    /// knows and every session while the account route is disabled (`account` nil).
+    /// The account rule for a live session, applied only to sessions the
+    /// account authority admitted. Nil for every other session, which keeps
+    /// the existing team and legacy rules exactly. An account-admitted session
+    /// closes when incoming Mac access is off, the route is disabled
+    /// (`account` nil), or the account authority no longer authorizes it.
     static func sessionCloses(
         endpoint: String,
-        team: V2InboundAdmissionAuthority,
+        accountAdmitted: Bool,
         account: V2AccountMacAdmissionAuthority?,
         allowsMacAccess: Bool
     ) -> Bool? {
-        guard let account, team.authorizedPeer(endpointID: endpoint) == nil,
-              account.authorizedPeer(endpointID: endpoint) != nil else { return nil }
-        return !allowsMacAccess
+        guard accountAdmitted else { return nil }
+        return !(allowsMacAccess && account?.authorizedPeer(endpointID: endpoint) != nil)
     }
 
     /// Live authorization for an account-admitted Mac session: incoming Mac
@@ -64,5 +65,26 @@ enum AccountMacAdmissionPolicy {
                 .isDisjoint(with: ["cmux.mac-devices.v1", "cmux.mac-host.v1"]),
               let ticket = cache.ticket, ticket.expiresAt > Int(now.timeIntervalSince1970) else { return nil }
         return AccountMacDirectoryClient.Credentials(device: record.descriptor, ticket: ticket)
+    }
+}
+
+/// Live sessions the host admitted through the account authority, by endpoint,
+/// so enforcement applies the account rule to exactly those sessions.
+final class AccountAdmittedSessions: Sendable {
+    private let sessions = OSAllocatedUnfairLock(initialState: [String: Set<String>]())
+
+    func insert(endpoint: String, session: String) {
+        sessions.withLock { _ = $0[endpoint, default: []].insert(session) }
+    }
+
+    func remove(endpoint: String, session: String) {
+        sessions.withLock { all in
+            all[endpoint]?.remove(session)
+            if all[endpoint]?.isEmpty == true { all[endpoint] = nil }
+        }
+    }
+
+    func contains(_ endpoint: String) -> Bool {
+        sessions.withLock { $0[endpoint] != nil }
     }
 }

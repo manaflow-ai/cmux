@@ -257,6 +257,13 @@ actor DeviceIrxClient {
     /// Reconciles session authorization against a new account directory
     /// (nil when none applies, such as an unsupported service or a disabled flag).
     func enforceAccount(_ account: AccountMacDirectorySnapshot?) async {
+        // Concurrent installs can deliver an older read after a newer one;
+        // for the same requester, a directory only moves forward.
+        if let account, let latest = latestAccount, latest.requester == account.requester,
+           (account.directory.revision, account.directory.issuedAt)
+            < (latest.directory.revision, latest.directory.issuedAt) {
+            return
+        }
         latestAccount = account
         await reconcile(releaseAll: false)
     }

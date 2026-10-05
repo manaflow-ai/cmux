@@ -22,11 +22,12 @@ struct DeviceResolvedMacTarget: Sendable {
 extension DeviceIrxClient {
     /// Resolves an exact Mac intent.
     ///
-    /// With no `source`, the account directory is tried first (it names the
-    /// peer's current endpoint even when that Mac selected another team), then
-    /// the team directory. With a `source`, only that directory is consulted.
-    /// The team failure is the one surfaced, so behavior without an account
-    /// directory is exactly the team-only behavior.
+    /// With no `source`, the team directory decides first, exactly as before
+    /// the account directory existed. Only an endpoint the team directory does
+    /// not list (`.unavailable`) is tried in the account directory, which
+    /// holds only Macs of the same user in other teams. Every other team
+    /// failure (stale, revoked, mismatched) is final. With a `source`, only
+    /// that directory is consulted.
     static func resolveTarget(
         intent: IrxMacPeerAuthorization,
         source: DeviceDirectorySource?,
@@ -35,19 +36,19 @@ extension DeviceIrxClient {
         localIdentity: V2Identity,
         now: Date
     ) throws -> DeviceResolvedMacTarget {
-        if source != .team, let account {
-            do {
-                let record = try IrxAccountMacPeerAuthorization(intent).resolve(
-                    account: account, cache: cache, localIdentity: localIdentity, now: now)
-                return DeviceResolvedMacTarget(record: record, source: .account, relayURLs: account.directory.relayURLs)
-            } catch {
-                if source == .account { throw error }
-            }
-        } else if source == .account {
-            throw IrxMacPeerAuthorization.Failure.staleDirectory
+        func fromAccount() throws -> DeviceResolvedMacTarget {
+            guard let account else { throw IrxMacPeerAuthorization.Failure.staleDirectory }
+            let record = try IrxAccountMacPeerAuthorization(intent).resolve(
+                account: account, cache: cache, localIdentity: localIdentity, now: now)
+            return DeviceResolvedMacTarget(record: record, source: .account, relayURLs: account.directory.relayURLs)
         }
-        let record = try intent.resolve(cache: cache, localIdentity: localIdentity, now: now)
-        return DeviceResolvedMacTarget(record: record, source: .team, relayURLs: cache.directory?.relayURLs ?? [])
+        if source == .account { return try fromAccount() }
+        do {
+            let record = try intent.resolve(cache: cache, localIdentity: localIdentity, now: now)
+            return DeviceResolvedMacTarget(record: record, source: .team, relayURLs: cache.directory?.relayURLs ?? [])
+        } catch IrxMacPeerAuthorization.Failure.unavailable where source == nil && account != nil {
+            do { return try fromAccount() } catch { throw IrxMacPeerAuthorization.Failure.unavailable }
+        }
     }
 
     /// Projects authorized Macs from the team and account directories into one
@@ -76,16 +77,29 @@ extension DeviceIrxClient {
         }
         guard !accountRows.isEmpty else { return team }
         func key(_ mac: DeviceDiscoveredMac) -> String { mac.deviceID + "\u{0}" + mac.tag }
+        // One installation has one account row (the service keys rows by
+        // device, namespace and build). Two rows for one key are ambiguous,
+        // so neither is used rather than whichever the server sent first.
+        var counts: [String: Int] = [:]
+        for row in accountRows { counts[key(row), default: 0] += 1 }
         var byKey: [String: DeviceDiscoveredMac] = [:]
-        for row in accountRows where byKey[key(row)] == nil { byKey[key(row)] = row }
+        for row in accountRows where counts[key(row)] == 1 { byKey[key(row)] = row }
         var merged: [DeviceDiscoveredMac] = []
         var emitted = Set<String>()
         for row in team {
             let rowKey = key(row)
             guard emitted.insert(rowKey).inserted else { continue }
-            merged.append(byKey[rowKey] ?? row)
+            // An account row exists only for a Mac whose latest publish came
+            // from another team, so it names the endpoint that Mac uses now;
+            // the team row for it is the key it held while in this team. When
+            // both name the same endpoint the team row is kept unchanged.
+            if let replacement = byKey[rowKey], replacement.endpointID != row.endpointID {
+                merged.append(replacement)
+            } else {
+                merged.append(row)
+            }
         }
-        for row in accountRows where emitted.insert(key(row)).inserted {
+        for row in accountRows where byKey[key(row)] != nil && emitted.insert(key(row)).inserted {
             merged.append(row)
         }
         return merged
