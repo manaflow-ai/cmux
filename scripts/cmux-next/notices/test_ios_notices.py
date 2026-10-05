@@ -72,6 +72,20 @@ class RepositoryTests(unittest.TestCase):
         app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
         self.assertIn("section:manual-musl-in-the-zig-standard-library", app["notices"])
 
+    def test_the_mac_notices_credit_the_freetype_project(self) -> None:
+        # FTL section 3: the macos slice links FreeType (ghosttykit-macos-link-set.json), so the
+        # app's documentation cites the FreeType Project, as the iOS pane does.
+        notices = (ROOT / "THIRD_PARTY_LICENSES.md").read_text()
+        self.assertIn("<!-- notices-section: manual-freetype -->", notices)
+        self.assertIn(FTL_CREDIT, notices)
+        entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
+        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
+        self.assertIn("section:manual-freetype", app["notices"])
+
+    def test_mac_notices_refuse_a_missing_freetype_credit(self) -> None:
+        hand = ios.HAND_WRITTEN.read_text().replace(FTL_CREDIT, "FreeType credit removed", 1)
+        self.assertTrue(any("FreeType" in error for error in ios.mac_notice_errors(hand)))
+
     def test_mac_notices_refuse_a_changed_musl_text(self) -> None:
         hand = ios.HAND_WRITTEN.read_text().replace("Rich Felker", "R. Felker", 1)
         self.assertTrue(any("musl" in error for error in ios.mac_notice_errors(hand)))
@@ -293,6 +307,9 @@ class PaneTests(unittest.TestCase):
 class MacLinkSetTests(unittest.TestCase):
     """The macOS app links GhosttyNextKit's macos slice and ships the ghostty-next license tree."""
 
+    def setUp(self) -> None:
+        PaneTests.setUp(self)  # the fake tree's FreeType LICENSE.TXT is reviewed FreeType 2.13.2 (2023)
+
     def test_the_macos_link_set_names_the_current_pin(self) -> None:
         links = json.loads(ios.MACOS_LINK_SET.read_text())
         self.assertEqual(links["pin"], ios.ghostty_kit_pin())
@@ -316,6 +333,20 @@ class MacLinkSetTests(unittest.TestCase):
         pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
         links = {"pin": pin, "dwarf_owners": ["zig-package:harfbuzz"], "zig_source_packages": []}
         self.assertTrue(ios.check_macos(self.tree(), links, pin))
+
+    def test_the_credit_must_name_the_linked_freetype_version(self) -> None:
+        pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
+        links = {"pin": pin, "dwarf_owners": ["zig-package:freetype"], "zig_source_packages": []}
+        self.assertEqual(ios.check_macos(self.tree(), links, pin), [])
+        ios.FREETYPE_YEARS[hashlib.sha256(b"FreeType text\n").hexdigest()] = ("2.14.1", 2025)
+        errors = ios.check_macos(self.tree(), links, pin)
+        self.assertTrue(any("2.14.1" in error and "hand-written" in error for error in errors), errors)
+
+    def test_an_unreviewed_freetype_fails(self) -> None:
+        ios.FREETYPE_YEARS.clear()
+        pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
+        links = {"pin": pin, "dwarf_owners": ["zig-package:freetype"], "zig_source_packages": []}
+        self.assertTrue(any("FREETYPE_YEARS" in error for error in ios.check_macos(self.tree(), links, pin)))
 
     def test_a_tree_for_another_revision_fails(self) -> None:
         pin = {"url": "u", "sha256": PIN, "ghostty_revision": "b" * 40}
