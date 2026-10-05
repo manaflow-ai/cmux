@@ -245,7 +245,10 @@ extension CmuxTuiSurfaceProvider {
     func settleRestoredPortPanes(scannedPorts: [Int]) {
         let scanned = Set(scannedPorts)
         for projection in catalog.pendingRestoredProjections.projections where projection.resource.machine == machine {
+            // Scans omit internal and display ports, so their absence proves nothing.
             guard let port = projection.resource.forwardedPort, !scanned.contains(port),
+                  !CmuxTuiSnapshotParser.internalPorts.contains(port),
+                  !CmuxTuiSnapshotParser.displayPorts.contains(port),
                   let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID)
             else { continue }
             browser.cloudAccess.failRestore(String(

@@ -61,6 +61,8 @@ final class CloudBrowserAccessState {
         observationGeneration &+= 1
         cancelUnavailableRetry()
         unavailable = nil
+        isRestoring = false
+        restoreFailureMessage = nil
         self.resourceID = resourceID
         self.model = model
         remoteURL = url
