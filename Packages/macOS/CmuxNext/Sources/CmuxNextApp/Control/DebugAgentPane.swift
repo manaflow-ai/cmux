@@ -102,7 +102,9 @@ enum DebugAgentPane {
         const bodyText = (document.body?.innerText || '').trim();
         const composer = document.querySelector('.acpmux-composer');
         const composerRect = composer?.getBoundingClientRect();
-        const transcriptRows = document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
+        const debug = window.cmuxAcpmuxDebug;
+        const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
+        const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
         return JSON.stringify({
           body_text_length: bodyText.length,
           transcript_rows: transcriptRows,
