@@ -53,8 +53,12 @@ Already on feat-cmux-next: about 60 agent pane PRs by Leo's lanes, among them #1
 
 ## Known gaps
 
-- Pane strings: the agent pane's own string table (webviews/src/agent-session/acpmux/i18n.ts) has
-  English and Japanese only, and the app ships 21 languages. In the other languages the pane shows
-  English. To close it: generate the pane table from an xcstrings catalog (as the React pages do
-  with gen-strings.mjs), so new strings get the same machine translation and needs_review flow.
-  Recorded 2026-10-05 (coordinator); not scheduled.
+- Pane strings in 21 languages: DONE 2026-10-05. acpmux/Localizable.xcstrings feeds
+  scripts/pages/gen-strings.mjs (agentPane); the shipped pane loads English plus the app's
+  language from locales/<code>.js before its module runs. 19 languages are machine translations
+  (needs_review); Khmer needs a native review first.
+- Plural-aware pane strings (follow-up, coordinator 2026-10-05): count strings are `.one`/`.other`
+  key pairs; languages with more plural categories (ru, pl, uk, ar) use a "label: {n}" wording for
+  now. Move them to xcstrings plural variations and an Intl.PluralRules lookup.
+- Strings still outside the table: the pane header ("Agent Chat", "Connecting"), the composer
+  placeholder ("Do anything") and native error messages built in TypeScript render in English.

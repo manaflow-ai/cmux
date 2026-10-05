@@ -995,3 +995,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_remote_daemon_notices.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_zig_ci_reviewed_version.py"
+lane = "linux-guard"

@@ -66,13 +66,9 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    let key = super::session_key(&params).ok().map(str::to_owned);
     let mut reply = dispatch_request(hub, conn, m, params).await;
-    // Every reply, forwarded ones included: only the unix socket reads a token back.
-    if conn.origin != Origin::Local
-        && let Ok(v) = &mut reply
-    {
-        super::redact::redact_for_remote(m, v);
-    }
+    super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
 }
 
