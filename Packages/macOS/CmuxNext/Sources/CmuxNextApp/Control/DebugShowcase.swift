@@ -79,6 +79,17 @@ enum DebugShowcase {
             guard let connection = services.daemon.connection else { return }
             for name in workspaces {
                 if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
+                    if let controller = services.windows.controller(for: windowID) {
+                        services.windows.claim(workspaceID: existing, in: controller.state, select: false)
+                    }
+                    continue
+                }
+                if let existing = services.daemon.store.workspaces.first(where: { $0.displayName == name }) {
+                    let id = existing.id
+                    services.showcase.workspaces[name] = id
+                    if let controller = services.windows.controller(for: windowID) {
+                        services.windows.claim(workspaceID: id, in: controller.state, select: false)
+                    }
                     continue
                 }
                 services.showcase.workspaces[name] = nil
