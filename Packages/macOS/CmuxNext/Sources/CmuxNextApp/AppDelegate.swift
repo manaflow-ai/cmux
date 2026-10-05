@@ -14,15 +14,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let daemonPrestart: DaemonPrestart?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle = LaunchSettle()
+    /// Cleanup deferred until the launch settles (injected; tests pass their own).
+    private let launchCleanup: LaunchCleanup
     private var services: AppServices!
     private var settings: SettingsController?
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?) {
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.daemonPrestart = daemonPrestart
+        self.launchCleanup = launchCleanup
         super.init()
     }
 
@@ -96,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
-        launchSettle.whenSettled { BrowserDownloadTempFiles.shared.cleanUpLeftovers() }
+        launchCleanup.schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
