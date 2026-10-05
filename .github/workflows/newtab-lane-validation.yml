@@ -33,10 +33,24 @@ jobs:
           test "$result" -ne 0
           grep -F 'Expected: true' red-test.log
           grep -F 'a host-created blank chat offers terminal conversion and projects before its agent starts' red-test.log
+      - name: Prove selecting a project does not require an agent
+        run: |
+          git restore --source=9887a46983e --worktree webviews/src/agent-session/acpmux/App.tsx
+          set +e
+          (cd webviews && bun test src/agent-session/acpmux/quickComposer.test.tsx -t 'an unstarted chat keeps its chosen project') > red-project.log 2>&1
+          result=$?
+          set -e
+          cat red-project.log
+          git restore --worktree webviews/src/agent-session/acpmux/App.tsx
+          test "$result" -ne 0
+          grep -F 'Expected to contain: "app"' red-project.log
+          grep -F 'an unstarted chat keeps its chosen project' red-project.log
       - name: Focused composer and project behavior
-        run: cd webviews && bun test src/agent-session/acpmux/emptyState.test.ts src/agent-session/acpmux/composer.test.tsx src/agent-session/acpmux/quickComposer.test.tsx src/agent-session/acpmux/ProjectChooser.test.tsx src/agent-session/acpmux/newtab
+        run: cd webviews && bun test src/agent-session/acpmux/emptyState.test.ts src/agent-session/acpmux/composer.test.tsx src/agent-session/acpmux/quickComposer.test.tsx src/agent-session/acpmux/newtab
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: blank-chat-regression
-          path: red-test.log
+          path: |
+            red-test.log
+            red-project.log

@@ -75,6 +75,23 @@ import Testing
         #expect(box.prepared.last == .reconnect)
     }
 
+    @Test func blankChatProjectControlsReachTheSharedPageHost() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
+        model.onListProjects = { _ in ["/project"] }
+        model.onBrowseProject = { "/chosen" }
+        var imported = false
+        model.onImportAndSync = { imported = true }
+        let (router, _) = router(model)
+
+        let listed = await call(router, "cmux.agent.project.list")
+        #expect(listed["value"]?["projects"] == .array([.string("/project")]))
+        let browsed = await call(router, "cmux.agent.project.browse")
+        #expect(browsed["value"]?["cwd"]?.stringValue == "/chosen")
+        let reply = await call(router, "cmux.agent.onboarding.importAndSync")
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(imported)
+    }
+
     @Test func sessionPersistRecordsTheSession() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         let (router, _) = router(model)
