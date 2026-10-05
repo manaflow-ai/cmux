@@ -472,7 +472,11 @@ run_suite() {
   # user runs); @testable imports then need -enable-testing. The default stays debug.
   local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
   # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
-  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG); fi
+  # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
+  # release suite build turns that one SIL pass off.
+  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
+    configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
   echo "::endgroup::"
