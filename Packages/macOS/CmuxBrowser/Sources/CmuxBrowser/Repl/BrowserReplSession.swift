@@ -99,6 +99,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Request bytes the queued and running driver calls and fetches hold,
     /// at most `maxHeldRequestBytes`.
     private var heldRequestBytes = 0
+    /// Bytes of the driver results not yet delivered to the runtime, at
+    /// most `maxWaitingDriverResultBytes`.
+    private var waitingResultBytes = 0
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
     /// The session's private temporary directory (mode 0700): `os.tmpdir()`
@@ -348,8 +351,19 @@ public final class BrowserReplSession: @unchecked Sendable {
     static let maxQueuedFetches = 256
 
     /// The most driver calls one session runs at once; later ones wait in
-    /// order. The snapshot reads up to 256 frames at once (snapshot.js).
+    /// order. The snapshot reads up to 256 frames at once (snapshot.js). A
+    /// call keeps its slot until the runtime has its result, so results a
+    /// busy JavaScript thread has not taken yet count too.
     static let maxConcurrentDriverCalls = 256
+
+    /// The most UTF-8 bytes one driver call's result (or error) may have,
+    /// 64 MiB; a larger one fails before the session masks or queues it.
+    static let maxDriverResultBytes = 64 << 20
+
+    /// The most bytes the driver results the runtime has not taken yet hold
+    /// together, 512 MiB, measured as JavaScript will see them (masked); a
+    /// result past it fails instead of waiting.
+    static let maxWaitingDriverResultBytes = 512 << 20
 
     /// The most driver calls one session queues; past it a call fails at once.
     static let maxQueuedDriverCalls = 10_000
@@ -388,6 +402,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         let isFetch: Bool
         /// The request bytes it holds (``maxHeldRequestBytes``).
         let heldBytes: Int
+        /// The bytes its result holds until the runtime takes it
+        /// (``maxWaitingDriverResultBytes``).
+        var resultBytes = 0
     }
 
     /// A fetch the runtime asked for, waiting for a slot or running.
@@ -764,6 +781,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         queuedDriverCalls.removeAll()
         runningDriverCalls = 0
         heldRequestBytes = 0
+        waitingResultBytes = 0
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -878,19 +896,22 @@ public final class BrowserReplSession: @unchecked Sendable {
         nextInFlightID += 1
         let taskID = nextInFlightID
         let driver = self.driver
-        let boundary = self.boundary
         // The task finishes itself; it waits for the lock held here, so the
-        // entry exists before the removal runs.
+        // entry exists before the removal runs. Its slot and its result's
+        // bytes are held until the runtime has the result.
         let task = Task { [weak self] in
             let answer = await driver.call(method: call.method, paramsJSON: call.paramsJSON)
-            let result = boundary.redact(method: call.method, boundary.checkCaptureMasks(method: call.method, paramsJSON: call.paramsJSON, answer))
             guard let self else { return }
+            let result = self.admitDriverResult(answer, of: call, taskID: taskID)
             // Behind the events the driver sent before it returned.
             self.eventQueue.async { [weak self] in
                 guard let self else { return }
-                self.thread.perform { [weak self] in self?.resolveCall(call.callID, result) }
+                let delivered = self.thread.perform { [weak self] in
+                    self?.resolveCall(call.callID, result)
+                    self?.driverCallFinished(taskID)
+                }
+                if !delivered { self.driverCallFinished(taskID) }
             }
-            self.driverCallFinished(taskID)
         }
         inFlight[taskID] = InFlightWork(task: task, evalID: call.evalID, isFetch: false, heldBytes: call.heldBytes)
     }
@@ -901,10 +922,85 @@ public final class BrowserReplSession: @unchecked Sendable {
             // close() already dropped every entry and the queue.
             guard let work = inFlight.removeValue(forKey: taskID) else { return }
             heldRequestBytes -= work.heldBytes
+            waitingResultBytes -= work.resultBytes
             runningDriverCalls -= 1
             while !closed, !queuedDriverCalls.isEmpty, runningDriverCalls < Self.maxConcurrentDriverCalls {
                 startDriverCallLocked(queuedDriverCalls.removeFirst())
             }
+        }
+    }
+
+    /// A finished driver call's result as the runtime will get it, its
+    /// bytes reserved (``maxWaitingDriverResultBytes``) until
+    /// ``driverCallFinished(_:)``. A result past ``maxDriverResultBytes``,
+    /// or one the waiting results leave no room for, becomes an error
+    /// before it is masked, and so does one that masking grows past either.
+    private func admitDriverResult(
+        _ answer: Result<String, BrowserReplDriverError>,
+        of call: PendingDriverCall,
+        taskID: Int
+    ) -> Result<String, BrowserReplDriverError> {
+        let method = call.method
+        var answer = answer
+        if Self.driverResultSize(answer) > Self.maxDriverResultBytes {
+            answer = .failure(BrowserReplDriverError(
+                code: "invalid",
+                message: "\(method): its result is \(Self.driverResultSize(answer) >> 20) MiB, past the \(Self.maxDriverResultBytes >> 20) MiB one browser call may return; read less at once"
+            ))
+        }
+        var reserved = Self.driverResultSize(answer)
+        if let refusal = reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID, method: method) {
+            answer = .failure(refusal)
+            reserved = Self.driverResultSize(answer)
+            _ = reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID, method: method, force: true)
+        }
+        let result = boundary.redact(method: method, boundary.checkCaptureMasks(method: method, paramsJSON: call.paramsJSON, answer))
+        let size = Self.driverResultSize(result)
+        guard size != reserved else { return result }
+        var refusal: BrowserReplDriverError?
+        if size > Self.maxDriverResultBytes {
+            refusal = BrowserReplDriverError(
+                code: "invalid",
+                message: "\(method): its result is \(size >> 20) MiB with secrets masked, past the \(Self.maxDriverResultBytes >> 20) MiB one browser call may return; read less at once"
+            )
+        } else {
+            refusal = reserveDriverResult(bytes: size, replacing: reserved, taskID: taskID, method: method)
+        }
+        guard let refusal else { return result }
+        _ = reserveDriverResult(bytes: Self.driverResultSize(.failure(refusal)), replacing: reserved, taskID: taskID, method: method, force: true)
+        return .failure(refusal)
+    }
+
+    /// Reserves `bytes` for task `taskID`'s result in place of the
+    /// `replacing` it held, or says why it does not fit; `force` reserves a
+    /// small error regardless. A task close() dropped reserves nothing.
+    private func reserveDriverResult(
+        bytes: Int,
+        replacing: Int,
+        taskID: Int,
+        method: String,
+        force: Bool = false
+    ) -> BrowserReplDriverError? {
+        stateLock.withLock {
+            guard inFlight[taskID] != nil else { return nil }
+            let others = waitingResultBytes - replacing
+            guard force || others + bytes <= Self.maxWaitingDriverResultBytes else {
+                return BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(method): its result (\(bytes >> 20) MiB) does not fit: the results this session's JavaScript has not taken yet already hold \(others >> 20) MiB of the \(Self.maxWaitingDriverResultBytes >> 20) MiB they may hold at once; await results before starting more calls"
+                )
+            }
+            waitingResultBytes = others + bytes
+            inFlight[taskID]?.resultBytes = bytes
+            return nil
+        }
+    }
+
+    /// What a driver result holds, in UTF-8 bytes.
+    private static func driverResultSize(_ result: Result<String, BrowserReplDriverError>) -> Int {
+        switch result {
+        case .success(let json): json.utf8.count
+        case .failure(let error): error.code.utf8.count + error.message.utf8.count + (error.errorName?.utf8.count ?? 0)
         }
     }
 
