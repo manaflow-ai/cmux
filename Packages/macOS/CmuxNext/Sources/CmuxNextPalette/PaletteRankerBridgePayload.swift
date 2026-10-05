@@ -46,4 +46,3 @@ nonisolated struct PaletteRankerBridgeFrecency: Encodable {
         capacity = store.capacity
     }
 }
-

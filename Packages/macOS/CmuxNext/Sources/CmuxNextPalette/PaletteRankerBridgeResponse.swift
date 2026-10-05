@@ -10,4 +10,3 @@ nonisolated struct PaletteRankerBridgeSection: Decodable {
     let sectionIndex: Int?
     let rows: [PaletteRankerBridgeRow]
 }
-

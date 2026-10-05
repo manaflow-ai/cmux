@@ -15,4 +15,3 @@ nonisolated struct PaletteRankerBridgeRequest: Encodable {
     let rowLimit: Int
     let highlightLimit: Int
 }
-
