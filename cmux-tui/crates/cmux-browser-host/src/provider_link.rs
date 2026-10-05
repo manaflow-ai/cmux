@@ -76,10 +76,22 @@ impl ProviderDriver {
     /// Starts the reader thread on an accepted connection. `tabs` are the
     /// tabs the app announced in `hello`.
     pub fn start(
+        reader: impl Read + Send + 'static,
+        writer: impl Write + Send + 'static,
+        events: EventSink,
+        tabs: Vec<TabAnnounce>,
+    ) -> std::io::Result<Arc<ProviderDriver>> {
+        Self::start_notifying(reader, writer, events, tabs, Arc::new(|| {}))
+    }
+
+    /// [`ProviderDriver::start`], and `on_close` runs once on the reader
+    /// thread after the connection closed (the supervised host's idle stop).
+    pub fn start_notifying(
         mut reader: impl Read + Send + 'static,
         writer: impl Write + Send + 'static,
         events: EventSink,
         tabs: Vec<TabAnnounce>,
+        on_close: Arc<dyn Fn() + Send + Sync>,
     ) -> std::io::Result<Arc<ProviderDriver>> {
         let waiters: Waiters = Arc::new(Mutex::new(HashMap::new()));
         let closed = Arc::new(Mutex::new(None));
@@ -208,6 +220,7 @@ impl ProviderDriver {
             {
                 let _ = waiter.try_send(Err(DriverError::closed(reason.clone())));
             }
+            on_close();
         })?;
         Ok(Arc::new(ProviderDriver {
             writer,

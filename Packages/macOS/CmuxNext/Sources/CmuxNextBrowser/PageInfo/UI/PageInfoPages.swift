@@ -139,8 +139,10 @@ import CmuxNextDesign
     private func certificateWarningsOffRows() -> [NSView] {
         let note = padded(PageInfoStyle.label(PageInfoStrings.certificateWarningsTurnedOff, font: PageInfoStyle.captionFont,
                                               color: PageInfoStyle.secondaryText, wraps: true))
+        // Chromium clears every site's choice in the profile: the row says so.
+        let scope = model.certificateWarningScope == .profile ? PageInfoStrings.certificateWarningsAllSites : nil
         let turnOn = PageInfoRowView(symbol: "exclamationmark.shield", title: PageInfoStrings.turnOnCertificateWarnings,
-                                     identifier: "pageInfo.turnOnWarnings")
+                                     subtitle: scope, identifier: "pageInfo.turnOnWarnings")
         turnOn.onActivate = { send(.reenableCertificateWarnings) }
         return [separator(), note, turnOn]
     }

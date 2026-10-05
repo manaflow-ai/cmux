@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     private var clipboardReads: TerminalClipboardReadService?
+    /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
+    private var ghosttyKeybinds: GhosttyKeybindSync?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
@@ -67,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
+        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
+        self.ghosttyKeybinds = ghosttyKeybinds
+        ghosttyKeybinds.start()
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(registry: services.registry)
         DebugTimings.markLaunch("dfl.settings")

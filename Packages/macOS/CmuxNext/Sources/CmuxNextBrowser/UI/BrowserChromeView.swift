@@ -62,7 +62,7 @@ public final class BrowserChromeView: NSView {
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
-    private let pageStatus = PageStatusViews()
+    let pageStatus = PageStatusViews()
     var toolbarHeight: NSLayoutConstraint!
     private var observation: ObservationLoop?
     private var showsStop = false

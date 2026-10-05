@@ -353,6 +353,7 @@ class BrowserFrame:
 class BrowserHostProviderResult:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserHostProviderResult'
     host_pid: int
+    listener_pid: int
     secret: str
     socket: str
 

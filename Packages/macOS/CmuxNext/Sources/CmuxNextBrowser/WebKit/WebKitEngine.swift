@@ -22,6 +22,12 @@ public final class WebKitEngine: BrowserEngine {
     /// Hosts whose warnings were turned on again, per profile, until a page
     /// of theirs verifies (WebKitEngine+CertificateWarnings.swift).
     var certificateRechecks: [BrowserProfileID: Set<String>] = [:]
+    /// Checks a rechecked host's certificate before its page loads (tests
+    /// replace it).
+    var certificateProbe: @Sendable (URL) async -> CertificateProbeResult = { await CertificateProbeResult.probe($0) }
+    /// The newest main-frame load per tab held for that check; only it may
+    /// show the interstitial.
+    var certificateAdmissions: [BrowserTabID: Int] = [:]
     /// Low Power Mode keeps every open and new tab near 60 fps.
     public let lowPowerMode: LowPowerMode
     private var lowPowerModeObservation: LowPowerModeObservation?

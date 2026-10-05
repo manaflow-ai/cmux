@@ -519,10 +519,13 @@ exact result object. Against a server without `server-stats-v1` the CLI exits
 Gives the cmux app what it needs to dial the daemon's browser host as its
 engine provider (plans/cmux-next/browser-host.md, step c2). When
 `cmux-browser-host` is beside the daemon (or named by `CMUX_BROWSER_HOST_BIN`),
-the daemon starts one host for itself as it starts serving (`serve
---supervised`, sockets in a `bh-<digest>` directory beside the daemon socket),
-restarts it after a crash, and stops it with itself; this command waits for
-that start. Each host launch has a new provider secret: 32 random bytes the
+the daemon binds the host's two sockets in a `bh-<digest>` directory beside
+its own socket and keeps them; it starts one host for itself (`serve
+--supervised`, the sockets passed as fds) on the first agent connect or on
+this command, which waits for the start. The host exits after 5 minutes with
+no session, no agent connection and no app provider, and the next agent
+connect starts a new one; a crashed host restarts with a backoff. The host
+stops with the daemon. Each host launch has a new provider secret: 32 random bytes the
 daemon writes to the host on an inherited pipe (never argv or environment).
 Terminals the daemon creates get the agent socket as
 `CMUX_BROWSER_HOST_SOCKET` (the path only, never the secret), and a client
@@ -539,13 +542,20 @@ Params: none.
 Result:
 
 ```text
-object{socket:string, secret:string, host_pid:uint32}
+object{socket:string, secret:string, host_pid:uint32, listener_pid:uint32}
 ```
 
 `socket` is the host's provider socket (`browser-host-provider.sock`).
 `secret` is 64 lowercase hex digits; the app sends it only in the provider
-`hello`, after the socket's peer pid equals `host_pid`, and never logs or
-stores it. Repeated calls return the same values until the host restarts.
+`hello`, and never logs or stores it. `host_pid` is the host process.
+`listener_pid` is the process that holds the listening socket: the daemon,
+which binds the socket at its start (with the lock file) and passes it only to
+its host, or the host when it bound the socket itself. The app sends `hello`
+only when the socket's peer pid is `host_pid` or `listener_pid`: the peer pid
+is the listen(2) caller on Linux and the last process that used the server end
+on macOS. The host sets close-on-exec on the inherited sockets, so no process
+it starts holds them. Repeated calls return the same values until the host
+restarts.
 
 Errors: `error_code:"origin.forbidden"` (not the verified local app);
 `error_code:"engine_unavailable"` (no host binary beside the daemon, or the

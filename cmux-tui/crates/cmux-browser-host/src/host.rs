@@ -21,6 +21,8 @@ use idle::{Idle, IdleCall};
 type Sessions = Arc<Mutex<BTreeMap<String, Arc<Session>>>>;
 /// Where the reaper reports the sessions it ended (tests wait on it).
 type ReapedSink = Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>;
+/// Called after the session map changed (an open, a close, an idle end).
+type ChangedSink = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
 
 /// Generated from js/manifest.json by build.rs.
 pub mod bundle {
@@ -106,6 +108,9 @@ pub struct Host {
     /// How long a session may go without a call before it ends.
     idle_timeout: Duration,
     reaped: ReapedSink,
+    changed: ChangedSink,
+    /// Agent connections being served (the idle stop counts them).
+    connections: std::sync::atomic::AtomicUsize,
     /// Serializes opens, so two opens of one name never start two engines.
     opening: Mutex<()>,
     /// Secrets any session typed into a tab (masked for every session).
@@ -120,6 +125,8 @@ impl Host {
             sessions: Arc::default(),
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
             reaped: Arc::default(),
+            changed: Arc::default(),
+            connections: std::sync::atomic::AtomicUsize::new(0),
             opening: Mutex::new(()),
             tab_secrets: Arc::default(),
         }
@@ -136,6 +143,29 @@ impl Host {
     #[cfg(test)]
     pub(crate) fn on_idle_end(&self, tx: std::sync::mpsc::Sender<String>) {
         *self.reaped.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
+    }
+
+    /// Calls `f` after every change of the open sessions (the supervised
+    /// host's idle stop), with no session lock held.
+    pub fn on_sessions_changed(&self, f: Arc<dyn Fn() + Send + Sync>) {
+        *self.changed.lock().unwrap_or_else(PoisonError::into_inner) = Some(f);
+    }
+
+    /// How many sessions are open.
+    pub fn session_count(&self) -> usize {
+        self.sessions().len()
+    }
+
+    /// How many agent connections are being served.
+    pub fn connection_count(&self) -> usize {
+        self.connections.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Counts one agent connection until the guard drops.
+    pub fn serving(&self) -> ServingGuard<'_> {
+        self.connections.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        notify_changed(&self.changed);
+        ServingGuard(self)
     }
 
     fn sessions(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Arc<Session>>> {
@@ -303,7 +333,14 @@ impl Host {
                 idle: idle.clone(),
             }),
         );
-        watch_idle(idle, name.clone(), Arc::downgrade(&self.sessions), self.reaped.clone());
+        watch_idle(
+            idle,
+            name.clone(),
+            Arc::downgrade(&self.sessions),
+            self.reaped.clone(),
+            self.changed.clone(),
+        );
+        notify_changed(&self.changed);
         Ok(json!({"session": name, "engine": resolved, "created": true}))
     }
 
@@ -376,6 +413,7 @@ impl Host {
         let removed = self.sessions().remove(&name);
         if let Some(session) = &removed {
             end_session(session);
+            notify_changed(&self.changed);
         }
         let removed = removed.is_some();
         Ok(json!({"session": name, "closed": removed}))
@@ -405,6 +443,23 @@ fn end_session(session: &Session) {
     session.gate.end_session();
 }
 
+/// One agent connection being served ([`Host::serving`]).
+pub struct ServingGuard<'a>(&'a Host);
+
+impl Drop for ServingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.connections.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        notify_changed(&self.0.changed);
+    }
+}
+
+fn notify_changed(changed: &ChangedSink) {
+    let f = changed.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    if let Some(f) = f {
+        f();
+    }
+}
+
 /// One thread per session waits for its idle deadline and then ends it
 /// through the same `end_session` as `browser.repl.close`.
 fn watch_idle(
@@ -412,6 +467,7 @@ fn watch_idle(
     name: String,
     sessions: std::sync::Weak<Mutex<BTreeMap<String, Arc<Session>>>>,
     reaped: ReapedSink,
+    changed: ChangedSink,
 ) {
     let spawned = std::thread::Builder::new().name(format!("cmux-browser-host-idle-{name}")).spawn(
         move || {
@@ -431,6 +487,7 @@ fn watch_idle(
                 };
                 if let Some(session) = removed {
                     end_session(&session);
+                    notify_changed(&changed);
                     if let Some(tx) = reaped.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
                     {
                         let _ = tx.send(name.clone());

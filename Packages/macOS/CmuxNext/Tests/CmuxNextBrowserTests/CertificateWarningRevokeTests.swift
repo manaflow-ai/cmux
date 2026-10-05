@@ -91,7 +91,9 @@ struct CertificateWarningRevokeTests {
 
         controller.refreshPermissions()
         #expect(!controller.model.certificateWarningsOff)
-        #expect(throws: PageInfoCommandError.certificateWarningsAlreadyOn) { try controller.run(.reenableCertificateWarnings) }
+        let alreadyOn = PageInfoStrings.certificateWarningsAlreadyOn
+        #expect(controller.unavailableReason(for: .reenableCertificateWarnings) == alreadyOn)
+        #expect(throws: PageInfoCommandError.unavailable(alreadyOn)) { try controller.run(.reenableCertificateWarnings) }
     }
 
     /// The security page offers "Turn on warnings" only for a bypassed
@@ -128,6 +130,98 @@ struct CertificateWarningRevokeTests {
         #expect(!tab.certificateWarningsTurnedOff, "plain http has no certificate to bypass")
         // No page and no shim here: nothing is cleared and nothing reloads.
         #expect(await tab.turnOnCertificateWarnings() == false)
+    }
+
+    /// Chromium can clear only every Proceed choice of the profile
+    /// (ClearCertificateExceptions): Page Info and the result notice say
+    /// "all sites in this profile"; WebKit says "this site".
+    @Test func theResultSaysWhatWasTurnedOn() async throws {
+        let cases: [(BrowserEngineKind, BrowserCertificateWarningScope)] = [(.cef, .profile), (.webkit, .site)]
+        for (engine, scope) in cases {
+            let tab = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: engine, completesNavigationsImmediately: true)
+            let notices = NoticeRecorder()
+            tab.delegate = notices
+            tab.load(page)
+            tab.pageInfoFake.certificateWarningsOff = true
+            let controller = PageInfoController(tab: { tab }, anchor: { nil })
+            controller.refreshPermissions()
+            #expect(controller.model.certificateWarningScope == scope, "\(engine)")
+
+            try controller.run(.reenableCertificateWarnings)
+            for _ in 0 ..< 50 where notices.texts.isEmpty { await Task.yield() }
+            #expect(notices.texts == [PageInfoStrings.certificateWarningsOnAgain(scope)], "\(engine)")
+        }
+        #expect(PageInfoStrings.certificateWarningsOnAgain(.profile) != PageInfoStrings.certificateWarningsOnAgain(.site))
+    }
+
+    /// Chromium's "Turn on warnings" row says it covers every site of the
+    /// profile; WebKit's row has no such line.
+    @Test func chromiumsTurnOnWarningsRowSaysAllSites() {
+        let model = PageInfoModel()
+        model.site = PageInfoSite(url: page, security: .broken)
+        model.page = .security
+        model.certificates = []
+        model.certificateWarningsOff = true
+        let allSites = PageInfoStrings.certificateWarningsAllSites
+        #expect(Self.label(allSites, in: PageInfoPages(model: model, send: { _ in }).build()) == nil)
+        model.certificateWarningScope = .profile
+        #expect(Self.label(allSites, in: PageInfoPages(model: model, send: { _ in }).build()) != nil)
+    }
+
+    /// The action is disabled (menu, palette, `action.run`) while the
+    /// WebKit store knows no bypass for the page's host. Chromium has no
+    /// per-host knowledge: it stays enabled and clears the profile.
+    @Test func theActionIsDisabledWhileWebKitKnowsNoBypass() async throws {
+        let webKit = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .webkit, completesNavigationsImmediately: true)
+        webKit.load(page)
+        let controller = PageInfoController(tab: { webKit }, anchor: { nil })
+        let alreadyOn = PageInfoStrings.certificateWarningsAlreadyOn
+        #expect(controller.unavailableReason(for: .reenableCertificateWarnings) == alreadyOn)
+        #expect(throws: PageInfoCommandError.unavailable(alreadyOn)) { try controller.run(.reenableCertificateWarnings) }
+        #expect(controller.unavailableReason(for: .show(.security)) == nil, "only the revoke needs a bypass")
+        webKit.pageInfoFake.certificateWarningsOff = true
+        #expect(controller.unavailableReason(for: .reenableCertificateWarnings) == nil)
+
+        let chromium = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .cef, completesNavigationsImmediately: true)
+        chromium.load(page)
+        let chromiumController = PageInfoController(tab: { chromium }, anchor: { nil })
+        #expect(chromiumController.unavailableReason(for: .reenableCertificateWarnings) == nil, "Chromium stays enabled")
+        try chromiumController.run(.reenableCertificateWarnings)
+        for _ in 0 ..< 50 where chromium.commands.last != .reload { await Task.yield() }
+        #expect(chromium.commands.last == .reload, "the profile's choices were cleared and the page reloads")
+    }
+
+    /// A real WebKit tab asks its engine's exception set for the page's
+    /// host; a real Chromium tab can always turn warnings on.
+    @Test func theEnginesSayWhetherWarningsCanBeTurnedOn() {
+        let engine = WebKitEngine()
+        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        tab.apply(.urlChanged(page))
+        #expect(!tab.canTurnOnCertificateWarnings, "no Proceed for this host")
+        engine.allowCertificateException(host: host, profile: .default)
+        #expect(tab.canTurnOnCertificateWarnings)
+        engine.forgetCertificateException(host: host, profile: .default)
+        #expect(!tab.canTurnOnCertificateWarnings)
+
+        let runtime = CEFRuntime.shared
+        let paneHost = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "cert-enable"), profile: .default), runtime: runtime)
+        let chromium = CEFTab(id: .random(), profile: .default, host: paneHost, runtime: runtime)
+        paneHost.add(chromium)
+        chromium.machine.apply(.urlChanged(page))
+        #expect(chromium.canTurnOnCertificateWarnings, "Chromium has no per-host knowledge")
+    }
+
+    private final class NoticeRecorder: BrowserTabDelegate {
+        var texts: [String] = []
+        func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+            if case .notice(let text) = intent { texts.append(text) }
+        }
+    }
+
+    private static func label(_ text: String, in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.stringValue == text { return field }
+        for child in view.subviews { if let hit = label(text, in: child) { return hit } }
+        return nil
     }
 
     private static func find(_ identifier: String, in view: NSView) -> NSView? {

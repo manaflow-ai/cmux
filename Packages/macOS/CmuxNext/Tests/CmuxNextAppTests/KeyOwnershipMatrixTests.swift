@@ -115,7 +115,7 @@ struct KeyOwnershipMatrixTests {
             GhosttyHostKeybind(key: .unicode(UInt32(("]" as Unicode.Scalar).value)), modifiers: [.command, .shift], action: .gotoTab(.next)),
             GhosttyHostKeybind(key: .unicode(UInt32(("[" as Unicode.Scalar).value)), modifiers: [.command, .shift], action: .gotoTab(.previous)),
         ]
-        services.keyRouter.ghosttyHostAction = { event in binds.first { $0.matches(event) }?.action }
+        services.keyRouter.loadGhosttyKeybinds(binds, defaults: binds)
         return services
     }
 
