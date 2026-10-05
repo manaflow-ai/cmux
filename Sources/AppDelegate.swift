@@ -845,6 +845,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var auth: MacAuthComposition?
     /// Explicit Cloud machine pins and stable fleet order, built by the composition root.
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
+    /// "Introducing cmux cloud", shown once from the first main window.
+    private(set) lazy var cloudWelcomeWindowController = CloudWelcomeWindowController()
     private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() })
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
@@ -3724,6 +3726,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
+
+        let environment = ProcessInfo.processInfo.environment
+        if !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached {
+            Task.detached(priority: .utility) {
+                SessionScrollbackReplayStore.sweepStaleReplayFiles(
+                    olderThan: Date().addingTimeInterval(
+                        -SessionScrollbackReplayStore.staleReplayLifetime
+                    )
+                )
+            }
+        }
+
         if shouldAwaitCrashRecoveryProbe() {
             isWaitingForStartupCrashRecoveryProbe = true
             let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
@@ -3748,8 +3762,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
-    /// crash-artifact probe completes. Defer cleanup and window bootstrap only
-    /// for that rare case; normal launches never wait on crash-file I/O.
+    /// crash-artifact probe completes. Replay-file cleanup runs independently
+    /// in a detached utility task and does not participate in this restore gate.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -5538,6 +5552,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
+        presentCloudWelcomeIfNeeded(over: window)
+    }
+
+    /// Once per Mac, after the first main window is up. Tests never see it.
+    private func presentCloudWelcomeIfNeeded(over window: NSWindow) {
+        let env = ProcessInfo.processInfo.environment
+        guard !isRunningUnderXCTestCached, !isRunningUnderXCTest(env), env["CMUX_UI_TEST_MODE"] != "1" else { return }
+        // Next turn of the main loop, so the window is on screen to place it over.
+        DispatchQueue.main.async { [weak self, weak window] in
+            self?.cloudWelcomeWindowController.presentIfNeeded(over: window)
+        }
     }
 
 #if DEBUG
@@ -19297,6 +19322,11 @@ private extension NSApplication {
     }
 
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+        // WebKit sends a key no page handled back through here, to the key
+        // window. For a key browser automation typed into a tab that is the
+        // user's window: its terminal would get the text and its menus the
+        // Command shortcuts. The page already received the key.
+        if event.isResentBrowserAutomationKeyEvent { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0

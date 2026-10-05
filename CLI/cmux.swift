@@ -4226,7 +4226,9 @@ struct CMUXCLI {
     // `vm_image_config_error`.
     /// `--size` spellings → memory in MB. The supported base-image ladder is
     /// 4 GB, 8 GB, 16 GB, 24 GB, 32 GB, and 64 GB of RAM, with disk sizes
-    /// following each image. Each machine has its own resources.
+    /// following each image. Disk is per machine; vCPUs and memory come from
+    /// shared vCPU and RAM pools, one per resource, that the plan's active
+    /// machines draw from (the server enforces both).
     private static let cloudVMSizeAliases: [String: Int] = [
         "4g": 4096, "4gb": 4096,
         "8g": 8192, "8gb": 8192,
@@ -6022,7 +6024,7 @@ struct CMUXCLI {
                             vm new: unknown size '\(sizeOpt)'.
 
                             Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Pro starts 4g to 24g; 32g and 64g need cmux Max. `cmux vm ls` shows your plan.
+                            Pro goes up to 32g; 64g needs cmux Max. Active machines draw from shared vCPU and RAM pools. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -6037,7 +6039,7 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
+                          --size <4g|8g|16g|24g|32g|64g>  4g to 32g on Pro; 64g needs cmux Max
                           --network <full|allowlist|none>  outbound access (see `cmux vm network --help`)
                           --network-policy <json>  full network policy object
                           --agent-updates <latest|image>  \(String(localized: "cli.vm.new.agentUpdatesFlag", defaultValue: "latest keeps coding agents up to date; image (default) keeps the baked versions"))
@@ -10431,6 +10433,13 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "reorder-workspace",
+            valueOptions: Self.reorderWorkspaceValueOptions,
+            flags: ["--dry-run"],
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+        )
         let workspaceRaw = optionValue(commandArgs, name: "--workspace")
             ?? firstPositionalArgument(commandArgs, valueOptions: Self.reorderWorkspaceValueOptions)
         guard let workspaceRaw else {
@@ -10477,6 +10486,13 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "reorder-workspaces",
+            valueOptions: ["--order", "--window"],
+            flags: ["--dry-run"],
+            maxPositionals: 0
+        )
         guard let orderRaw = optionValue(commandArgs, name: "--order") else {
             throw CLIError(message: String(
                 localized: "cli.reorderWorkspaces.error.missingOrder",
@@ -11092,6 +11108,14 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            flags: ["--force"],
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
+        )
         let target: String?
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
@@ -11101,7 +11125,7 @@ struct CMUXCLI {
         } else {
             let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspaceArg ?? firstPositionalArgument(rem1, valueOptions: [])
         }
 
         var params: [String: Any] = [:]
@@ -11127,6 +11151,13 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
+        )
         let target: String?
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
@@ -11136,7 +11167,7 @@ struct CMUXCLI {
         } else {
             let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspaceArg ?? firstPositionalArgument(rem1, valueOptions: [])
         }
 
         var params: [String: Any] = [:]
@@ -11170,6 +11201,13 @@ struct CMUXCLI {
 
         switch mode {
         case .legacy:
+            // Every remaining word is the title; `--` lets a title start with a dash.
+            try rejectUnexpectedArguments(
+                commandArgs,
+                commandName: commandName,
+                valueOptions: ["--workspace", "--window"],
+                maxPositionals: .max
+            )
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (windowOpt, rem1) = parseOption(rem0, name: "--window")
             let windowRaw = windowOpt ?? windowOverride
@@ -11183,10 +11221,16 @@ struct CMUXCLI {
             wsId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: winId)
 
         case .namespace:
+            try rejectUnexpectedArguments(
+                commandArgs,
+                commandName: commandName,
+                valueOptions: ["--title", "--workspace", "--window"],
+                maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+            )
             let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
             let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
             let (_, rem2) = parseOption(rem1, name: "--window")
-            let positional = rem2.first(where: { !$0.hasPrefix("--") })
+            let positional = firstPositionalArgument(rem2, valueOptions: [])
             let target = workspaceArg ?? positional
             guard let titleOpt else {
                 throw CLIError(message: "\(commandName) requires --title <new>")
@@ -11615,9 +11659,15 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+        )
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let positional = firstPositionalArgument(rem1, valueOptions: [])
         let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         // With an explicit --window and no workspace argument, target that
         // window's selected workspace on the server instead of the caller's
@@ -16654,7 +16704,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history", "repl"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -18249,6 +18299,11 @@ struct CMUXCLI {
             }
             let payload = try sendBrowserAutomationRequest(method: "browser.\(subcommand)", params: ["surface_id": sid, field: content])
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "repl" {
+            try runBrowserRepl(subArgs, client: client, jsonOutput: effectiveJSONOutput)
             return
         }
 
@@ -21188,6 +21243,7 @@ struct CMUXCLI {
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
               \(Self.browserViewportHelp)
+              \(Self.browserReplHelp)
               geolocation|geo <latitude> <longitude>
               offline <true|false>
               trace <start|stop> [path]
@@ -21286,6 +21342,73 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
+    }
+
+    /// Rejects arguments a command doesn't accept, before it contacts the app,
+    /// so a typo can't fall through to a different request. A value option
+    /// needs a value that isn't another `--` flag (`--name=value` works too);
+    /// everything after `--` counts as a positional.
+    func rejectUnexpectedArguments(
+        _ args: [String],
+        commandName: String,
+        valueOptions: Set<String>,
+        flags: Set<String> = [],
+        maxPositionals: Int
+    ) throws {
+        var positionals = 0
+        var pastTerminator = false
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if !pastTerminator {
+                if arg == "--" {
+                    pastTerminator = true
+                    continue
+                }
+                if arg.hasPrefix("--"), let equals = arg.firstIndex(of: "="),
+                   valueOptions.contains(String(arg[..<equals])) {
+                    if arg.index(after: equals) == arg.endIndex {
+                        throw missingOptionValueError(String(arg[..<equals]), commandName: commandName)
+                    }
+                    continue
+                }
+                if valueOptions.contains(arg) {
+                    guard index < args.count, !args[index].hasPrefix("--") else {
+                        throw missingOptionValueError(arg, commandName: commandName)
+                    }
+                    index += 1
+                    continue
+                }
+                if flags.contains(arg) {
+                    continue
+                }
+                if arg.hasPrefix("-"), arg.count > 1 {
+                    let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.arguments.error.unknownOption", defaultValue: "%1$@: unknown option %2$@"),
+                        commandName,
+                        name
+                    ))
+                }
+            }
+            positionals += 1
+            if positionals > maxPositionals {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.arguments.error.unexpectedArgument", defaultValue: "%1$@: unexpected argument %2$@"),
+                    commandName,
+                    arg
+                ))
+            }
+        }
+    }
+
+    func missingOptionValueError(_ option: String, commandName: String) -> CLIError {
+        CLIError(message: String.localizedStringWithFormat(
+            String(localized: "cli.arguments.error.missingValue", defaultValue: "%1$@: %2$@ requires a value"),
+            commandName,
+            option
+        ))
     }
 
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {
@@ -27310,8 +27433,30 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-n", "-s"],
                 boolFlags: ["-A", "-d", "-P"]
             )
-            if parsed.hasFlag("-A") {
-                throw CLIError(message: "new-session -A is not supported in cmux claude-teams mode")
+            // -A attaches to the named session when it already exists. tmux ignores the
+            // shell command on that path, and -d keeps the client where it is.
+            // A missing session falls through to create. A failed lookup does not:
+            // swallowing it here would invent a workspace the caller did not ask for.
+            if parsed.hasFlag("-A"), let name = parsed.value("-s") {
+                do {
+                    let existingWorkspaceId = try tmuxResolveWorkspaceTarget(name, client: client)
+                    if !parsed.hasFlag("-d") {
+                        _ = try client.sendV2(method: "workspace.select", params: [
+                            "workspace_id": existingWorkspaceId
+                        ])
+                    }
+                    if parsed.hasFlag("-P") {
+                        let context = try tmuxFormatContext(workspaceId: existingWorkspaceId, client: client)
+                        print(tmuxRenderFormat(
+                            parsed.value("-F"),
+                            context: context,
+                            fallback: "@\(existingWorkspaceId)"
+                        ))
+                    }
+                    return
+                } catch let error as CLIError where Self.isAbsentTmuxSession(error) {
+                    // Create the session below.
+                }
             }
             var params: [String: Any] = ["focus": false]
             if let cwd = parsed.value("-c") {
@@ -27521,7 +27666,7 @@ struct CMUXCLI {
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
             }
 
-        case "select-window", "selectw":
+        case "select-window", "selectw", "switch-client":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
@@ -27537,8 +27682,14 @@ struct CMUXCLI {
                 "pane_id": target.paneId
             ])
 
-        case "kill-window", "killw":
+        // tmux sessions resolve to cmux workspaces, so kill-session closes the same target.
+        // -a means kill every other session. An unrecognized flag used to be ignored,
+        // and with no -t the command closed the caller — the session -a must keep.
+        case "kill-window", "killw", "kill-session":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
+            if let unsupported = parsed.positional.first(where: { $0.hasPrefix("-") }) {
+                throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(unsupported)")
+            }
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             try? tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
@@ -27814,10 +27965,9 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-q", "-s", "-v", "-w"]
             )
             let optionName = parsed.positional.last ?? ""
-            guard optionName == "extended-keys" else {
+            guard let value = Self.tmuxCompatShowOptionValues[optionName] else {
                 throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
             }
-            let value = "on"
             if parsed.hasFlag("-v") {
                 print(value)
             } else {
@@ -27911,6 +28061,21 @@ struct CMUXCLI {
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
         }
     }
+
+    /// A session name that resolved to no workspace. Socket and transport failures
+    /// stay errors so `new-session -A` does not create a workspace for them.
+    private static func isAbsentTmuxSession(_ error: CLIError) -> Bool {
+        guard !error.isStructuredProtocolResponse else { return false }
+        return error.message == "Workspace target not found"
+            || error.message.hasPrefix("Workspace target not found:")
+    }
+
+    /// Options cmux answers for tmux-compat callers. cmux runs no tmux server, so each
+    /// value is what a default tmux client reports.
+    private static let tmuxCompatShowOptionValues = [
+        "extended-keys": "on",
+        "prefix": "C-b"
+    ]
 
     private func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
         try withLockedTmuxCompatStoreIfChanged { store in
@@ -42653,7 +42818,7 @@ export default {
         print()
     }
 
-    private func resolvedVersionInfo() -> [String: String] {
+    func resolvedVersionInfo() -> [String: String] {
         var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
             info.merge(main, uniquingKeysWith: { current, _ in current })

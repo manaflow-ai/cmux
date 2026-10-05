@@ -69,6 +69,7 @@ struct NewMachineSheet: View {
                 case .grouped: groupedLayout
                 }
             }
+            poolStatus
             if let errorText = model.errorText {
                 errorBox(errorText)
             }
@@ -147,7 +148,7 @@ struct NewMachineSheet: View {
         showsSizeRow || model.supportsNetworkPolicy || model.supportsAgentUpdates
     }
 
-    private var showsSizeRow: Bool { model.supportsSize || model.hasNoAllowedMemoryOptions }
+    private var showsSizeRow: Bool { model.planIsLoading || model.supportsSize || model.hasNoAllowedMemoryOptions }
 
     private var sizeLabel: String { String(localized: "machines.new.row.size", defaultValue: "Size") }
     private var networkLabel: String { String(localized: "cloud.network.section.label", defaultValue: "Network") }
@@ -393,7 +394,16 @@ struct NewMachineSheet: View {
     /// that unlocks them. Picking a locked size asks to upgrade instead.
     @ViewBuilder
     private func makeSizeMenu(borderless: Bool) -> some View {
-        if model.hasNoAllowedMemoryOptions {
+        if model.planIsLoading {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(String(localized: "machines.new.size.loading", defaultValue: "Loading sizes…"))
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize()
+            .accessibilityIdentifier("NewMachineSheet.size.loading")
+        } else if model.hasNoAllowedMemoryOptions {
             Label(
                 String(localized: "machines.new.size.noneAllowed.short", defaultValue: "No size available"),
                 systemImage: "exclamationmark.triangle.fill"
@@ -585,6 +595,31 @@ struct NewMachineSheet: View {
                 .help(note)
                 .accessibilityLabel(note)
                 .accessibilityIdentifier("NewMachineSheet.agentUpdates.networkNote")
+        }
+    }
+
+    // MARK: Resource pool
+
+    /// The shared pool: a warning when the selected size does not fit what is
+    /// free, otherwise the pool's usage. Nothing for plans without a pool.
+    @ViewBuilder
+    private var poolStatus: some View {
+        if let shortfall = model.selectedSizePoolShortfallText {
+            Label {
+                Text(shortfall)
+                    .cmuxFont(size: 11)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("NewMachineSheet.pool.shortfall")
+        } else if let usage = model.poolUsageText {
+            Text(usage)
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("NewMachineSheet.pool.usage")
         }
     }
 

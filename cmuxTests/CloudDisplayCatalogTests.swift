@@ -290,8 +290,8 @@ struct CloudDisplayCatalogTests {
         return await started.result == true
     }
 
-    /// Every guest command first runs `list` as a readiness probe (#13196,
-    /// 178d35e5da), so only the final action line tells a creation apart.
+    /// Every guest command first waits for `list` to succeed as a readiness
+    /// probe (#13196, #17132), so only the final action line tells a creation apart.
     private static func isCreate(_ command: String) -> Bool {
         command.contains("\"$path\" create --request-id ")
     }
@@ -301,7 +301,8 @@ struct CloudDisplayCatalogTests {
         let request = UUID()
         let create = CloudGuestDisplayScript.command(action: "create", requestID: request)
         let list = CloudGuestDisplayScript.command(action: "list")
-        #expect(create.contains("\"$path\" list > /dev/null 2>&1 || exit 1"))
+        #expect(create.contains("if \"$path\" list > /dev/null 2>&1; then"))
+        #expect(create.contains("[ \"$service_ready\" = 1 ] || exit 1"))
         #expect(create.contains("\"$path\" create --request-id \(request.uuidString.lowercased())"))
         #expect(Self.isCreate(create) && !Self.isCreate(list))
     }

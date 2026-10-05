@@ -56,6 +56,23 @@ struct BrowserExternalNavigationHandler {
         return policyCache.currentPolicy().matches(target)
     }
 
+    /// Where a pull-request or port link chosen in the sidebar opens.
+    enum SidebarLinkDestination: Equatable {
+        case embeddedBrowser
+        case systemBrowser
+    }
+
+    /// The destination for a link the user chose in the sidebar.
+    /// `prefersEmbeddedBrowser` is the "open sidebar links in the cmux browser"
+    /// preference. A matching external-open rule outranks it: a site listed there
+    /// cannot work in the embedded web view at all. The rules are about web pages,
+    /// so other schemes keep following the preference.
+    func sidebarLinkDestination(for url: URL, prefersEmbeddedBrowser: Bool) -> SidebarLinkDestination {
+        guard prefersEmbeddedBrowser else { return .systemBrowser }
+        if Self.isWebNavigationURL(url), shouldOpenExternally(url) { return .systemBrowser }
+        return .embeddedBrowser
+    }
+
     /// Returns whether a user-activated main-frame navigation should be external.
     func shouldOpenExternally(
         _ url: URL,

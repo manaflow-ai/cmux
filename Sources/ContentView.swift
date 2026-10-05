@@ -1133,9 +1133,9 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
-    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
-    private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
+    static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
+    static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
+    static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
         CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
@@ -1177,11 +1177,7 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
-                        startWidth - translation,
-                        availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
-                        configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
-                    )
+                    let nextWidth = normalizedRightSidebarWidth(startWidth - translation, availableWidth: availableWidth)
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
                     }
@@ -1229,28 +1225,6 @@ struct ContentView: View {
             )
         }
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
-    }
-
-    static func clampedRightSidebarWidth(
-        _ candidate: CGFloat,
-        availableWidth: CGFloat,
-        configuredMaximumWidth: CGFloat? = nil
-    ) -> CGFloat {
-        let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
-        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = max(
-            minimumWidth,
-            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
-        )
-        let configuredOrDefaultCap: CGFloat
-        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
-            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
-        } else {
-            configuredOrDefaultCap = Self.maximumRightSidebarWidth
-        }
-        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
@@ -1317,7 +1291,8 @@ struct ContentView: View {
         Self.clampedRightSidebarWidth(
             candidate,
             availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
-            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
+            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth,
+            contentMinimumWidth: fileExplorerState.modeBarMinimumWidth
         )
     }
 
@@ -1979,6 +1954,7 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: fileExplorerState.modeBarMinimumWidth) { _ in clampRightSidebarWidthIfNeeded() }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
                 let sanitized = normalizedRightSidebarWidth(newValue)
@@ -11087,10 +11063,14 @@ struct ContentView: View {
 
         var openedCount = 0
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
+            let externalNavigationHandler = BrowserExternalNavigationHandler()
             for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                let destination = externalNavigationHandler.sidebarLinkDestination(
+                    for: pullRequest.url, prefersEmbeddedBrowser: true
+                )
+                let openedEmbedded = destination == .embeddedBrowser
+                    && tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil
+                if openedEmbedded || NSWorkspace.shared.open(pullRequest.url) {
                     openedCount += 1
                 }
             }
@@ -12749,7 +12729,8 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
-            if preferBrowser,
+            if BrowserExternalNavigationHandler()
+                .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: preferBrowser) == .embeddedBrowser,
                let tabManager,
                tabManager.openBrowser(
                    inWorkspace: workspaceId,
@@ -14992,7 +14973,8 @@ struct VerticalTabsSidebar: View, Equatable {
         opensInCmuxBrowser: Bool
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
-        if opensInCmuxBrowser,
+        if BrowserExternalNavigationHandler()
+            .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: opensInCmuxBrowser) == .embeddedBrowser,
            tabManager.openBrowser(
                inWorkspace: workspace.id,
                url: url,
