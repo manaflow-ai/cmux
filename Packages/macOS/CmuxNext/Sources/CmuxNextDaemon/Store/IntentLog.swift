@@ -16,6 +16,8 @@ enum IntentUndo: Equatable {
     case rowHeights(column: ColumnID, heights: [RowHeightValue])
     /// The provisional tab a create intent inserted.
     case createdTab(surface: SurfaceID, pane: PaneID)
+    /// The tab's record before a session bind.
+    case tabSnapshot(surface: SurfaceID, previous: TabSnapshot)
 }
 
 struct PendingIntent {

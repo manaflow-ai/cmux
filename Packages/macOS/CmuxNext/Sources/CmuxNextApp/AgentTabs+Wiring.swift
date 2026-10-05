@@ -58,22 +58,18 @@ extension AgentTabStore {
             // Every event the daemon sent before the reply: the provisional tab settles there.
             return (created, await connection.eventSequence())
         }
-        tabs.bind = { [weak services] key, expected, session, done in
+        tabs.bind = { [weak services] key, surface, expected, session in
             guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
-                return done(.failed)
+                return (.failed, nil)
             }
-            let request = BindConversationTabSessionRequest(surface: tab.surface, session: session, expectedSession: expected)
-            let logger = services.daemon.logger
-            // task-owner: one compare-and-swap; its answer settles the tab's sent session
-            Task {
-                do {
-                    _ = try await connection.request(request)
-                    done(.taken)
-                } catch {
-                    let text = String(describing: error)
-                    logger.error("bind-conversation-tab-session: \(text, privacy: .public)")
-                    done(text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed)
-                }
+            let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected)
+            do {
+                _ = try await connection.request(request)
+                return (.taken, await connection.eventSequence())
+            } catch {
+                let text = String(describing: error)
+                services.daemon.logger.error("bind-conversation-tab-session: \(text, privacy: .public)")
+                return (text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed, nil)
             }
         }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs
