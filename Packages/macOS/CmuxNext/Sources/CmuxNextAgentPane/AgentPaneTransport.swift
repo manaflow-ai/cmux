@@ -473,8 +473,11 @@ public extension AgentPaneTransportPacer {
         guard let socket else { return .stop(.staleConnection) }
         switch decision {
         case .send(let pageText):
-            // The daemon sees only relay-owned ids; a page id is used by one request at a time.
-            var text = pageText
+            // The daemon gets a fresh serialization of the checked frame, never the page's bytes, and
+            // only relay-owned ids; a page id is used by one request at a time.
+            guard var object = (try? JSONSerialization.jsonObject(with: Data(pageText.utf8))) as? [String: Any] else {
+                return .refused(.invalidFrame)
+            }
             var relayID: Int?
             if let pageID = frame.id {
                 guard let ids = requestIds, let id = ids.begin(pageID: pageID, method: frame.method ?? "") else {
@@ -482,12 +485,12 @@ public extension AgentPaneTransportPacer {
                     Self.logger.error("agent pane transport refused frame error=\(AgentPaneTransportError.requestIdInFlight.rawValue, privacy: .public)")
                     return .refused(.requestIdInFlight)
                 }
-                guard let rewritten = AcpmuxRequestIds.withID(String(id), in: pageText) else {
-                    ids.cancel(id)
-                    return .refused(.invalidFrame)
-                }
-                text = rewritten
+                object["id"] = id
                 relayID = id
+            }
+            guard let text = AcpmuxRequestIds.encode(object) else {
+                if let relayID { requestIds?.cancel(relayID) }
+                return .refused(.invalidFrame)
             }
             if !sentFirst {
                 sentFirst = true

@@ -121,9 +121,10 @@ nonisolated final class AcpmuxStandInServer: Sendable {
     }
 
     private func handle(_ text: String, index: Int) {
-        if text.hasPrefix(Self.ackPrefix) {
+        // The relay sends a fresh serialization (any key order): find the ack by its session marker.
+        if text.contains("session/cancel"), let marker = text.range(of: Self.ackMarker) {
             let now = DispatchTime.now().uptimeNanoseconds
-            let digits = text.dropFirst(Self.ackPrefix.count).prefix { $0.isNumber }
+            let digits = text[marker.upperBound...].prefix { $0.isNumber }
             let done = state.withLock { state -> CheckedContinuation<Void, Never>? in
                 guard var stream = state.stream, stream.index == index,
                       let seq = Int(digits), stream.acked.indices.contains(seq), stream.acked[seq] == 0 else { return nil }
@@ -185,7 +186,7 @@ nonisolated final class AcpmuxStandInServer: Sendable {
 
     /// A bench acknowledgement: an allowlisted notification, so it passes the relay as any page
     /// frame does: `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"a<seq>"}}`.
-    static let ackPrefix = #"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"a"#
+    static let ackMarker = #""sessionId":"a"#
 
     /// The bench's `session/update` frame (about 300 bytes) with sequence `seq`.
     static func benchFrame(_ seq: Int) -> String {

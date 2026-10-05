@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The cost of the reply id swap (ad349, round 6): a full JSON parse and re-encode of a reply against
-/// the top-level scanner, on real-shaped large replies and on the small notification of the burst
-/// bench. Runs only under scripts/measure/pane-native-transport.sh (the bench's switch).
+/// The cost of the reply id swap (ad349, round 6): a full JSON parse and re-encode of a reply, on
+/// real-shaped large replies and on the small notification of the burst bench. Runs only under scripts/measure/pane-native-transport.sh (the bench's switch).
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
 struct AgentPaneTransportBenchParse {
     /// An `_acpmux/events` page: `count` transcript events of about `textBytes` of text each.
@@ -33,11 +32,6 @@ struct AgentPaneTransportBenchParse {
         return String(decoding: data, as: UTF8.self)
     }
 
-    nonisolated static func scanned(_ text: String) -> String? {
-        guard let scan = AcpmuxEnvelope.scan(Array(text.utf8)) else { return nil }
-        if scan.hasMethod { return text }
-        return AcpmuxRequestIds.withID("7", in: text)
-    }
 
     /// Median and maximum milliseconds of `runs` runs.
     nonisolated static func time(_ runs: Int, _ body: () -> String?) -> (median: Double, max: Double) {
@@ -61,11 +55,10 @@ struct AgentPaneTransportBenchParse {
             ("replay-30MB", Self.replay(calls: 300, outputBytes: 50_000), 5),
         ]
         for (name, text, runs) in frames {
-            #expect(Self.full(text) != nil && Self.scanned(text) != nil, "\(name)")
+            #expect(Self.full(text) != nil, "\(name)")
             let full = Self.time(runs) { Self.full(text) }
-            let scan = Self.time(runs) { Self.scanned(text) }
-            print(String(format: "PANE-PARSE %@ bytes=%d full_ms=%.3f full_max_ms=%.3f scan_ms=%.3f scan_max_ms=%.3f",
-                         name, text.utf8.count, full.median, full.max, scan.median, scan.max))
+            print(String(format: "PANE-PARSE %@ bytes=%d full_ms=%.3f full_max_ms=%.3f",
+                         name, text.utf8.count, full.median, full.max))
         }
     }
 }
