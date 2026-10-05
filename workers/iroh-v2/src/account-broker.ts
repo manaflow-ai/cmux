@@ -39,6 +39,11 @@ export interface AccountResult {
   readonly changed?: number;
 }
 
+/** resync_required that may follow a committed account change the adapter must still announce. */
+export class AccountResyncError extends OperationError {
+  constructor(readonly changed: number | undefined) { super("resync_required", 409, true); }
+}
+
 /** A directory page stays under the 64 KiB frame bound with room for the envelope. */
 const ACCOUNT_PAGE_BYTES = 60 * 1024;
 
@@ -106,8 +111,13 @@ export class AccountBroker {
 
   /** A socket is admitted only for a Mac its team currently holds as an account peer. */
   async requireRequester(session: AccountSession): Promise<AccountMacRecord> {
-    const [record] = await this.records(session.identity.teamId, [session.identity]);
-    const result = assertEligible(record ?? null, session);
+    // Inside `consistent`: a revocation notice that lands while the team is
+    // consulted forces a re-read, and the caller accepts the socket in the same
+    // synchronous turn, after which later notices can find it by tag.
+    const result = await this.consistent(async () => {
+      const [record] = await this.records(session.identity.teamId, [session.identity]);
+      return assertEligible(record ?? null, session);
+    });
     this.assertLive(session);
     return result;
   }
@@ -136,9 +146,15 @@ export class AccountBroker {
    */
   async teamChanged(teamId: string, deviceRecordId: string, identity: Identity): Promise<number | null> {
     this.notices++;
-    const rows = this.dependencies.store.rowsForTeamDevice(teamId, deviceRecordId, installationKey(identity));
+    // Re-read under `consistent` so two overlapping notices cannot let an
+    // older read's update move the row version and silently skip a later
+    // revocation's delete: whichever commits second has re-read the team.
+    const { rows, records } = await this.consistent(async () => {
+      const rows = this.dependencies.store.rowsForTeamDevice(teamId, deviceRecordId, installationKey(identity));
+      const records = rows.length === 0 ? [] : await this.records(teamId, rows.map(row => row.device.descriptor.identity));
+      return { rows, records };
+    });
     if (rows.length === 0) return null;
-    const records = await this.records(teamId, rows.map(row => row.device.descriptor.identity));
     const changes = rows.flatMap((row, index) => this.revalidation(row, records[index] ?? null) ?? []);
     const result = this.dependencies.store.revalidate(changes, this.dependencies.now());
     return result.changed ? result.revision : null;
@@ -166,7 +182,8 @@ export class AccountBroker {
     throw new OperationError("resync_required", 409, true, 250);
   }
 
-  private snapshot(): string { return this.notices + ":" + this.dependencies.store.readRevision(); }
+  /** Moves on every notice and every account write, including writes that leave the revision alone. */
+  private snapshot(): string { return this.notices + ":" + this.dependencies.store.fingerprint(); }
 
   private async publish(session: AccountSession, requestId: string): Promise<AccountResult> {
     // The upsert below runs in the same synchronous turn as the consistency check.
@@ -221,7 +238,9 @@ export class AccountBroker {
     }
     const now = this.dependencies.now();
     const { revision, changed } = this.dependencies.store.revalidate(changes, now);
-    if (request.cursor !== undefined && request.haveRevision !== revision) throw new OperationError("resync_required", 409, true);
+    // The revalidation above is already committed; a stale cursor still has to
+    // carry its revision so the adapter tells the other sockets.
+    if (request.cursor !== undefined && request.haveRevision !== revision) throw new AccountResyncError(changed ? revision : undefined);
     const self = installationKey(session.identity);
     const requesterDescriptor = requester.device.descriptor;
     const namespace = requesterDescriptor.identity.appNamespace;

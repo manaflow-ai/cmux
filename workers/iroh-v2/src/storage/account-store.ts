@@ -74,6 +74,12 @@ export class AccountStore {
     this.storage.transactionSync(() => { for (const statement of statements) this.#db.run(sql.raw(statement)); });
   }
 
+  /** Revision plus every row's version: changes with any write to the directory. */
+  fingerprint(): string {
+    const rows = this.#db.all<{ installation_key: string; row_version: number }>(sql`SELECT "installation_key", "row_version" FROM "account_macs" ORDER BY "installation_key"`);
+    return JSON.stringify([this.readRevision(), rows.map(row => [row.installation_key, row.row_version])]);
+  }
+
   readRevision(): number {
     return this.#db.get<{ revision: number }>(sql`SELECT "revision" FROM "account_meta" WHERE "id" = 1`)?.revision ?? 0;
   }

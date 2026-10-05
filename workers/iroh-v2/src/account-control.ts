@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
-import { AccountBroker, type AccountResult, type AccountSession } from "./account-broker";
+import { AccountBroker, AccountResyncError, type AccountResult, type AccountSession } from "./account-broker";
+import { hash } from "./crypto";
 import { errorResponse, httpFailure, inputRequestId, parseJSON } from "./boundary";
 import { accountOperation, accountResponse, type AccountResponse } from "./contracts/account";
 import { IdentitySchema, endpointID, identifier, revision, timestamp, type Identity } from "./contracts/common";
@@ -30,6 +31,15 @@ export function encodeAccountResponse(response: AccountResponse): string {
   const text = JSON.stringify(parsed.data);
   if (new TextEncoder().encode(text).byteLength > OUTPUT_BYTES) throw new OperationError("internal_error", 500, true);
   return text;
+}
+
+/** Codes that end an account socket: its ticket or its Mac's team record no longer admits it. */
+const CLOSING_CODES: ReadonlySet<string> = new Set(["ticket_expired", "device_revoked", "identity_mismatch", "key_replacement_required", "device_not_enrolled", "permission_denied"]);
+export function closesAccountSocket(code: string): boolean { return CLOSING_CODES.has(code); }
+
+/** Fixed-length socket tag (Workers tags are at most 256 characters; an app namespace alone may be 255). */
+export async function installationTag(key: string): Promise<string> {
+  return "installation:" + await hash(key);
 }
 
 /**
@@ -63,12 +73,14 @@ export class AccountControl extends DurableObject<Environment> {
 
   async fetch(request: Request): Promise<Response> {
     let requestId = "unidentified", stage = "parse", operation = "none";
+    let userId: string | null = null;
     try {
       const incoming = await readInternalRequest(request);
       requestId = incoming.setup.requestId;
       // Account routes accept only ticket authority; a Stack token never reaches here.
       if (incoming.issueTicket || incoming.path === "/session") throw new OperationError("unauthorized", 401);
       const broker = this.broker(incoming.authority.userId);
+      userId = incoming.authority.userId;
       this.ready();
       stage = "charge";
       this.store.consumeToken(Date.now());
@@ -86,17 +98,18 @@ export class AccountControl extends DurableObject<Environment> {
       this.admitSocket();
       stage = "authorize";
       const { session } = await broker.authorize(incoming.setup, undefined, incoming.authority, incoming.expiresAt);
-      await broker.requireRequester(session);
       stage = "ready";
-      const key = installationKey(session.identity);
+      const tag = await installationTag(installationKey(session.identity));
+      await broker.requireRequester(session);
       const pair = new WebSocketPair();
       const client = pair[0], server = pair[1];
-      this.ctx.acceptWebSocket(server, ["installation:" + key]);
+      this.ctx.acceptWebSocket(server, [tag]);
       this.save(server, { version: 1, session, closed: false });
       server.send(encodeAccountResponse({ schemaId: "account.ready.v1", requestId, sessionId: session.sessionId, revision: this.store.readRevision() }));
-      for (const old of this.ctx.getWebSockets("installation:" + key)) if (old !== server) this.close(old, "session_replaced");
+      for (const old of this.ctx.getWebSockets(tag)) if (old !== server) this.close(old, "session_replaced");
       return new Response(null, { status: 101, webSocket: client });
     } catch (error) {
+      if (error instanceof AccountResyncError && error.changed !== undefined && userId !== null) this.broadcast(userId, error.changed, null);
       const failure = publicError(error);
       observe(this.ctx, this.env, { event: "iroh.account.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status,
         retryable: failure.retryable, stage, operation, ...failureDiagnostics(error) });
@@ -120,7 +133,8 @@ export class AccountControl extends DurableObject<Environment> {
     } catch (error) {
       const failure = errorResponse(error, inputRequestId(input));
       try { this.send(ws, failure.body); } catch { this.close(ws, "slow_consumer"); }
-      if (["ticket_expired", "device_revoked", "identity_mismatch", "key_replacement_required"].includes(failure.failure.code)) this.close(ws, failure.failure.code);
+      if (error instanceof AccountResyncError && error.changed !== undefined) this.broadcast(attachment.session.userId, error.changed, null);
+      if (closesAccountSocket(failure.failure.code)) this.close(ws, failure.failure.code);
     }
   }
 
@@ -143,7 +157,7 @@ export class AccountControl extends DurableObject<Environment> {
     this.ready();
     const changed = await broker.teamChanged(teamId, deviceRecordId, parsed);
     if (changed !== null) this.broadcast(userId, changed, null);
-    for (const ws of this.ctx.getWebSockets("installation:" + installationKey(parsed))) {
+    for (const ws of this.ctx.getWebSockets(await installationTag(installationKey(parsed)))) {
       let attachment: Attachment;
       try { attachment = this.load(ws); } catch { continue; }
       if (attachment.closed || attachment.session.identity.teamId !== teamId) continue;
@@ -225,7 +239,7 @@ export class AccountControl extends DurableObject<Environment> {
   }
   private close(ws: WebSocket, reason: string): void {
     this.markClosed(ws);
-    const code = ["device_revoked", "identity_mismatch", "key_replacement_required", "device_not_enrolled", "permission_denied"].includes(reason) ? 1008
+    const code = closesAccountSocket(reason) && reason !== "ticket_expired" ? 1008
       : reason === "slow_consumer" ? 1013 : reason === "transport_error" ? 1011 : 1000;
     try { ws.close(code, reason); } catch { /* already closed */ }
   }
