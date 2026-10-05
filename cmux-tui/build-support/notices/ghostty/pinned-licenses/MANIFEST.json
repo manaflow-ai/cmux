@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "description": "Upstream license texts for Ghostty Zig packages whose fetched tree has no license file. scripts/collect-ghostty-licenses.py ships these files from the repository, checks each SHA-256, and never downloads them. Each upstream URL is immutable (a commit, a content-addressed archive, or an archived snapshot). To change a file: copy it byte for byte from its upstream, update its sha256 here, update PINNED_MANIFEST_SHA256 in the collector, and record the review in NOTICES-REVIEW-LEDGER.md.",
+  "packages": {
+    "dear-bindings": {
+      "files": [
+        {
+          "filename": "DearBindings-LICENSE.txt",
+          "path": "dear-bindings-0.17/LICENSE.txt",
+          "sha256": "b08fd9947ec127fd7785801cac8b1eea2ab4282008cdaae8e50331d870f30d0d",
+          "upstream": "https://raw.githubusercontent.com/dearimgui/dear_bindings/2b12a29197ec944cd364031a9776cde814546d52/LICENSE.txt"
+        }
+      ],
+      "note": "dearimgui/dear_bindings tag DearBindings_v0.17_ImGui_v1.92.5-docking (commit 2b12a291), the archive pkg/dcimgui fetches.",
+      "packages": [
+        "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr"
+      ]
+    },
+    "unicode-16": {
+      "files": [
+        {
+          "filename": "Unicode-LICENSE-3.0.txt",
+          "path": "unicode-ucd-16.0.0/license.txt",
+          "sha256": "f5062c9a188d81dfe66b56db4182dcf9e4b17c0d9b0d311a8e20b3a1b075c443",
+          "upstream": "https://web.archive.org/web/20240925081522id_/https://www.unicode.org/license.txt"
+        }
+      ],
+      "note": "Unicode License v3 as https://www.unicode.org/license.txt published it on 2024-09-25, two weeks after Unicode 16.0.0 (2024-09-10). The live URL changes its copyright year; this archived snapshot does not."
+    },
+    "z2d": {
+      "files": [
+        {
+          "filename": "z2d-LICENSE.txt",
+          "path": "z2d-0.11.0/LICENSE",
+          "sha256": "3ca3ed7707db3f5561bff7c2eec62ee1c127947af928189572148f122917b474",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/5184a79622dce6b885c45ef6666f8c92385bed10/LICENSE"
+        },
+        {
+          "filename": "z2d-COPYING-MPL-2.0.txt",
+          "path": "z2d-0.11.0/COPYING",
+          "sha256": "d8d2562a7cb68ffdfe91fc66af1ed4a8a4e272aa4ab59bea7451ba34b9aba3d4",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/5184a79622dce6b885c45ef6666f8c92385bed10/COPYING"
+        }
+      ],
+      "note": "vancluever/z2d tag v0.11.0 (commit 5184a796). Both files are byte-equal to the release archive https://deps.files.ghostty.org/z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR.tar.gz (sha256 d48b117307f767ca379bf31bd171880e66dcafb89eca4a8f923222619992fcb4); the package's build.zig.zon .paths drops them from the fetched tree.",
+      "packages": [
+        "z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR"
+      ],
+      "source_offer": {
+        "license": "Mozilla Public License 2.0 (MPL-2.0)",
+        "name": "z2d 0.11.0",
+        "upstream": "https://github.com/vancluever/z2d/tree/5184a79622dce6b885c45ef6666f8c92385bed10",
+        "upstream_tag": "v0.11.0"
+      }
+    }
+  }
+}
