@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "cmuxBaseSHA": "76fc9b8dd4e51e0be089d9bb9b84c290f9b20cc7",
+  "cortexBaseSHA": "48ec633522adef3d0c8c85fd12372299e1edeca5",
+  "productionActivationAllowed": false,
+  "sourceArchivesIncludeForeignWIP": false,
+  "patches": {
+    "cmux": {
+      "sha256": "9e0f148dcd33f674dbc49acc5ba3ceb4f996cc1f0ce7846403d5927a8b3e4d13",
+      "path": "/Users/yoyaku/.claude/state/cortex-parity/msn_9e895c323bcc17b01ecc/stage-v1/cmux-integration.patch"
+    },
+    "Cortex": {
+      "sha256": "f9ac422c1a7bada211f54756d23b2f5c579560bebb37c24a3701059b20f6a918",
+      "path": "/Users/yoyaku/.claude/state/cortex-parity/msn_9e895c323bcc17b01ecc/stage-v1/Cortex-integration.patch"
+    }
+  },
+  "cmuxArtifactSHA": "af242452eaacd87b3256a19e7f5dc00d0aaa8921",
+  "CortexArtifactSHA": "192a24ed11ae2b43eeea1ee68267f36face3cccc",
+  "cmuxPinnedGitlinks": [
+    {
+      "path": "ghostty",
+      "commit": "324c0273815ddc383d8d2fbf8d59d590cb65dfdb",
+      "tree": "b55573b8d34ee4e93dbf92639c67921be98395bc",
+      "archiveSHA256": "004b87a83713f86821de11fd5b995893b1a1e67bbc3323bf0caa4577f3c553a0",
+      "source": "local-immutable-git-object",
+      "workingTreeClean": true
+    },
+    {
+      "path": "homebrew-cmux",
+      "commit": "a5f372ecfa5ee3903af6e1faba0eda096b4f5746",
+      "tree": "79cef14dffd17cbf530b770c736a5b3a6e0000a4",
+      "archiveSHA256": "50b9e0465833c206079d11085896b262c1cb8e17ba92682b1da6ab2e668ee38e",
+      "source": "private-exact-object-fetch",
+      "workingTreeClean": true
+    },
+    {
+      "path": "vendor/bonsplit",
+      "commit": "e52609fad85bc1dc1283b27d2e46266f101f168b",
+      "tree": "4a662b7564eb87da783a95e6cd1c8976cc9d8f7c",
+      "archiveSHA256": "0ad04c21b1cbf4a9a4c495d4cbe949d8e97aad400e6797b9b2e20b24befaf12d",
+      "source": "local-immutable-git-object",
+      "workingTreeClean": true
+    }
+  ],
+  "deliveryPatchSHA256": "9e0f148dcd33f674dbc49acc5ba3ceb4f996cc1f0ce7846403d5927a8b3e4d13",
+  "deliveryPatchExcludesGeneratedDependencyLock": true,
+  "compiledCortexSDKRevision": "e0fb401de51a10f5a824e7fffb5439c7101fb517",
+  "hostSDKTreeSHA": "d5b638ad9c5ee97d51d649af893af4277f2c7ec2"
+}

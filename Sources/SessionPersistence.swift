@@ -1823,6 +1823,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customizationDirectory: String? = nil
     var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
+    /// Missing or future values restore without a star; no ordering semantics.
+    var importance: String? = nil
+    /// Accepted native project context and its one-step undo, absent in older manifests.
+    var workspaceContext: WorkspaceContextModel.Persisted? = nil
     /// Whether notification side effects are muted for this workspace. The
     /// optional form keeps manifests written before per-workspace mute support
     /// backwards-compatible; missing values restore as `false`.

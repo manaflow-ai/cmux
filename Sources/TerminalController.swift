@@ -26,7 +26,7 @@ import Foundation
 import os
 import Bonsplit
 import WebKit
-import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
@@ -117,6 +117,12 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    let sidebarRecoveryDiagnostics = CMUXSidebarRecoveryDiagnostics(
+        defaults: .standard, processID: ProcessInfo.processInfo.processIdentifier,
+        appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+        appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+        now: { Date() }
+    )
     private enum ReloadConfigurationWaitResult: Sendable {
         case committed
         case failed
@@ -1834,6 +1840,29 @@ class TerminalController {
             return v2Result(id: request.id, v2MobileCompatibleTagsGet())
         case "mobile.compatible_tags.set":
             return v2Result(id: request.id, v2MobileCompatibleTagsSet(params: request.params))
+        case "extension.sidebar.status", "extension.sidebar.reconnect":
+            guard request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil else {
+                return v2Error(id: request.id, code: "permission_denied", message: "Sidebar recovery is local only")
+            }
+            return v2MainSync {
+                let persistedProvider = UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey)
+                    ?? CmuxExtensionSidebarSelection.defaultProviderId
+                let resolvedProviderID = CmuxExtensionSidebarSelection.effectiveProviderId(
+                    persistedProvider,
+                    extensionsEnabled: CmuxExtensionSidebarSelection.isEnabled,
+                    customSidebarsEnabled: CmuxExtensionSidebarSelection.customSidebarsEnabled,
+                    conversationSidebarEnabled: CmuxExtensionSidebarSelection.conversationSidebarEnabled
+                )
+                let providerID = CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: resolvedProviderID)
+                    ? CmuxExtensionSidebarSelection.defaultProviderId : resolvedProviderID
+                let providerActive = providerID == CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+                if request.method == "extension.sidebar.reconnect" {
+                    guard self.sidebarRecoveryDiagnostics.reconnect(bundleID: request.params["bundle_id"] as? String, providerActive: providerActive) else {
+                        return self.v2Error(id: request.id, code: "not_active", message: "No matching selected sidebar provider is hosted")
+                    }
+                }
+                return self.v2Ok(id: request.id, result: self.sidebarRecoveryDiagnostics.status(providerID: providerID, providerActive: providerActive))
+            }
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
@@ -3155,6 +3184,7 @@ class TerminalController {
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
+        case "agent.runtime.list": return v2Result(id: id, self.v2AgentRuntimeList(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
         case "debug.cloudtree.rows":

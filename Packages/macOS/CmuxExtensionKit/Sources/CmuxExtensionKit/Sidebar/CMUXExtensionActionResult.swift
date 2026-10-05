@@ -48,6 +48,9 @@ public enum CmuxSidebarActionRejectionReason: String, Codable, Equatable, Sendab
     /// Generic host rejection.
     case rejected
 
+    /// The workspace changed after the caller read its revision.
+    case revisionConflict
+
     /// The caller cancelled the action before the host completed it.
     case cancelled
 }
@@ -56,6 +59,9 @@ public enum CmuxSidebarActionRejectionReason: String, Codable, Equatable, Sendab
 public enum CmuxSidebarActionError: Error, Equatable, Sendable {
     /// CMUX rejected the action with a displayable message.
     case rejected(String)
+
+    /// The caller must refresh before retrying a revision-guarded context edit.
+    case revisionConflict(String)
 
     /// The caller cancelled the action before completion.
     case cancelled

@@ -31,6 +31,14 @@ public struct CmuxSidebarHost {
         self.refreshSnapshot = refreshSnapshot
     }
 
+    /// Presents the host's existing workspace or group menu.
+    ///
+    /// - Parameter action: The exact native menu target captured by a user context click.
+    /// - Throws: Rejection or cancellation through the existing typed action reply gate.
+    public func performClassicMenu(_ action: CmuxSidebarClassicMenuAction) async throws {
+        try await send(.classicMenu(action))
+    }
+
     /// Requests the latest sidebar snapshot from CMUX.
     public func refresh() {
         refreshSnapshot()
@@ -59,6 +67,19 @@ public struct CmuxSidebarHost {
     /// Selects a workspace in CMUX.
     public func selectWorkspace(_ id: UUID) async throws {
         try await send(.selectWorkspace(id))
+    }
+
+    /// Applies a workspace click through the host's existing selection rules.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The workspace clicked in this sidebar's native window.
+    ///   - modifiers: Command and Shift captured from the click.
+    /// - Throws: The host's rejection or cancellation when selection is unavailable.
+    public func selectWorkspaceRow(
+        workspaceID: UUID,
+        modifiers: CmuxSidebarSelectionModifiers = .init()
+    ) async throws {
+        try await send(.selectWorkspaceRow(workspaceID: workspaceID, modifiers: modifiers))
     }
 
     /// Requests that CMUX close a workspace.
@@ -133,12 +154,19 @@ public struct CmuxSidebarHost {
         try await send(.toggleSurfaceZoom(workspaceID: workspaceID, surfaceID: surfaceID))
     }
 
-    private func send(_ action: CmuxSidebarAction) async throws {
+    /// Sends one typed action and preserves host rejection and cancellation.
+    ///
+    /// Internal management extensions use the same transport and reply gate as
+    /// existing public helpers rather than adding a second action path.
+    func send(_ action: CmuxSidebarAction) async throws {
         let result = await perform(action)
         guard result.accepted else {
             let message = result.message ?? "cmux did not allow that action"
             if result.rejectionReason == .cancelled {
                 throw CmuxSidebarActionError.cancelled
+            }
+            if result.rejectionReason == .revisionConflict {
+                throw CmuxSidebarActionError.revisionConflict(message)
             }
             throw CmuxSidebarActionError.rejected(message)
         }

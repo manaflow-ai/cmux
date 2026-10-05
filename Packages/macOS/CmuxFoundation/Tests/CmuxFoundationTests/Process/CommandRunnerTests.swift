@@ -7,6 +7,24 @@ import Testing
     private let runner = CommandRunner()
     private let tempDir = FileManager.default.temporaryDirectory.path
 
+    @Test func boundedCaptureDrainsBothStreamsWithoutRetainingUnboundedOutput() async {
+        let bounded = CommandRunner(maximumCaptureBytes: 65_537)
+        let result = await bounded.run(directory: tempDir, executable: "/bin/sh",
+            arguments: ["-c", "head -c 131072 /dev/zero | tr '\\000' x; head -c 131072 /dev/zero | tr '\\000' y >&2"], timeout: 5)
+        #expect(result.exitStatus == 0)
+        #expect(result.executionError == nil)
+        #expect(result.stdout?.utf8.count == 65_537)
+        #expect(result.stderr?.utf8.count == 65_537)
+    }
+
+    @Test func boundedUTF8CaptureCannotDisappearAtAMultibyteBoundary() async {
+        let result = await CommandRunner(maximumCaptureBytes: 1).run(directory: tempDir,
+            executable: "/usr/bin/perl", arguments: ["-e", "binmode STDOUT; print pack(q(C*),195,169)"], timeout: 5)
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout != nil)
+        #expect((result.stdout?.utf8.count ?? 0) >= 1)
+    }
+
     @Test func capturesStdoutAndCleanExit() async {
         let result = await runner.run(
             directory: tempDir,

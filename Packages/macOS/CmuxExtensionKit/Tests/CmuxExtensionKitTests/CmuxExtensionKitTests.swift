@@ -34,9 +34,28 @@ struct CMUXExtensionKitTests {
         let decoded = try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: encoded)
 
         #expect(decoded == snapshot)
-        #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV2)
+        #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV2_3)
         #expect(decoded.grantedReadScopes.contains(.workspaceMetadata))
         #expect(decoded.grantedActionScopes == [.selectWorkspace])
+    }
+
+    @Test(arguments: [false, true])
+    func testAcknowledgementRequiresExplicitHostSupportAndPushedSnapshot(_ hostSupports: Bool) throws {
+        var snapshot = CmuxSidebarSnapshot(apiVersion: .sidebarV2, sequence: 1, selectedWorkspaceID: nil, workspaces: [])
+        snapshot.supportsSnapshotAcknowledgement = hostSupports
+        let decoded = try CmuxSidebarXPCCodec.decodeSnapshot(CmuxSidebarXPCCodec.encodeSnapshot(snapshot))
+        #expect(decoded.shouldAcknowledgeDelivery(isPush: true) == hostSupports)
+        #expect(!decoded.shouldAcknowledgeDelivery(isPush: false))
+        #expect(decoded.apiVersion == .sidebarV2)
+    }
+
+    @Test func testLegacySnapshotDoesNotNegotiateAcknowledgements() throws {
+        let legacy = Data("""
+        {"apiVersion":{"major":2,"minor":0},"sequence":1,"workspaces":[]}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: legacy)
+        #expect(!decoded.supportsSnapshotAcknowledgement)
+        #expect(!decoded.shouldAcknowledgeDelivery(isPush: true))
     }
 
     @Test
@@ -66,7 +85,17 @@ struct CMUXExtensionKitTests {
 
         #expect(manifest.readScopes == [.workspaceMetadata])
         #expect(manifest.actionScopes.isEmpty)
+        #expect(!manifest.supportsSnapshotAcknowledgement)
         try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testManifestRoundTripsSnapshotAcknowledgementCapability() throws {
+        var manifest = CmuxExtensionManifest(id: "dev.example.sidebar", displayName: "Example")
+        manifest.supportsSnapshotAcknowledgement = true
+        let payload = try CmuxSidebarXPCCodec.encodeManifest(manifest)
+        let decoded = try CmuxSidebarXPCCodec.decodeManifest(payload)
+        #expect(decoded.supportsSnapshotAcknowledgement)
     }
 
     @Test
@@ -148,7 +177,7 @@ struct CMUXExtensionKitTests {
 
         let filtered = snapshot.filtered(for: [CmuxExtensionScope]())
 
-        #expect(filtered.apiVersion == .sidebarV2)
+        #expect(filtered.apiVersion == .sidebarV2_3)
         #expect(filtered.sequence == 45)
         #expect(filtered.windowID == nil)
         #expect(filtered.selectedWorkspaceID == nil)
@@ -489,7 +518,7 @@ struct CMUXExtensionKitTests {
         {
           "id": "dev.example.sidebar",
           "displayName": "Example Sidebar",
-          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "minimumAPIVersion": { "major": 2, "minor": 4 },
           "readScopes": []
         }
         """.utf8)
@@ -501,8 +530,8 @@ struct CMUXExtensionKitTests {
         } catch {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
-                    requested: CmuxExtensionAPIVersion(major: 2, minor: 1),
-                    supported: .sidebarV2
+                    requested: CmuxExtensionAPIVersion(major: 2, minor: 4),
+                    supported: .sidebarV2_3
                 )
             )
         }
@@ -527,7 +556,7 @@ struct CMUXExtensionKitTests {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
                     requested: CmuxExtensionAPIVersion(major: 1, minor: 0),
-                    supported: .sidebarV2
+                    supported: .sidebarV2_3
                 )
             )
         }

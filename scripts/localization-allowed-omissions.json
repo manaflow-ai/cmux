@@ -113,6 +113,7 @@
     "source": "%1$@: %2$@"
   },
   "agent.kimi.displayName": {
+    "class": "brand",
     "source": "Kimi Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -137,6 +138,7 @@
     }
   },
   "agent.ollama.displayName": {
+    "class": "brand",
     "source": "Ollama",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -165,6 +167,7 @@
     "source": "%@ · %@"
   },
   "agentSession.provider.claude": {
+    "class": "brand",
     "source": "Claude Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -189,6 +192,7 @@
     }
   },
   "agentSession.provider.codex": {
+    "class": "brand",
     "source": "Codex",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -213,6 +217,7 @@
     }
   },
   "agentSession.provider.opencode": {
+    "class": "brand",
     "source": "OpenCode",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -375,6 +380,7 @@
     "source": "[--profile <name|uuid>]"
   },
   "cli.claude-hook.notification.title": {
+    "class": "brand",
     "source": "Claude Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -399,6 +405,7 @@
     }
   },
   "cli.codexMonitor.notification.title": {
+    "class": "brand",
     "source": "Codex",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -751,6 +758,7 @@
     "source": "cmux"
   },
   "command.cmuxConfig.defaultClaudeCodeTitle": {
+    "class": "brand",
     "source": "Claude Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -775,6 +783,7 @@
     }
   },
   "command.cmuxConfig.defaultCodexTitle": {
+    "class": "brand",
     "source": "Codex",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -799,6 +808,7 @@
     }
   },
   "command.cmuxConfig.defaultOpenCodeTitle": {
+    "class": "brand",
     "source": "OpenCode",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -1614,6 +1624,7 @@
     }
   },
   "machines.agent.claude": {
+    "class": "brand",
     "source": "Claude Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -1638,6 +1649,7 @@
     }
   },
   "machines.agent.codex": {
+    "class": "brand",
     "source": "Codex",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -1662,6 +1674,7 @@
     }
   },
   "machines.agent.opencode": {
+    "class": "brand",
     "source": "OpenCode",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2080,6 +2093,7 @@
     }
   },
   "pricing.native.compare.concurrent.paid": {
+    "class": "format",
     "source": "5",
     "identityLocales": {
       "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
@@ -2227,6 +2241,7 @@
     }
   },
   "sessionIndex.agent.claude": {
+    "class": "brand",
     "source": "Claude Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2251,6 +2266,7 @@
     }
   },
   "sessionIndex.agent.codex": {
+    "class": "brand",
     "source": "Codex",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2275,6 +2291,7 @@
     }
   },
   "sessionIndex.agent.grok": {
+    "class": "brand",
     "source": "Grok",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2299,6 +2316,7 @@
     }
   },
   "sessionIndex.agent.hermesAgent": {
+    "class": "brand",
     "source": "Hermes Agent",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2323,6 +2341,7 @@
     }
   },
   "sessionIndex.agent.opencode": {
+    "class": "brand",
     "source": "OpenCode",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2347,6 +2366,7 @@
     }
   },
   "sessionIndex.agent.pi": {
+    "class": "brand",
     "source": "Pi",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2371,6 +2391,7 @@
     }
   },
   "sessionIndex.agent.rovodev": {
+    "class": "brand",
     "source": "Rovo Dev",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2953,6 +2974,7 @@
     "source": "Codex --yolo"
   },
   "settings.textBox.submitAction.opencode": {
+    "class": "brand",
     "source": "OpenCode",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -2977,6 +2999,7 @@
     }
   },
   "settings.textBox.submitAction.pi": {
+    "class": "brand",
     "source": "Pi",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3406,6 +3429,7 @@
     "source": "you@example.com"
   },
   "taskManager.agent.amp": {
+    "class": "brand",
     "source": "Amp",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3430,6 +3454,7 @@
     }
   },
   "taskManager.agent.claudeCode": {
+    "class": "brand",
     "source": "Claude Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3454,6 +3479,7 @@
     }
   },
   "taskManager.agent.codebuddy": {
+    "class": "brand",
     "source": "CodeBuddy",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3478,6 +3504,7 @@
     }
   },
   "taskManager.agent.codex": {
+    "class": "brand",
     "source": "Codex",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3502,6 +3529,7 @@
     }
   },
   "taskManager.agent.copilot": {
+    "class": "brand",
     "source": "Copilot",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3526,6 +3554,7 @@
     }
   },
   "taskManager.agent.cursor": {
+    "class": "brand",
     "source": "Cursor",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3550,6 +3579,7 @@
     }
   },
   "taskManager.agent.factory": {
+    "class": "brand",
     "source": "Factory",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3574,6 +3604,7 @@
     }
   },
   "taskManager.agent.gemini": {
+    "class": "brand",
     "source": "Gemini",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3598,6 +3629,7 @@
     }
   },
   "taskManager.agent.grok": {
+    "class": "brand",
     "source": "Grok",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3622,6 +3654,7 @@
     }
   },
   "taskManager.agent.hermesAgent": {
+    "class": "brand",
     "source": "Hermes Agent",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3646,6 +3679,7 @@
     }
   },
   "taskManager.agent.opencode": {
+    "class": "brand",
     "source": "OpenCode",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3670,6 +3704,7 @@
     }
   },
   "taskManager.agent.pi": {
+    "class": "brand",
     "source": "Pi",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3694,6 +3729,7 @@
     }
   },
   "taskManager.agent.qoder": {
+    "class": "brand",
     "source": "Qoder",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3718,6 +3754,7 @@
     }
   },
   "taskManager.agent.rovodev": {
+    "class": "brand",
     "source": "Rovo Dev",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3793,6 +3830,7 @@
     "source": "Codex --yolo"
   },
   "textbox.submitAction.opencode": {
+    "class": "brand",
     "source": "OpenCode",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3817,6 +3855,7 @@
     }
   },
   "textbox.submitAction.pi": {
+    "class": "brand",
     "source": "Pi",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -4443,6 +4482,7 @@
     }
   },
   "pricing.native.compare.concurrent.free": {
+    "class": "format",
     "source": "1",
     "identityLocales": {
       "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
@@ -4938,5 +4978,9 @@
     "identityLocales": {
       "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
+  },
+  "sidebar.mode.cortex": {
+    "source": "Cortex",
+    "class": "brand"
   }
 }

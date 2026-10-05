@@ -4,7 +4,7 @@ import Foundation
 @_spi(CmuxHostTransport)
 public func validateSidebarManifest(
     _ manifest: CmuxExtensionManifest,
-    supportedAPIVersion: CmuxExtensionAPIVersion = .sidebarV2
+    supportedAPIVersion: CmuxExtensionAPIVersion = .sidebarV2_3
 ) throws {
     guard manifest.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
         throw CmuxExtensionValidationError.emptyIdentifier
@@ -17,6 +17,20 @@ public func validateSidebarManifest(
         throw CmuxExtensionValidationError.unsupportedAPIVersion(
             requested: manifest.minimumAPIVersion,
             supported: supportedAPIVersion
+        )
+    }
+    for scope in manifest.readScopes where scope.minimumAPIVersion > manifest.minimumAPIVersion {
+        throw CmuxExtensionValidationError.scopeRequiresAPIVersion(
+            scope: scope.rawValue,
+            required: scope.minimumAPIVersion,
+            declared: manifest.minimumAPIVersion
+        )
+    }
+    for scope in manifest.actionScopes where scope.minimumAPIVersion > manifest.minimumAPIVersion {
+        throw CmuxExtensionValidationError.scopeRequiresAPIVersion(
+            scope: scope.rawValue,
+            required: scope.minimumAPIVersion,
+            declared: manifest.minimumAPIVersion
         )
     }
 }

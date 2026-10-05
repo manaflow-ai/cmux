@@ -43,6 +43,14 @@ public struct AgentNotificationReconciler: Sendable {
             if let request = attentionRequestIDs.removeValue(forKey: identity) { resolvedRequests.insert(request) }
             return delivered.removeValue(forKey: identity)
         }
+
+        /// Generic turn boundaries cannot answer an exact asynchronous native request.
+        mutating func clearAttention(includeExactRequests: Bool) {
+            for identity in attentionIdentities.sorted()
+                where includeExactRequests || attentionRequestIDs[identity] == nil {
+                _ = retireAttention(identity)
+            }
+        }
     }
     private var sessions: [String: Session] = [:]
 
@@ -59,10 +67,10 @@ public struct AgentNotificationReconciler: Sendable {
             return .init(.unattributed)
         }
         guard !draft.isSubagent else { return .init(.subagent) }
-        let sessionKey = Self.key([draft.source, sessionID])
+        let sessionKey = Self.sessionKey(source: draft.source, sessionID: sessionID)
         var session = sessions[sessionKey] ?? Session()
         let context = draft.attention
-        if draft.kind == .stateChanged, draft.declaredPhase == nil { return .init(.observation) }
+        if draft.kind == .stateChanged, draft.declaredPhase == nil, draft.declaredActivity == nil { return .init(.observation) }
         let incomingTurn = context?.turnIdentity
         if [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind),
            let request = context?.requestIdentity, session.resolvedRequests.contains(request) {
@@ -214,9 +222,7 @@ public struct AgentNotificationReconciler: Sendable {
         if draft.kind == .turnStarted || draft.kind == .sessionEnded {
             invalidated = Array(session.delivered.values).sorted()
             session.delivered.removeAll()
-            session.attentionIdentities.removeAll()
-            session.resolvedRequests.formUnion(session.attentionRequestIDs.values)
-            session.attentionRequestIDs.removeAll()
+            session.clearAttention(includeExactRequests: draft.kind == .sessionEnded)
             session.completionIdentity = nil
             session.pendingCompletion = nil
         }
@@ -247,9 +253,7 @@ public struct AgentNotificationReconciler: Sendable {
                 for identity in session.delivered.keys.sorted() where identity != session.completionIdentity {
                     if let key = session.delivered.removeValue(forKey: identity) { invalidated.append(key) }
                 }
-                session.attentionIdentities.removeAll()
-                session.resolvedRequests.formUnion(session.attentionRequestIDs.values)
-                session.attentionRequestIDs.removeAll()
+                session.clearAttention(includeExactRequests: false)
             }
             session.phase = pending ? (session.attentionIdentities.isEmpty ? .running : .needsInput) : .idle
         case .approvalRequested, .questionRequested, .planReviewRequested:
@@ -261,7 +265,17 @@ public struct AgentNotificationReconciler: Sendable {
         case .sessionEnded:
             session.ended = true
         case .stateChanged:
-            if draft.declaredPhase == .running {
+            let assertedPhase: AgentLifecyclePhase?
+            if let activity = draft.declaredActivity {
+                switch activity {
+                case .working: assertedPhase = .running
+                case .needsInput: assertedPhase = .needsInput
+                case .failed, .quotaBlocked: assertedPhase = .error
+                case .idle, .ready, .paused: assertedPhase = .idle
+                case .unknown, .waiting, .ended: assertedPhase = .unknown
+                }
+            } else { assertedPhase = draft.declaredPhase }
+            if assertedPhase == .running {
                 let isNewTurn = incomingTurn != nil
                     && incomingTurn != session.nativeTurn
                     && incomingTurn.map { !session.seenTurns.contains($0) } == true
@@ -273,7 +287,9 @@ public struct AgentNotificationReconciler: Sendable {
                 // completion. Reopen only when its event timestamp/sequence is
                 // newer than the completion watermark; this admits promptless
                 // continuations while a late older event remains stale.
-                guard session.phase != .idle || isNewTurn || isFreshIdentitylessActivity else { break }
+                guard session.phase != .idle || isNewTurn || isFreshIdentitylessActivity else {
+                    return .init(.observation, projectsLifecycle: false)
+                }
                 if isNewTurn, let incomingTurn {
                     session.turn = incomingTurn
                     session.nativeTurn = incomingTurn
@@ -281,7 +297,7 @@ public struct AgentNotificationReconciler: Sendable {
                 session.rootStopped = false
                 session.pendingCompletion = nil
             }
-            if let phase = draft.declaredPhase {
+            if let phase = assertedPhase {
                 session.phase = phase == .running && !session.attentionIdentities.isEmpty ? .needsInput : phase
             }
         case .childSpawned:
@@ -295,6 +311,14 @@ public struct AgentNotificationReconciler: Sendable {
         if let turn = session.nativeTurn { session.seenTurns.insert(turn) }
         session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
         session.sequence = max(session.sequence, event.sequence)
+        if isAttention, !session.ended {
+            // Native requests remain observable even when notification delivery is muted or absent.
+            let boundary = Self.key(["attention", context?.requestIdentity
+                ?? "\(session.turn):\(session.attentionEpoch)"])
+            let identity = Self.key([sessionKey, boundary])
+            session.attentionIdentities.insert(identity)
+            if let request = context?.requestIdentity { session.attentionRequestIDs[identity] = request }
+        }
         sessions[sessionKey] = session
         guard context?.notification != nil else { return .init(.observation, invalidatedCorrelationKeys: invalidated) }
         guard !session.ended else { return .init(.stale) }
@@ -329,7 +353,7 @@ public struct AgentNotificationReconciler: Sendable {
     public func lifecycleEvent(_ event: AgentJournalEvent) -> AgentJournalEvent {
         var draft = event.draft
         guard let sessionID = draft.sessionId,
-              let session = sessions[Self.key([draft.source, sessionID])] else { return event }
+              let session = sessions[Self.sessionKey(source: draft.source, sessionID: sessionID)] else { return event }
         switch draft.kind {
         case .sessionStarted where session.phase != .unknown:
             draft.kind = .stateChanged
@@ -343,6 +367,9 @@ public struct AgentNotificationReconciler: Sendable {
             }
         case .stateChanged where draft.declaredPhase != nil:
             draft.declaredPhase = session.phase
+        case .stateChanged where draft.declaredActivity == .working && session.phase == .needsInput && draft.nativeEvent == nil:
+            // A coarse busy observation cannot retire an unresolved exact request.
+            draft.declaredActivity = .needsInput
         case .idleObserved, .attentionResolved, .childSpawned, .childCompleted, .childFailed:
             draft.occurredAtMs = max(draft.occurredAtMs, session.occurredAtMs)
             draft.kind = .stateChanged
@@ -351,6 +378,22 @@ public struct AgentNotificationReconciler: Sendable {
             break
         }
         return AgentJournalEvent(sequence: event.sequence, committedAtMs: event.committedAtMs, draft: draft)
+    }
+
+    /// Returns the exact unresolved native request count after applying an event.
+    ///
+    /// The count uses the same immutable request identities and ambiguity safeguards
+    /// as notification admission. Activity and mode never dismiss a request.
+    /// - Parameter event: Event identifying the source and stable session.
+    /// - Returns: Unresolved requests, or zero without an attributed native session.
+    public func pendingUserActionCount(for event: AgentJournalEvent) -> Int {
+        guard let sessionID = event.draft.sessionId else { return 0 }
+        return sessions[Self.sessionKey(source: event.draft.source, sessionID: sessionID)]?.attentionIdentities.count ?? 0
+    }
+
+    private static func sessionKey(source: String, sessionID: String) -> String {
+        let source = source.lowercased()
+        return key([source == "claude_code" ? "claude" : source, sessionID])
     }
 
     private static func key(_ components: [String]) -> String {

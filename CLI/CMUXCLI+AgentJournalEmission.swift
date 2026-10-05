@@ -1,4 +1,5 @@
 import CmuxAgentJournal
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -27,9 +28,14 @@ extension CMUXCLI {
         pendingWork: Bool = false,
         nativeEvent: String?,
         declaredPhase: AgentLifecyclePhase? = nil,
+        declaredActivity: AgentSessionActivity? = nil,
+        declaredReason: AgentRuntimeReason? = nil,
+        declaredMode: AgentExecutionMode? = nil,
+        processGeneration: UInt64? = nil,
         detail: String? = nil,
         attention: AgentAttentionContext? = nil,
         occurredAtMs: Int64? = nil,
+        nativePayload: [String: Any]? = nil,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
         store: ClaudeHookSessionStore? = nil,
@@ -63,7 +69,11 @@ extension CMUXCLI {
             nativeEvent: nativeEvent,
             declaredPhase: declaredPhase,
             detail: detail,
-            attention: attention
+            attention: attention,
+            declaredActivity: declaredActivity,
+            declaredReason: declaredReason,
+            declaredMode: declaredMode ?? Self.semanticExecutionMode(nativePayload),
+            processGeneration: processGeneration ?? Self.semanticProcessGeneration(nativePayload)
         )
         if let problem = draft.validationProblem() {
             recordAgentJournalDeliveryFailure(
@@ -123,6 +133,32 @@ extension CMUXCLI {
                 deadline: deadline
             )
         }
+    }
+
+    /// Forwards explicit native mode metadata without interpreting prompts or tool activity.
+    static func semanticExecutionMode(_ object: [String: Any]?) -> AgentExecutionMode? {
+        guard let object else { return nil }
+        let mapper = AgentSemanticEventMapper()
+        for key in ["declared_mode", "execution_mode", "executionMode", "mode"] {
+            if let raw = object[key] as? String { return raw == "default" ? .execution : mapper.mode(nativeMode: raw) }
+        }
+        if let collaboration = object["collaboration_mode"] as? [String: Any], let raw = collaboration["mode"] as? String {
+            return raw == "default" ? .execution : mapper.mode(nativeMode: raw)
+        }
+        if let raw = object["collaboration_mode"] as? String {
+            return raw == "default" ? .execution : mapper.mode(nativeMode: raw)
+        }
+        if let permission = object["permission_mode"] as? String ?? object["permissionMode"] as? String,
+           permission == "default" || AgentResumeArgv.restorableClaudePermissionModes.contains(permission) {
+            return permission == "plan" ? .plan : .execution
+        }
+        return nil
+    }
+
+    /// Carries only an explicitly supplied native process-birth generation.
+    static func semanticProcessGeneration(_ object: [String: Any]?) -> UInt64? {
+        guard let number = object?["process_generation"] as? NSNumber, number.int64Value > 0 else { return nil }
+        return number.uint64Value
     }
 
     /// Resolves the semantic kind for a generic agent hook's `notification`

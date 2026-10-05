@@ -61,6 +61,14 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
 
     /// Structured causal identity and optional notification carried by this event.
     public var attention: AgentAttentionContext?
+    /// Explicit rich activity assertion; never inferred from transcript text.
+    public var declaredActivity: AgentSessionActivity?
+    /// Explicit structured activity reason.
+    public var declaredReason: AgentRuntimeReason?
+    /// Independent native execution-mode observation.
+    public var declaredMode: AgentExecutionMode?
+    /// Exact process birth generation in microseconds since Unix epoch, when supplied.
+    public var processGeneration: UInt64?
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -79,6 +87,10 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         case declaredPhase = "declared_phase"
         case detail
         case attention
+        case declaredActivity = "declared_activity"
+        case declaredReason = "declared_reason"
+        case declaredMode = "declared_mode"
+        case processGeneration = "process_generation"
     }
 
     /// Creates a draft, stamping the current schema version and truncating
@@ -100,6 +112,10 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     ///   - declaredPhase: Explicit phase assertion for `stateChanged` events.
     ///   - detail: Short human-readable context.
     ///   - attention: Structured causal identity and optional notification.
+    ///   - declaredActivity: Explicit rich activity, independent of execution mode.
+    ///   - declaredReason: Structured reason accompanying an activity assertion.
+    ///   - declaredMode: Explicit mode; it alone never starts work or a review request.
+    ///   - processGeneration: Exact process birth generation when the producer knows it.
     public init(
         eventId: String = UUID().uuidString,
         kind: AgentJournalEventKind,
@@ -115,7 +131,11 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         nativeEvent: String? = nil,
         declaredPhase: AgentLifecyclePhase? = nil,
         detail: String? = nil,
-        attention: AgentAttentionContext? = nil
+        attention: AgentAttentionContext? = nil,
+        declaredActivity: AgentSessionActivity? = nil,
+        declaredReason: AgentRuntimeReason? = nil,
+        declaredMode: AgentExecutionMode? = nil,
+        processGeneration: UInt64? = nil
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.eventId = eventId
@@ -133,6 +153,10 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         self.declaredPhase = declaredPhase
         self.detail = detail.map(Self.boundedDetail)
         self.attention = attention
+        self.declaredActivity = declaredActivity
+        self.declaredReason = declaredReason
+        self.declaredMode = declaredMode
+        self.processGeneration = processGeneration
     }
 
     /// Validates the draft for journal admission.

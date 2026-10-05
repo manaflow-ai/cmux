@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxAgentJournal
 import Darwin
 import Foundation
 import Observation
@@ -7,6 +8,34 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceSidebarAgentRuntimeObservationModel {
+    /// One native lifecycle event, bound at receipt to a registered agent's
+    /// process birth. Evidence time never changes while projecting snapshots.
+    struct LifecycleEvidence: Equatable, Sendable {
+        let agentPIDKey: String
+        let processIdentity: AgentPIDProcessIdentity
+        let lifecycle: AgentHibernationLifecycleState
+        let observedAt: Date
+        let isError: Bool
+    }
+
+    /// One reduced native session, bound to the process identity that owned it at receipt.
+    struct JournalEvidence: Equatable, Sendable {
+        let agentPIDKey: String
+        let processIdentity: AgentPIDProcessIdentity
+        let sessionID: String
+        let statusKey: String
+        let state: AgentSessionLifecycleState
+    }
+
+    @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private(set) var processSampledAtByKey: [String: Date] = [:]
+    @ObservationIgnored private(set) var journalEvidenceByPanelID: [UUID: [String: JournalEvidence]] = [:]
+
+    init(now: @escaping @Sendable () -> Date = { Date() }) { self.now = now }
+
+    @ObservationIgnored
+    private(set) var lifecycleEvidenceByPanelID: [UUID: [String: LifecycleEvidence]] = [:]
+
     @ObservationIgnored
     private(set) var agentPIDs: [String: pid_t] = [:]
     @ObservationIgnored
@@ -50,31 +79,99 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentPIDs(_ newValue: [String: pid_t]) {
         guard agentPIDs != newValue else { return }
         agentPIDs = newValue
+        for key in newValue.keys { processSampledAtByKey[key] = now() }
+        processSampledAtByKey = processSampledAtByKey.filter { newValue[$0.key] != nil }
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentPIDProcessIdentitiesByKey(_ newValue: [String: AgentPIDProcessIdentity]) {
         guard agentPIDProcessIdentitiesByKey != newValue else { return }
         agentPIDProcessIdentitiesByKey = newValue
+        for key in newValue.keys { processSampledAtByKey[key] = now() }
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentPIDPanelIdsByKey(_ newValue: [String: UUID]) {
         guard agentPIDPanelIdsByKey != newValue else { return }
         agentPIDPanelIdsByKey = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentPIDKeysByPanelId(_ newValue: [UUID: Set<String>]) {
         guard agentPIDKeysByPanelId != newValue else { return }
         agentPIDKeysByPanelId = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
     }
 
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        pruneLifecycleEvidence()
         notifyChanged()
+    }
+
+    func recordLifecycleEvidence(panelID: UUID, statusKey: String, evidence: LifecycleEvidence?) {
+        guard lifecycleEvidenceByPanelID[panelID]?[statusKey] != evidence else { return }
+        if let evidence {
+            lifecycleEvidenceByPanelID[panelID, default: [:]][statusKey] = evidence
+            processSampledAtByKey[evidence.agentPIDKey] = now()
+        } else {
+            lifecycleEvidenceByPanelID[panelID]?.removeValue(forKey: statusKey)
+            if lifecycleEvidenceByPanelID[panelID]?.isEmpty == true { lifecycleEvidenceByPanelID.removeValue(forKey: panelID) }
+        }
+        notifyChanged()
+    }
+
+    /// Records only exact registered SID/tool/process evidence; absent bindings remain unknown.
+    func recordJournalEvidence(panelID: UUID, statusKey: String, sessionID: String, state: AgentSessionLifecycleState) {
+        let statusKey = AgentSemanticEventMapper().statusKey(nativeToolID: statusKey)
+        let key = (agentPIDKeysByPanelId[panelID] ?? []).sorted().first { key in
+            guard let dot = key.firstIndex(of: ".") else { return false }
+            return AgentSemanticEventMapper().statusKey(nativeToolID: String(key[..<dot])) == statusKey
+                && String(key[key.index(after: dot)...]) == sessionID
+        } ?? (statusKey + "." + sessionID)
+        guard !sessionID.isEmpty, agentPIDPanelIdsByKey[key] == panelID,
+              let pid = agentPIDs[key], let identity = agentPIDProcessIdentitiesByKey[key], identity.pid == pid else { return }
+        let evidence = JournalEvidence(agentPIDKey: key, processIdentity: identity, sessionID: sessionID, statusKey: statusKey, state: state)
+        guard journalEvidenceByPanelID[panelID]?[key] != evidence else { return }
+        journalEvidenceByPanelID[panelID, default: [:]][key] = evidence
+        processSampledAtByKey[key] = now()
+        notifyChanged()
+    }
+
+    /// Records a native process-birth sample without refreshing activity, mode or request evidence.
+    func recordProcessSample(key: String, identity: AgentPIDProcessIdentity) {
+        guard agentPIDProcessIdentitiesByKey[key] == identity, agentPIDs[key] == identity.pid else { return }
+        let sampledAt = now()
+        guard processSampledAtByKey[key] != sampledAt else { return }
+        processSampledAtByKey[key] = sampledAt
+        notifyChanged()
+    }
+
+    private func pruneLifecycleEvidence() {
+        journalEvidenceByPanelID = journalEvidenceByPanelID.reduce(into: [:]) { result, entry in
+            let surviving = entry.value.filter { key, evidence in
+                agentPIDPanelIdsByKey[key] == entry.key && agentPIDs[key] == evidence.processIdentity.pid
+                    && agentPIDProcessIdentitiesByKey[key] == evidence.processIdentity
+            }
+            if !surviving.isEmpty { result[entry.key] = surviving }
+        }
+
+        var survivingByPanel: [UUID: [String: LifecycleEvidence]] = [:]
+        for (panelID, states) in lifecycleEvidenceByPanelID {
+            let surviving = states.filter { statusKey, evidence in
+                agentPIDPanelIdsByKey[evidence.agentPIDKey] == panelID
+                    && agentPIDs[evidence.agentPIDKey] == evidence.processIdentity.pid
+                    && agentPIDProcessIdentitiesByKey[evidence.agentPIDKey] == evidence.processIdentity
+                    && agentLifecycleStatesByPanelId[panelID]?[statusKey] == evidence.lifecycle
+            }
+            if !surviving.isEmpty { survivingByPanel[panelID] = surviving }
+        }
+        lifecycleEvidenceByPanelID = survivingByPanel
     }
 
     private func notifyChanged() {

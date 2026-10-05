@@ -620,7 +620,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         ))
     }
 
-    private func makeHeaderMenu() -> NSMenu {
+    /// Shared by classic cells and typed extension menu presentation.
+    func makeHeaderMenu() -> NSMenu {
         guard let model, let actions else { return NSMenu() }
         let menu = trackedMenu()
         // Resolve availability at menu-open time. The row may have retained an

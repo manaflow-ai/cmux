@@ -14,6 +14,42 @@ import CmuxTerminal
 
 @MainActor
 final class TabManagerSessionSnapshotTests: XCTestCase {
+    func testImportanceIsIndependentAndSurvivesRestore() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.selectedWorkspace)
+        let second = manager.addWorkspace(title: "Second", select: false)
+        let order = manager.tabs.map(\.id)
+        let selected = manager.selectedTabId
+        let pins = manager.tabs.map(\.isPinned)
+        XCTAssertTrue(manager.setWorkspaceImportance(workspaceId: first.id, importance: .priority))
+        XCTAssertTrue(manager.setWorkspaceImportance(workspaceId: second.id, importance: .followUp))
+        XCTAssertEqual(manager.tabs.map(\.id), order)
+        XCTAssertEqual(manager.tabs.map(\.isPinned), pins)
+        XCTAssertEqual(manager.selectedTabId, selected)
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.workspaces.map(\.importance), ["priority", "followUp"])
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        XCTAssertEqual(restored.tabs.map(\.importance), [.priority, .followUp])
+        XCTAssertEqual(restored.tabs.map(\.id), order)
+    }
+
+    func testLegacyAndUnknownImportanceRestoreWithoutStar() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.importance = .priority
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        snapshot.workspaces[0].importance = nil
+        let legacy = TabManager()
+        legacy.restoreSessionSnapshot(snapshot)
+        XCTAssertEqual(legacy.selectedWorkspace?.importance, Workspace.Importance.none)
+        snapshot.workspaces[0].importance = "future-importance"
+        let future = TabManager()
+        future.restoreSessionSnapshot(snapshot)
+        XCTAssertEqual(future.selectedWorkspace?.importance, Workspace.Importance.none)
+        XCTAssertFalse(manager.setWorkspaceImportance(workspaceId: UUID(), importance: .followUp))
+    }
+
     override func setUp() {
         super.setUp()
         ClosedItemHistoryStore.shared.removeAll()

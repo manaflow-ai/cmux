@@ -18,7 +18,7 @@ import CmuxTerminal
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
-import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxSidebar
 import CmuxSurfaceCatalogModel
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
@@ -9062,7 +9062,7 @@ struct ContentView: View {
         // Visibility is gated by `descriptors`; the handler set is the superset.
         for descriptor in CmuxExtensionSidebarSelection.allDescriptors {
             registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
-                CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
+                CmuxExtensionSidebarSelection.setProviderId(descriptor.id, source: "command_palette")
             }
         }
         for mode in RightSidebarMode.allCases {
@@ -11380,6 +11380,8 @@ struct VerticalTabsSidebar: View, Equatable {
     // invalidating the full parent projection once per emitting workspace.
     @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @State private var cortexSidebarAvailability = CortexSidebarAvailability()
+    @State private var sidebarModeAnchorView: NSView?
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
     // re-subscribed `.onReceive` to a fresh publisher every render, replaying
@@ -11401,6 +11403,8 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var anchorCwdRevision: Int = 0
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    @AppStorage(CmuxExtensionSidebarSelection.selectedExtensionBundleIDDefaultsKey)
+    private var retainedSidebarExtensionBundleID = ""
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.betaFeatures.conversationSidebar) private var conversationSidebarExperimentalEnabled
@@ -11788,6 +11792,147 @@ struct VerticalTabsSidebar: View, Equatable {
         }()
 #endif
         let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
+        let renderContext = makeWorkspaceListRenderContext()
+        let tabIds = renderContext.tabIds
+        let _ = SidebarProfilingSignposts.end(signpost)
+        ZStack(alignment: .bottomLeading) {
+            Group {
+                if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
+                    workspaceScrollArea(renderContext: renderContext)
+                } else {
+                    extensionSidebarScrollArea(renderContext: renderContext)
+                }
+            }
+            .padding(.top, SidebarExtensionModeHeader.height)
+            if isPresented {
+                SidebarFooter(
+                    updateViewModel: updateViewModel,
+                    fileExplorerState: fileExplorerState,
+                    modifierKeyMonitor: modifierKeyMonitor,
+                    onSendFeedback: onSendFeedback
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .overlay(alignment: .top) {
+            if isPresented {
+                WindowDragHandleView()
+                    .frame(height: sidebarTitlebarInteractionHeight)
+                    .background(TitlebarDoubleClickMonitorView())
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if isPresented { minimalModeSidebarTitlebarControlsOverlay() }
+        }
+        .overlay(alignment: .top) {
+            if isPresented {
+                SidebarExtensionModeHeader(
+                    isCortexSelected: extensionsExperimentalEnabled
+                        && effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+                        && CmuxExtensionSidebarSelection.isCortexBundle(retainedSidebarExtensionBundleID),
+                    canActivateCortex: extensionsExperimentalEnabled && cortexSidebarAvailability.enabledBundleIDs.contains {
+                        CmuxExtensionSidebarSelection.isCortexBundle($0)
+                    },
+                    onSelectClassic: {
+                        CmuxExtensionSidebarSelection.setProviderId(CmuxExtensionSidebarSelection.defaultProviderId)
+                    },
+                    onSelectCortex: {
+                        if !CmuxExtensionSidebarSelection.selectCortexSidebar(
+                            enabledBundleIDs: cortexSidebarAvailability.enabledBundleIDs,
+                            extensionsEnabled: extensionsExperimentalEnabled
+                        ) { manageCortexSidebar() }
+                    },
+                    onManage: { manageCortexSidebar() }
+                )
+                .background(TitlebarControlAnchorView { sidebarModeAnchorView = $0 })
+                .padding(.top, sidebarTitlebarInteractionHeight)
+            }
+        }
+        .accessibilityIdentifier("Sidebar")
+        .ignoresSafeArea()
+        .overlay(alignment: .trailing) {
+            WindowChromeBorder(
+                orientation: .vertical,
+                backgroundColor: chromeBackgroundColor
+            )
+        }
+        .background(
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
+                modifierKeyMonitor.setHostWindow(showModifierHoldHints ? window : nil)
+            }
+            .frame(width: 0, height: 0)
+        )
+        .onAppear {
+            if isPresented {
+                activateSidebarInteractions()
+                cortexSidebarAvailability.start()
+            }
+        }
+        .onDisappear {
+            deactivateSidebarInteractions()
+            cortexSidebarAvailability.stop()
+        }
+        .onChange(of: isPresented) { _, presented in
+            if presented {
+                activateSidebarInteractions()
+                cortexSidebarAvailability.start()
+            } else {
+                deactivateSidebarInteractions()
+                cortexSidebarAvailability.stop()
+            }
+        }
+        .onChange(of: selectedExtensionSidebarProviderId) { previous, current in
+            TerminalController.shared.sidebarRecoveryDiagnostics.providerChanged(
+                previous: previous, current: current, source: "provider_storage_observation"
+            )
+        }
+        .onChange(of: showModifierHoldHints) { _, enabled in
+            guard isPresented else {
+                modifierKeyMonitor.stop()
+                return
+            }
+            if enabled {
+                modifierKeyMonitor.setHostWindow(observedWindow)
+                modifierKeyMonitor.start()
+            } else {
+                modifierKeyMonitor.stop()
+                frozenShortcutHintsTabId = nil
+                frozenShortcutHintsValue = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
+            guard isPresented else { return }
+            guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
+                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+            if WorkspaceTodoFeature.checklistStyle == .popover {
+                checklistPopoverWorkspaceId = workspaceId
+            } else {
+                expandedChecklistWorkspaceIds.insert(workspaceId)
+            }
+            checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
+        }
+        .onChange(of: dragState.draggedTabId) { newDraggedTabId in
+#if DEBUG
+            cmuxDebugLog("sidebar.dragState.sidebar tab=\(sidebarShortTabId(newDraggedTabId))")
+#endif
+            guard newDraggedTabId == nil else { return }
+            dragAutoScrollController.stop()
+            dragState.clearDropIndicator()
+        }
+        .onChange(of: tabIds) { tabIds in
+            guard let frozenTabId = frozenShortcutHintsTabId,
+                  !tabIds.contains(frozenTabId) else { return }
+            frozenShortcutHintsTabId = nil
+        }
+        .onDisplayAccessibilityOptionsChange { options in
+            guard sidebarDisplayAccessibility != options else { return }
+            sidebarDisplayAccessibility = options
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Rebuild from native state at use time; an attached extension can outlive a render.
+    private func makeWorkspaceListRenderContext() -> WorkspaceListRenderContext {
         // Retain the native table identity while hidden without continuing the
         // O(workspaces) projection pipeline. Reveal rebuilds one authoritative
         // snapshot from the current model before the controller applies again.
@@ -11868,7 +12013,7 @@ struct VerticalTabsSidebar: View, Equatable {
             readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
         )
 #endif
-        let renderContext = WorkspaceListRenderContext(
+        return WorkspaceListRenderContext(
             environment: tableEnvironment,
             tabs: tabs,
             tabIds: tabIds,
@@ -11895,93 +12040,17 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
-        let _ = SidebarProfilingSignposts.end(signpost)
-        ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
-                workspaceScrollArea(renderContext: renderContext)
-            } else {
-                extensionSidebarScrollArea(renderContext: renderContext)
-            }
-            if isPresented {
-                SidebarFooter(
-                    updateViewModel: updateViewModel,
-                    fileExplorerState: fileExplorerState,
-                    modifierKeyMonitor: modifierKeyMonitor,
-                    onSendFeedback: onSendFeedback
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+    }
+
+    private func manageCortexSidebar() {
+        guard extensionsExperimentalEnabled else {
+            AppDelegate.shared?.openPreferencesWindow(debugSource: "sidebar.cortex.enableExtensions", navigationTarget: .betaFeatures)
+            return
         }
-        .accessibilityIdentifier("Sidebar")
-        .ignoresSafeArea()
-        .overlay(alignment: .trailing) {
-            WindowChromeBorder(
-                orientation: .vertical,
-                backgroundColor: chromeBackgroundColor
-            )
-        }
-        .background(
-            WindowAccessor(refreshID: showModifierHoldHints) { window in
-                modifierKeyMonitor.setHostWindow(showModifierHoldHints ? window : nil)
-            }
-            .frame(width: 0, height: 0)
+        AppDelegate.shared?.openSidebarExtensionBrowser(
+            from: sidebarModeAnchorView,
+            title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         )
-        .onAppear {
-            if isPresented { activateSidebarInteractions() }
-        }
-        .onDisappear {
-            deactivateSidebarInteractions()
-        }
-        .onChange(of: isPresented) { _, presented in
-            if presented {
-                activateSidebarInteractions()
-            } else {
-                deactivateSidebarInteractions()
-            }
-        }
-        .onChange(of: showModifierHoldHints) { _, enabled in
-            guard isPresented else {
-                modifierKeyMonitor.stop()
-                return
-            }
-            if enabled {
-                modifierKeyMonitor.setHostWindow(observedWindow)
-                modifierKeyMonitor.start()
-            } else {
-                modifierKeyMonitor.stop()
-                frozenShortcutHintsTabId = nil
-                frozenShortcutHintsValue = false
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
-            guard isPresented else { return }
-            guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
-                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-            if WorkspaceTodoFeature.checklistStyle == .popover {
-                checklistPopoverWorkspaceId = workspaceId
-            } else {
-                expandedChecklistWorkspaceIds.insert(workspaceId)
-            }
-            checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
-        }
-        .onChange(of: dragState.draggedTabId) { newDraggedTabId in
-#if DEBUG
-            cmuxDebugLog("sidebar.dragState.sidebar tab=\(sidebarShortTabId(newDraggedTabId))")
-#endif
-            guard newDraggedTabId == nil else { return }
-            dragAutoScrollController.stop()
-            dragState.clearDropIndicator()
-        }
-        .onChange(of: tabIds) { tabIds in
-            guard let frozenTabId = frozenShortcutHintsTabId,
-                  !tabIds.contains(frozenTabId) else { return }
-            frozenShortcutHintsTabId = nil
-        }
-        .onDisplayAccessibilityOptionsChange { options in
-            guard sidebarDisplayAccessibility != options else { return }
-            sidebarDisplayAccessibility = options
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -12116,16 +12185,6 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-            .overlay(alignment: .top) {
-                // The sidebar top strip remains draggable and handles
-                // double-clicks with the standard titlebar action.
-                WindowDragHandleView()
-                    .frame(height: sidebarTitlebarInteractionHeight)
-                    .background(TitlebarDoubleClickMonitorView())
-            }
-            .overlay(alignment: .topLeading) {
-                minimalModeSidebarTitlebarControlsOverlay()
-            }
             .overlay(alignment: .top) {
                 workspaceReorderDropOverlay(
                     renderContext: renderContext,
@@ -12317,18 +12376,6 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-            .overlay(alignment: .top) {
-                if isPresented {
-                    // The sidebar top strip remains draggable and handles
-                    // double-clicks with the standard titlebar action.
-                    WindowDragHandleView()
-                        .frame(height: sidebarTitlebarInteractionHeight)
-                        .background(TitlebarDoubleClickMonitorView())
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if isPresented { minimalModeSidebarTitlebarControlsOverlay() }
-            }
             .background(Color.clear)
             .onChange(of: selectedWorkspaceId) { _, _ in
                 guard isPresented, let dismissed = checklistPopoverWorkspaceId else { return }
@@ -12859,10 +12906,18 @@ struct VerticalTabsSidebar: View, Equatable {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
-    private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        extensionSidebarScrollAreaContent(renderContext: renderContext)
+    private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext, providerId: String? = nil) -> some View {
+        extensionSidebarScrollAreaContent(renderContext: renderContext, providerId: providerId ?? effectiveExtensionSidebarProviderId)
+            .onReceive(SidebarSelectedWorkspaceRefresh.events(from: tabManager.selectedTabIdPublisher)) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
+            .onChange(of: selectedTabIds) { _, _ in refreshExtensionSidebarSnapshot() }
+            .onChange(of: lastSidebarSelectionIndex) { _, _ in refreshExtensionSidebarSnapshot() }
             .sidebarCloudBindingObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.cloudBindingState)) { refreshExtensionSidebarSnapshot() }
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
+            .sidebarAgentRuntimeObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)) { _ in refreshExtensionSidebarSnapshot() }
+            .sidebarWorkspaceContextObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.workspaceContext)) { refreshExtensionSidebarSnapshot() }
+            .onChange(of: tabManager.workspaceGroups) { _, _ in refreshExtensionSidebarSnapshot() }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
@@ -12873,11 +12928,11 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     @ViewBuilder
-    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
+    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext, providerId: String) -> some View {
         let inMemoryTemplatePreview = CmuxExtensionSidebarSelection.inMemoryTemplatePreviewSource(
-            for: effectiveExtensionSidebarProviderId
+            for: providerId
         )
-        if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.conversationSidebarProviderId {
+        if providerId == CmuxExtensionSidebarSelection.conversationSidebarProviderId {
             ConversationSidebarView(
                 store: sessionIndexStore,
                 tabManager: tabManager
@@ -12890,14 +12945,17 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-        } else if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+        } else if providerId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
+                diagnostics: TerminalController.shared.sidebarRecoveryDiagnostics,
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 unreadSource: sidebarUnread,
-                actionHandler: { handleCMUXSidebarExtensionAction($0) },
+                actionHandler: { action, authorization in
+                    await handleCMUXSidebarExtensionAction(action, authorization: authorization)
+                },
                 onUseDefaultSidebar: {
-                    CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+                    CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID, source: "extension_default_button")
                 }
             )
             .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
@@ -12916,9 +12974,9 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-        } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
+        } else if providerId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
                   let customSidebarURL = inMemoryTemplatePreview == nil
-                    ? CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId)
+                    ? CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: providerId)
                     : URL(fileURLWithPath: "/__cmux-in-memory-sidebar-preview.js") {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
@@ -13045,14 +13103,6 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-            .overlay(alignment: .top) {
-                WindowDragHandleView()
-                    .frame(height: sidebarTitlebarInteractionHeight)
-                    .background(TitlebarDoubleClickMonitorView())
-            }
-            .overlay(alignment: .topLeading) {
-                minimalModeSidebarTitlebarControlsOverlay()
-            }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
             .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
@@ -13158,7 +13208,7 @@ struct VerticalTabsSidebar: View, Equatable {
         extensionSidebarDebouncedObservationPublisher = Publishers.MergeMany(
             tabs.map { $0.sidebarObservationPublisher }
         )
-        .receive(on: RunLoop.main)
+        .receive(on: DispatchQueue.main)
         .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: DispatchQueue.main)
         .eraseToAnyPublisher()
     }
@@ -13232,12 +13282,20 @@ struct VerticalTabsSidebar: View, Equatable {
         for tab in tabs where liveWorkspacesByID[tab.id] == nil {
             liveWorkspacesByID[tab.id] = tab
         }
+        let groups = tabManager.workspaceGroups
+        let groupByID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        let membership = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(tabs: tabManager.tabs, groupsById: groupByID)
         return CmuxSidebarSnapshot(
             sequence: snapshot.sequence,
             windowID: snapshot.windowId,
             selectedWorkspaceID: snapshot.selectedWorkspaceId,
+            selectedWorkspaceIDs: tabs.compactMap { selectedTabIds.contains($0.id) ? $0.id : nil },
+            selectionAnchorWorkspaceID: lastSidebarSelectionIndex.flatMap { index in
+                tabs.indices.contains(index) ? tabs[index].id : nil
+            },
             workspaces: snapshot.workspaces.map { workspace in
-                CmuxSidebarWorkspace(
+                let live = liveWorkspacesByID[workspace.id]
+                return CmuxSidebarWorkspace(
                     id: workspace.id,
                     title: workspace.title,
                     detail: workspace.customDescription,
@@ -13245,17 +13303,30 @@ struct VerticalTabsSidebar: View, Equatable {
                     rootPath: workspace.rootPath,
                     projectRootPath: workspace.projectRootPath,
                     gitBranch: workspace.branchSummary,
-	                    unreadCount: workspace.unreadCount,
-	                    latestNotification: workspace.latestNotificationText,
-	                    listeningPorts: workspace.listeningPorts,
-	                    pullRequestURLs: workspace.pullRequestURLs,
-	                    surfaces: liveWorkspacesByID[workspace.id].map {
-	                        cmuxSidebarSurfaces(for: $0)
-	                    } ?? []
-	                )
-	            }
-	        )
-	    }
+                    unreadCount: workspace.unreadCount,
+                    latestNotification: workspace.latestNotificationText,
+                    listeningPorts: workspace.listeningPorts,
+                    pullRequestURLs: workspace.pullRequestURLs,
+                    surfaces: live.map { cmuxSidebarSurfaces(for: $0) } ?? [],
+                    groupID: membership[workspace.id] ?? nil,
+                    importance: CmuxSidebarWorkspaceImportance(rawValue: live?.importance.rawValue ?? "none") ?? .none,
+                    isMuted: live?.isMuted ?? false,
+                    customColorHex: live?.customColor,
+                    context: live?.workspaceContext.context
+                )
+            },
+            workspaceGroups: groups.map { group in
+                CmuxSidebarWorkspaceGroup(
+                    id: group.id,
+                    name: group.name,
+                    isCollapsed: group.isCollapsed,
+                    isPinned: group.isPinned,
+                    anchorWorkspaceID: group.isEmpty ? nil : group.anchorWorkspaceId,
+                    workspaceIDs: tabManager.tabs.filter { membership[$0.id] == group.id }.map(\.id)
+                )
+            }
+        )
+    }
 
     private func cmuxSidebarSurfaces(for workspace: Workspace) -> [CmuxSidebarSurface] {
         return workspace.sidebarOrderedPanelIds().compactMap { panelId in
@@ -13267,14 +13338,59 @@ struct VerticalTabsSidebar: View, Equatable {
                 isFocused: workspace.focusedPanelId == panelId,
                 isPinned: workspace.isPanelPinned(panelId),
                 unreadCount: workspace.manualUnreadPanelIds.contains(panelId) ? 1 : 0,
-                workingDirectory: workspace.reportedPanelDirectory(panelId: panelId)
+                workingDirectory: workspace.reportedPanelDirectory(panelId: panelId),
+                runtime: SidebarExtensionRuntimeProjector().observation(workspace: workspace, panelID: panelId),
+                runtimeObservations: SidebarExtensionRuntimeProjector().observations(workspace: workspace, panelID: panelId)
             )
         }
     }
     private func handleCMUXSidebarExtensionAction(
-        _ action: CmuxSidebarAction
-    ) -> CmuxSidebarActionResult {
+        _ action: CmuxSidebarAction,
+        authorization: SidebarActionAuthorization
+    ) async -> CmuxSidebarActionResult {
+        guard authorization.isValid else { return .cancelled }
+        let renderContext = makeWorkspaceListRenderContext()
+        if case .classicMenu(let request) = action {
+            return SidebarExtensionClassicMenuCoordinator(
+                tabManager: tabManager, notificationStore: notificationStore,
+                colorScheme: renderContext.environment.colorScheme,
+                readSelectedIDs: { selectedTabIds }, writeSelectedIDs: { selectedTabIds = $0 },
+                readSelectionIndex: { lastSidebarSelectionIndex }, writeSelectionIndex: { lastSidebarSelectionIndex = $0 },
+                selectTabs: { selection = .tabs }, refreshSnapshot: { refreshExtensionSidebarSnapshot() },
+                groupConfiguration: { id in
+                    appKitWorkspaceTableRows(renderContext: makeWorkspaceListRenderContext()).first { $0.groupId == id && $0.isGroupHeader }
+                },
+                presentMenu: { menu in
+                    // Keep the immutable native menu adapter, while fencing every
+                    // AppKit command against the admitting connection and grant.
+                    if case .presentWorkspaceMenu(let id, _) = request,
+                       let workspace = tabManager.tabs.first(where: { $0.id == id }) {
+                        menu.items.first?.title = workspace.title
+                    }
+                    SidebarAuthorizedMenuDispatch(authorization: authorization).present(menu) { guarded in
+                        guarded.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+                    }
+                }
+            ).perform(request)
+        }
+        if let result = SidebarExtensionManagementCoordinator(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            authorization: authorization
+        ).perform(action) { return result }
         switch action {
+        case .selectWorkspaceRow(let workspaceID, let requestedModifiers):
+            guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceID }) else {
+                return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
+            }
+            var modifiers: NSEvent.ModifierFlags = []
+            if requestedModifiers.command { modifiers.insert(.command) }
+            if requestedModifiers.shift { modifiers.insert(.shift) }
+            selectWorkspaceRow(tabManager.tabs[index], index: index, modifiers: modifiers)
+            refreshExtensionSidebarSnapshot()
+            return .accepted
+        case .analyzeWorkspaceContexts(let workspaceIDs):
+            return await tabManager.sidebarOrganizationCoordinator.analyze(tabManager: tabManager, workspaceIDs: workspaceIDs)
         case .createWorkspace(let title, let workingDirectory, let select):
             guard let workspace = tabManager.addWorkspaceIfActive(
                 title: title,
@@ -13371,6 +13487,11 @@ struct VerticalTabsSidebar: View, Equatable {
             guard workspace.panels[surfaceId] != nil else {
                 return .rejected(String(localized: "sidebar.extensions.action.surfaceNotFound", defaultValue: "Surface not found"))
             }
+            guard !workspace.isPanelPinned(surfaceId), !tabManager.isCloseConfirmationInFlight else {
+                return .rejected(String(localized: "sidebar.extensions.action.closeRejected", defaultValue: "Workspace could not be closed"))
+            }
+            // The native path may await a confirmation or a remote tmux reply.
+            // Acceptance acknowledges dispatch; snapshots report actual removal.
             tabManager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: surfaceId)
             return .accepted
 
@@ -13415,6 +13536,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             }
             return .accepted
+        default:
+            return .rejected(String(localized: "sidebar.extensions.action.unavailable", defaultValue: "Action is unavailable"))
         }
     }
 
@@ -15385,6 +15508,9 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             onPointerDragEligibilityChange: { [pointerInteractionMonitor] isEnabled in
                 pointerInteractionMonitor.setWorkspaceDragEnabled(isEnabled, for: rowId)
+            },
+            setImportance: { importance, ids in
+                for id in ids { tabManager.setWorkspaceImportance(workspaceId: id, importance: importance) }
             }
         )
         }
@@ -16223,6 +16349,8 @@ struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
+                importanceIndicator
+
                 if workspaceSnapshot.isMuted {
                     CmuxSystemSymbolImage(magnified: "bell.slash.fill", pointSize: scaledFontSize(9), weight: .semibold, tint: activeSecondaryColor(0.8))
                         .safeHelp(String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted for this workspace"))
@@ -16652,6 +16780,9 @@ struct TabItemView: View, Equatable {
             onMoveDown: { moveBy(1) }
         ))
         .contextMenu {
+            SidebarExtensionImportanceMenu(importance: workspaceSnapshot.importance) { importance in
+                actions.setImportance(importance, contextMenuWorkspaceIds)
+            }
             TabItemWorkspaceContextMenuContent(row: self)
                 .onAppear {
                     contextMenuVisible = true
@@ -16988,6 +17119,15 @@ struct TabItemView: View, Equatable {
             presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
         ) else { return }
         applyTabColor(hex, targetIds: targetIds)
+    }
+
+    @ViewBuilder
+    private var importanceIndicator: some View {
+        if workspaceSnapshot.importance != .none {
+            let tint = Color(nsColor: workspaceSnapshot.importance == .priority ? .systemYellow : .systemBlue)
+            CmuxSystemSymbolImage(magnified: "star.fill", pointSize: scaledFontSize(10), weight: .semibold, tint: tint)
+                .safeHelp(workspaceSnapshot.importance.menuTitle)
+        }
     }
 
     func beginWorkspaceDescriptionEditFromContextMenu() {

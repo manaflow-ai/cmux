@@ -17,16 +17,28 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
     /// Host action scopes the extension asks CMUX to allow.
     public var actionScopes: [CmuxExtensionActionScope]
 
+    /// Whether this transport acknowledges pushed snapshots; absent in legacy SDKs.
+    @_spi(CmuxHostTransport) public var supportsSnapshotAcknowledgement: Bool = false
+
     /// Creates a sidebar extension manifest.
+    ///
+    /// - Parameters:
+    ///   - id: Stable reverse-DNS extension identifier.
+    ///   - displayName: Name shown in host permission and management UI.
+    ///   - readScopes: Data permissions requested from CMUX; none by default.
+    ///   - actionScopes: Action permissions requested from CMUX; none by default.
+    ///   - minimumAPIVersion: Required host API; defaults to sidebar 2.0 for legacy compatibility.
+    ///     Extensions using newer scopes must explicitly declare the matching API version.
     public init(
         id: String,
         displayName: String,
         readScopes: [CmuxExtensionScope] = [],
-        actionScopes: [CmuxExtensionActionScope] = []
+        actionScopes: [CmuxExtensionActionScope] = [],
+        minimumAPIVersion: CmuxExtensionAPIVersion = .sidebarV2
     ) {
         self.id = id
         self.displayName = displayName
-        self.minimumAPIVersion = .sidebarV2
+        self.minimumAPIVersion = minimumAPIVersion
         self.readScopes = readScopes
         self.actionScopes = actionScopes
     }
@@ -37,12 +49,14 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         case minimumAPIVersion
         case readScopes
         case actionScopes
+        case supportsSnapshotAcknowledgement
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
+        supportsSnapshotAcknowledgement = try container.decodeIfPresent(Bool.self, forKey: .supportsSnapshotAcknowledgement) ?? false
         minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2
         readScopes = try container.decode([CmuxExtensionScope].self, forKey: .readScopes)
         actionScopes = try container.decodeIfPresent(

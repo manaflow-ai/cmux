@@ -3,6 +3,7 @@ import CmuxExtensionSidebarExamples
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+@_spi(CmuxHostTransport) import CmuxSidebar
 import CmuxSidebarProviderKit
 import Foundation
 
@@ -15,6 +16,7 @@ enum CmuxExtensionSidebarSelection {
     // @AppStorage key when an unrelated key changed (#13930).
     static let defaultsKey = "cmuxExtensionSidebarProviderId"
     static let legacyDefaultsKey = "cmuxExtensionSidebar.providerId"
+    static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
     static let defaultProviderId = CmuxSidebarProviderDescriptor.defaultWorkspacesID
     static let conversationSidebarProviderId = "cmux.sidebar.conversations"
@@ -305,8 +307,13 @@ enum CmuxExtensionSidebarSelection {
         )
     }
 
-    static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard) {
+    @MainActor
+    static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard, source: String = "selection") {
+        let previous = defaults.string(forKey: defaultsKey) ?? defaultProviderId
         defaults.set(providerId, forKey: defaultsKey)
+        TerminalController.shared.sidebarRecoveryDiagnostics.providerChanged(
+            previous: previous, current: providerId, source: source
+        )
     }
 
     static func clearStaleTemplatePreviewSelection(defaults: UserDefaults = .standard) {
@@ -349,6 +356,65 @@ enum CmuxExtensionSidebarSelection {
         )
         SettingsNavigationRequest.post(.customSidebars, anchorID: "setting:customSidebars:templates", highlight: true)
         CustomSidebarTemplateGalleryRequest.shared.request()
+    }
+
+    static func isCortexBundle(_ bundleID: String, hostBundleID: String? = Bundle.main.bundleIdentifier) -> Bool {
+        if bundleID == "fr.yoyaku.cortex.sessions" || bundleID == "fr.yoyaku.cortex.sessions.debug" { return true }
+        // Tagged native hosts embed the extension under their own bundle identity.
+        if let hostBundleID, hostBundleID.hasPrefix("com.cmuxterm.app.debug."), bundleID == hostBundleID + ".sessions" { return true }
+        let prefix = "fr.yoyaku.cortex.dogfood."
+        let suffix = ".sessions"
+        guard bundleID.hasPrefix(prefix), bundleID.hasSuffix(suffix), let hostBundleID else { return false }
+        let tag = String(bundleID.dropFirst(prefix.count).dropLast(suffix.count))
+        let parts = tag.split(separator: "-", omittingEmptySubsequences: false)
+        guard !parts.isEmpty, parts.allSatisfy({ part in
+            !part.isEmpty && part.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) }
+        }) else { return false }
+        return hostBundleID == "com.cmuxterm.app.debug.\(parts.joined(separator: "."))"
+    }
+
+    static func isCortexActive(defaults: UserDefaults = .standard) -> Bool {
+        defaults.string(forKey: defaultsKey) == hostedExtensionsProviderId
+            && isCortexBundle(defaults.string(forKey: selectedExtensionBundleIDDefaultsKey) ?? "")
+    }
+
+    /// Changes only the sidebar provider; workspace, surface and terminal state
+    /// remain owned by their existing native models.
+    @discardableResult
+    static func toggleCortexSidebar(
+        enabledBundleIDs: Set<String>,
+        extensionsEnabled: Bool,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        if isCortexActive(defaults: defaults) {
+            setProviderId(defaultProviderId, defaults: defaults)
+            return true
+        }
+        guard extensionsEnabled,
+              let bundleID = enabledBundleIDs.filter({ isCortexBundle($0) }).sorted().first else { return false }
+        defaults.set(bundleID, forKey: selectedExtensionBundleIDDefaultsKey)
+        defaults.set("Cortex Sessions", forKey: selectedExtensionNameDefaultsKey)
+        setProviderId(hostedExtensionsProviderId, defaults: defaults)
+        return true
+    }
+
+    /// Explicit, idempotent selection for the permanent sidebar mode header.
+    /// Discovery only supplies candidates and never writes this preference.
+    @discardableResult
+    static func selectCortexSidebar(
+        enabledBundleIDs: Set<String>,
+        extensionsEnabled: Bool,
+        defaults: UserDefaults = .standard,
+        hostBundleID: String? = Bundle.main.bundleIdentifier
+    ) -> Bool {
+        guard extensionsEnabled else { return false }
+        let candidates = enabledBundleIDs.filter { isCortexBundle($0, hostBundleID: hostBundleID) }.sorted()
+        let retained = defaults.string(forKey: selectedExtensionBundleIDDefaultsKey)
+        guard let bundleID = retained.flatMap({ candidates.contains($0) ? $0 : nil }) ?? candidates.first else { return false }
+        defaults.set(bundleID, forKey: selectedExtensionBundleIDDefaultsKey)
+        defaults.set("Cortex Sessions", forKey: selectedExtensionNameDefaultsKey)
+        setProviderId(hostedExtensionsProviderId, defaults: defaults)
+        return true
     }
 
     @MainActor
@@ -403,7 +469,7 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
-        CmuxExtensionSidebarSelection.setProviderId(providerId)
+        CmuxExtensionSidebarSelection.setProviderId(providerId, source: "sidebar_menu")
     }
 
     @objc func browseTemplates() {

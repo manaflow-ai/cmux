@@ -22,6 +22,7 @@ final class CommandExecution: @unchecked Sendable {
     private static let sigkillGraceSeconds: Double = 0.2
     private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxProcess.timer")
 
+    private let maximumCaptureBytes: Int?
     let process: Process
     let stdoutPipe: OwnedProcessPipe
     let stderrPipe: OwnedProcessPipe
@@ -33,7 +34,8 @@ final class CommandExecution: @unchecked Sendable {
     init(
         executableURL: URL,
         arguments: [String],
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        maximumCaptureBytes: Int? = nil
     ) throws {
         let stdoutPipe = try OwnedProcessPipe()
         let stderrPipe: OwnedProcessPipe
@@ -82,6 +84,7 @@ final class CommandExecution: @unchecked Sendable {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe.pipe
         process.standardError = stderrPipe.pipe
+        self.maximumCaptureBytes = maximumCaptureBytes
         self.process = process
         self.stdoutPipe = stdoutPipe
         self.stderrPipe = stderrPipe
@@ -179,7 +182,8 @@ final class CommandExecution: @unchecked Sendable {
         DispatchQueue.global(qos: .utility).async { [self] in
             let data = Self.readToEnd(
                 fileDescriptor: stdoutReadDescriptor.rawValue,
-                cancellationDescriptor: cancellationDescriptor
+                cancellationDescriptor: cancellationDescriptor,
+                maximumCaptureBytes: maximumCaptureBytes
             )
             stdoutReadDescriptor.close()
             state.withLock { $0.stdout = data }
@@ -188,7 +192,8 @@ final class CommandExecution: @unchecked Sendable {
         DispatchQueue.global(qos: .utility).async { [self] in
             let data = Self.readToEnd(
                 fileDescriptor: stderrReadDescriptor.rawValue,
-                cancellationDescriptor: cancellationDescriptor
+                cancellationDescriptor: cancellationDescriptor,
+                maximumCaptureBytes: maximumCaptureBytes
             )
             stderrReadDescriptor.close()
             state.withLock { $0.stderr = data }
@@ -278,7 +283,8 @@ final class CommandExecution: @unchecked Sendable {
                     reason: state.endReason,
                     stdout: stdout,
                     stderr: stderr,
-                    exitStatus: state.exitStatus
+                    exitStatus: state.exitStatus,
+                    boundedCapture: maximumCaptureBytes != nil
                 ),
                 deadlineTimer: deadlineTimer,
                 killTimer: killTimer
@@ -310,13 +316,16 @@ final class CommandExecution: @unchecked Sendable {
         reason: EndReason?,
         stdout: Data,
         stderr: Data,
-        exitStatus: Int32?
+        exitStatus: Int32?,
+        boundedCapture: Bool
     ) -> CommandResult {
         switch reason {
         case nil:
             return CommandResult(
-                stdout: String(data: stdout, encoding: .utf8),
-                stderr: String(data: stderr, encoding: .utf8),
+                // A byte cap can split UTF8. Preserve the bounded sentinel
+                // with replacement characters instead of losing the stream.
+                stdout: boundedCapture ? String(decoding: stdout, as: UTF8.self) : String(data: stdout, encoding: .utf8),
+                stderr: boundedCapture ? String(decoding: stderr, as: UTF8.self) : String(data: stderr, encoding: .utf8),
                 exitStatus: exitStatus,
                 timedOut: false,
                 executionError: nil
@@ -354,7 +363,8 @@ final class CommandExecution: @unchecked Sendable {
 
     private static func readToEnd(
         fileDescriptor: Int32,
-        cancellationDescriptor: Int32
+        cancellationDescriptor: Int32,
+        maximumCaptureBytes: Int?
     ) -> Data {
         var data = Data()
         var descriptors = [
@@ -394,7 +404,7 @@ final class CommandExecution: @unchecked Sendable {
                     guard let baseAddress = pointer.baseAddress else { return }
                     data.append(
                         baseAddress.assumingMemoryBound(to: UInt8.self),
-                        count: bytesRead
+                        count: min(bytesRead, maximumCaptureBytes.map { max(0, $0 - data.count) } ?? bytesRead)
                     )
                 }
             } else if bytesRead == 0 {
