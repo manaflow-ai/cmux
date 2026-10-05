@@ -321,3 +321,17 @@ Gaps (not hidden):
 - Resume detection: a resume without a new bind.json is caught only when the heartbeat deadline fires (monotonic timers count paused time, vm-image.md 6.5, so an overdue deadline fires at resume). The exact signal (timerfd `TFD_TIMER_CANCEL_ON_SET`, vm-image.md 6.2) belongs to the Rust port.
 - Daemon capabilities: read from `/etc/cmux/daemon.json` when present; the bake does not write it yet, so bind sends the pinned cmux-tui commit and an empty capability list. Next bake: record the daemon's `identify` capabilities into that file.
 - Live proof against the development API is the dev bake's one-clone smoke (section 10), not run yet.
+
+## 18. Machine size research (goal 3)
+
+Facts from the Freestyle SDK 0.2.10 type docs (`web/node_modules/freestyle/dist/vms/types.d.ts`, `index.d.ts`) and the classic size ladder code, which already depends on them in production (`web/scripts/derive-devbox-sizes.ts`, its post-derive check boots every derived snapshot and verifies nproc, memory and root filesystem):
+
+1. A snapshot keeps its source VM's size. `vms.create` takes no resources; a VM boots at its snapshot's vCPU, memory and disk. The backend driver says the same (`backend/apps/api/src/cloud-driver.ts` `createBody`: "the snapshot decides; resize is a separate, grow-only call").
+2. Smallest bake base: `freestyle/ubuntu-sm` (2 vCPU, 4 GiB, 16 GB). The only smaller catalog base is `freestyle/busybox` (1 vCPU, 128 MiB, 1 GB), which is not Ubuntu and cannot carry the image. Nothing shrinks (resize is grow-only on every axis), so the bake must stay on `ubuntu-sm`, and the image must fit 16 GB (today about 5 GB used).
+3. Resize after create: `vm.resize({cpu, memory, storage})`, every axis grow-only; vCPU and memory apply live to a running VM, on resume for a paused one and at the next boot for a stopped one; disk grows only while the VM runs, in place (the derive script waits up to 60 s for the root filesystem to show it).
+
+Options for sizes above sm in cmux-next:
+- A. Derived ladder (as classic): one snapshot per size from each bake (about 30 s, parallel). Boots straight into its shape. Cost: 6 snapshots per bake, 6 smoke targets, 6 rows to promote and roll back.
+- B. Resize after create: one snapshot (sm); the driver calls `resize` right after `vms.create`, before the bind agent's first report. Cost: create-to-ready grows by the resize call plus the disk-growth wait, and a resize failure becomes a create failure path.
+
+Recommendation: B if the dev bake's resize probe shows the guest sees the new shape within about 2 s; else A. Strongest objection to B: a resize on the create critical path couples machine readiness to a second provider call that can fail or be slow under provider load (the classic 9 s create outliers). The probe (`smoke.ts --resize-probe`) records the call time and the time until the guest sees 4 vCPU, 8 GiB and a 32 GB root filesystem. Decision after the numbers; the backend driver change (send the resize) belongs to the backend lead.
