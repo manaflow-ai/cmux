@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import AppKit
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -58,6 +59,11 @@ struct CloudTreeNodeActions {
     /// rather than falling back to an all-views rename the way a terminal pool
     /// row does. A display open in two workspaces is exactly that case.
     var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
+    /// Renames a display for every client: its rows and every pane showing it.
+    var renameDisplay: @MainActor (_ resource: SurfaceResource) -> Void = { _ in }
+    /// Takes a display out of one Cloud workspace on this Mac: closes its pane
+    /// there and removes this Mac's membership for it.
+    var removeDisplayFromWorkspace: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
@@ -598,6 +604,46 @@ struct CloudTreeNodeActions {
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
         actions.discoverDisplays = { machine in catalog().beginDisplayDiscovery(on: machine) }
+        actions.renameDisplay = { resource in
+            let current = resource.title.isEmpty ? resource.id.key : resource.title
+            guard let name = promptForName(
+                title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                current: current,
+                // Clearing restores the numbered name ("Display 2").
+                allowsClear: true
+            ), name != current else { return }
+            let operationLabel = name.isEmpty
+                ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
+            run(operationLabel) { catalog in
+                try await catalog.renameDisplay(resource.id, name: name)
+            }
+        }
+        actions.removeDisplayFromWorkspace = { resource, view in
+            let catalog = catalog()
+            // Closing the pane is the removal: a closed display pane fences its
+            // membership and removes it from the workspace on the VM.
+            let panes = catalog.projections.filter { projection in
+                projection.resource == resource.id
+                    && (projection.panelID.uuidString.lowercased() == view.cloudDisplayMembershipViewID
+                        || projection.remoteWorkspaceID == view.workspace.id)
+            }
+            if !panes.isEmpty {
+                for pane in panes {
+                    _ = Workspace.liveWorkspace(id: pane.workspaceID)?.closePanel(pane.panelID, force: true)
+                }
+                return
+            }
+            // No pane on this Mac: remove this Mac's own membership, if the row is one.
+            let clientID = CloudTuiClientPaths().notificationClientID()
+            guard let viewID = view.cloudDisplayMembershipViewID,
+                  let token = catalog.cloudStates[resource.id.machine]?.displayMemberships.first(where: {
+                      $0.viewID == viewID && $0.displayID == resource.id.key && $0.clientID == clientID
+                  }),
+                  let provider = catalog.provider(for: resource.id.machine) as? any CloudDisplayMembershipSyncing
+            else { return }
+            catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
+        }
         actions.newDisplay = { machine in
             let target = try? destination(.split)
             if let target,

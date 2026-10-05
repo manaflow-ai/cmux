@@ -102,6 +102,63 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
         throw lastError ?? SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
     }
 
+    /// Names (or, with an empty name, un-names) one of this machine's displays
+    /// for every client. Revision-checked like a membership write.
+    func renameDisplay(displayID: String, name: String) async throws {
+        guard displayID.hasPrefix("display:") else { throw SurfaceCatalogError.unknownResource(
+            SurfaceResourceID(machine: machine, kind: .display, key: displayID)) }
+        guard let connected = try? await links.connected(machineID: machineID),
+              let link = await links.link(machineID: machineID) else {
+            throw ProviderError.machineAsleep(machineID)
+        }
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(CloudVMDisplayNames.maxNameLength))
+        let projectionID = Self.displayNamesProjectionID(machine: machine)
+        let idempotencyKey = "cmux-cloud-display-name-\(UUID().uuidString.lowercased())"
+        var lastError: Error?
+        for _ in 0..<4 {
+            try Task.checkCancellation()
+            let data = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let state = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine),
+                  state.document.containsCollection("frontend_projections") else {
+                throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
+            }
+            var names = state.displayNames
+            if trimmed.isEmpty { names.removeValue(forKey: displayID) } else { names[displayID] = trimmed }
+            let rows = (object["frontend_projections"] as? [[String: Any]]) ?? []
+            let row = rows.first { ($0["id"] as? String) == projectionID }
+            if row != nil, names == state.displayNames { return }
+            let request = CloudTuiRequests.putCloudDisplayMembershipProjection(
+                projectionID: projectionID,
+                frontendID: CloudVMDisplayMembership.projectionFrontendID,
+                windowID: CloudVMDisplayNames.projectionWindowID(machine: machine),
+                generation: CloudVMDisplayMembership.projectionGeneration,
+                projection: [
+                    "schema": CloudVMDisplayNames.projectionSchema,
+                    "machine_id": machine.rawValue,
+                    "names": names,
+                ],
+                expectedProjectionRevision: row.flatMap { CloudWireNumber.unsigned($0["projection_revision"]) },
+                idempotencyKey: idempotencyKey
+            )
+            do {
+                _ = try await link.run(arguments: request)
+                scheduleRefresh()
+                return
+            } catch {
+                lastError = error
+                guard Self.isRevisionConflict(error) else { throw error }
+            }
+        }
+        throw lastError ?? SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
+    }
+
+    private static func displayNamesProjectionID(machine: SurfaceMachineID) -> String {
+        let input = Data("\(machine.rawValue)/\(CloudVMDisplayNames.projectionSchema)".utf8)
+        let digest = SHA256.hash(data: input)
+        return "projection_" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
     private static func displayMembershipProjectionID(machine: SurfaceMachineID, workspaceID: String) -> String {
         let input = Data("\(machine.rawValue)/\(workspaceID)/\(CloudVMDisplayMembership.projectionSchema)".utf8)
         let digest = SHA256.hash(data: input)

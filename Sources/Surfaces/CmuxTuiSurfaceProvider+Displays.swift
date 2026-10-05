@@ -13,11 +13,43 @@ extension CmuxTuiSurfaceProvider {
     }
 
     var displayResources: [SurfaceResource] {
+        let base: [SurfaceResource]
         if let snapshot = displayCoordinator.displaySnapshot {
-            return snapshot.displays.map { $0.resource(on: machine, address: info.privateAddress) }
+            base = snapshot.displays.map { $0.resource(on: machine, address: info.privateAddress) }
+        } else {
+            base = [CmuxTuiSnapshotParser.display(machine: machine,
+                directURL: info.privateAddress.map { Self.privateDesktopURL(privateAddress: $0) })]
         }
-        return [CmuxTuiSnapshotParser.display(machine: machine,
-            directURL: info.privateAddress.map { Self.privateDesktopURL(privateAddress: $0) })]
+        // A named display carries its name everywhere it is listed or shown.
+        let names = cloudState?.displayNames ?? [:]
+        return base.map { resource in
+            guard let name = names[resource.id.key] else { return resource }
+            var named = resource
+            named.title = name
+            return named
+        }
+    }
+
+    /// Republishes display rows and pane titles when the graph's display names
+    /// change (a rename here, from another Mac, or a cleared name).
+    func applyDisplayNamesIfChanged(_ state: CloudVMState) {
+        let names = state.displayNames
+        guard names != appliedDisplayNames else { return }
+        appliedDisplayNames = names
+        publishDisplays()
+    }
+
+    /// A display pane's tab shows its display's name ("Display 2" until it is
+    /// renamed), not the noVNC page title, so the tab and the sidebar agree.
+    func applyDisplayPaneTitles() {
+        for resource in displayResources {
+            for projection in catalog.projections(of: resource.id) {
+                guard let workspace = Workspace.liveWorkspace(id: projection.workspaceID),
+                      workspace.panelCustomTitles[projection.panelID] != resource.title else { continue }
+                workspace.setPanelCustomTitle(panelId: projection.panelID, title: resource.title,
+                                              source: .remote, propagateToCloud: false, catalog: catalog)
+            }
+        }
     }
 
     /// A workspace's display memberships name displays the catalog only learns
@@ -103,6 +135,7 @@ extension CmuxTuiSurfaceProvider {
             catalog.upsert(resource, from: self)
         }
         catalog.notifyChange()
+        applyDisplayPaneTitles()
     }
 
     /// The noVNC URL retains each display's own port across VM reconnects.

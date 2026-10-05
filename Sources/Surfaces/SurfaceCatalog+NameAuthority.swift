@@ -19,6 +19,15 @@ extension SurfaceCatalog {
         workspace: Workspace, panelID: UUID, title: String?, source: Workspace.CustomTitleSource,
         context: CloudAgentNameContext? = nil
     ) -> Bool? {
+        if let projection = projection(forPanel: panelID), projection.workspaceID == workspace.id,
+           !projection.resource.machine.isLocal, projection.resource.kind == .display, source != .auto {
+            // A display tab renames the display itself, so the sidebar and every
+            // other pane of it follow. The local title applies right away; the
+            // daemon's name settles it.
+            let id = projection.resource
+            Task { [weak self] in try? await self?.renameDisplay(id, name: title ?? "") }
+            return nil
+        }
         guard let projection = projection(forPanel: panelID), projection.workspaceID == workspace.id,
               !projection.resource.machine.isLocal, projection.resource.kind == .terminal else { return nil }
         let machine = projection.resource.machine

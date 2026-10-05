@@ -3163,7 +3163,7 @@ class TerminalController {
             // `cloud tree --json`, which reports catalog state, not rows).
             let rows = CloudTreeNodeBuilder.flattened(SurfaceCatalog.shared.sidebarNodes()).map { node -> [String: Any] in
                 var row: [String: Any] = ["id": node.id, "kind": node.structureTag]
-                if case .display(let resource, _, _) = node.kind { row["resource"] = resource.id.rawValue }
+                if case .display(let resource, _, _) = node.kind { row["resource"] = resource.id.rawValue; row["title"] = resource.title }
                 return row
             }
             return v2Ok(id: id, result: ["rows": rows])

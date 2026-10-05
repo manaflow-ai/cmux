@@ -38,6 +38,11 @@ extension CmuxTuiSurfaceProvider {
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
+        if resource.kind == .display, let workspace = Workspace.liveWorkspace(id: pane.workspaceID) {
+            // The tab shows the display's name, not the noVNC page title.
+            workspace.setPanelCustomTitle(panelId: pane.panelID, title: resource.title,
+                                          source: .remote, propagateToCloud: false, catalog: catalog)
+        }
         switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
         case .privateDirect(let raw):
             guard let url = URL(string: raw) else { throw ProviderError.localForwardURLUnavailable }

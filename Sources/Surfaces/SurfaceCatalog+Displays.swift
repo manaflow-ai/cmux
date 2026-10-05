@@ -5,6 +5,14 @@ extension SurfaceCatalog {
     /// Guest display discovery for a machine whose Displays are on screen. The
     /// guest helper starts a standby display on this request, so the first
     /// New Display hands over a running desktop.
+    /// Names a display for every client; an empty name restores "Display N".
+    func renameDisplay(_ id: SurfaceResourceID, name: String) async throws {
+        guard id.kind == .display, let provider = provider(for: id.machine) as? CmuxTuiSurfaceProvider else {
+            throw SurfaceCatalogError.noProvider(id.machine)
+        }
+        try await provider.renameDisplay(displayID: id.key, name: name)
+    }
+
     /// Returns false, starting nothing, when the machine is asleep or has no desktop.
     func beginDisplayDiscovery(on machine: SurfaceMachineID) -> Bool {
         guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider,

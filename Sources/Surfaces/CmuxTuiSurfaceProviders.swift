@@ -54,6 +54,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Member-display discovery in flight, and attempts made in the current
     /// lifecycle generation (a launch-time refresh can cancel an attempt).
     var memberDisplayDiscovery: Task<Void, Never>?
+    /// Display names last applied to display rows and pane titles.
+    var appliedDisplayNames: [String: String]?
     var memberDisplayDiscoveryAttempts: (generation: UInt64, count: Int) = (0, 0)
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     let terminalMutationQueue = CloudTerminalMutationQueue()
@@ -836,6 +838,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         closePanesForVanishedRemoteTerminals(observation: observation)
         discoverMemberDisplaysIfNeeded(state)
+        applyDisplayNamesIfChanged(state)
     }
     func publishDelta(
         _ state: CloudVMState,
@@ -884,8 +887,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
         closePanesForVanishedRemoteTerminals(observation: .current)
-        // Membership rows arrive as projection deltas, not full rebuilds.
+        // Membership and name rows arrive as projection deltas, not full rebuilds.
         discoverMemberDisplaysIfNeeded(state)
+        applyDisplayNamesIfChanged(state)
     }
     /// Closes the panes of terminals the resolver reported as exited. The
     /// graph-driven sweep covers the usual case; this covers a daemon that
