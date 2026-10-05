@@ -252,6 +252,17 @@ impl FakeWire {
                     );
                     return (Value::String(text), events);
                 }
+                if declaration.contains("cmux-fetch-cancel") {
+                    // The host aborts its fetch: the held request rejects.
+                    if let Some((held, _)) = browser.held.take() {
+                        events.push(json!({"id": held, "result": {"result": {"type": "object"},
+                            "exceptionDetails": {"text": "Uncaught", "exception": {"description": "AbortError: aborted"}}}}));
+                    }
+                    return (
+                        json!({"id": id, "result": {"result": {"type": "boolean", "value": true}}}),
+                        events,
+                    );
+                }
                 if declaration.contains("__cmuxFetch") && declaration.contains("AbortController") {
                     if browser.hold_fetch {
                         browser.held = Some((id, session));
@@ -1362,4 +1373,53 @@ fn script_values_keep_the_page_key_order() {
         Reply::Json(raw) => assert_eq!(raw.get(), KEY_ORDER),
         Reply::Value(value) => panic!("the value was parsed (keys sorted): {value}"),
     }
+}
+
+/// Classic main: a cancelled fetch stops at once. A shell fetch closes its
+/// shell (the detached session fails the pending call).
+#[test]
+fn a_cancelled_shell_fetch_closes_its_shell_at_once() {
+    let h = Harness::with_browser(Browser { hold_fetch: true, ..Browser::default() });
+    let mark = h.mark();
+    std::thread::scope(|scope| {
+        let fetch = scope.spawn(|| {
+            h.driver.call(
+                "net.fetch",
+                &json!({"url": "https://a.test/data", "fetchId": "f1", "timeoutMs": 2000}),
+            )
+        });
+        wait_until(|| h.wire.browser.lock().unwrap().held.is_some(), "the fetch never started");
+        let _ = h.driver.call("net.fetch.cancel", &json!({"fetchId": "f1"}));
+        wait_until(
+            || {
+                h.sent_since(mark)
+                    .iter()
+                    .any(|(m, p)| m == "Target.closeTarget" && p["targetId"] == "T1")
+            },
+            "the cancel did not close the shell",
+        );
+        assert!(fetch.join().unwrap().is_err(), "a cancelled fetch fails");
+    });
+}
+
+/// Classic main: a cancelled in-tab fetch is aborted in the host world.
+#[test]
+fn a_cancelled_tab_fetch_is_aborted_at_once() {
+    let h = Harness::with_browser(Browser { hold_fetch: true, ..Browser::default() });
+    let target = h.open(None);
+    std::thread::scope(|scope| {
+        let fetch = scope.spawn(|| {
+            h.driver.call(
+                "net.fetch",
+                &json!({"targetId": target, "url": "https://a.test/data", "fetchId": "f2", "timeoutMs": 2000}),
+            )
+        });
+        wait_until(|| h.wire.browser.lock().unwrap().held.is_some(), "the fetch never started");
+        let _ = h.driver.call("net.fetch.cancel", &json!({"fetchId": "f2"}));
+        wait_until(
+            || h.wire.browser.lock().unwrap().held.is_none(),
+            "the cancel did not abort the fetch",
+        );
+        assert!(fetch.join().unwrap().is_err(), "a cancelled fetch fails");
+    });
 }
