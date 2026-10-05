@@ -25,20 +25,6 @@ public nonisolated struct BackdropTexture: Hashable, Sendable {
     public var id: String { "\(filter.rawValue):\(String(format: "%.3f", strength))" }
 }
 
-/// A texture algorithm supported by the backdrop renderer.
-public nonisolated enum BackdropTextureFilter: String, CaseIterable, Hashable, Sendable {
-    /// Leave the image unchanged.
-    case none
-    /// Use a 4 by 4 ordered Bayer threshold matrix.
-    case orderedDither4x4
-    /// Use an 8 by 8 ordered Bayer threshold matrix.
-    case orderedDither8x8
-    /// Use a CMYK dot screen.
-    case halftone
-    /// Add a restrained film-grain layer.
-    case grain
-}
-
 /// Caches rendered backdrop textures for the lifetime of one window backdrop view.
 final class BackdropTextureCache {
     private struct Key: Hashable {
@@ -83,9 +69,13 @@ private struct BackdropTextureRenderer {
         case .grain:
             output = grain(input, strength: texture.strength)
         }
-        guard let output,
-              let cgImage = context.createCGImage(output, from: input.extent) else { return source }
-        return NSImage(cgImage: cgImage, size: source.size)
+        guard let output else { return source }
+        // Keep the Core Image representation lazy. Material application runs
+        // on AppKit's main actor; forcing a CGImage here performs a synchronous
+        // GPU readback and blocks that actor.
+        let image = NSImage(size: source.size)
+        image.addRepresentation(NSCIImageRep(ciImage: output.cropped(to: input.extent)))
+        return image
     }
 
     /// Sets `key` only when `filter` declares it. CIFilter raises an
