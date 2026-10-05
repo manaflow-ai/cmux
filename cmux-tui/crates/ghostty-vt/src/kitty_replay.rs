@@ -7,8 +7,12 @@
 //! trusted path), never as PTY output. Its images are already zlib (Kitty
 //! `o=z`), so callers do not compress it again.
 
+use std::ffi::c_void;
+
+use ghostty_vt_sys as sys;
+
 use crate::terminal::Terminal;
-use crate::Result;
+use crate::{Result, check};
 
 /// What [`Terminal::encode_kitty_replay`] wrote.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -33,13 +37,26 @@ impl KittyReplayStats {
     }
 }
 
+unsafe extern "C" fn collect_write(userdata: *mut c_void, data: *const u8, len: usize) -> bool {
+    // `userdata` is the `Vec<u8>` that `encode_kitty_replay` owns for the
+    // duration of the call.
+    let bytes = unsafe { &mut *(userdata as *mut Vec<u8>) };
+    if len > 0 {
+        bytes.extend_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
+    }
+    true
+}
+
 impl Terminal {
     /// The Kitty image generation: it strictly increases at every change of
     /// the stored images or placements of either screen. Zero means the
     /// image storage never changed. Process-local value.
     pub fn kitty_image_generation(&self) -> Result<u64> {
-        // RED: not wired to libghostty-vt yet.
-        Ok(0)
+        let mut generation = 0u64;
+        // The out-pointer is valid for the call; the caller owns the
+        // terminal (`&self`).
+        check(unsafe { sys::ghostty_terminal_kitty_image_generation(self.raw(), &mut generation) })?;
+        Ok(generation)
     }
 
     /// Encode the Kitty image replay stream of this terminal: a per-screen
@@ -49,9 +66,33 @@ impl Terminal {
     /// it with every other access to the terminal, like
     /// [`Terminal::encode_snapshot`], and call it at the same cut.
     pub fn encode_kitty_replay(&self, max_image_bytes: u64) -> Result<(Vec<u8>, KittyReplayStats)> {
-        // RED: not wired to libghostty-vt yet.
-        let _ = max_image_bytes;
-        Ok((Vec::new(), KittyReplayStats::default()))
+        let mut bytes = Vec::new();
+        let writer = sys::GhosttyWriter {
+            write: Some(collect_write),
+            userdata: (&mut bytes as *mut Vec<u8>).cast(),
+        };
+        let mut stats = sys::GhosttyKittyReplayStats {
+            size: std::mem::size_of::<sys::GhosttyKittyReplayStats>(),
+            images: 0,
+            placements: 0,
+            skipped_images: 0,
+            image_bytes: 0,
+            bytes: 0,
+        };
+        // `writer.userdata` and `stats` outlive the call.
+        check(unsafe {
+            sys::ghostty_terminal_kitty_replay_encode(self.raw(), max_image_bytes, writer, &mut stats)
+        })?;
+        Ok((
+            bytes,
+            KittyReplayStats {
+                images: stats.images,
+                placements: stats.placements,
+                skipped_images: stats.skipped_images,
+                image_bytes: stats.image_bytes,
+                bytes: stats.bytes,
+            },
+        ))
     }
 
     /// Apply a complete stream of [`Terminal::encode_kitty_replay`] through
@@ -59,9 +100,10 @@ impl Terminal {
     /// with `InvalidValue` when parts were skipped; the valid commands still
     /// ran.
     pub fn apply_kitty_replay(&mut self, stream: &[u8]) -> Result<()> {
-        // RED: not wired to libghostty-vt yet.
-        let _ = stream;
-        Err(crate::Error::NoValue)
+        // The slice is valid for the call.
+        check(unsafe {
+            sys::ghostty_terminal_kitty_replay_apply(self.raw(), stream.as_ptr(), stream.len())
+        })
     }
 }
 

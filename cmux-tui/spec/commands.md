@@ -6074,6 +6074,38 @@ colors-changed | digest)* -> detached` instead of the replay stream:
   a later cut instead, as do attach, overflow and `snapshot-request`; so does
   every viewer when the host cannot compute the history check. A host replay
   replacement and a Kitty-limit resync also send a READY with history.
+- Servers that also advertise `terminal-snapshot-images-v1` accept
+  `snapshot_images: true` on a snapshot attach (ignored without `snapshot`).
+  Such a viewer gets, after the last history chunk of every READY that has
+  history (attach, overflow, `snapshot-request`, a grid change without a
+  local READY), `snapshot {surface, phase:"images", generation, offset,
+  data, done}` chunks at that READY's `generation` and `offset`. The chunks
+  concatenated are one libghostty-vt `ghostty_terminal_kitty_replay_encode`
+  stream encoded under the same terminal lock hold as the READY, at the same
+  cut: a per-screen reset, every stored image (pixels for the selected
+  ones, metadata only for the rest), the placements that show, and the
+  implicit image-ID cursor. Each chunk holds at most 1048576 bytes of the
+  stream; `data` is its base64 and there is no `compression` field (the
+  pixels are already zlib, Kitty `o=z`). `done` is true on the last chunk.
+  The viewer applies the complete stream with the trusted apply function
+  (`ghostty_terminal_kitty_replay_apply` or
+  `ghostty_surface_apply_kitty_replay`) after the READY and its history
+  (a placement above the active area needs its row), never as PTY output,
+  and drops images whose `generation` and `offset` differ from its last
+  READY. Images have the priority of history: `output` events may arrive
+  between chunks, and a newer READY ends the older READY's images. The host
+  selects at most 33554432 bytes (32 MiB) of decoded pixels per READY per
+  viewer, newest image first; when the cap leaves images out, the last
+  chunk carries `skipped_images` (their count) and the host logs one line.
+  A terminal without images (its image storage never changed, or no image
+  and no placement is left) sends no images phase, so a viewer clears its
+  images at every READY with history and keeps none when no images phase
+  follows. A viewer that did not opt in gets no images. A local READY
+  (`history:"local"`) is never followed by images: on a history match the
+  viewer keeps its own images; on a mismatch it sends `snapshot-request`
+  (`reason:"gap"`) and gets a READY with history and then images. A viewer
+  that is still owed the images of an older READY gets a READY with history
+  at a resize, not a local READY.
 - `digest {surface, generation, offset, version, sha256}` follows 2 s after
   output goes idle, only when the viewer has every byte up to that offset.
   `sha256` (hex) covers, for each SCREEN, PAGE and CONTINUATION record of the
@@ -6088,7 +6120,8 @@ colors-changed | digest)* -> detached` instead of the replay stream:
 - When the host cannot encode a snapshot (an unfinished escape sequence over
   1 MiB), it retries at the next output; the viewer stays attached.
 
-Snapshot format version 1 carries no Kitty images. Another `snapshot_version`
+Snapshot format version 1 carries no Kitty images (`terminal-snapshot-images-v1`
+sends them after the history). Another `snapshot_version`
 gets the replay stream above (capability fallback).
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
@@ -6104,6 +6137,7 @@ Params:
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
+| `snapshot_images` | `bool` | default false | `terminal-snapshot-images-v1`; only with `snapshot` |
 
 Result:
 

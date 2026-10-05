@@ -11013,6 +11013,11 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("snapshot", std::move(encoded).value());
     }
+    if (value.snapshot_images) {
+        auto encoded = encode_value(*value.snapshot_images);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("snapshot_images", std::move(encoded).value());
+    }
     if (value.snapshot_local_history) {
         auto encoded = encode_value(*value.snapshot_local_history);
         if (!encoded) return std::move(encoded).error();
@@ -11099,6 +11104,12 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             if (!decoded) return std::move(decoded).error();
             result.snapshot = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_snapshot_images = value.find("snapshot_images");
+    if (field_snapshot_images) {
+        auto decoded = decode_value<bool>(*field_snapshot_images);
+        if (!decoded) return std::move(decoded).error();
+        result.snapshot_images = std::move(decoded).value();
     }
     const Json* field_snapshot_local_history = value.find("snapshot_local_history");
     if (field_snapshot_local_history) {
@@ -30271,13 +30282,14 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 9> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 10> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
     {"mode", 7U, ""},
     {"rows", 0U, "attach-initial-size"},
     {"snapshot", 0U, "terminal-snapshot-v1"},
+    {"snapshot_images", 0U, "terminal-snapshot-images-v1"},
     {"snapshot_local_history", 0U, "terminal-snapshot-local-history-v1"},
     {"snapshot_version", 0U, "terminal-snapshot-v1"},
     {"viewer_backlog_bytes", 0U, "terminal-snapshot-v1"},

@@ -112,7 +112,7 @@ TEST("generated command and event metadata is exhaustive and unique") {
         CHECK(command.since <= cmux::raw::kMuxProtocolVersion);
         command_names.insert(command.name);
         if (command.name == "attach-surface") {
-            CHECK_EQ(command.field_requirements.size(), 9U);
+            CHECK_EQ(command.field_requirements.size(), 10U);
             bool mode_since = false;
             bool cols_capability = false;
             bool generation_capability = false;

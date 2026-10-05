@@ -94,6 +94,30 @@ pub(crate) struct SnapshotImages {
     pub stats: ghostty_vt::KittyReplayStats,
 }
 
+/// The Kitty replay of `term` with at most `max_image_bytes` of decoded
+/// pixels, or `None` when the terminal has no images (nothing is encoded
+/// while the image storage never changed). The caller holds the terminal
+/// lock of the READY encode it belongs to.
+fn encode_snapshot_images_locked(
+    term: &Terminal,
+    max_image_bytes: u64,
+    surface: SurfaceId,
+) -> Option<SnapshotImages> {
+    match term.kitty_image_generation() {
+        // NoValue: Kitty graphics are not built in.
+        Ok(0) | Err(_) => return None,
+        Ok(_) => {}
+    }
+    match term.encode_kitty_replay(max_image_bytes) {
+        Ok((data, stats)) if !stats.is_empty() => Some(SnapshotImages { data, stats }),
+        Ok(_) => None,
+        Err(error) => {
+            eprintln!("cmux-tui: surface {surface} snapshot images not encoded: {error}");
+            None
+        }
+    }
+}
+
 /// A READY taken exactly at a resize cut for a viewer that reflows its own
 /// history (`terminal-snapshot-local-history-v1`). No history follows it; the
 /// viewer checks its reflowed history against `history_rows` and
@@ -243,9 +267,8 @@ impl Surface {
         };
         let term = pty.term.lock().unwrap();
         let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
-        // RED: images are not encoded yet.
-        let _ = images_cap;
-        let images = None;
+        let images =
+            images_cap.and_then(|cap| encode_snapshot_images_locked(&term, cap, self.id));
         let (generation, offset) = pty.snapshot_position.load();
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);

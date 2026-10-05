@@ -125,9 +125,7 @@ pub(crate) const MAX_VIEWER_BACKLOG_BYTES: usize = 8 * 1024 * 1024;
 impl SnapshotAttachParams {
     /// The images cap of this viewer, or `None` when it did not opt in.
     pub(crate) fn images_cap(&self) -> Option<u64> {
-        // RED: the opt-in is not read yet.
-        let _ = self.snapshot_images;
-        None
+        self.snapshot_images.then_some(SNAPSHOT_IMAGES_MAX_BYTES)
     }
 
     pub(crate) fn backlog_bytes(&self) -> usize {
@@ -391,8 +389,8 @@ impl PendingTail {
             let done = self.history_done && self.images.is_none();
             return Ok(Some((value, done)));
         }
-        // RED: images are not sent yet.
-        Ok(None)
+        let (generation, offset) = (self.generation, self.offset);
+        Ok(self.images.as_mut().and_then(|images| images.next_chunk(surface, generation, offset)))
     }
 
     fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Value> {
@@ -439,9 +437,26 @@ impl PendingImages {
         generation: u64,
         offset: u64,
     ) -> Option<(Value, bool)> {
-        // RED: no chunks yet.
-        let _ = (surface, generation, offset, &self.data, self.sent, self.finished, self.skipped_images);
-        None
+        if self.finished {
+            return None;
+        }
+        let end = (self.sent + IMAGES_CHUNK_BYTES).min(self.data.len());
+        let done = end == self.data.len();
+        let mut value = json!({
+            "event": "snapshot",
+            "surface": surface,
+            "phase": "images",
+            "generation": generation,
+            "offset": offset,
+            "data": base64(&self.data[self.sent..end]),
+            "done": done,
+        });
+        if done && self.skipped_images > 0 {
+            value["skipped_images"] = json!(self.skipped_images);
+        }
+        self.sent = end;
+        self.finished = done;
+        Some((value, done))
     }
 }
 
