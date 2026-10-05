@@ -8,6 +8,17 @@ import type { MachineRow } from "./domains/cloud.ts"
  * `cloud_vm_install` remembers each machine's current VM install, so a removed row still revokes.
  */
 
+/** How long a bind may take between registering its install and its decision before the alarm settles it. */
+export const REGISTER_GRACE_MS = 10 * 60_000
+export interface RegisterArgs {
+  readonly creator: string
+  readonly team: string
+  readonly machine: string
+  readonly epoch: number
+  readonly jwk: { kty: string; crv: string; x: string; y: string }
+  readonly ssoTeam?: string
+}
+const registerKey = (r: RegisterArgs) => `${r.machine}:${r.epoch}:${r.jwk.x}`
 const RETRY_MS = [5_000, 30_000, 120_000, 600_000, 3_600_000]
 export type Revoke = (a: { creator: string; install: string; why: string }) => Promise<boolean>
 
@@ -18,6 +29,7 @@ export class VmInstallRevokes {
   private tables() {
     if (this.ready) return
     this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_install (machine TEXT PRIMARY KEY, install TEXT NOT NULL, creator TEXT NOT NULL)`)
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_register (key TEXT PRIMARY KEY, reg TEXT NOT NULL, at INTEGER NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_revoke (install TEXT PRIMARY KEY, creator TEXT NOT NULL, why TEXT NOT NULL, attempts INTEGER NOT NULL, due_at INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0)`)
     this.ready = true
   }
@@ -43,6 +55,40 @@ export class VmInstallRevokes {
     if (!cur) return
     this.queue(cur.install, cur.creator, row ? row.status : "removed", now)
     this.sql.exec(`DELETE FROM cloud_vm_install WHERE machine = ?`, machine)
+  }
+
+  /**
+   * Crash window (review P3): a bind records its install registration before it asks UserDO and
+   * clears it once the bind is decided. A record older than the grace is a bind that died in between:
+   * the alarm repeats the (idempotent) registration to learn the install and revokes it unless the
+   * machine names it.
+   */
+  beginRegister(reg: RegisterArgs, now: number) {
+    this.tables()
+    this.sql.exec(`INSERT INTO cloud_vm_register (key, reg, at) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING`, registerKey(reg), JSON.stringify(reg), now)
+  }
+  endRegister(reg: RegisterArgs) {
+    this.tables()
+    this.sql.exec(`DELETE FROM cloud_vm_register WHERE key = ?`, registerKey(reg))
+  }
+  registerDueAt(): number | null {
+    if (!this.exists()) return null
+    this.tables()
+    const r = this.sql.exec<{ t: number | null }>(`SELECT min(at) AS t FROM cloud_vm_register`)[0]
+    return r?.t === null || r?.t === undefined ? null : Number(r.t) + REGISTER_GRACE_MS
+  }
+  /** Settles the registrations past the grace: `named` is the install the machine names now (or undefined). */
+  async settleRegisters(now: number, register: (reg: RegisterArgs) => Promise<string | null>, named: (machine: string) => string | undefined): Promise<void> {
+    if (!this.exists()) return
+    this.tables()
+    const stale = this.sql.exec<{ key: string; reg: string }>(`SELECT key, reg FROM cloud_vm_register WHERE at + ? <= ? LIMIT 20`, REGISTER_GRACE_MS, now)
+    for (const r of stale) {
+      const reg = JSON.parse(r.reg) as RegisterArgs
+      const install = await register(reg).catch(() => null)
+      if (install === null) continue
+      if (named(reg.machine) !== install) this.queue(install, reg.creator, "bind never committed", now)
+      this.sql.exec(`DELETE FROM cloud_vm_register WHERE key = ?`, r.key)
+    }
   }
 
   /** Queue one revoke (idempotent by install). */
