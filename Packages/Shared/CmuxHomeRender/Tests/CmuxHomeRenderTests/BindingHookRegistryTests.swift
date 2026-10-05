@@ -57,9 +57,87 @@ import Testing
         first.onUnanswered = { _ in heard.append("first") }
         second.onUnanswered = { _ in heard.append("second") }
         store.reportUnanswered(reaction())
-        #expect(heard.sorted() == ["first", "second"])
+        #expect(heard == ["first", "second"], "live views heard it out of registration order")
         first.stop()
         second.stop()
+        store.stop()
+    }
+
+    /// One of two views freed without `stop()`: its hook leaves the store
+    /// at once, and the other view hears each intent exactly once.
+    @Test func freeingOneOfTwoViewsLeavesTheOtherHearingEachOnce() async throws {
+        let (store, me) = try await started()
+        let kept = binding(store, me: me)
+        var keptRefused: [IdempotencyKey] = [], keptUnanswered: [IdempotencyKey] = []
+        kept.onRefusal = { intent, _ in keptRefused.append(intent.key) }
+        kept.onUnanswered = { keptUnanswered.append($0.key) }
+        var heardByFreed = 0
+        weak var freed: HomeStoreBinding?
+        do {
+            let view = binding(store, me: me)
+            view.onRefusal = { _, _ in heardByFreed += 1 }
+            view.onUnanswered = { _ in heardByFreed += 1 }
+            freed = view
+            await view.opened()
+        }
+        #expect(freed == nil, "the binding outlived its host")
+        #expect(store.registeredHookCount == 1, "a freed view left its hook in the store")
+        let refused = reaction(), unanswered = reaction()
+        store.reportRefusal(refused, .notAuthorized)
+        store.reportUnanswered(unanswered)
+        #expect(keptRefused == [refused.key])
+        #expect(keptUnanswered == [unanswered.key])
+        #expect(heardByFreed == 0, "a freed view heard an intent")
+        kept.stop()
+        #expect(store.registeredHookCount == 0)
+        store.stop()
+    }
+
+    /// A view stopped by another view's handler while an intent is being
+    /// delivered does not hear that intent.
+    @Test func aViewStoppedDuringADeliveryDoesNotHearIt() async throws {
+        let (store, me) = try await started()
+        let first = binding(store, me: me)
+        let second = binding(store, me: me)
+        var firstHeard = 0, secondHeard = 0
+        first.onRefusal = { _, _ in firstHeard += 1; second.stop() }
+        first.onUnanswered = { _ in firstHeard += 1; second.stop() }
+        second.onRefusal = { _, _ in secondHeard += 1 }
+        second.onUnanswered = { _ in secondHeard += 1 }
+        store.reportRefusal(reaction(), .notAuthorized)
+        store.reportUnanswered(reaction())
+        #expect(firstHeard == 2, "the live view did not hear each intent exactly once")
+        #expect(secondHeard == 0, "a view stopped during a delivery heard that intent")
+        first.stop()
+        #expect(store.registeredHookCount == 0)
+        store.stop()
+    }
+
+    /// A view opened by a handler while an intent is being delivered misses
+    /// that intent and hears the next one.
+    @Test func aViewOpenedDuringADeliveryHearsOnlyTheNextIntent() async throws {
+        let (store, me) = try await started()
+        let first = binding(store, me: me)
+        var late: HomeStoreBinding?
+        var lateHeard: [IdempotencyKey] = []
+        var firstHeard: [IdempotencyKey] = []
+        first.onUnanswered = { intent in
+            firstHeard.append(intent.key)
+            guard late == nil else { return }
+            let view = binding(store, me: me)
+            view.onUnanswered = { lateHeard.append($0.key) }
+            late = view
+        }
+        let inFlight = reaction(), next = reaction()
+        store.reportUnanswered(inFlight)
+        #expect(late != nil)
+        #expect(lateHeard.isEmpty, "a view opened during a delivery heard the in-flight intent")
+        store.reportUnanswered(next)
+        #expect(firstHeard == [inFlight.key, next.key])
+        #expect(lateHeard == [next.key], "a view opened during a delivery missed the next intent")
+        first.stop()
+        late?.stop()
+        #expect(store.registeredHookCount == 0)
         store.stop()
     }
 
@@ -109,11 +187,12 @@ import Testing
         }
         #expect(freed == nil, "the binding outlived its host")
         for _ in 0..<500 where store.registeredHookCount > 0 || store.viewers[id] != nil { await Task.yield() }
+        // Before any delivery: a delivery prunes freed entries itself.
+        #expect(store.registeredHookCount == 0, "a freed view left its hook in the store")
+        #expect(store.viewers[id] == nil, "a freed view left its conversation open")
         store.reportUnanswered(reaction())
         #expect(heardByFreed == 0, "a freed host heard an intent")
         #expect(fallback == 1)
-        #expect(store.registeredHookCount == 0, "a freed view left its hook in the store")
-        #expect(store.viewers[id] == nil, "a freed view left its conversation open")
         store.stop()
     }
 }

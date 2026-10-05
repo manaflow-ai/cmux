@@ -53,6 +53,7 @@ import Testing
         await until { freed == nil && store.viewers[id] == nil }
         #expect(freed == nil, "the screen outlived its last reference")
         #expect(store.viewers[id] == nil, "a freed screen left its conversation open")
+        #expect(store.registeredHookCount == 0, "a freed screen left its binding's hook in the store")
         #expect(source.closes == [id])
         store.stop()
     }
