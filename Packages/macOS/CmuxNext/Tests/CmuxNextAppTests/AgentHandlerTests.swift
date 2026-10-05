@@ -44,14 +44,13 @@ import Testing
 
         try await Self.waitUntil {
             guard let pane = window.content?.panes.values.first else { return false }
-            let ids = services.agentTabs.tabIDs(in: pane.paneKey)
-            return ids.count == 1 && ids[0].hasPrefix(LocalAgentTab.prefix)
+            return pane.pane.tabs.count == 1 && pane.pane.tabs[0].agentSession != nil
         }
         let pane = try #require(window.content?.panes.values.first)
-        let ids = services.agentTabs.tabIDs(in: pane.paneKey)
-        #expect(ids.count == 1)
-        #expect(ids[0].hasPrefix(LocalAgentTab.prefix))
-        #expect(pane.stripModel.selectedID?.rawValue == ids[0])
+        #expect(pane.pane.tabs.count == 1)
+        let tab = try #require(pane.pane.tabs.first)
+        #expect(tab.agentSession != nil)
+        #expect(pane.stripModel.selectedID?.rawValue == tab.id)
         #expect(window.state.workspaceID == TopologyDaemon.firstKey)
         let commands = daemon.commands.names.withLock { $0 }
         #expect(commands.contains("create-terminal"))
