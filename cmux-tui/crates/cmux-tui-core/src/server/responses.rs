@@ -54,15 +54,20 @@ pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool 
 }
 
 /// Sends `response` with the stable `reason` of a conversation reject next to
-/// its `error_code` (home.md section 2), when there is one.
+/// its `error_code` (home.md section 2), and the `error_details` of a refusal
+/// that has them, when there are some.
 pub(super) fn send_response_with_reason(
     writer: &MessageWriter,
     response: Response,
     reason: Option<String>,
+    details: Option<Value>,
 ) -> bool {
     let Ok(mut value) = serde_json::to_value(response) else { return false };
     if let Some(reason) = reason {
         value["reason"] = Value::String(reason);
+    }
+    if let Some(details) = details {
+        value["error_details"] = details;
     }
     writer.send_control(&value).is_ok()
 }
@@ -89,4 +94,5 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::new_screen::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
+        .or_else(|| super::renderer_grant::error_code(error))
 }

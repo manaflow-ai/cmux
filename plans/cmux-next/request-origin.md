@@ -72,7 +72,13 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
 - A connection with no client-hello is the legacy client role: never user, never page_relay.
 - verified_app (P8) = role main declared on that connection AND (install-key proof OR prover A).
 - A page_relay connection sends client-hello, then page calls; no subscribe (valid without it;
-  subscribe on page_relay is refused).
+  subscribe on page_relay is refused). Default deny (2026-10-04, mint guard): every line on a
+  page_relay connection that is not a `cmux.protocol/2` request is refused with
+  `origin.forbidden {required: "agent", derived: "page"}`, except `identify` and a late
+  `client-hello` (window_closed). Pages speak only v2 through the relay.
+- `terminal.renderer_grant.create` is refused for origin `page` and on every page_relay request,
+  a confirmed-user claim included (the grant would reach page JS). The legacy
+  `mint-terminal-renderer*` commands and the v2 operation also need a local Unix connection.
 - Same-peer key for origin.confirmation.issue: peer_key above.
 - Capability `origin-claim-v1` = client-hello step 1 + the `origin` envelope field + the issue
   operation. Clients use them only when it is advertised; otherwise the relay behaves as today

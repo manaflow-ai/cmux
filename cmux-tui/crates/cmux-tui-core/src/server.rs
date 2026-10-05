@@ -109,6 +109,7 @@ mod fs_wire;
 mod line_connection;
 mod origin_gate;
 mod pending_handoff;
+mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
@@ -7927,7 +7928,7 @@ fn handle_resource_connection_control(
             resource_browser_viewer_release(mux, client, request)
         }
         ResourceOperation::TerminalRendererGrantCreate => {
-            resource_terminal_renderer_grant(mux, request)
+            renderer_grant::create(mux, client, request)
         }
         operation => unreachable!("connection handler received {operation:?}"),
     }
@@ -8508,25 +8509,6 @@ fn resource_browser_viewer_release(
         request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
     let outcome = release_resource_view(mux, client, surface.id, lease, "browser.viewer.release")?;
     Ok(json!({"outcome":outcome}))
-}
-
-fn resource_terminal_renderer_grant(
-    mux: &Mux,
-    request: &crate::resource_router::ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let operation = "terminal.renderer_grant.create";
-    let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let ttl_ms = request.fields.get("ttl_ms").and_then(Value::as_u64).unwrap_or(30_000);
-    let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms)).map_err(|error| {
-        ResourceError::operation_failed(operation, error.to_string(), json!({}))
-    })?;
-    Ok(json!({
-        "endpoint":grant.endpoint,
-        "terminal_id":terminal_id,
-        "token":grant.token,
-        "rights":["render"],
-        "ttl_ms":u32::try_from(ttl_ms).expect("catalog validates renderer grant TTL"),
-    }))
 }
 
 fn prepare_resource_client_detach(
@@ -10620,7 +10602,7 @@ fn handle_request_with_cancellation(
         _ => None,
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
-    let mut reason = None;
+    let (mut reason, mut details) = (None, None);
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -10632,6 +10614,7 @@ fn handle_request_with_cancellation(
         },
         Err(error) => {
             reason = conversations::error_reason(&error);
+            details = renderer_grant::error_details(&error);
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
@@ -10646,8 +10629,9 @@ fn handle_request_with_cancellation(
         }
     };
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
+    let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = responses::send_response_with_reason(writer, response, reason);
+    let sent = responses::send_response_with_reason(writer, response, reason, details);
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
@@ -12774,21 +12758,6 @@ fn handle_command(
     handle_command_with_cancellation(mux, client, cmd, writer, None)
 }
 
-fn terminal_renderer_grant_json(
-    grant: crate::terminal_host_runtime::RendererGrant,
-    ttl_ms: u64,
-) -> Value {
-    json!({
-        "endpoint": grant.endpoint,
-        "terminal_id": grant.terminal_id,
-        "incarnation": grant.incarnation,
-        "token": grant.token,
-        "rights": grant.rights.bits(),
-        "protocol_version": grant.protocol_version,
-        "ttl_ms": ttl_ms,
-    })
-}
-
 fn handle_command_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
@@ -13519,20 +13488,10 @@ fn handle_command_with_cancellation(
         }
         Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
         Command::MintTerminalRenderer { surface, ttl_ms } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
-            Ok(terminal_renderer_grant_json(grant, ttl_ms))
+            renderer_grant::mint_by_surface(mux, client, surface, ttl_ms)
         }
         Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
-            let terminal = TerminalPublicId::parse(terminal)?;
-            let surface = mux
-                .resource_surface_for_terminal(&terminal)
-                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
-            Ok(terminal_renderer_grant_json(grant, ttl_ms))
+            renderer_grant::mint_by_terminal(mux, client, terminal, ttl_ms)
         }
         Command::ResolveTerminal { terminal_id } => {
             let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {

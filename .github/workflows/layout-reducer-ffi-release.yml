@@ -83,10 +83,26 @@ jobs:
           for arch in arm64 x86_64; do
             [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
           done
-          # Every C entry point in the header is exported from the archive.
-          for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
-            nm -g "$lib" 2>/dev/null | grep -q " T _$symbol\$" || { echo "::error::$lib does not export $symbol" >&2; exit 1; }
+          # Prove each slice links with Apple's toolchain and exports every C
+          # entry point: a C program takes the address of each header function
+          # and links against the archive (Apple's nm cannot read objects that
+          # carry a newer rustc's embedded bitcode, so symbol listing is not
+          # the check; the link is what the app needs). The arm64 program runs.
+          header_dir="$xcf/macos-arm64_x86_64/Headers/CCmuxLayoutReducerFFI"
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          {
+            printf '%s\n' '#include <cmux_layout_reducer_ffi.h>' '#include <stdio.h>' 'int main(void) {'
+            for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
+              printf '  printf("%%p %s\\n", (void *)&%s);\n' "$symbol" "$symbol"
+            done
+            printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
+          } > "$smoke/smoke.c"
+          cat "$smoke/smoke.c"
+          for arch in arm64 x86_64; do
+            xcrun clang -target "$arch-apple-macos26.0" -I "$header_dir" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
           done
+          "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"
           rm -rf "$dist"; mkdir -p "$dist"
           # Stable zip bytes for a rerun of the same build.

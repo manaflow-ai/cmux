@@ -47,10 +47,24 @@ pub(super) struct FetchSlots {
     live: std::collections::HashMap<String, u64>,
     /// Cells whose timeout cancelled their fetches.
     cancelled: std::collections::HashSet<u64>,
+    /// Fetches waiting for a slot, per cell.
+    waiting: std::collections::HashMap<u64, usize>,
     next_id: u64,
 }
 
 impl FetchSlots {
+    /// Cells kept as timed out (a test bound).
+    #[cfg(test)]
+    pub(super) fn cancelled_cells(&self) -> usize {
+        self.cancelled.len()
+    }
+
+    /// Fetches of `cell` that wait for a slot (tests).
+    #[cfg(test)]
+    pub(super) fn waiting(&self, cell: u64) -> usize {
+        self.waiting.get(&cell).copied().unwrap_or(0)
+    }
+
     /// Why a fetch of `cell` may not run, if it may not.
     fn refusal(&self, cell: u64) -> Option<DriverError> {
         if self.ended {
@@ -58,28 +72,53 @@ impl FetchSlots {
         }
         (cell != 0 && self.cancelled.contains(&cell)).then(|| DriverError::timeout(CELL_TIMED_OUT))
     }
+
+    /// True while `cell` has a queued or running fetch.
+    fn busy(&self, cell: u64) -> bool {
+        self.waiting.contains_key(&cell) || self.live.values().any(|c| *c == cell)
+    }
+
+    /// A timed-out cell is kept only while it has a queued or running
+    /// fetch (no per-session set that only grows).
+    fn forget_if_idle(&mut self, cell: u64) {
+        if self.cancelled.contains(&cell) && !self.busy(cell) {
+            self.cancelled.remove(&cell);
+        }
+    }
+
+    fn stop_waiting(&mut self, cell: u64) {
+        if let Some(count) = self.waiting.get_mut(&cell) {
+            *count -= 1;
+            if *count == 0 {
+                self.waiting.remove(&cell);
+            }
+        }
+        self.forget_if_idle(cell);
+    }
 }
 
 /// One running fetch: holds a slot and keeps the request filter installed.
 struct Fetching<'a> {
     gate: &'a Gate,
     id: String,
+    cell: u64,
 }
 
 impl<'a> Fetching<'a> {
     /// Takes a slot, waiting until `deadline` while all are taken.
     fn start(gate: &'a Gate, deadline: Instant, cell: u64) -> Result<Fetching<'a>, DriverError> {
         let mut slots = gate.fetches.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
+        *slots.waiting.entry(cell).or_default() += 1;
+        let waited = loop {
             if let Some(refusal) = slots.refusal(cell) {
-                return Err(refusal);
+                break Err(refusal);
             }
             if slots.running < MAX_FETCHES {
-                break;
+                break Ok(());
             }
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return Err(DriverError::timeout(format!(
+                break Err(DriverError::timeout(format!(
                     "fetch: {MAX_FETCHES} fetches of this session are running and none ended in time"
                 )));
             }
@@ -88,14 +127,16 @@ impl<'a> Fetching<'a> {
                 .wait_timeout(slots, left)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
-        }
+        };
+        slots.stop_waiting(cell);
+        waited?;
         slots.running += 1;
         slots.next_id += 1;
         let id = format!("fetch-{}", slots.next_id);
         slots.live.insert(id.clone(), cell);
         drop(slots);
         gate.sync_request_filter();
-        Ok(Fetching { gate, id })
+        Ok(Fetching { gate, id, cell })
     }
 }
 
@@ -105,6 +146,7 @@ impl Drop for Fetching<'_> {
             let mut slots = self.gate.fetches.lock().unwrap_or_else(PoisonError::into_inner);
             slots.running -= 1;
             slots.live.remove(&self.id);
+            slots.forget_if_idle(self.cell);
         }
         self.gate.fetch_slot_free.notify_all();
         self.gate.sync_request_filter();
@@ -133,7 +175,9 @@ impl Gate {
         }
         let ids: Vec<String> = {
             let mut slots = self.fetches.lock().unwrap_or_else(PoisonError::into_inner);
-            slots.cancelled.insert(cell);
+            if slots.busy(cell) {
+                slots.cancelled.insert(cell);
+            }
             slots.live.iter().filter(|(_, c)| **c == cell).map(|(id, _)| id.clone()).collect()
         };
         self.fetch_slot_free.notify_all();
@@ -212,7 +256,7 @@ impl Gate {
         // spends too; the engine gets what is left.
         let limit = params.get("timeoutMs").map(|_| crate::protocol::timeout_of(params));
         let deadline = Instant::now() + limit.unwrap_or(crate::protocol::NO_TIMEOUT);
-        let result = {
+        let (result, cancel) = {
             let fetching = Fetching::start(self, deadline, cell)?;
             call["fetchId"] = json!(fetching.id);
             match limit {
@@ -222,13 +266,16 @@ impl Gate {
                 }
                 None => call["timeoutMs"] = json!(0),
             }
-            self.driver.call("net.fetch", &call)
+            let result = self.driver.call("net.fetch", &call);
+            // A cancel wins over the engine's own error (classic's text);
+            // read while the fetch still holds its cell.
+            let cancel = result
+                .is_err()
+                .then(|| self.fetches.lock().unwrap_or_else(PoisonError::into_inner).refusal(cell))
+                .flatten();
+            (result, cancel)
         };
-        // A cancel wins over the engine's own error (classic's text).
-        if result.is_err()
-            && let Some(refusal) =
-                self.fetches.lock().unwrap_or_else(PoisonError::into_inner).refusal(cell)
-        {
+        if let Some(refusal) = cancel {
             return Err(refusal);
         }
         let mut value = match result {
