@@ -38,14 +38,21 @@ public nonisolated struct GhosttyBellSettings: Equatable, Sendable {
 
     init(config: ghostty_config_t) {
         var bits: UInt32 = Features.ghosttyDefault.rawValue
-        _ = GhosttyRuntime.configGet(config, &bits, key: "bell-features")
+        _ = Self.get(config, &bits, key: "bell-features")
         var path = ghostty_config_path_s()
-        let hasPath = GhosttyRuntime.configGet(config, &path, key: "bell-audio-path")
+        let hasPath = Self.get(config, &path, key: "bell-audio-path")
         let audioPath = hasPath ? path.path.map { String(cString: $0) } : nil
         var volume = 0.5
-        _ = GhosttyRuntime.configGet(config, &volume, key: "bell-audio-volume")
+        _ = Self.get(config, &volume, key: "bell-audio-volume")
         self.init(features: Features(rawValue: bits), audioPath: audioPath?.isEmpty == false ? audioPath : nil,
                   volume: volume)
+    }
+
+    /// `ghostty_config_get` for one key, callable off the main actor.
+    private static func get<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
+        withUnsafeMutablePointer(to: &value) { pointer in
+            key.withCString { ghostty_config_get(config, pointer, $0, UInt(key.utf8.count)) }
+        }
     }
 
     /// The settings of a config made of `text` (Ghostty config lines), for tests.
