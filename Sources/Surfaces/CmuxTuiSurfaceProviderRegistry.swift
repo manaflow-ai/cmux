@@ -50,6 +50,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Owning teams persisted with restored panes and workspaces, by machine
     /// id. A registered provider's own team takes precedence.
     private var adoptedOwnerTeams: [String: String] = [:]
+    private var adoptedPrivateAddresses: [String: String] = [:]
     /// Whether an account is signed in. Activation prepares the carrier before
     /// the fleet read only for a signed-in account; a signed-out Mac must not
     /// enroll or start a hub from a config a previous account left on disk.
@@ -491,6 +492,15 @@ final class CmuxTuiSurfaceProviderRegistry {
         Task { [weak self] in _ = await self?.refresh(force: false) }
     }
 
+    /// Retains the private route saved with a restored Cloud URL until the
+    /// control plane supplies a fresher address for the machine.
+    func adoptPrivateAddress(_ address: String?, forMachineID machineID: String) {
+        guard let address, !address.isEmpty,
+              WorkspaceCloudVMBinding.normalizedVMID(machineID) != nil else { return }
+        adoptedPrivateAddresses[machineID] = address
+        Task { await links.setPrivateAddresses([address], for: machineID) }
+    }
+
     /// Registers and updates machines of teams other than the selected one
     /// that back an open or restoring pane, reading each with its own team.
     /// A permanent access loss ends the machine's panes in a visible card.
@@ -787,7 +797,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                   !isRetired, generation == refreshGeneration,
                   isCloudEnabled(), !Task.isCancelled else { continue }
             let fetchedSummary = try? await loadMachineStatus(machineID, ownerTeamID)
-            let address = fetchedSummary?.addressIPv4 ?? info?.privateAddress
+            let address = fetchedSummary?.addressIPv4 ?? info?.privateAddress ?? adoptedPrivateAddresses[machineID]
             await links.setPrivateAddresses([address].compactMap { $0 }, for: machineID)
             await links.setOwnerTeam(ownerTeamID, for: machineID)
             guard !isRetired, generation == refreshGeneration, providers[machineID] == nil else { continue }
