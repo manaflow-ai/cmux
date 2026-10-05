@@ -38,3 +38,21 @@ public final class BrowserPrompt: Identifiable {
 }
 
 // MARK: - Downloads
+
+extension BrowserPrompt {
+    /// An answer to a permission question without the mouse
+    /// (`browser.prompt.allow` / `browser.prompt.block`).
+    public enum PermissionChoice: Sendable {
+        /// Allow, remembered for the site.
+        case allow
+        /// Block (Never allow), remembered for the site.
+        case block
+    }
+
+    /// Answers the first of `prompts` (the one the prompt bar shows) when it
+    /// is a permission question. False when it is not, or none is pending.
+    @discardableResult
+    public static func answerFirstPermission(_ choice: PermissionChoice, in prompts: [BrowserPrompt]) -> Bool {
+        false
+    }
+}

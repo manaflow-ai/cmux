@@ -13,15 +13,16 @@ extension WebKitTab {
         return AutomaticDownloadGate(
             permissions: { [weak self] in (self?.pageInfoSettings ?? .shared).permissions(for: profile) },
             ask: { [weak self] site, answer in
-                guard let self else { return answer(.cancel) }
+                guard let self else { return false }
                 enqueuePrompt(.permission(.automaticDownloads), origin: site, completion: answer)
+                return true
             }
         )
     }
 
     /// Asks the gate for a navigation that becomes a download.
     func admitDownload(decide: @escaping (Bool) -> Void) {
-        automaticDownloads.request(site: pageSite, decide: decide)
+        automaticDownloads.request(site: pageSite) { decide($0 == .allowed) }
     }
 
     /// The origin of the page the tab shows (asked before a navigation

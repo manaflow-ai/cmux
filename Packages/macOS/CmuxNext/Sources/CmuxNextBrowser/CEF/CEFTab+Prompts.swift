@@ -30,8 +30,9 @@ extension CEFTab {
         return AutomaticDownloadGate(
             permissions: { [weak self] in (self?.pageInfoSettings ?? .shared).permissions(for: profile) },
             ask: { [weak self] site, answer in
-                guard let self else { return answer(.cancel) }
+                guard let self else { return false }
                 enqueuePrompt(.permission(.automaticDownloads), origin: site, completion: answer)
+                return true
             }
         )
     }

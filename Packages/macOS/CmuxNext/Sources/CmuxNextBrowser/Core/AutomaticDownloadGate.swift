@@ -9,15 +9,31 @@ import os
 /// them in memory only, and a decision made in one engine holds in the
 /// other.
 public final class AutomaticDownloadGate {
-    /// Shows the question for `site` and calls `answer` once.
-    public typealias Ask = (_ site: String, _ answer: @escaping (BrowserPromptResponse) -> Void) -> Void
+    /// Shows the question for `site` and calls `answer` once. Returns false
+    /// when the question cannot show (the tab is closed or in no window);
+    /// `answer` is then never called.
+    public typealias Ask = (_ site: String, _ answer: @escaping (BrowserPromptResponse) -> Void) -> Bool
+
+    /// What happens to one download.
+    public enum Outcome: Equatable, Sendable {
+        case allowed
+        /// The site is blocked (a remembered Block): refused silently (a
+        /// log line).
+        case refused
+        /// The person answered Block for the downloads held by the
+        /// question: refused and listed as blocked.
+        case declined
+        /// No answer was possible (the question could not show, or the tab
+        /// closed with it open): refused and listed as blocked, never held.
+        case unanswered
+    }
 
     private let permissions: () -> SitePermissionStore
     private let ask: Ask
     private var policy = AutomaticDownloadPolicy()
     /// Downloads waiting for a site's decision (its stored setting, or the
     /// open question): one question per site, one answer for all of them.
-    private var waiting: [String: [(Bool) -> Void]] = [:]
+    private var waiting: [String: [(Outcome) -> Void]] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser.downloads")
 
     public init(permissions: @escaping () -> SitePermissionStore, ask: @escaping Ask) {
@@ -34,13 +50,12 @@ public final class AutomaticDownloadGate {
     }
 
     /// A download a page on `site` (its origin; nil for an opaque origin)
-    /// starts: `decide(true)` lets it go ahead, `decide(false)` refuses it.
-    /// `decide` is called exactly once. A later download waits for the
+    /// starts: `decide` gets the outcome, exactly once. A later download waits for the
     /// profile's stored decisions to load; an opaque origin is counted
     /// alone and asked every time (nothing to remember it by).
-    public func request(site: String?, decide: @escaping (Bool) -> Void) {
+    public func request(site: String?, decide: @escaping (Outcome) -> Void) {
         let key = site ?? ""
-        guard !policy.countDownload(site: key) else { return decide(true) }
+        guard !policy.countDownload(site: key) else { return decide(.allowed) }
         if waiting[key] != nil {
             waiting[key]?.append(decide)
             return
@@ -54,12 +69,12 @@ public final class AutomaticDownloadGate {
             let setting = site.map { store.setting(.automaticDownloads, for: $0) } ?? .ask
             switch AutomaticDownloadPolicy.decision(isFirst: false, setting: setting) {
             case .allow:
-                finish(key, allowed: true)
+                finish(key, .allowed)
             case .refuse:
                 logger.notice("automatic download refused: blocked for \(key, privacy: .private)")
-                finish(key, allowed: false)
+                finish(key, .refused)
             case .ask:
-                ask(site ?? "") { [self] response in
+                let shown = ask(site ?? "") { [self] response in
                     if let site {
                         switch response {
                         case .allow: store.set(.allow, .automaticDownloads, for: site)
@@ -69,13 +84,14 @@ public final class AutomaticDownloadGate {
                     }
                     let allowed = response == .allow || response == .allowOnce
                     if !allowed { logger.notice("automatic download refused by the person for \(key, privacy: .private)") }
-                    finish(key, allowed: allowed)
+                    finish(key, allowed ? .allowed : .refused)
                 }
+                if !shown { finish(key, .refused) }
             }
         }
     }
 
-    private func finish(_ key: String, allowed: Bool) {
-        for decide in waiting.removeValue(forKey: key) ?? [] { decide(allowed) }
+    private func finish(_ key: String, _ outcome: Outcome) {
+        for decide in waiting.removeValue(forKey: key) ?? [] { decide(outcome) }
     }
 }

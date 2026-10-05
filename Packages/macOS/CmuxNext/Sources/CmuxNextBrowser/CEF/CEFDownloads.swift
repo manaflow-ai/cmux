@@ -60,7 +60,7 @@ final class CEFDownloads {
     /// Whether a download page `browser` started may go ahead (the tab's
     /// `AutomaticDownloadGate`); calls `decide` once. Downloads cmux starts
     /// itself (`download`, `save`) never ask.
-    var admit: (_ browser: Int32, _ decide: @escaping (Bool) -> Void) -> Void = { _, decide in decide(true) }
+    var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome) -> Void) -> Void = { _, decide in decide(.allowed) }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
@@ -148,9 +148,9 @@ final class CEFDownloads {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
         }
         admitting.insert(id)
-        admit(browser) { [weak self] allowed in
+        admit(browser) { [weak self] outcome in
             guard let self, admitting.remove(id) != nil else { return }
-            guard allowed else {
+            guard outcome == .allowed else {
                 shim()?.answer(id, "")
                 logger.notice("download \(id) refused for tab \(browser): automatic downloads")
                 return
@@ -213,8 +213,8 @@ extension CEFDownloads {
         let logger = downloads.logger
         // A page's download asks its tab (`AutomaticDownloadGate`); one
         // without a cmux tab is not in the downloads list and goes ahead.
-        downloads.admit = { [weak runtime] (browser: Int32, decide: @escaping (Bool) -> Void) in
-            guard let tab = runtime?.tabsByBrowser[browser] else { return decide(true) }
+        downloads.admit = { [weak runtime] (browser: Int32, decide: @escaping (AutomaticDownloadGate.Outcome) -> Void) in
+            guard let tab = runtime?.tabsByBrowser[browser] else { return decide(.allowed) }
             tab.automaticDownloads.request(site: tab.committedURL.flatMap(PageInfoSite.origin(of:)), decide: decide)
         }
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in

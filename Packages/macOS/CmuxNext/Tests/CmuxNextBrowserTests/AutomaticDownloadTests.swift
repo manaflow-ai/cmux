@@ -17,9 +17,14 @@ import Testing
         var asked: [String] = []
         var answer: BrowserPromptResponse = .allow
 
-        func ask(_ site: String, _ reply: @escaping (BrowserPromptResponse) -> Void) {
+        /// False: the question cannot show (no window, tab closed).
+        var canShow = true
+
+        func ask(_ site: String, _ reply: @escaping (BrowserPromptResponse) -> Void) -> Bool {
             asked.append(site)
+            guard canShow else { return false }
             reply(answer)
+            return true
         }
     }
 
@@ -34,6 +39,10 @@ import Testing
     }
 
     private func request(_ gate: AutomaticDownloadGate, _ site: String?) async -> Bool {
+        await outcome(gate, site) == .allowed
+    }
+
+    private func outcome(_ gate: AutomaticDownloadGate, _ site: String?) async -> AutomaticDownloadGate.Outcome {
         await withCheckedContinuation { continuation in
             gate.request(site: site) { continuation.resume(returning: $0) }
         }
@@ -114,8 +123,10 @@ import Testing
         asker.answer = .deny
         let tab = gate(store, asker)
         #expect(await request(tab, site))
-        #expect(!(await request(tab, site)))
-        #expect(!(await request(tab, site)))
+        // The held download is declined (listed blocked); later ones are
+        // refused silently by the remembered Block.
+        #expect(await outcome(tab, site) == .declined)
+        #expect(await outcome(tab, site) == .refused)
         #expect(asker.asked == [site])
         #expect(store.decision(.automaticDownloads, for: site) == .block)
         await store.flush()
@@ -197,7 +208,7 @@ import Testing
     }
 
     /// Closing the tab with the question open refuses the waiting download
-    /// and remembers nothing.
+    /// (listed blocked) and remembers nothing.
     @Test func aDismissedQuestionRemembersNothing() async {
         let prompt = BrowserPrompt(kind: .permission(.automaticDownloads), origin: site) { _ in }
         #expect(prompt.dismissalResponse == .cancel)
@@ -206,7 +217,22 @@ import Testing
         asker.answer = prompt.dismissalResponse
         let gate = gate(store, asker)
         #expect(await request(gate, site))
-        #expect(!(await request(gate, site)))
+        #expect(await outcome(gate, site) == .unanswered)
+        #expect(store.decision(.automaticDownloads, for: site) == nil)
+    }
+
+    /// Fail-closed: a question that cannot show (no window, tab closed)
+    /// refuses the held download at once, lists it blocked, and remembers
+    /// nothing; the next download asks again.
+    @Test func aQuestionThatCannotShowRefusesAtOnce() async {
+        let store = await loadedStore()
+        let asker = Asker()
+        asker.canShow = false
+        let gate = gate(store, asker)
+        #expect(await request(gate, site))
+        #expect(await outcome(gate, site) == .unanswered)
+        #expect(await outcome(gate, site) == .unanswered)
+        #expect(asker.asked == [site, site])
         #expect(store.decision(.automaticDownloads, for: site) == nil)
     }
 
@@ -219,9 +245,10 @@ import Testing
         let gate = AutomaticDownloadGate(permissions: { store }, ask: { _, answer in
             asked += 1
             reply = answer
+            return true
         })
         #expect(await request(gate, site))
-        var results: [Bool] = []
+        var results: [AutomaticDownloadGate.Outcome] = []
         gate.request(site: site) { results.append($0) }
         gate.request(site: site) { results.append($0) }
         // The question opens after the store's (already loaded) decisions are read.
@@ -229,7 +256,7 @@ import Testing
         #expect(reply != nil)
         gate.userGesture()
         reply?(.deny)
-        #expect(results == [false, false])
+        #expect(results == [.declined, .declined])
         #expect(asked == 1)
         // Still counting since the last gesture before the question: refused.
         #expect(!(await request(gate, site)))

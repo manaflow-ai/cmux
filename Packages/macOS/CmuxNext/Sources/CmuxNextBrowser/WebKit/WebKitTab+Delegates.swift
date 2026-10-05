@@ -57,7 +57,7 @@ extension WebKitTab: WKNavigationDelegate {
             .hasPrefix("attachment") ?? false
         if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
             // The page that started the navigation counts the download.
-            automaticDownloads.request(site: navigationSourceSite) { decisionHandler($0 ? .download : .cancel) }
+            automaticDownloads.request(site: navigationSourceSite) { decisionHandler($0 == .allowed ? .download : .cancel) }
         } else {
             decisionHandler(.allow)
         }

@@ -11,6 +11,8 @@ public final class BrowserDownload: Identifiable {
         case finished
         case failed(String)
         case cancelled
+        /// Refused before it started; the text says why (localized).
+        case blocked(String)
     }
 
     public let id = UUID()
