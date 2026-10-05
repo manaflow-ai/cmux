@@ -1,0 +1,18 @@
+{
+  "tour": "modifier-clicks-tour",
+  "head_sha": "d095c655c4360d256193678c4560963c0e904381",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "01-failed",
+      "file": "01-failed.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "c8301f8238d602e55b6f6e786decb927d28294f1",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36639107760",
+  "failures": [
+    "Failed to get matching snapshot: No matches found for first query match sequence: `Descendants matching type Window`, given input App element pid: 85474"
+  ],
+  "frames": 2
+}

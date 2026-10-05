@@ -1,0 +1,28 @@
+{
+  "tour": "agent-activity-reorder",
+  "head_sha": "bd8416081e2bc6497a8830f0c58e9cc24a5b9cd8",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "10-start-order",
+      "file": "10-start-order.png"
+    },
+    {
+      "name": "16-beta-prompt-moves-to-top",
+      "file": "16-beta-prompt-moves-to-top.png"
+    },
+    {
+      "name": "47-beta-finished-while-hovering-sidebar-stays",
+      "file": "47-beta-finished-while-hovering-sidebar-stays.png"
+    },
+    {
+      "name": "53-selected-workspace-needs-input-stays",
+      "file": "53-selected-workspace-needs-input-stays.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "7909d6d08d77be2ef0b6da9a9a17262456ed8a83",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36711664562",
+  "failures": [],
+  "frames": 10
+}

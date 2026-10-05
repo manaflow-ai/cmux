@@ -1,0 +1,12 @@
+{
+  "tour": "checklist-popover-close-tour",
+  "head_sha": "44f2f0e136a6ccfa98edcfc711cd4e128b38e3ac",
+  "result": "failure",
+  "shots": [],
+  "gif": null,
+  "compiled": true,
+  "tested_sha": "57efc3e5bc388f5349d1deeb22ec33ba4d681ce7",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36447844288",
+  "failures": [],
+  "note": "the run left no frames (see the run log)"
+}

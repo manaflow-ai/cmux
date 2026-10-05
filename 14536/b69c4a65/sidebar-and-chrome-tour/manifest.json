@@ -1,0 +1,28 @@
+{
+  "tour": "sidebar-and-chrome-tour",
+  "head_sha": "b69c4a6523857885e0822e4b6aa21e897e5fa408",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "04-three-workspaces",
+      "file": "04-three-workspaces.png"
+    },
+    {
+      "name": "10-split-right",
+      "file": "10-split-right.png"
+    },
+    {
+      "name": "15-command-palette",
+      "file": "15-command-palette.png"
+    },
+    {
+      "name": "24-settings",
+      "file": "24-settings.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "e30a24fed91823513445bf4f619148a7b6e0a672",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36536667828",
+  "failures": [],
+  "frames": 8
+}

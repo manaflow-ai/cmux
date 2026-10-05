@@ -1,0 +1,30 @@
+{
+  "tour": "browser-notifications-tour",
+  "head_sha": "4e0a32a7992c1c00e64c0418aab4947a617bd8d5",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "01-failed",
+      "file": "01-failed.png"
+    },
+    {
+      "name": "02-failed",
+      "file": "02-failed.png"
+    },
+    {
+      "name": "04-browser-split",
+      "file": "04-browser-split.png"
+    },
+    {
+      "name": "27-end",
+      "file": "27-end.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "d6c1ac16677efd0363a71533642514a6dcfb67e3",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36647737769",
+  "failures": [
+    "DogfoodScenarioUITests.swift:113: failed - Dogfood steps failed:"
+  ],
+  "frames": 15
+}

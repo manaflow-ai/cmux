@@ -1,0 +1,27 @@
+{
+  "tour": "cloud-sidebar-audit-tour",
+  "head_sha": "86abe0f89c9a9be692a6e7e7a99df47fe90eb075",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "04-10-right-sidebar-files",
+      "file": "04-10-right-sidebar-files.png"
+    },
+    {
+      "name": "08-11-right-sidebar-vault",
+      "file": "08-11-right-sidebar-vault.png"
+    },
+    {
+      "name": "12-12-right-sidebar-cloud",
+      "file": "12-12-right-sidebar-cloud.png"
+    },
+    {
+      "name": "16-20-cloud-spacing-lab",
+      "file": "16-20-cloud-spacing-lab.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37169539949",
+  "failures": [],
+  "frames": 6
+}
