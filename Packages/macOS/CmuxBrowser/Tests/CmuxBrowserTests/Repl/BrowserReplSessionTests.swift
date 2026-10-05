@@ -105,6 +105,24 @@ struct BrowserReplSessionTests {
         #expect(driver.calls == ["tabs.list", "tab.info"])
     }
 
+    /// A working directory comes from the caller and is kept for the
+    /// session's life; one longer than a path can be (PATH_MAX, 1024 bytes)
+    /// is refused with an error that says so, at creation and per cell.
+    @Test("A working directory past 1024 bytes is refused")
+    func workingDirectoryLengthIsBounded() async {
+        let long = "/" + String(repeating: "d", count: 2000)
+        let created = makeSession(driver: RecordingReplDriver(), cwd: long)
+        defer { created.close() }
+        let first = await created.evaluate(code: "1")
+        #expect(first.error?.contains("1024 bytes") == true, "\(first.error ?? "")")
+
+        let session = makeSession(driver: RecordingReplDriver())
+        defer { session.close() }
+        let moved = await session.evaluate(code: "1", cwd: long)
+        #expect(moved.error?.contains("1024 bytes") == true, "\(moved.error ?? "")")
+        #expect(session.cwd == browserReplTestWorkingDirectory)
+    }
+
     @Test("An output cap reaches the runtime as its options argument")
     func maxOutputOption() async {
         let session = makeSession(driver: RecordingReplDriver())
