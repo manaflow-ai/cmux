@@ -89,10 +89,20 @@ extension BrowserPanel {
         retainTransferredSurfaceMachine(resource.machine)
         catalog.restore([SurfaceProjectionRecord(panelID: id, resource: resource)], workspaceID: workspaceId)
         guard activate else { return }
-        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
-              let known = catalog.resources[resource] else {
+        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
             showCloudRestoreUnavailable(
                 resource,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect.")
+            )
+            return
+        }
+        guard let known = catalog.resources[resource] else {
+            // The provider can be registered before its first port/display
+            // snapshot. Force that provider's metadata and graph refresh so a
+            // restored port is discovered before retrying materialization.
+            showCloudRestoreUnavailable(
+                resource,
+                provider: provider,
                 message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect.")
             )
             return
@@ -116,11 +126,21 @@ extension BrowserPanel {
     /// Keep a restored Cloud pane recoverable while its provider is being
     /// discovered. Session restore can run before the machine list has
     /// registered the provider or before its first resource snapshot arrives.
-    private func showCloudRestoreUnavailable(_ resource: SurfaceResourceID, message: String) {
+    private func showCloudRestoreUnavailable(
+        _ resource: SurfaceResourceID,
+        provider: CmuxTuiSurfaceProvider? = nil,
+        message: String
+    ) {
         let preferredURL = pendingCloudRestoreURL
         cloudAccess.showUnavailable(message) { [weak self] request in
             guard let self else { return }
-            _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+            if let provider {
+                provider.requestPortDiscovery()
+                try? await provider.refreshPortMetadata()
+                await provider.refresh(force: true)
+            } else {
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+            }
             guard self.cloudAccess.isCurrentUnavailableRetry(request) else { return }
             self.restoreCloudResource(resource, preferredURL: preferredURL)
         }
