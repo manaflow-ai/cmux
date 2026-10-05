@@ -1,3 +1,5 @@
+import CmuxNextActions
+import CmuxNextPages
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -15,6 +17,11 @@ extension UpdaterService {
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         showsIndicator = { [weak services] in services?.sidebarLayout.document.firstItem(with: .builtIn(.settings)) != nil }
         isSheetPresented = { sheet.isPresented }
+        openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
+        runAllowListedAction = { [weak services] id in
+            guard PageDescriptor.changelogTryItActions.contains(id) else { return }
+            _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+        }
         // Agents in a turn hold a click's install (R114); daemon events
         // update the store, the observation re-reads it.
         let store = services.machines.local.store

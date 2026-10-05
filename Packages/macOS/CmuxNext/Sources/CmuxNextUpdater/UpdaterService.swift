@@ -41,6 +41,10 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// Opens the changelog page (set by the App; the what's-new card's click).
+    @ObservationIgnored public var openChangelog: (() -> Bool)?
+    /// Runs an allow-listed action id (set by the App; an announcement's Try It).
+    @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
     /// The announcement cards to show (filtered), newest feed order.
     public internal(set) var announcements: [Announcement] = []
     /// `announcements.enabled` / `announcements.fetch` (set by the App).

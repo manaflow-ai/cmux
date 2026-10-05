@@ -1,4 +1,3 @@
-import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextUpdater
@@ -7,11 +6,7 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater,
-                                                 openChangelog: { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false },
-                                                 runAction: { [weak services] id in
-                                                     _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
-                                                 })
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater)
     }
 }
 
@@ -26,19 +21,17 @@ enum SidebarCardFeed {
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
 
-    static func start(model: SidebarModel, updater: UpdaterService,
-                      openChangelog: @escaping @MainActor () -> Bool = { false },
-                      runAction: @escaping @MainActor (String) -> Void = { _ in }) -> Task<Void, Never> {
+    static func start(model: SidebarModel, updater: UpdaterService) -> Task<Void, Never> {
         model.onCardAction = { [weak updater] id, action in
             guard let updater else { return }
             if id.hasPrefix(announcementPrefix) {
                 let announcement = String(id.dropFirst(announcementPrefix.count))
-                if case .button(let actionID) = action, PageDescriptor.changelogTryItActions.contains(actionID) { runAction(actionID) }
+                if case .button(let actionID) = action, PageDescriptor.changelogTryItActions.contains(actionID) { updater.runAllowListedAction?(actionID) }
                 if action == .dismiss { updater.dismissAnnouncement(announcement) }
                 return
             }
             if id == whatsNewCardID {
-                if action != .dismiss { _ = openChangelog() }
+                if action != .dismiss { _ = updater.openChangelog?() }
                 updater.dismissWhatsNew()
                 return
             }
