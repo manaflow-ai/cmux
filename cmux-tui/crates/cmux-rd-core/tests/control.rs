@@ -4,7 +4,7 @@ use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, Usage};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::{InputApplier, InputSender, MAX_SENDS};
 use cmux_rd_core::ladder::{ContentClass, LadderInput, choose};
-use cmux_rd_proto::{Arrival, HEADER_LEN, InputEvent, MAX_DATAGRAM_VPC};
+use cmux_rd_proto::{Arrival, HEADER_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC};
 use proptest::prelude::*;
 
 const R: Rect = Rect { x: 0, y: 0, width: 10, height: 10 };
@@ -85,10 +85,7 @@ proptest! {
 #[test]
 fn applier_skips_a_gap_after_the_timeout() {
     let mut a = InputApplier::new(200_000);
-    let later = cmux_rd_proto::InputPacket {
-        first_seq: 3,
-        events: vec![InputEvent::Pointer { x: 1, y: 1 }],
-    };
+    let later = InputPacket { first_seq: 3, events: vec![InputEvent::Pointer { x: 1, y: 1 }] };
     assert!(a.accept(&later, 0).is_empty());
     assert!(a.tick(199_999).is_empty());
     assert_eq!(a.tick(200_000), vec![InputEvent::Pointer { x: 1, y: 1 }]);
@@ -219,10 +216,8 @@ fn send_times_survive_sequence_wrap() {
 #[test]
 fn a_skipped_gap_is_reported_once_so_the_host_releases_keys() {
     let mut a = InputApplier::new(10);
-    let later = cmux_rd_proto::InputPacket {
-        first_seq: 2,
-        events: vec![InputEvent::Key { usage: 4, down: true }],
-    };
+    let later =
+        InputPacket { first_seq: 2, events: vec![InputEvent::Key { usage: 4, down: true }] };
     a.accept(&later, 0);
     a.tick(10);
     assert!(a.take_skipped_gap());
@@ -275,6 +270,36 @@ fn new_input_is_not_held_behind_a_full_window_of_repeats() {
     assert_eq!(s.packet().expect("repeat").first_seq, 1);
     s.ack(8);
     assert!(s.is_empty());
+}
+
+#[test]
+fn a_release_that_is_never_acknowledged_keeps_going_out_without_overflow() {
+    let mut s = InputSender::new();
+    s.push(InputEvent::Key { usage: 4, down: false });
+    for _ in 0..300 {
+        assert_eq!(s.packet().expect("release stays queued").first_seq, 1);
+    }
+}
+
+#[test]
+fn a_refused_packet_is_discarded_and_acknowledged() {
+    let mut a = InputApplier::new(200_000);
+    let refused = InputPacket {
+        first_seq: 1,
+        events: vec![
+            InputEvent::Key { usage: 4, down: true },
+            InputEvent::Key { usage: 4, down: false },
+        ],
+    };
+    a.refuse(&refused);
+    // The ack covers the refused events, so the viewer stops repeating them.
+    assert_eq!(a.applied(), 2);
+    // A late repeat of a refused event is never applied.
+    assert!(a.accept(&refused, 1_000).is_empty());
+    // Input after control is granted applies normally, with no gap.
+    let next = InputPacket { first_seq: 3, events: vec![InputEvent::Text("a".into())] };
+    assert_eq!(a.accept(&next, 2_000), vec![InputEvent::Text("a".into())]);
+    assert!(!a.take_skipped_gap());
 }
 
 #[test]

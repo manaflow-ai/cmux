@@ -10,7 +10,7 @@ import { AccessAudit } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
 import { publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
-import { BACKSTOP_IDLE_SECONDS, idleFromReport, silentSince, type ReportedActivity } from "./cloud-idle.ts"
+import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
@@ -53,69 +53,11 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
   }
 
-  /** The team's Cloud policy from its TeamDO (fail closed: a failed RPC fails the caller). */
-  protected teamCloudPolicy(entity: string): Promise<{ connect_services: ReadonlyArray<string>; idle_pause: boolean }> {
-    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudPolicy(e: string): Promise<{ connect_services: ReadonlyArray<string>; idle_pause: boolean }> }
-    return stub.cloudPolicy(entity)
-  }
-
-  /**
-   * After a VM status report was applied: pause the machine when the report shows it idle past its
-   * idle policy and the team policy cloud.idlePause is on (cloud-idle.ts). The money-op path: the
-   * per-team limit, the ledger (cloud.machine.idle_pause), the guarded provider call.
-   */
-  protected async considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void> {
-    const engine = this.boundEngine
-    const row = engine?.rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
-    const activity = (report as { activity?: ReportedActivity } | null)?.activity
-    // The 24 h backstop applies to every team; it is also the longest threshold, so a report not idle by it needs no policy read.
-    if (!engine || !row || !idleFromReport(row, activity, now, Math.min(BACKSTOP_IDLE_SECONDS, row.idle_policy.idle_seconds > 0 ? row.idle_policy.idle_seconds : BACKSTOP_IDLE_SECONDS))) return
-    if (!idleFromReport(row, activity, now, BACKSTOP_IDLE_SECONDS)) {
-      // Shorter than the backstop: only with the team's cloud.idlePause on (fail closed: a failed read means off).
-      if (!(await this.teamCloudPolicy(entity).catch(() => ({ idle_pause: false }))).idle_pause) return
-    }
-    const limit = this.env.CLOUD_MUTATION_LIMIT
-    // Per machine (review P3): a VM whose pauses keep failing cannot use up the team's create/delete budget.
-    if (limit && !(await limit.limit({ key: `cloud-idle:${machine}` })).success) return
-    const r = this.submitSystem("cloud.machine.idle_pause", { machine, reason: "idle" }, `idle-pause:${machine}:${engine.currentSeq}`)
-    if (r.frames.some((f) => f.t === "result")) await this.runMachine(machine, null)
-  }
-
-  /** Backoff of the cost-backstop pause per machine (durable; cleared once the machine is no longer running). */
-  private silentTable() {
-    this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS cloud_silent_retry (machine TEXT PRIMARY KEY, attempts INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
-  }
-  protected silentRetryAt(machine: string): number | null {
-    if (Number(this.sqlStore.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'cloud_silent_retry'`)[0]?.n ?? 0) === 0) return null
-    const r = this.sqlStore.exec<{ next_at: number }>(`SELECT next_at FROM cloud_silent_retry WHERE machine = ?`, machine)[0]
-    return r ? Number(r.next_at) : null
-  }
-  private silentTried(machine: string, now: number) {
-    this.silentTable()
-    const prev = Number(this.sqlStore.exec<{ attempts: number }>(`SELECT attempts FROM cloud_silent_retry WHERE machine = ?`, machine)[0]?.attempts ?? 0)
-    const attempts = prev + 1
-    this.sqlStore.exec(`INSERT INTO cloud_silent_retry (machine, attempts, next_at) VALUES (?, ?, ?) ON CONFLICT(machine) DO UPDATE SET attempts = excluded.attempts, next_at = excluded.next_at`, machine, attempts, now + Math.min(3600_000, 60_000 * 2 ** attempts))
-  }
-
-  /** Running machines that sent no applied report for 24 h after their last start or bind (the cost backstop). */
-  protected silentMachines(now: number): Array<string> {
-    return (this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []).filter((r) => (r.row.status === "running" || r.row.status === "provisioning") && now - silentSince(r.row, this.vmStatus.lastAppliedAt(r.row.id)) >= BACKSTOP_IDLE_SECONDS * 1000).map((r) => r.row.id)
-  }
-
-  /** The cost backstop pass (alarm): pause each silent machine on the money-op path, pause_reason no_report. */
-  protected async pauseSilent(now: number): Promise<void> {
-    const engine = this.boundEngine
-    if (!engine) return
-    for (const machine of this.silentMachines(now)) {
-      // A pause the provider keeps refusing backs off: 60 s, 2 min, 4 min ... at most 1 h (coordinator, 2026-10-05).
-      if ((this.silentRetryAt(machine) ?? 0) > now) continue
-      const limit = this.env.CLOUD_MUTATION_LIMIT
-      if (limit && !(await limit.limit({ key: `cloud-idle:${machine}` })).success) continue
-      const r = this.submitSystem("cloud.machine.idle_pause", { machine, reason: "no_report" }, `silent-pause:${machine}:${engine.currentSeq}`)
-      this.silentTried(machine, now)
-      if (r.frames.some((f) => f.t === "result")) await this.runMachine(machine, null)
-    }
-  }
+  /** The idle rules (cloud-do-idle.ts CloudIdle): idle pause from reports, the 24 h cost backstop and its backoff. */
+  protected abstract considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void>
+  protected abstract pauseSilent(now: number): Promise<void>
+  protected abstract silentRetryAt(machine: string): number | null
+  protected abstract silentRetry: { clear(machine: string): void }
 
   /** After every commit: a machine the commit left gone, failed or deleting loses its VM install (and a cleared ledger row's machine too). */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {
@@ -126,7 +68,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const m of machines) this.vmRevokes.reconcile(m, engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row, Date.now() + this.skewMs)
     for (const m of machines) {
       const st = engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.status
-      if (st !== "running" && st !== "provisioning" && st !== "pausing" && this.silentRetryAt(m) !== null) this.sqlStore.exec(`DELETE FROM cloud_silent_retry WHERE machine = ?`, m)
+      if (st !== "running" && st !== "provisioning" && st !== "pausing" && this.silentRetryAt(m) !== null) this.silentRetry.clear(m)
     }
   }
   protected readonly config: CloudConfig
@@ -405,7 +347,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt(), this.vmRevokes.registerDueAt()]) if (t !== null) times.push(t)
     // The cost backstop: the earliest silent deadline of a running machine (never sooner than a minute: a
     // pause the limit held back must not re-fire the alarm at once).
-    for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastAppliedAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, this.silentRetryAt(r.row.id) ?? 0, now + 60_000))
+    for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastActivityAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, this.silentRetryAt(r.row.id) ?? 0, now + 60_000))
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {
