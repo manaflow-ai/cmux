@@ -47,6 +47,7 @@ public final class UpdaterService {
     public var announcementsEnabled = true { didSet { if oldValue != announcementsEnabled { refreshAnnouncements() } } }
     public var announcementsFetch = true
     @ObservationIgnored var announcementsLoader: (@Sendable () async -> [Announcement])?
+    @ObservationIgnored var allAnnouncements: [Announcement] = []
     /// This build's notes while the what's-new card shows, else nil.
     public internal(set) var whatsNew: ReleaseNotes?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
@@ -156,6 +157,7 @@ public final class UpdaterService {
         started = true
         observeFlowPhase()
         loadWhatsNew()
+        refreshAnnouncements()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
