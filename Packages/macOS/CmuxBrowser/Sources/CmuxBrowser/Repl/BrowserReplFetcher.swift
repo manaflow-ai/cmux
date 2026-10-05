@@ -11,8 +11,9 @@ public import Foundation
 /// `credentials` follows the Fetch standard's values: `include` (the
 /// default, cookies for every URL), `same-origin` (only for URLs on the
 /// requesting page's origin) and `omit` (none sent, none stored). The
-/// session's domain policy is checked for the first URL and for every
-/// redirect hop. A body larger than `maxBodyBytes` fails the fetch, and so
+/// session's domain policy is checked for the first URL, for every
+/// redirect hop and for the URL the response came from (an HSTS upgrade
+/// moves a request without a redirect hop). A body larger than `maxBodyBytes` fails the fetch, and so
 /// does a body that would take the bodies all of the fetcher's requests
 /// hold at once past its `BrowserReplFetchBudget`. A fetch that has not
 /// finished after `resourceTimeout` fails, so a body that never ends (an
@@ -198,6 +199,12 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                 bodyBudget.release(data.count)
                 return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: non-HTTP response")), 0)
             }
+            // Judged when the headers arrived too; checked again before its
+            // cookies are stored or its body returned.
+            if let effective = http.url, let reason = reason(effective) {
+                bodyBudget.release(data.count)
+                return (.failure(BrowserReplDriverError(code: "blocked", message: Self.responseBlocked(effective, reason))), 0)
+            }
             if Self.sendsCookies(info, to: http.url ?? url) {
                 await storeCookies(from: http, targetID: info.targetID)
             }
@@ -270,8 +277,21 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         didReceive response: URLResponse,
         completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
     ) {
+        // The URL the response came from can differ from every URL the
+        // redirect check saw: CFNetwork upgrades a request to `https` for
+        // HSTS without a redirect the delegate is told of. A blocked one
+        // fails the fetch before its body or cookies are taken.
+        if let url = response.url, let reason = reason(url) {
+            lock.withLock { tasks[dataTask.taskIdentifier]?.blocked = Self.responseBlocked(url, reason) }
+            completionHandler(.cancel)
+            return
+        }
         collector(for: dataTask)?.responseArrived()
         completionHandler(.allow)
+    }
+
+    private static func responseBlocked(_ url: URL, _ reason: String) -> String {
+        "fetch: the response came from \(url.absoluteString), which is blocked: \(reason)"
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
