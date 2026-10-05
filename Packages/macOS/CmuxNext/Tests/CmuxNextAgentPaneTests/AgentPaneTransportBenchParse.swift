@@ -2,8 +2,9 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The cost of the reply id swap (ad349, round 6): a full JSON parse and re-encode of a reply, on
-/// real-shaped large replies and on the small notification of the burst bench. Runs only under scripts/measure/pane-native-transport.sh (the bench's switch).
+/// The cost of the full JSON parse and re-encode (the id swap, ad349 round 6 and 7) and of the
+/// duplicate-key check, on real-shaped large replies, the largest page frame, and the small
+/// notification of the burst bench. Runs only under scripts/measure/pane-native-transport.sh (the bench's switch).
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
 struct AgentPaneTransportBenchParse {
     /// An `_acpmux/events` page: `count` transcript events of about `textBytes` of text each.
@@ -53,12 +54,16 @@ struct AgentPaneTransportBenchParse {
             ("events-5MB", Self.eventsPage(count: 5000, textBytes: 1000), 10),
             ("replay-10MB", Self.replay(calls: 100, outputBytes: 50_000), 10),
             ("replay-30MB", Self.replay(calls: 300, outputBytes: 50_000), 5),
+            // The largest page frame: a prompt with a 20 MB attachment.
+            ("prompt-20MB", #"{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s","prompt":[{"type":"image","mimeType":"image/png","data":"\#(String(repeating: "QUJD", count: 5_000_000))"}]}}"#, 5),
         ]
         for (name, text, runs) in frames {
             #expect(Self.full(text) != nil, "\(name)")
             let full = Self.time(runs) { Self.full(text) }
-            print(String(format: "PANE-PARSE %@ bytes=%d full_ms=%.3f full_max_ms=%.3f",
-                         name, text.utf8.count, full.median, full.max))
+            // The duplicate-key check that every page frame passes first.
+            let check = Self.time(runs) { AcpmuxJSONKeys.refuses(Array(text.utf8)) ? nil : "" }
+            print(String(format: "PANE-PARSE %@ bytes=%d full_ms=%.3f full_max_ms=%.3f check_ms=%.3f check_max_ms=%.3f",
+                         name, text.utf8.count, full.median, full.max, check.median, check.max))
         }
     }
 }

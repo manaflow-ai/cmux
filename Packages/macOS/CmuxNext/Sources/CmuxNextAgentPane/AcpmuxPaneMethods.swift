@@ -94,6 +94,14 @@ public nonisolated enum AcpmuxPaneMethods {
     /// The decision for `text`, the page's `isFirst` frame or a later one.
     public static func decide(_ text: String, isFirst: Bool, localAppToken: String?) -> Decision {
         guard text.utf8.count <= maximumFrameBytes else { return .refuse(.frameTooLarge, method: nil, requestID: nil) }
+        // Before any parse: Foundation would keep one of two duplicate keys, the daemon the other.
+        switch AcpmuxJSONKeys.verdict(text) {
+        case .clean: break
+        case .malformed: return .refuse(.invalidFrame, method: nil, requestID: nil)
+        case .duplicate:
+            let (method, id) = identity(text)
+            return .refuse(.duplicateKey, method: method, requestID: id)
+        }
         guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               object["jsonrpc"] as? String == "2.0" else {
             return .refuse(.invalidFrame, method: nil, requestID: nil)
