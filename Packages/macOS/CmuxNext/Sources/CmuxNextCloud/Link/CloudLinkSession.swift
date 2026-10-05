@@ -25,6 +25,9 @@ public actor CloudLinkSession {
     private var state = State.idle
     /// Counts connects and ends; the current connect's ticket id.
     private var attempt: UInt64 = 0
+    /// A revoke that came while the current connect was in flight: the
+    /// connect's answer cannot bring the link back.
+    private var revokedWhileConnecting: CloudLinkError?
 
     /// `intent` makes each connect's idempotency key (default: a new UUID).
     public init(key: CloudLinkKey, resolver: any CloudLinkResolver, intent: (@Sendable () -> String)? = nil) {
@@ -47,7 +50,8 @@ public actor CloudLinkSession {
         attempt += 1
         let mine = attempt
         state = .connecting
-        let result: Result<CloudLinkSocket, CloudLinkError>
+        revokedWhileConnecting = nil
+        var result: Result<CloudLinkSocket, CloudLinkError>
         do {
             result = .success(try await resolver.open(key, intent: makeIntent(), origin: origin))
         } catch let error as CloudLinkError {
@@ -56,6 +60,10 @@ public actor CloudLinkSession {
             result = .failure(.failed(code: "", message: String(describing: error)))
         }
         guard attempt == mine else { throw Self.superseded }
+        if let revoked = revokedWhileConnecting {
+            revokedWhileConnecting = nil
+            result = .failure(revoked)
+        }
         switch result {
         case .success(let socket):
             state = .ready(socket)
@@ -88,14 +96,18 @@ public actor CloudLinkSession {
 
     /// Applies a link change. Returns the ticket id of the link it ended (its
     /// connection must close), or nil. `up`, another machine, a change of an
-    /// older carrier generation, and a change while a connect is in flight
-    /// (its answer names the carrier that counts) change nothing.
+    /// older carrier generation, and a `down` while a connect is in flight
+    /// (its answer names the carrier that counts) change nothing. A revoke
+    /// while a connect is in flight ends that connect when it answers.
     public func apply(_ change: CloudLinkChange) -> UInt64? {
         guard change.key == key, change.state != .up else { return nil }
         let socket: CloudLinkSocket
         switch state {
         case .ready(let current), .attached(let current): socket = current
-        case .idle, .connecting, .ended: return nil
+        case .connecting:
+            if change.state == .revoked { revokedWhileConnecting = .revoked(reason: change.reason ?? change.state.rawValue) }
+            return nil
+        case .idle, .ended: return nil
         }
         if let changed = change.generation, let current = socket.generation, changed < current { return nil }
         let reason = change.reason ?? change.state.rawValue

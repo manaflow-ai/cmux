@@ -28,8 +28,10 @@ enum CloudAppLinks {
             guard let connection = await local.connection else {
                 throw CloudLinkError.disconnected(reason: DaemonError.notConnected.description)
             }
+            // A pause or a removed machine cancels the connect hop: stop
+            // waiting at once instead of up to `connectTimeout`.
             return try await run(op: op, args: args, key: key, origin: origin) { request in
-                try await connection.request(request, timeout: timeout).value
+                try await abandoningOnCancel { try await connection.request(request, timeout: timeout).value }
             }
         }
     }
@@ -39,8 +41,12 @@ enum CloudAppLinks {
     /// other connect is `script`. The app cannot see the daemon's proof (a
     /// signed build is proved by its code signature on the daemon side), so
     /// when the daemon refuses `user` with a Gate A2 code, the click is sent
-    /// once more as `script` with the same key: the refused line ran nothing,
-    /// and `script` asks for less authority, never more.
+    /// once more as `script` with the same key: the refused line ran nothing.
+    /// For `cloud.machine.connect` the Cloud server gives `script` the same
+    /// authority as `user` (only the answer's `focus` differs); the app's own
+    /// `isLive || origin == .user` guard in `CloudMachineSession.connect` is
+    /// what keeps a non-gesture connect from starting a paused machine. A
+    /// `script` request is never sent again.
     nonisolated static func run(op: String, args: [String: String], key: String, origin: CloudLinkOrigin, send: Send) async throws -> Data {
         func request(_ origin: AppsRunRequest.Origin) -> AppsRunRequest {
             AppsRunRequest(app: CloudLinkKey.app, op: op, args: .object(args.mapValues(JSONValue.string)),
@@ -60,16 +66,18 @@ enum CloudAppLinks {
 
     /// Why a link socket was refused after the handshake.
     nonisolated static let localDaemonDetail = "the link socket is this Mac's own daemon"
+    nonisolated static let noLocalIdentityDetail = "this Mac's daemon identity is unknown"
 
     /// The post-handshake check of a link socket (the path check runs before
     /// the connect, ``CloudLinkSocketPolicy``): the daemon behind it must not
     /// be this Mac's own daemon, the same boot (`generation`) or the same
-    /// session registry (`registry_id`). Without a local identity there is
-    /// nothing to compare (and no Cloud op could have run).
+    /// session (`sessionID`: the registry id, lowercased, empty = none).
+    /// Without a local identity there is nothing to compare, so the link is
+    /// refused (fail closed).
     nonisolated static func checkNotLocal(remote: DaemonIdentity, local: DaemonIdentity?) throws {
-        guard let local else { return }
-        let sameRegistry = remote.registryID != nil && remote.registryID == local.registryID
-        if remote.generation == local.generation || sameRegistry {
+        guard let local else { throw CloudLinkError.unsafeSocket(noLocalIdentityDetail) }
+        let sameSession = remote.sessionID != nil && remote.sessionID == local.sessionID
+        if remote.generation == local.generation || sameSession {
             throw CloudLinkError.unsafeSocket(localDaemonDetail)
         }
     }

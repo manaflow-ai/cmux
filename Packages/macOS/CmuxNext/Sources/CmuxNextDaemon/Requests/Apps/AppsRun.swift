@@ -29,6 +29,16 @@ public struct AppsRunRequest: DaemonRequest {
         self.idempotencyKey = idempotencyKey
         self.origin = origin
     }
+
+    /// `args` is the app's own JSON: sent verbatim (`verbatimFields`), not
+    /// through the snake case key strategy.
+    enum CodingKeys: String, CodingKey {
+        case app, op, idempotencyKey, origin
+    }
+}
+
+extension AppsRunRequest: VerbatimFieldsRequest {
+    var verbatimFields: [String: JSONValue] { ["args": args] }
 }
 
 /// An `apps-run` answer: the daemon wraps every op result as `{value}`
