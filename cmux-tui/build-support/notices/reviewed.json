@@ -621,6 +621,21 @@
           "sha256": "37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca"
         }
       ]
+    },
+    "winapi-x86_64-pc-windows-gnu 0.4.0": {
+      "reason": "the .crate (2018, no .cargo_vcs_info.json) ships no license file; Cargo.toml says MIT/Apache-2.0 and repository retep998/winapi-rs. The texts are that repository's root LICENSE-MIT and LICENSE-APACHE at 9497609ef44c ('Publish 0.3.4'), the commit whose x86_64/Cargo.toml is this crate's 0.4.0 manifest (include list without license files; fa4e2c5a later added them to the crate directory). It holds MinGW import libraries for the Windows target (independent mingw-w64 review, 2026-10-05).",
+      "files": [
+        {
+          "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-APACHE",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+        },
+        {
+          "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-MIT",
+          "sha256": "5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219"
+        }
+      ]
     }
   },
   "elections": {

@@ -5,13 +5,15 @@
 
   vt_link_graph.py generate --out vt-link-graph.json [--repo DIR]
                             [--target ZIG_TARGET ...] [--dwarfdump TOOL]
+                            [--readobj TOOL]
 
 CI and Testbox only: it runs zig. For each target it builds libghostty-vt as
 ghostty-vt-sys's build.rs does (the source and gitlink that
 check_ghostty_vt_notices.py resolves, build.rs's -D flags) plus
 -Dstrip=false, in a fresh copy with an empty Zig cache. It reads every source
-path of the archive's DWARF (`llvm-dwarfdump --show-sources`) and attributes
-each path:
+path of the archive's DWARF (`llvm-dwarfdump --show-sources`; for the
+Windows COFF archive, whose objects carry CodeView, the file checksum names of
+`llvm-readobj --codeview`) and attributes each path:
   <src>/zig-pkg/<hash>/... or <cache>/p/<hash>/...   the Zig package <hash>
   <zig lib dir>/<top>/...                             Zig's lib, counted per top
                                                       directory (std, compiler_rt,
@@ -28,7 +30,9 @@ blocking check; the graph says which declared packages are really linked.
 
 Targets (default): aarch64-macos and x86_64-macos (bin/cmux and the
 cmux-tui-ssh Mach-O binaries), x86_64-linux-musl and aarch64-linux-musl (the
-Linux cmux-tui-ssh and npm binaries; build_support.rs zig_target_arg).
+Linux cmux-tui-ssh and npm binaries), x86_64-windows-gnu (the Windows npm
+binaries; build_support.rs zig_target_arg). Zig installs the Windows static
+archive as ghostty-vt-static.lib (ghostty-vt.lib is the DLL import library).
 """
 
 from __future__ import annotations
@@ -48,7 +52,10 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 import check_ghostty_vt_notices as vt  # noqa: E402
 
-DEFAULT_TARGETS = ("aarch64-macos", "x86_64-macos", "x86_64-linux-musl", "aarch64-linux-musl")
+DEFAULT_TARGETS = ("aarch64-macos", "x86_64-macos", "x86_64-linux-musl", "aarch64-linux-musl", "x86_64-windows-gnu")
+# The static archive zig installs for a target (Windows: not the DLL import library).
+ARCHIVE_NAMES = ("libghostty-vt.a", "ghostty-vt-static.lib")
+CODEVIEW_FILE = re.compile(r"^\s*Filename: (.+?) \(0x[0-9a-fA-F]+\)\s*$")
 FLAG = re.compile(r'\.arg\("(-D[^"]*)"\)')
 PACKAGE_DIR = re.compile(r"^([^/]+)/")
 
@@ -92,6 +99,15 @@ def attribute(paths: list[str], src: str, cache: str, zig_lib: str) -> dict:
         "vendored": dict(sorted(vendored.items())), "zig_lib": dict(sorted(lib.items())),
         **counts, "unattributed": sorted(unattributed),
     }
+
+
+def source_paths(archive: Path, dwarfdump: str, readobj: str) -> list[str]:
+    """Every source path an archive's debug info names: DWARF, or CodeView
+    file checksums for a COFF archive (zig emits CodeView for Windows)."""
+    if archive.suffix == ".lib":
+        out = run(readobj, "--codeview", str(archive))
+        return sorted({m.group(1) for m in map(CODEVIEW_FILE.match, out.splitlines()) if m})
+    return run(dwarfdump, "--show-sources", str(archive)).splitlines()
 
 
 def zig_env_fields(text: str) -> dict[str, str]:
@@ -144,8 +160,10 @@ def generate(args: argparse.Namespace) -> dict:
         if version:
             command.insert(2, f"-Dversion-string={version.group(1)}")
         run(*command, cwd=src, env={**os.environ, "ZIG_GLOBAL_CACHE_DIR": str(cache)})
-        [archive] = sorted((work / f"out-{target}").rglob("libghostty-vt.a"))
-        sources = run(args.dwarfdump, "--show-sources", str(archive)).splitlines()
+        [archive] = sorted(p for name in ARCHIVE_NAMES for p in (work / f"out-{target}").rglob(name))
+        sources = source_paths(archive, args.dwarfdump, args.readobj)
+        if not sources:
+            raise SystemExit(f"vt_link_graph: {target}: {archive.name} has no debug source paths")
         entry = attribute(sources, str(src), str(cache), zig_lib)
         entry["names"] = {h: names.get(h, "") for h in entry["packages"]}
         entry["source_paths"] = len(sources)
@@ -165,8 +183,12 @@ def main(argv: list[str]) -> int:
     gen.add_argument("--out", type=Path, required=True)
     gen.add_argument("--target", action="append")
     gen.add_argument("--dwarfdump", default="llvm-dwarfdump")
+    gen.add_argument("--readobj", default=None, help="llvm-readobj for COFF archives (default: beside --dwarfdump)")
     gen.add_argument("--keep", action="store_true", help="keep the work directory")
     args = parser.parse_args(argv)
+    if args.readobj is None:
+        sibling = Path(args.dwarfdump).with_name("llvm-readobj")
+        args.readobj = str(sibling) if sibling.is_absolute() else "llvm-readobj"
     graph = generate(args)
     args.out.write_text(json.dumps(graph, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0

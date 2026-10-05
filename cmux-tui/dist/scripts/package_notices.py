@@ -6,6 +6,8 @@
   package_notices.py generate --out-dir DIR --source-tag SHA [--cache DIR]
                               [--target RUST_TARGET ...]
   package_notices.py check-data
+  package_notices.py check-windows-toolchain [--gcc GCC]
+  package_notices.py check-windows-binary BINARY [BINARY ...]
 
 `generate` writes DIR/<kind>-<rust target>.md for kind `cmux-tui` (bin/cmux-tui
 and bin/cmux-tui-hook: npm cmux-tui-<os>-<cpu>, every wheel) and `relay`
@@ -23,9 +25,16 @@ Each notice names everything the static binaries link, for that target:
     vendored directory that vt-link-graph.json says the archive links for the
     target (cmux-tui/dist/notices/package-notices.json, owned by the license
     review; the texts must be for the graph's ghostty-next commit),
-  - Linux musl targets: musl's COPYRIGHT (package-notices.json).
-Windows (x86_64-pc-windows-gnu) is refused: it links the mingw-w64 runtime,
-whose notices nobody has reviewed yet.
+  - Linux musl targets: musl's COPYRIGHT (package-notices.json),
+  - Windows (x86_64-pc-windows-gnu): the static mingw-w64 13.0.0 CRT and the
+    GCC 15.2.0 runtime (libgcc_eh, crtbegin) of the one reviewed toolchain,
+    and musl's COPYRIGHT for Zig compiler_rt's musl-derived math
+    (package-notices.json windows_gnu, independent review of 2026-10-05).
+`check-windows-toolchain` (the Windows build job, before linking) fails when
+the MinGW gcc that rustc links with is not the reviewed build (GCC version and
+build string, mingw-w64 version, UCRT); `check-windows-binary` (the package
+job) fails a binary that names another GCC build. A new toolchain needs a new
+review of its static runtime.
 
 Crate sources come from fetch_crates.py's CARGO_HOME-shaped cache (network on
 first use; no cargo). Python 3.11+ standard library only.
@@ -61,10 +70,9 @@ TARGETS = {
     "x86_64-apple-darwin": "x86_64-macos",
     "x86_64-unknown-linux-musl": "x86_64-linux-musl",
     "aarch64-unknown-linux-musl": "aarch64-linux-musl",
+    "x86_64-pc-windows-gnu": "x86_64-windows-gnu",
 }
-REFUSED = {
-    "x86_64-pc-windows-gnu": "it links the mingw-w64 runtime (crt, winpthreads), whose notices are not reviewed yet",
-}
+GCC_IDENT = re.compile(rb"GCC: \([^)\x00]*\) [0-9][0-9A-Za-z.\-]*")
 KINDS = {
     "cmux-tui": {"roots": ("cmux-tui",), "binaries": ("bin/cmux-tui", "bin/cmux-tui-hook")},
     "relay": {"roots": ("chatmux-relay", "cmux-tui"), "binaries": ("bin/chatmux-relay", "bin/cmux-tui")},
@@ -162,6 +170,11 @@ def data_problems(inputs: Inputs) -> list[str]:
         _read(NOTICES / musl["file"], musl["sha256"], "musl")
     except (OSError, NoticeError) as error:
         problems.append(f"{musl['file']}: {error}")
+    for entry in inputs.data["windows_gnu"]["files"]:
+        try:
+            _read(NOTICES / entry["file"], entry["sha256"], "windows_gnu")
+        except (OSError, NoticeError) as error:
+            problems.append(f"{entry['file']}: {error}")
     vt = inputs.data["libghostty_vt"]
     if (inputs.graph.get("source"), inputs.graph.get("commit")) != (vt["source"], vt["commit"]):
         problems.append(
@@ -182,9 +195,50 @@ def data_problems(inputs: Inputs) -> list[str]:
     return problems
 
 
+def _reviewed_windows(inputs: Inputs) -> tuple[dict, str]:
+    win = inputs.data["windows_gnu"]
+    return win, f"({win['gcc_build']}) {win['gcc_version']}"
+
+
+def windows_toolchain_problems(gcc_version: str, predefined_macros: str, inputs: Inputs) -> list[str]:
+    """The linker's `gcc --version` and `gcc -dM -E` of <_mingw.h> must be the
+    reviewed toolchain: its static mingw-w64 CRT and libgcc are what
+    windows_gnu's texts cover."""
+    win, reviewed = _reviewed_windows(inputs)
+    problems = []
+    first = gcc_version.splitlines()[0].strip() if gcc_version.strip() else ""
+    if not first.endswith(" " + reviewed):
+        problems.append(
+            f"the MinGW gcc is '{first or 'missing'}', but the reviewed Windows runtime notices cover only "
+            f"'{reviewed}' (package-notices.json windows_gnu): review the new toolchain's mingw-w64 and GCC runtime first"
+        )
+    macros = dict(re.findall(r"^#define (\S+) ?(.*)$", predefined_macros, re.M))
+    version = ".".join(macros.get(f"__MINGW64_VERSION_{part}", "?") for part in ("MAJOR", "MINOR", "BUGFIX"))
+    if version != win["mingw_w64_version"]:
+        problems.append(
+            f"the MinGW gcc links mingw-w64 {version}, but the reviewed notices are for mingw-w64 "
+            f"{win['mingw_w64_version']} (package-notices.json windows_gnu)"
+        )
+    if "_UCRT" not in macros:
+        problems.append("the MinGW gcc targets msvcrt, but the reviewed Windows runtime is the UCRT build")
+    return problems
+
+
+def windows_binary_problems(binary: bytes, inputs: Inputs) -> list[str]:
+    """Every GCC ident in a packaged Windows binary (from C objects that gcc
+    compiled) must be the reviewed toolchain's; a binary may have none."""
+    _, reviewed = _reviewed_windows(inputs)
+    found = sorted({m.decode("utf-8", "replace") for m in GCC_IDENT.findall(binary)})
+    other = [ident for ident in found if ident != f"GCC: {reviewed}"]
+    if not other:
+        return []
+    return [
+        f"the binary contains code built by {', '.join(other)}; the reviewed Windows runtime notices cover only "
+        f"'GCC: {reviewed}' (package-notices.json windows_gnu)"
+    ]
+
+
 def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -> str:
-    if rust_target in REFUSED:
-        raise NoticeError(f"no reviewed notices for {rust_target}: {REFUSED[rust_target]}")
     if rust_target not in TARGETS:
         raise NoticeError(f"unknown target {rust_target}")
     zig_target = TARGETS[rust_target]
@@ -211,7 +265,16 @@ def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -
         _block(f"Zig {zig.version} LICENSE", _read(zig.path, zig.sha256, "zig")),
     ]
     vt = inputs.data["libghostty_vt"]
-    owners = ["ghostty-next", *graph["packages"], *graph.get("vendored", {})]
+    packages, vendored = list(graph["packages"]), list(graph.get("vendored", {}))
+    if zig_target.endswith("-windows-gnu"):
+        # The Windows archive carries CodeView, whose file checksums name only
+        # files with line records: a package used only through inlined code or
+        # comptime tables (uucode on 2026-10-05) is missing. Name every package
+        # any target links, so the Windows notice is never smaller than the truth.
+        for entry in inputs.graph["targets"].values():
+            packages += [p for p in entry.get("packages", []) if p not in packages]
+            vendored += [v for v in entry.get("vendored", {}) if v not in vendored]
+    owners = ["ghostty-next", *packages, *vendored]
     out.append(f"## libghostty-vt ({vt['source']} {vt['commit']})\n\n")
     out.append(
         "Ghostty's terminal library and the Zig packages and vendored directories whose code its archive "
@@ -228,6 +291,28 @@ def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -
         musl = inputs.data["musl"]
         out.append(f"## musl libc {musl['version']}\n\n")
         out.append(f"The Linux binaries are statically linked with musl ({musl['source']}):\n\n")
+        out.append(_block(f"musl {musl['version']} COPYRIGHT", _read(NOTICES / musl["file"], musl["sha256"], "musl")))
+    if rust_target.endswith("-windows-gnu"):
+        win = inputs.data["windows_gnu"]
+        out.append(f"## Windows runtime: mingw-w64 {win['mingw_w64_version']} and GCC {win['gcc_version']}\n\n")
+        out.append(
+            f"The Windows binaries are linked with {win['toolchain']} They statically contain the mingw-w64 "
+            "C runtime startup and support code (crt2.o, libmingw32, libmingwex, the libucrt wrappers; almost "
+            "all linked files are in the public domain, see DISCLAIMER.PD, and the rest fall under the runtime "
+            "license below) and GCC's runtime (crtbegin.o and the "
+            "libgcc_eh SEH unwinder; GPL-3.0-or-later WITH GCC-exception-3.1, see LICENSE for the GPL text). "
+            "They import the Universal C Runtime from Windows. winpthreads, libstdc++, LLVM compiler-rt and "
+            "LLVM libunwind are not linked.\n\n"
+        )
+        for entry in win["files"]:
+            out.append(_block(f"{entry['title']} ({entry['source']})", _read(NOTICES / entry["file"], entry["sha256"], "windows_gnu")))
+        musl = inputs.data["musl"]
+        out.append("## musl-derived math in Zig compiler_rt\n\n")
+        out.append(
+            f"Zig {zig.version}'s compiler_rt, linked through libghostty-vt, provides math functions "
+            "(ceil, floor, exp, log, log2, round, trunc and their float forms) ported from musl, which is "
+            "licensed under the MIT license:\n\n"
+        )
         out.append(_block(f"musl {musl['version']} COPYRIGHT", _read(NOTICES / musl["file"], musl["sha256"], "musl")))
     out.append(crates_markdown.rstrip("\n") + "\n")
     return "".join(out)
@@ -264,8 +349,8 @@ def generate(args: argparse.Namespace) -> int:
         raise NoticeError("\n".join(problems))
     targets = args.target or list(TARGETS)
     for target in targets:
-        if target in REFUSED:
-            raise NoticeError(f"no reviewed notices for {target}: {REFUSED[target]}")
+        if target not in TARGETS:
+            raise NoticeError(f"unknown target {target}")
     fetch = subprocess.run(
         [sys.executable, str(BUILD_SUPPORT / "fetch_crates.py"), "--cache", str(args.cache), "--lock", str(ROOT / "cmux-tui/Cargo.lock")],
         capture_output=True, text=True,
@@ -290,10 +375,36 @@ def main(argv: list[str]) -> int:
     gen.add_argument("--cache", type=Path, default=Path(os.environ.get("CMUX_NOTICES_CACHE", Path.home() / ".cache/cmux-notices")))
     gen.add_argument("--target", action="append")
     sub.add_parser("check-data")
+    check_toolchain = sub.add_parser("check-windows-toolchain")
+    check_toolchain.add_argument("--gcc", default="x86_64-w64-mingw32-gcc", help="the linker rustc uses for x86_64-pc-windows-gnu")
+    check_windows = sub.add_parser("check-windows-binary")
+    check_windows.add_argument("binaries", type=Path, nargs="+")
     args = parser.parse_args(argv)
     try:
         if args.command == "generate":
             return generate(args)
+        if args.command == "check-windows-toolchain":
+            version = subprocess.run([args.gcc, "--version"], capture_output=True, text=True, check=True).stdout
+            macros = subprocess.run(
+                [args.gcc, "-dM", "-E", "-x", "c", "-"], input="#include <_mingw.h>\n",
+                capture_output=True, text=True, check=True,
+            ).stdout
+            problems = windows_toolchain_problems(version, macros, load_inputs())
+            for problem in problems:
+                print(f"package_notices: error: {problem}", file=sys.stderr)
+            if not problems:
+                print(f"package_notices: {version.splitlines()[0]} is the reviewed Windows runtime toolchain")
+            return 1 if problems else 0
+        if args.command == "check-windows-binary":
+            inputs = load_inputs()
+            failed = False
+            for binary in args.binaries:
+                for problem in windows_binary_problems(binary.read_bytes(), inputs):
+                    print(f"package_notices: error: {binary}: {problem}", file=sys.stderr)
+                    failed = True
+            if not failed:
+                print(f"package_notices: {len(args.binaries)} Windows binaries name no GCC build but the reviewed one")
+            return 1 if failed else 0
         problems = data_problems(load_inputs())
     except NoticeError as error:
         print(f"package_notices: error: {error}", file=sys.stderr)
