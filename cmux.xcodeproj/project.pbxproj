@@ -73,7 +73,6 @@
 				feed-tui,
 				ghostty,
 				ghostty/terminfo/78/xterm-ghostty,
-				markdown-viewer,
 				opencode-plugin.js,
 				shell-integration,
 				terminfo-overlay,
@@ -96,6 +95,9 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				CE7A00000000000000000024 /* Exceptions for "Resources" folder in "cmux-next" target */,
+			);
+			explicitFolders = (
+				"markdown-viewer",
 			);
 			path = Resources;
 			sourceTree = "<group>";

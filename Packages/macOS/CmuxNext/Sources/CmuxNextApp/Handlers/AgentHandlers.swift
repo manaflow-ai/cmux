@@ -214,11 +214,22 @@ enum AgentHandlers {
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let path = invocation["path"]?.stringValue ?? ""
         // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
-        guard !path.isEmpty else { return ViewerHandlers.openFilePicker(invocation, context: context) }
+        guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }
         // The palette and the control socket accept only the catalog's choices;
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
+        // run), so the tab check for WebKit page types no longer applies.
+        if target == .tab {
+            guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
+            guard let pane = context.paneController(invocation) else { return }
+            let opener = context.services.viewers.fileOpener
+            let reason = (opener as? FilePageOpener)?.open(url, in: pane, userChose: invocation.origin == .user) ?? opener.open(url, in: pane)
+            if let reason { throw ActionFailure(message: reason) }
+            return
+        }
         let opening: AgentPaneFileOpening
         do {
             opening = try AgentPaneFileOpening.plan(path: path, target: target)
@@ -233,8 +244,6 @@ enum AgentHandlers {
         }
         if let editor = opening.editor {
             NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
-        } else if let pane = context.paneController(invocation) {
-            pane.newBrowserTab(url: opening.url)
         }
     }
 

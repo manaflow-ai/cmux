@@ -366,6 +366,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         if context.browser { next.insert(.browserFocused) }
         if context.agent { next.insert(.agentPaneFocused) }
         if case .addressBar = controller.focus.state.resolved { next.insert(.omnibarFocused) }
+        // The same rule as `KeyRouter.keyContext`: the focused page's id (diff, markdown, code editor).
+        switch services.keyRouter?.focusedPage(in: controller)?.descriptor.id {
+        case KeyRouter.diffPageID?: next.insert(.diffViewerFocused)
+        case KeyRouter.markdownPageID?: next.insert(.markdownFocused)
+        case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
+        default: break
+        }
         if registry.context != next { registry.context = next }
     }
 
