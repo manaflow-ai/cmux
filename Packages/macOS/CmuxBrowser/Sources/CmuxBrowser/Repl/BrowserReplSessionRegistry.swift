@@ -60,10 +60,22 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         /// A live session of that name belongs to another client (its
         /// owner token is not the caller's).
         case ownedByAnotherClient
+        /// The owner token is empty or longer than ``maximumOwnerBytes``.
+        case invalidOwner
     }
 
     /// The longest session name.
     public static let maximumNameLength = 64
+    /// The longest owner token, in UTF-8 bytes. The token comes from the
+    /// socket and is kept with its session, so it is bounded like the name.
+    public static let maximumOwnerBytes = 128
+
+    /// Whether `owner` can be a session's owner token (nil: no owner).
+    public static func isValidOwner(_ owner: String?) -> Bool {
+        guard let owner else { return true }
+        return !owner.isEmpty && owner.utf8.count <= maximumOwnerBytes
+    }
+
     /// Live sessions an instance keeps by default.
     public static let defaultMaximumSessions = 32
 
@@ -115,6 +127,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         make: (_ instanceID: String) -> BrowserReplSession
     ) throws -> BrowserReplSession {
         guard Self.isValidName(key.name) else { throw Refusal.invalidName }
+        guard Self.isValidOwner(owner) else { throw Refusal.invalidOwner }
         lock.lock()
         let session: BrowserReplSession
         if let existing = sessions[key], !existing.isClosed {

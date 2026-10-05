@@ -89,6 +89,10 @@ extension TerminalController {
         (params["session_owner"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    private nonisolated static var browserReplInvalidOwnerMessage: String {
+        String(localized: "cli.browser.repl.error.sessionOwner", defaultValue: "A REPL session owner token is 1 to 128 bytes")
+    }
+
     private nonisolated static var browserReplInvalidSessionNameMessage: String {
         String(
             localized: "cli.browser.repl.error.sessionName",
@@ -183,6 +187,21 @@ extension TerminalController {
         // Without a cwd a new session gets a temporary directory of its own;
         // the session refuses `/` and the home directory as roots.
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
+        // The cwd and owner token are kept for the session's life, so they
+        // are bounded before a session is made or attached.
+        if let cwd, BrowserReplSession.workingDirectoryLengthRefusal(cwd) != nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.browser.repl.error.cwdTooLong",
+                    defaultValue: "The working directory path is longer than 1024 bytes; cd to a shorter path and run the command again"
+                ),
+                data: nil
+            )
+        }
+        guard BrowserReplSessionRegistry.isValidOwner(Self.browserReplOwner(params)) else {
+            return .err(code: "invalid_params", message: Self.browserReplInvalidOwnerMessage, data: nil)
+        }
         let timeoutMilliseconds = (params["timeout_ms"] as? NSNumber)?.intValue ?? 120_000
         let named = (params["session"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if let named, !BrowserReplSessionRegistry.isValidName(named) {
@@ -231,6 +250,8 @@ extension TerminalController {
             return .err(code: "unavailable", message: "\(prefix) (\(limit))", data: nil)
         } catch BrowserReplSessionRegistry.Refusal.ownedByAnotherClient {
             return .err(code: "invalid_params", message: Self.browserReplOwnedSessionMessage, data: nil)
+        } catch BrowserReplSessionRegistry.Refusal.invalidOwner {
+            return .err(code: "invalid_params", message: Self.browserReplInvalidOwnerMessage, data: nil)
         } catch {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }

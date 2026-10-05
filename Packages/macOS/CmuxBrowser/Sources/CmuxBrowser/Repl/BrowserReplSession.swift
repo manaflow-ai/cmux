@@ -585,6 +585,18 @@ public final class BrowserReplSession: @unchecked Sendable {
         return (parentPath + "/" + name, nil)
     }
 
+    /// The longest working directory, in UTF-8 bytes: `PATH_MAX`, the
+    /// longest path the system opens. The path comes from the caller and is
+    /// kept for the session's life, so a longer one is refused before it is.
+    public static let maximumWorkingDirectoryBytes = Int(PATH_MAX)
+
+    /// Why `cwd` is too long to be a working directory, or nil.
+    public static func workingDirectoryLengthRefusal(_ cwd: String) -> String? {
+        let bytes = cwd.utf8.count
+        guard bytes > maximumWorkingDirectoryBytes else { return nil }
+        return "refusing a REPL working directory of \(bytes) bytes: a path is at most \(maximumWorkingDirectoryBytes) bytes; cd to a shorter path and run the command again"
+    }
+
     /// The fs root.
     public var cwd: String {
         stateLock.lock()
@@ -747,6 +759,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// spilled output, captures and downloads), unless it is one of this
     /// session's own directories.
     private func rootRejection(_ root: String) -> String? {
+        if let reason = Self.workingDirectoryLengthRefusal(root) { return reason }
         if let reason = BrowserReplFileSandbox.rootRejection(root, homeDirectory: homeDirectory) { return reason }
         let canonical = BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(root))
         let own = [ownedWorkingDirectory, privateTemporaryDirectory].compactMap { $0 }

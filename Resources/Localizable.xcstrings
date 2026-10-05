@@ -623607,6 +623607,124 @@
         }
       }
     },
+    "cli.browser.repl.error.sessionOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A REPL session owner token is 1 to 128 bytes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتكون رمز مالك جلسة REPL من 1 إلى 128 بايت"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Besitzer-Token einer REPL-Sitzung hat 1 bis 128 Bytes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un token de propietario de sesión de REPL tiene de 1 a 128 bytes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un jeton de propriétaire de session REPL fait de 1 à 128 octets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL セッションのオーナートークンは 1〜128 バイトです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 세션 소유자 토큰은 1~128바이트입니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 会话所有者令牌为 1 到 128 字节"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 工作階段擁有者權杖為 1 到 128 位元組"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.cwdTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The working directory path is longer than 1024 bytes; cd to a shorter path and run the command again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسار دليل العمل أطول من 1024 بايت؛ انتقل إلى مسار أقصر بالأمر cd وأعد تشغيل الأمر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Pfad des Arbeitsverzeichnisses ist länger als 1024 Bytes; wechsle mit cd zu einem kürzeren Pfad und führe den Befehl erneut aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ruta del directorio de trabajo supera los 1024 bytes; usa cd para ir a una ruta más corta y vuelve a ejecutar el comando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chemin du répertoire de travail dépasse 1024 octets ; placez-vous avec cd dans un chemin plus court et relancez la commande"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリのパスが 1024 バイトを超えています。cd で短いパスに移動してからコマンドを再実行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 디렉터리 경로가 1024바이트보다 깁니다. cd로 더 짧은 경로로 이동한 뒤 명령을 다시 실행하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作目录路径超过 1024 字节；请用 cd 切换到更短的路径后重新运行命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作目錄路徑超過 1024 位元組；請用 cd 切換到較短的路徑後重新執行指令"
+          }
+        }
+      }
+    },
     "cli.browser.repl.error.sessionOwned": {
       "extractionState": "manual",
       "localizations": {
