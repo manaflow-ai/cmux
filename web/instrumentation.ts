@@ -5,6 +5,7 @@ import {
   scrubSentryEvent,
   shouldSendCoderouterSentryEvent,
 } from "./services/sentry";
+import { preconnectFreestyle } from "./services/vms/drivers/freestyle";
 
 /** Compile the first-use Cloud routes while the development server is starting. */
 function prewarmDevCloudRoutes(): void {
@@ -12,6 +13,10 @@ function prewarmDevCloudRoutes(): void {
   const state = globalThis as typeof globalThis & { __cmuxDevRouteWarmupStarted?: boolean };
   if (state.__cmuxDevRouteWarmupStarted) return;
   state.__cmuxDevRouteWarmupStarted = true;
+  // Establish the provider's DNS/TLS pool while the development backend is
+  // coming up. The create route still awaits this shared single-flight probe
+  // as a fallback when a process starts just before the first request.
+  void preconnectFreestyle();
   const port = process.env.CMUX_PORT ?? process.env.PORT ?? "3000";
   const origin = `http://127.0.0.1:${port}`;
   void (async () => {
