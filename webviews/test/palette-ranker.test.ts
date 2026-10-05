@@ -55,6 +55,20 @@ describe("shared palette ranker", () => {
     expect(rankedIDs(entries, "toggle")[0]).toBe("action:palette.toggleSetting");
   });
 
+  // Live check (nxpal-probe1): with "Settings…" first, setting rows whose titles merely contain
+  // "settings" pushed the scope row out of the first six. A row with a keyword that is the whole
+  // query comes right after the whole-title matches.
+  test("a row whose keyword is the whole query comes right after whole-title matches", () => {
+    const entries = [
+      entry("setting:palette.scopes.settings.prefix", "Settings Scope Prefix", { keywords: ["setting"] }),
+      entry("setting:appearance.surfaces.settings.color", "Settings Background Color", { keywords: ["setting"] }),
+      entry("setting:appearance.surfaces.settings.opacity", "Settings Background Opacity", { keywords: ["setting"] }),
+      entry("scope:settings", "Change Settings", { keywords: ["settings", "preferences"] }),
+      entry("action:openSettings", "Settings…", { keywords: ["preferences", "options", "config"] }),
+    ];
+    expect(rankedIDs(entries, "settings").slice(0, 2)).toEqual(["action:openSettings", "scope:settings"]);
+  });
+
   test("frecency breaks ties without beating a clearly better match", () => {
     const entries = [
       entry("right", "Split Right", { frecencyKey: "right" }),
