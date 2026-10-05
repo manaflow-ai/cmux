@@ -179,7 +179,7 @@ fn flood_with_a_slow_snapshot_viewer_stays_bounded_and_resyncs() {
     let pty = surface.as_pty().unwrap();
     let cap = DEFAULT_VIEWER_BACKLOG_BYTES;
     let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), cap, false).unwrap();
-    let first = surface.take_viewer_snapshot(&stream.receiver).unwrap();
+    let first = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
     stream.requests.sent(Instant::now());
 
     let file =
@@ -214,7 +214,7 @@ fn flood_with_a_slow_snapshot_viewer_stays_bounded_and_resyncs() {
     // The viewer drains: its next event is a snapshot, not the backlog.
     assert!(is_snapshot(&next_event(&stream.receiver)));
     let resync_started = Instant::now();
-    let last = surface.take_viewer_snapshot(&stream.receiver).unwrap();
+    let last = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
     let resync_elapsed = resync_started.elapsed();
     assert!(last.offset >= first.offset + fed as u64, "offset counts every published byte");
     let host = surface.encode_terminal_snapshot(SnapshotPhase::Ready).unwrap();
@@ -279,7 +279,7 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
         pty.broadcast_attach_output(&normalized);
     }
     assert!(is_snapshot(&next_event(&stream.receiver)));
-    assert!(surface.take_viewer_snapshot(&stream.receiver).is_err());
+    assert!(surface.take_viewer_snapshot(&stream.receiver, None).is_err());
     stream.receiver.defer_snapshot();
     // The sequence ends; the next output brings the snapshot back.
     {
@@ -288,7 +288,7 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
         pty.broadcast_attach_output(&normalized);
     }
     assert!(is_snapshot(&next_event(&stream.receiver)));
-    assert!(surface.take_viewer_snapshot(&stream.receiver).is_ok());
+    assert!(surface.take_viewer_snapshot(&stream.receiver, None).is_ok());
     drop(stream);
     surface.kill();
 }
@@ -300,7 +300,7 @@ fn only_a_grid_change_resyncs_a_snapshot_viewer() {
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let stream =
         surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
-    surface.take_viewer_snapshot(&stream.receiver).unwrap();
+    surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
     let (generation, _) = surface.snapshot_stream_position().unwrap();
     let (width, height) = surface.cell_pixel_size();
     surface.set_cell_pixel_size(width + 1, height + 1).unwrap();
@@ -402,6 +402,7 @@ fn local_ready(generation: u64, offset: u64, cols: u16) -> Arc<LocalReadySnapsho
             colors: TerminalColors::default(),
             marker_epoch: 0,
             active_top_marker: 0,
+            images: None,
         },
         history_rows: 7,
         history_digest: vec![0xab; 32],
@@ -531,4 +532,38 @@ fn a_viewer_without_local_history_ignores_local_readies() {
     assert!(tap.try_send_resize(resized(60), Some(&ready)));
     assert_eq!(receiver.resyncs(), 1);
     assert!(is_snapshot(&next_event(&receiver)));
+}
+
+// ---- terminal-snapshot-images-v1 --------------------------------------
+
+/// The images of a READY are encoded at its cut with the viewer's cap: an
+/// image over the cap is counted in `skipped_images`, and a viewer without
+/// images gets none.
+#[test]
+fn viewer_snapshot_images_respect_the_cap_and_the_opt_in() {
+    let mux = Mux::new_for_test("snapshot-images-cap", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
+    // Two placed 4x4 RGBA images (64 decoded bytes each).
+    let pixels = format!("{}AA==", "A".repeat(84));
+    for id in [1, 2] {
+        let image = format!("\x1b_Ga=T,t=d,f=32,i={id},p=1,s=4,v=4,c=2,r=1,q=2;{pixels}\x1b\\\r\n");
+        surface.inject_output_for_test(image.as_bytes());
+    }
+    let stored = surface
+        .with_terminal(|term| term.kitty_graphics_snapshot().map(|graphics| graphics.images.len()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored, 2, "the host stores both images");
+
+    let none = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
+    assert!(none.images.is_none(), "no images without the opt-in");
+    let all = surface.take_viewer_snapshot(&stream.receiver, Some(u64::MAX)).unwrap();
+    let all = all.images.expect("images at the cut");
+    assert_eq!((all.stats.images, all.stats.skipped_images), (2, 0), "{:?}", all.stats);
+    assert_eq!(all.data, surface.encode_kitty_replay_for_test(u64::MAX).unwrap().0);
+    let capped = surface.take_viewer_snapshot(&stream.receiver, Some(64)).unwrap();
+    let capped = capped.images.expect("images at the cut");
+    assert_eq!((capped.stats.images, capped.stats.skipped_images), (1, 1), "{:?}", capped.stats);
 }

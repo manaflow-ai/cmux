@@ -666,3 +666,300 @@ fn snapshot_bytes_per_settled_resize_with_local_history() {
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+// ---- terminal-snapshot-images-v1 --------------------------------------
+
+/// Kitty `a=T` of one `width`x`height` RGBA image with id `id`, placed at the
+/// cursor over 4x2 cells. `noise` fills it with pseudo-random pixels (they
+/// do not compress), else one color.
+fn kitty_image(id: u32, width: u32, height: u32, noise: bool) -> Vec<u8> {
+    let mut pixels = vec![0x3c_u8; (width * height * 4) as usize];
+    if noise {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64 ^ u64::from(id);
+        for chunk in pixels.chunks_mut(8) {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let bytes = state.to_le_bytes();
+            chunk.copy_from_slice(&bytes[..chunk.len()]);
+        }
+    }
+    let data = base64::engine::general_purpose::STANDARD.encode(pixels);
+    format!("\x1b_Ga=T,t=d,f=32,i={id},p=1,s={width},v={height},c=4,r=2,q=2;{data}\x1b\\")
+        .into_bytes()
+}
+
+/// A quiet surface with scrollback that shows one Kitty image.
+fn quiet_surface_with_image(
+    session: &str,
+    width: u32,
+    height: u32,
+    noise: bool,
+) -> (std::sync::Arc<Mux>, std::sync::Arc<crate::Surface>) {
+    let (mux, surface) = quiet_surface_with_scrollback(session, 200);
+    surface.inject_output_for_test(b"image below\r\n");
+    surface.inject_output_for_test(&kitty_image(7, width, height, noise));
+    surface.inject_output_for_test(b"\r\nafter the image\r\n");
+    let shown = surface
+        .with_terminal(|term| term.kitty_graphics_snapshot().map(|graphics| graphics.images.len()))
+        .expect("PTY surface")
+        .expect("kitty graphics");
+    assert_eq!(shown, 1, "the host stores the image (Kitty graphics enabled)");
+    (mux, surface)
+}
+
+fn attach_images_viewer(
+    mux: &std::sync::Arc<Mux>,
+    surface: &crate::Surface,
+    local_history: bool,
+) -> (super::super::MessageWriter, std::sync::Arc<BoundedOutbound>, u64) {
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    handle_command(
+        mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface", "surface": surface.id,
+            "snapshot": "ghostsnp", "snapshot_version": ghostty_vt::snapshot_version(),
+            "snapshot_images": true, "snapshot_local_history": local_history,
+        })),
+        &writer,
+    )
+    .unwrap();
+    (writer, outbound, client)
+}
+
+/// One images chunk's stream bytes: base64 of at most 1 MiB, not compressed
+/// again, at the READY's generation and offset.
+fn images_bytes(event: &Value, ready: &Value) -> Vec<u8> {
+    assert_eq!(event["phase"], "images", "{event}");
+    assert!(event.get("compression").is_none(), "images are not compressed again: {event}");
+    assert_eq!(event["generation"], ready["generation"], "{event}");
+    assert_eq!(event["offset"], ready["offset"], "{event}");
+    let bytes = data(event);
+    assert!(bytes.len() <= 1 << 20, "an images chunk holds at most 1 MiB");
+    bytes
+}
+
+/// After `ready`: its history through `done`, then its images through
+/// `done`. Returns the images stream; other events are skipped.
+fn drain_history_then_images(outbound: &BoundedOutbound, ready: &Value) -> Vec<u8> {
+    let mut history_done = false;
+    let mut images = Vec::new();
+    loop {
+        let event = next_event(outbound, Duration::from_secs(10)).expect("history or images");
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        match event["phase"].as_str() {
+            Some("history") => {
+                assert!(!history_done, "history after its last chunk: {event}");
+                assert_eq!(event["generation"], ready["generation"]);
+                history_done = event["done"] == true;
+            }
+            Some("images") => {
+                assert!(history_done, "images come after the READY's history: {event}");
+                images.extend_from_slice(&images_bytes(&event, ready));
+                if event["done"] == true {
+                    assert!(event.get("skipped_images").is_none(), "{event}");
+                    return images;
+                }
+            }
+            _ => panic!("unexpected snapshot event before the images ended: {event}"),
+        }
+    }
+}
+
+/// No snapshot event (READY, history or images) arrives within `wait`.
+fn assert_no_snapshot_event(outbound: &BoundedOutbound, wait: Duration, why: &str) {
+    while let Some(event) = next_event(outbound, wait) {
+        assert_ne!(event["event"], "snapshot", "{why}: {event}");
+    }
+}
+
+#[test]
+fn snapshot_images_capability_is_advertised() {
+    let mux = Mux::new_for_test("snapshot-images-identify", SurfaceOptions::default());
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let identity =
+        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
+    let capabilities = identity["capabilities"].as_array().expect("capabilities");
+    assert!(capabilities.iter().any(|value| value == "terminal-snapshot-images-v1"), "{identity}");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// An opted-in viewer gets READY, its history, then the images chunks; the
+/// chunks concatenated are the host's Kitty replay at the READY's cut, and
+/// the trusted apply recreates the image.
+#[test]
+fn an_images_viewer_gets_ready_history_then_the_kitty_replay_at_the_cut() {
+    let (mux, surface) = quiet_surface_with_image("snapshot-images-order", 4, 4, false);
+    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
+    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+    assert_eq!(ready["phase"], "ready", "{ready}");
+    let images = drain_history_then_images(&outbound, &ready);
+    // `cat` prints nothing: the host is still at the READY's cut.
+    let (host, stats) =
+        surface.encode_kitty_replay_for_test(super::SNAPSHOT_IMAGES_MAX_BYTES).unwrap();
+    assert_eq!((stats.images, stats.placements), (1, 1), "{stats:?}");
+    assert!(images == host, "the images chunks are the Kitty replay at the cut");
+    let mut viewer = ghostty_vt::Terminal::new(80, 24, 1_000, Default::default()).unwrap();
+    viewer.apply_kitty_replay(&images).unwrap();
+    let shown = viewer.kitty_graphics_snapshot().unwrap();
+    assert_eq!(shown.images.iter().map(|image| image.id).collect::<Vec<_>>(), vec![7]);
+    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "nothing after the images");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Images have the priority of history: live output passes between images
+/// chunks, and a newer READY drops the rest of the older images. The new
+/// READY gets its own complete images.
+#[test]
+fn live_output_overtakes_images_and_a_new_ready_cancels_the_old_images() {
+    // 2048x1024 RGBA noise: 8 MiB of pixels that zlib cannot shrink, so the
+    // stream takes about eight chunks.
+    let (mux, surface) = quiet_surface_with_image("snapshot-images-priority", 2048, 1024, true);
+    let (writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
+    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+    let first_images = loop {
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
+        if event["event"] == "snapshot" && event["phase"] == "images" {
+            break event;
+        }
+    };
+    images_bytes(&first_images, &ready);
+    assert_ne!(first_images["done"], true, "8 MiB of noise takes many chunks");
+
+    surface.inject_output_for_test(b"live while images stream\r\n");
+    loop {
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
+        match (event["event"].as_str(), event["phase"].as_str()) {
+            (Some("output"), _) => break,
+            (Some("snapshot"), Some("images")) => {
+                assert_ne!(event["done"], true, "images finished before the live output");
+            }
+            _ => {}
+        }
+    }
+
+    std::thread::sleep(Duration::from_millis(600));
+    let reply = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "snapshot-request", "surface": surface.id, "reason": "gap"})),
+        &writer,
+    )
+    .unwrap();
+    assert_eq!(reply["status"], "accepted", "{reply}");
+    let second = loop {
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        if event["phase"] == "ready" {
+            break event;
+        }
+        assert_ne!(event["done"], true, "the old images must not finish after the request");
+    };
+    let images = drain_history_then_images(&outbound, &second);
+    let (host, _) = surface.encode_kitty_replay_for_test(super::SNAPSHOT_IMAGES_MAX_BYTES).unwrap();
+    assert!(images == host, "the new READY gets its complete images");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// A local-history READY after a resize is followed by no images: on a
+/// match the viewer keeps its own.
+#[test]
+fn a_local_ready_after_a_resize_is_followed_by_no_images() {
+    let (mux, surface) = quiet_surface_with_image("snapshot-images-local", 4, 4, false);
+    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, true);
+    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+    drain_history_then_images(&outbound, &ready);
+    surface.resize(60, 20).unwrap();
+    let local = loop {
+        let event = next_event(&outbound, Duration::from_secs(5)).expect("local ready");
+        if event["event"] == "snapshot" {
+            break event;
+        }
+    };
+    assert_eq!(local["phase"], "ready", "{local}");
+    assert_eq!(local["history"], "local", "{local}");
+    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images after a local READY");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// No images phase for a terminal without images: one that never had any,
+/// and one whose only image was deleted.
+#[test]
+fn a_terminal_without_images_sends_no_images_phase() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-images-none", 200);
+    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
+    drain_ready_and_history(&outbound);
+    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images phase");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+
+    let (mux, surface) = quiet_surface_with_image("snapshot-images-deleted", 4, 4, false);
+    surface.inject_output_for_test(b"\x1b_Ga=d,d=I,i=7,q=2;\x1b\\");
+    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
+    drain_ready_and_history(&outbound);
+    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images phase");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// A viewer that did not opt in gets no images.
+#[test]
+fn a_viewer_without_snapshot_images_gets_no_images() {
+    let (mux, surface) = quiet_surface_with_image("snapshot-images-off", 4, 4, false);
+    let (_writer, outbound, client) = attach_snapshot_viewer(&mux, &surface);
+    drain_ready_and_history(&outbound);
+    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images without opt-in");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Images phase bytes and encode time for one 512x512 RGBA image
+/// (measurement).
+/// `cargo test -p cmux-tui-core --release --lib snapshot_images_bytes_for_one_512_image -- --ignored --nocapture`
+#[test]
+#[ignore = "measurement"]
+fn snapshot_images_bytes_for_one_512_image() {
+    for noise in [false, true] {
+        let session = format!("snapshot-images-bytes-{noise}");
+        let (mux, surface) = quiet_surface_with_image(&session, 512, 512, noise);
+        let started = Instant::now();
+        let (stream, stats) =
+            surface.encode_kitty_replay_for_test(super::SNAPSHOT_IMAGES_MAX_BYTES).unwrap();
+        let encode = started.elapsed();
+        let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
+        let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+        let (mut chunks, mut b64) = (0usize, 0usize);
+        loop {
+            let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
+            if event["event"] != "snapshot" || event["phase"] != "images" {
+                continue;
+            }
+            images_bytes(&event, &ready);
+            chunks += 1;
+            b64 += event["data"].as_str().unwrap().len();
+            if event["done"] == true {
+                break;
+            }
+        }
+        println!(
+            "snapshot-images-512 noise={noise} stream_bytes={} images_b64={b64} chunks={chunks} \
+             image_bytes={} encode_us={}",
+            stream.len(),
+            stats.image_bytes,
+            encode.as_micros()
+        );
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
+    }
+}
