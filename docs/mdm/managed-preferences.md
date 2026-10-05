@@ -115,6 +115,13 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.statusIndicator.honorStatusStyle` | boolean | `true` |  | Let Statuses Choose Their Style. A status that asks for a style (cmux status set --style) uses it. |
 | `status.inferCommandBusy` | boolean | `true` |  | Show Running Commands. A shell command that runs a while shows as busy. |
 | `status.inferCommandBusyAfter` | real | `3` | 0 to 600 | Show After |
+| `diff.layout` | string | `"unified"` | `split`, `unified` | Layout |
+| `diff.diffIndicators` | string | `"bars"` | `bars`, `classic`, `none` | Change Markers |
+| `diff.wordWrap` | boolean | `false` |  | Wrap Lines |
+| `diff.wordDiffs` | boolean | `false` |  | Highlight Word Changes |
+| `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
+| `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
+| `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `sidebar.border` | boolean | `false` |  | Border. A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it. |

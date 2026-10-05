@@ -508,6 +508,57 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "diff.diffIndicators" : {
+      "default" : "bars",
+      "description" : "diff.diffIndicators",
+      "enum" : [
+        "bars",
+        "classic",
+        "none"
+      ],
+      "title" : "Change Markers",
+      "type" : "string"
+    },
+    "diff.expandUnchanged" : {
+      "default" : false,
+      "description" : "diff.expandUnchanged",
+      "title" : "Expand Unchanged Lines",
+      "type" : "boolean"
+    },
+    "diff.layout" : {
+      "default" : "unified",
+      "description" : "diff.layout",
+      "enum" : [
+        "split",
+        "unified"
+      ],
+      "title" : "Layout",
+      "type" : "string"
+    },
+    "diff.lineNumbers" : {
+      "default" : true,
+      "description" : "diff.lineNumbers",
+      "title" : "Line Numbers",
+      "type" : "boolean"
+    },
+    "diff.showBackgrounds" : {
+      "default" : true,
+      "description" : "diff.showBackgrounds",
+      "title" : "Change Backgrounds",
+      "type" : "boolean"
+    },
+    "diff.wordDiffs" : {
+      "default" : false,
+      "description" : "diff.wordDiffs",
+      "title" : "Highlight Word Changes",
+      "type" : "boolean"
+    },
+    "diff.wordWrap" : {
+      "default" : false,
+      "description" : "diff.wordWrap",
+      "title" : "Wrap Lines",
+      "type" : "boolean"
+    },
     "DisableAutoUpdate" : {
       "description" : "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain).",
       "title" : "DisableAutoUpdate",
