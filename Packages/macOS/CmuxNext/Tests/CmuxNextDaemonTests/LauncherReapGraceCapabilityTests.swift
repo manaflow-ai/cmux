@@ -11,7 +11,7 @@ import Testing
     /// `supportsReapGrace`; `server status` reports no owner; `server ensure`
     /// logs its arguments and, like a client without the option, refuses it
     /// with `usage.invalid` when it does not support it.
-    func fakeBinary(supportsReapGrace: Bool, in directory: URL) throws -> (binary: URL, log: URL) {
+    func fakeBinary(supportsReapGrace: Bool, scopedStartHelp: Bool = false, in directory: URL) throws -> (binary: URL, log: URL) {
         let log = directory.appendingPathComponent("ensure.log")
         let binary = directory.appendingPathComponent("cmux-tui")
         let started = #"{"generation":"g2","message":"local server started","pid":4343,"session":"s","socket":"/tmp/s.sock","status":"started"}"#
@@ -20,7 +20,18 @@ import Testing
         let script = """
         #!/bin/sh
         case "$1" in
-          -h|--help) printf 'START OPTIONS\\n  --session <name>\\n\(helpLine)\\n'; exit 0 ;;
+          help)
+            if [ "$2" = start ] && [ "\(scopedStartHelp ? "yes" : "no")" = yes ]; then
+              printf 'START OPTIONS\\n  --session <name>\\n\(helpLine)\\n'; exit 0
+            fi
+            exit 2 ;;
+          -h|--help)
+            if [ "\(scopedStartHelp ? "yes" : "no")" = yes ]; then
+              printf 'cmux - terminal multiplexer\\nSCOPES\\n  server  Local owner\\nUse cmux help start for startup options\\n'
+            else
+              printf 'START OPTIONS\\n  --session <name>\\n\(helpLine)\\n'
+            fi
+            exit 0 ;;
         esac
         action=""; previous=""; reap=no
         for arg in "$@"; do
@@ -42,11 +53,11 @@ import Testing
         return (binary, log)
     }
 
-    func ensure(supportsReapGrace: Bool) async throws -> (DaemonLauncher.EnsureResult, [String]) {
+    func ensure(supportsReapGrace: Bool, scopedStartHelp: Bool = false) async throws -> (DaemonLauncher.EnsureResult, [String]) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("launcher-reap-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let (binary, log) = try fakeBinary(supportsReapGrace: supportsReapGrace, in: directory)
+        let (binary, log) = try fakeBinary(supportsReapGrace: supportsReapGrace, scopedStartHelp: scopedStartHelp, in: directory)
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "s", stateDirectory: directory.appendingPathComponent("state")),
             environment: { ["PATH": "/usr/bin:/bin"] })
@@ -67,5 +78,19 @@ import Testing
         #expect(result.status == "started")
         #expect(calls.count == 1, "\(calls)")
         #expect(calls.first?.contains("--terminal-reap-grace-seconds 30") == true, "\(calls)")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aClientWithScopedStartupHelpStillGetsTheGrace() async throws {
+        let (result, calls) = try await ensure(supportsReapGrace: true, scopedStartHelp: true)
+        #expect(result.status == "started")
+        #expect(calls.count == 1, "\(calls)")
+        #expect(calls.first?.contains("--terminal-reap-grace-seconds 30") == true, "\(calls)")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func scopedHelpWithoutTheOptionStillStartsTheOwner() async throws {
+        let (result, calls) = try await ensure(supportsReapGrace: false, scopedStartHelp: true)
+        #expect(result.status == "started")
+        #expect(calls.count == 1, "\(calls)")
+        #expect(calls.allSatisfy { !$0.contains("--terminal-reap-grace-seconds") }, "\(calls)")
     }
 }
