@@ -43,9 +43,10 @@ impl PeerAuth {
     /// passed the dashboard token check) prove a peer: exactly one, equal to
     /// this launch's token.
     pub fn is_peer(&self, presented: &[String]) -> bool {
-        // RED: not built yet; every connection stays Web.
-        let _ = (presented, &self.token);
-        false
+        match presented {
+            [one] => !one.is_empty() && cmux_local_auth::tokens_match(one, &self.token),
+            _ => false,
+        }
     }
 
     /// The file this launch's token is in (removed when the daemon stops).
