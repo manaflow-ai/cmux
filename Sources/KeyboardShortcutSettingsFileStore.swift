@@ -387,12 +387,12 @@ final class CmuxSettingsFileStore {
                     )
                 ))
             }
-            let semanticIssues = CmuxConfigSemanticValidator(scope: .global).validate(jsonObject: root)
-            if let issue = semanticIssues.first {
-                let message = "\(issue.path): invalid value"
-                cmuxSettingsFileStoreLogger.warning("semantic config issue '\(issue.path, privacy: .private(mask: .hash))' in \(path, privacy: .private(mask: .hash)): \(issue.message, privacy: .public)")
-                return .invalid(Self.configurationIssue(path: path, data: data, message: message, key: issue.path))
-            }
+            // Keep parsing through the classic store's per-setting readers. The
+            // published schema also contains newer and legacy aliases that this
+            // store intentionally does not own; rejecting the whole file on the
+            // validator's first unknown path would discard valid settings and
+            // break backwards-compatible shortcut/config aliases. Each reader
+            // reports malformed values and leaves its previous value in place.
             let malformedAutomation = root["automation"] != nil && !(root["automation"] is [String: Any])
             return .parsed(parseSettingsFile(root: root, sourcePath: path), malformedAutomation: malformedAutomation)
         } catch {

@@ -705,7 +705,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNotNil(store.resolvedAction(id: "first"))
         let issue = try XCTUnwrap(store.configurationIssues.first)
         XCTAssertEqual(issue.sourcePath, configURL.path)
-        XCTAssertEqual(issue.line, 4)
+        XCTAssertEqual(issue.line, 3)
 
         try """
         {
