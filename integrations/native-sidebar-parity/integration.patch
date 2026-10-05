@@ -69,6 +69,28 @@ index 6624e8fe5d3af2e5d54340717862266d61b8d698..427a50f805aeff7fed29cce82dcd4158
      /// Requests the latest sidebar snapshot from CMUX.
      public func refresh() {
          refreshSnapshot()
+diff --git a/Sources/CMUXInstalledExtensionSidebarHostView.swift b/Sources/CMUXInstalledExtensionSidebarHostView.swift
+index c49603512362343c3986876fc13f3a1e912de886..72e376cc9dfd8e7b2d107b7c4035f8c8d0d5ad44 100644
+--- a/Sources/CMUXInstalledExtensionSidebarHostView.swift
++++ b/Sources/CMUXInstalledExtensionSidebarHostView.swift
+@@ -1119,6 +1119,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
+ 
+     private func permissionDescription(actionScope: CmuxExtensionActionScope) -> String {
+         switch actionScope {
++        case .presentNativeSidebarMenu:
++            return String(localized: "sidebar.extensions.permission.presentNativeSidebarMenu.detail", defaultValue: "Show CMUX workspace and group menus. Commands run only when you choose a menu item.")
+         case .bindAgentSession:
+             return String(localized: "sidebar.extensions.permission.bindAgentSession.detail", defaultValue: "Bind an explicit session ID to its verified current process")
+         case .analyzeWorkspaceContext:
+@@ -1290,6 +1292,8 @@ private extension CmuxExtensionScope {
+ private extension CmuxExtensionActionScope {
+     var displayName: String {
+         switch self {
++        case .presentNativeSidebarMenu:
++            return String(localized: "sidebar.extensions.actionScope.presentNativeSidebarMenu", defaultValue: "Open native sidebar menus")
+         case .bindAgentSession:
+             return String(localized: "sidebar.extensions.actionScope.bindAgentSession", defaultValue: "Bind agent sessions")
+         case .analyzeWorkspaceContext:
 diff --git a/Sources/ContentView.swift b/Sources/ContentView.swift
 index e4d6499565408f271c1dfe89413111e952591dce..d150d7db83369643e6e760f9d8c3d50f95fa996d 100644
 --- a/Sources/ContentView.swift
@@ -263,10 +285,10 @@ index 0000000000000000000000000000000000000000..c3ca9d47918b7c3d1a322c8d93f6ed93
 +}
 diff --git a/Sources/SidebarExtensionClassicMenuCoordinator.swift b/Sources/SidebarExtensionClassicMenuCoordinator.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..9586ee06ee1c30bae616981beff9872c81ace1fc
+index 0000000000000000000000000000000000000000..853c8e62f6e313e2c948c0b0018076758e2f47cc
 --- /dev/null
 +++ b/Sources/SidebarExtensionClassicMenuCoordinator.swift
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,76 @@
 +import AppKit
 +@_spi(CmuxHostTransport) import CmuxExtensionKit
 +import CmuxSidebar
@@ -300,7 +322,6 @@ index 0000000000000000000000000000000000000000..9586ee06ee1c30bae616981beff9872c
 +            let tab = tabManager.tabs[index]
 +            let targets = capture.selectedWorkspaceIDs
 +            let remoteTargets = tabManager.tabs.filter { targets.contains($0.id) && $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace }
-+            writeSelectedIDs(Set(targets))
 +            let snapshot = SidebarWorkspaceSnapshotFactory(workspace: tab,
 +                settings: SidebarTabItemSettingsSnapshot(), showsAgentActivity: true).makeSnapshot()
 +            let commands = SidebarWorkspaceRowCommands(tab: tab, tabManager: tabManager,

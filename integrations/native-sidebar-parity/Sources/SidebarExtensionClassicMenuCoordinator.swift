@@ -31,7 +31,6 @@ struct SidebarExtensionClassicMenuCoordinator {
             let tab = tabManager.tabs[index]
             let targets = capture.selectedWorkspaceIDs
             let remoteTargets = tabManager.tabs.filter { targets.contains($0.id) && $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace }
-            writeSelectedIDs(Set(targets))
             let snapshot = SidebarWorkspaceSnapshotFactory(workspace: tab,
                 settings: SidebarTabItemSettingsSnapshot(), showsAgentActivity: true).makeSnapshot()
             let commands = SidebarWorkspaceRowCommands(tab: tab, tabManager: tabManager,

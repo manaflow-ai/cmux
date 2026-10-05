@@ -6,7 +6,7 @@
   "sourceArchivesIncludeForeignWIP": false,
   "patches": {
     "cmux": {
-      "sha256": "bc189e2369531ab5cb42e1a396028860a6024d2c3ec7d14f174b09503eb25ce8",
+      "sha256": "9e0f148dcd33f674dbc49acc5ba3ceb4f996cc1f0ce7846403d5927a8b3e4d13",
       "path": "/Users/yoyaku/.claude/state/cortex-parity/msn_9e895c323bcc17b01ecc/stage-v1/cmux-integration.patch"
     },
     "Cortex": {
@@ -14,8 +14,10 @@
       "path": "/Users/yoyaku/.claude/state/cortex-parity/msn_9e895c323bcc17b01ecc/stage-v1/Cortex-integration.patch"
     }
   },
-  "cmuxArtifactSHA": "e0fb401de51a10f5a824e7fffb5439c7101fb517",
+  "cmuxArtifactSHA": "af242452eaacd87b3256a19e7f5dc00d0aaa8921",
   "CortexArtifactSHA": "22c25fc81357972dca28f62de7cb6319b274b542",
-  "deliveryPatchSHA256": "bc189e2369531ab5cb42e1a396028860a6024d2c3ec7d14f174b09503eb25ce8",
-  "deliveryPatchExcludesGeneratedDependencyLock": true
+  "deliveryPatchSHA256": "9e0f148dcd33f674dbc49acc5ba3ceb4f996cc1f0ce7846403d5927a8b3e4d13",
+  "deliveryPatchExcludesGeneratedDependencyLock": true,
+  "compiledCortexSDKRevision": "e0fb401de51a10f5a824e7fffb5439c7101fb517",
+  "hostSDKTreeSHA": "d5b638ad9c5ee97d51d649af893af4277f2c7ec2"
 }

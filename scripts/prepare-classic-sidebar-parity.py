@@ -84,6 +84,7 @@ def main():
             cmux: ["Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Manifest/CMUXExtensionScope.swift", "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarAction.swift", "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarHost.swift", "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarSnapshot.swift", "Sources/ContentView.swift", "cmux.xcodeproj/project.pbxproj", "Sources/SidebarExtensionManagementCoordinator.swift", "Sources/Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift", "Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift"],
             cortex: ["Sources/CortexSessionsExtension/CortexSessionsExtension.swift", "Sources/CortexSessionsExtension/SessionsSidebarModel.swift", "Sources/CortexSessionsExtension/SidebarRootView.swift", "Sources/CortexSessionsExtension/CompactWorkspaceRowView.swift", "Sources/CortexSessionsExtension/SidebarChrome.swift", "scripts/verify-sidebar-layout.sh", "Project.swift"]}
         paths[cmux].append("Sources/TerminalController.swift")
+        paths[cmux].append("Sources/CMUXInstalledExtensionSidebarHostView.swift")
         for stage, files in paths.items():
             revision = cmux_sha if stage == cmux else cortex_sha
             for path in files: (stage / path).write_bytes(git(stage, "show", revision + ":" + path))
@@ -183,6 +184,11 @@ def main():
     # transport SPI; its TerminalController caller must import that same SPI.
     replace(cmux / "Sources/TerminalController.swift", "import CmuxSidebar\n",
             "@_spi(CmuxHostTransport) import CmuxSidebar\n")
+    host_grants = cmux / "Sources/CMUXInstalledExtensionSidebarHostView.swift"
+    replace(host_grants, "        switch actionScope {\n        case .bindAgentSession:",
+            '        switch actionScope {\n        case .presentNativeSidebarMenu:\n            return String(localized: "sidebar.extensions.permission.presentNativeSidebarMenu.detail", defaultValue: "Show CMUX workspace and group menus. Commands run only when you choose a menu item.")\n        case .bindAgentSession:')
+    replace(host_grants, "    var displayName: String {\n        switch self {\n        case .bindAgentSession:",
+            '    var displayName: String {\n        switch self {\n        case .presentNativeSidebarMenu:\n            return String(localized: "sidebar.extensions.actionScope.presentNativeSidebarMenu", defaultValue: "Open native sidebar menus")\n        case .bindAgentSession:')
 
     receipt = {"schemaVersion": 1, "cmuxBaseSHA": cmux_sha, "cortexBaseSHA": cortex_sha,
                "productionActivationAllowed": False, "sourceArchivesIncludeForeignWIP": False, "patches": {}}
@@ -192,7 +198,8 @@ def main():
         path = output / (name + "-integration.patch")
         path.write_bytes(patch)
         receipt["patches"][name] = {"sha256": hashlib.sha256(patch).hexdigest(), "path": str(path)}
-        git(stage, "-c", "user.name=CEO parity build artifact", "-c", "user.email=artifact@localhost", "commit", "-m", "Private dogfood integration snapshot; not a delivery commit")
+        if git(stage, "diff", "--cached", "--name-only").strip():
+            git(stage, "-c", "user.name=CEO parity build artifact", "-c", "user.email=artifact@localhost", "commit", "-m", "Private dogfood integration snapshot; not a delivery commit")
         receipt[name + "ArtifactSHA"] = git(stage, "rev-parse", "HEAD").decode().strip()
     (output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print(json.dumps(receipt, indent=2))
