@@ -47,6 +47,7 @@ import {
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, StepLog, type Vm } from "./guest";
+import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
   aptPinArgs,
@@ -65,6 +66,8 @@ import {
   pgdgSourcesFile,
   profileCommand,
   programInstallCommand,
+  ROLES_MANIFEST_PATH,
+  rolesManifest,
   sq,
   STORE_DIR,
   ubuntuSourcesFile,
@@ -310,6 +313,85 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
+/** Loopback sshd that trusts only the CA bind writes (cloud-automation.md 5, D-A4). No key material is baked. */
+async function configureSshd(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  await writeGuestFile(vm, SSHD_DROP_IN, sshdDropIn(DEVBOX_WORK_USER), 0o644);
+  const { effective, ss } = splitSshdBakeOutput(await L.step(vm, "sshd-ca-trust", sshdBakeCommand(DEVBOX_WORK_USER)));
+  const problems = [...sshdPolicyProblems(effective, DEVBOX_WORK_USER), ...sshdListenProblems(ss)];
+  if (problems.length > 0) throw new Error(`sshd policy:\n${problems.join("\n")}`);
+}
+
+/** The roles file for `cmux host`; baked role packages stay off (no unit, no process), first-use closures stay uninstalled. */
+async function configureRoles(ctx: Ctx): Promise<void> {
+  const { vm, L, lock } = ctx;
+  await writeGuestFile(vm, ROLES_MANIFEST_PATH, `${JSON.stringify(rolesManifest(lock), null, 2)}\n`, 0o644);
+  const firstUse = Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure));
+  ctx.result.roles = await L.step(vm, "roles-off", [
+    `python3 -c 'import json,sys; json.load(open(sys.argv[1]))' ${ROLES_MANIFEST_PATH}`,
+    "! pgrep -x Xvfb >/dev/null",
+    `for p in ${[...new Set(firstUse)].sort().join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
+    "dpkg-query -W -f='${Status}' fonts-noto-cjk | grep -q 'ok installed' && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
+    "echo roles-ok",
+  ].join(" && "));
+}
+
+export const VM_AGENT_PATH = "/opt/cmux/guest/vm-agent.ts";
+
+/** systemd units for the VM agent: started by bind.json (path unit) or at boot when bound; never at bake. */
+export function vmAgentUnits(): { path: string; service: string } {
+  return {
+    path: [
+      "[Unit]",
+      "Description=cmux VM agent trigger (the driver wrote bind.json)",
+      "",
+      "[Path]",
+      "PathExists=/var/lib/cmux/bind.json",
+      "Unit=cmux-vm-agent.service",
+      "",
+      "[Install]",
+      "WantedBy=paths.target",
+      "",
+    ].join("\n"),
+    service: [
+      "[Unit]",
+      "Description=cmux VM agent (bind, status report, events)",
+      "After=network-online.target",
+      "Wants=network-online.target",
+      "ConditionPathExists=|/var/lib/cmux/bind.json",
+      "ConditionPathExists=|/var/lib/cmux/bound.json",
+      "",
+      "[Service]",
+      "Type=simple",
+      `ExecStart=/usr/local/bin/bun ${VM_AGENT_PATH}`,
+      "Restart=on-failure",
+      "RestartSec=5",
+      "",
+      "[Install]",
+      "WantedBy=multi-user.target",
+      "",
+    ].join("\n"),
+  };
+}
+
+async function installVmAgent(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  const units = vmAgentUnits();
+  await L.step(vm, "vm-agent-dirs", "install -d -m 0755 /opt/cmux/guest && install -d -m 0700 /var/lib/cmux");
+  await writeGuestFile(vm, VM_AGENT_PATH, readFileSync(path.join(GUEST_DIR, "vm-agent.ts")), 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.path", units.path, 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.service", units.service, 0o644);
+  ctx.result.vmAgent = await L.step(vm, "vm-agent-enable", [
+    `d="$(mktemp -d)" && /usr/local/bin/bun build --target=bun --outdir "$d" ${VM_AGENT_PATH} >/dev/null && rm -rf "$d"`,
+    "systemctl daemon-reload",
+    "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service",
+    "systemctl start cmux-vm-agent.path",
+    "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
+    "test \"$(systemctl is-active cmux-vm-agent.service)\" != active",
+    "echo vm-agent-armed",
+  ].join(" && "));
+}
+
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, "/usr/local/bin/cmux-devbox-boot", devboxFileBytes("cmux-devbox-boot"), 0o755);
@@ -393,6 +475,9 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await installStore(ctx);
     await wireCmuxTui(ctx);
     await configureSystem(ctx);
+    await configureSshd(ctx);
+    await configureRoles(ctx);
+    await installVmAgent(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
     await finalizeAndCollect(ctx);

@@ -1,0 +1,76 @@
+{
+  "comment": "Owned by the license review. Notices that cmux-tui npm packages and PyPI wheels ship beside the Rust crate notices (package_notices.py). libghostty_vt names the ghostty-next commit of vt-link-graph.json; a bump needs new texts here. musl is linked into the Linux musl binaries.",
+  "musl": {
+    "version": "1.2.5",
+    "file": "texts/musl-1.2.5/COPYRIGHT",
+    "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
+    "source": "musl-1.2.5/COPYRIGHT in https://musl.libc.org/releases/musl-1.2.5.tar.gz (sha256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4). Rust 1.95.0 builds its self-contained musl from musl 1.2.5 (src/ci/docker/scripts/musl.sh); Zig 0.16.0's lib/libc/musl/COPYRIGHT is byte-identical."
+  },
+  "libghostty_vt": {
+    "source": "ghostty-next",
+    "commit": "bbb7320b451edb0ca0eee898c6bc4a8a15a5705d",
+    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37287309363",
+    "owners": {
+      "ghostty-next": {
+        "name": "Ghostty",
+        "files": [
+          {
+            "file": "texts/ghostty-next/LICENSE",
+            "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
+            "source": "https://github.com/manaflow-ai/ghostty-next/blob/bbb7320b451edb0ca0eee898c6bc4a8a15a5705d/LICENSE"
+          }
+        ]
+      },
+      "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": {
+        "name": "highway",
+        "files": [
+          {
+            "file": "texts/ghostty-next/highway/LICENSE",
+            "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+            "source": "LICENSE in https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz (Zig package N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE)"
+          },
+          {
+            "file": "texts/ghostty-next/highway/LICENSE-BSD3",
+            "sha256": "d25e82e26acd42ca3ccc9993622631163425b869b9e16284226d534cff6470f2",
+            "source": "LICENSE-BSD3 in https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz (Zig package N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE)"
+          },
+          {
+            "file": "texts/ghostty-next/highway/debian/copyright",
+            "sha256": "6e4ecf1cae052b678ea3178dd4b3652d581ee66a82d58db8800dd7d80dd6de76",
+            "source": "debian/copyright in https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz (Zig package N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE)"
+          }
+        ]
+      },
+      "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": {
+        "name": "wuffs",
+        "files": [
+          {
+            "file": "texts/ghostty-next/wuffs/LICENSE",
+            "sha256": "f8ac2c75e7f629a87565c80d61ff9fe5aa15cdea0bda997d52a4dc13fdbd19cb",
+            "source": "LICENSE in https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz (Zig package N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI)"
+          },
+          {
+            "file": "texts/ghostty-next/wuffs/LICENSE-APACHE",
+            "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+            "source": "LICENSE-APACHE in https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz (Zig package N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI)"
+          },
+          {
+            "file": "texts/ghostty-next/wuffs/LICENSE-MIT",
+            "sha256": "bb811a4b485eac3caeb8bdc58bbafb355fbcb6116010a7ea9179e5c70b0bc878",
+            "source": "LICENSE-MIT in https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz (Zig package N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI)"
+          }
+        ]
+      },
+      "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7": {
+        "name": "uucode",
+        "files": [
+          {
+            "file": "texts/ghostty-next/uucode/LICENSE.md",
+            "sha256": "312e901e142be2477b4ca859e9311f9e3f80d33372991759b7921c1893605f33",
+            "source": "LICENSE.md in https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz (Zig package uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7)"
+          }
+        ]
+      }
+    }
+  }
+}

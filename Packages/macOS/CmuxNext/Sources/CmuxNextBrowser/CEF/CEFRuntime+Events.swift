@@ -213,7 +213,7 @@ extension CEFRuntime {
         case .popupWindowBounds:
             popupWindowBoundsChanged(window: window)
         case .sidePanelChanged:
-            for host in hosts.values where host.owns(window: window) { host.visibleTab?.scheduleSidePanelRefresh() }
+            for host in hosts.values where host.owns(window: window) { host.visibleTab?.sidePanel.scheduleRefresh() }
         case .moved, .unknown:
             break
         }

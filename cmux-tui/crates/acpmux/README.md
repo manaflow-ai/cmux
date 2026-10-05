@@ -72,6 +72,16 @@ sheet behind a `Sessions` button. To reach it
 from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
 firewall in front.
 
+### Remote connections (`webRoots`, `webAskingModes`)
+
+A WebSocket connection other than the app's own pane (the dashboard, a paired or relayed
+device, a peer daemon) works only inside folders that are known projects (the cwds of local
+sessions) or listed in `webRoots`, and only in modes that ask before they act: the reviewed
+per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` adds, for example
+`"webAskingModes": {"myharness": ["ask"]}`. Both live in `config.json` and are never written over
+a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
+mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
+
 ## CLI
 
 Five everyday commands, three groups for the rest:
