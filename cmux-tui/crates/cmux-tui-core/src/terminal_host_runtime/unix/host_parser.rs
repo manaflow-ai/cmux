@@ -126,7 +126,9 @@ pub(super) fn run_host_parser(
             ParserCommand::Drain => {
                 // FIFO reception proves every source byte published by
                 // the PTY reader has reached the authoritative parser.
-                parser_host.clipboard.end(&mut parser_host.term.lock().unwrap());
+                parser_host
+                    .clipboard
+                    .end(&mut parser_host.term.lock().unwrap(), &parser_host.broadcast_lock);
                 parser_host.mark_pty_drained();
                 parser_host.publish_exit_if_drained();
                 flush_pending_responses();

@@ -417,6 +417,9 @@ pub enum MessageKind {
     /// `CLIPBOARD_READ` connection: token:u64 + location:u8. Request id and
     /// sequence are zero; the token names the read.
     ClipboardReadRequest = 24,
+    /// The host refused the open read itself (timeout or terminal end):
+    /// token:u64, request id and sequence zero. Never sent after a reply.
+    ClipboardReadCancel = 25,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -478,6 +481,7 @@ impl TryFrom<u16> for MessageKind {
             22 => Ok(Self::DetachAck),
             23 => Ok(Self::InputAck),
             24 => Ok(Self::ClipboardReadRequest),
+            25 => Ok(Self::ClipboardReadCancel),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),

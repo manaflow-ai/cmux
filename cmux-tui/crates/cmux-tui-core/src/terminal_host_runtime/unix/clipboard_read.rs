@@ -20,7 +20,15 @@
 //! open is refused at once. An open read is refused after
 //! [`CLIPBOARD_READ_TIMEOUT`] on an injected clock, when its owner
 //! disconnects, or when the terminal drains. Every answer is applied on the
-//! parser thread, which flushes the OSC 52 reply to the PTY.
+//! parser thread, which flushes the OSC 52 reply to the PTY. When the host
+//! refuses an open read itself (the timeout or the drain, never after a
+//! reply or to a departed owner) it sends that owner `ClipboardReadCancel`
+//! (`token:u64`, request id and sequence 0), so the daemon withdraws the
+//! question it put to the user.
+//!
+//! Daemon side: each owner connection keeps the host's one pending read and
+//! reports every change to the broker handler as a [`ClipboardReadSignal`]:
+//! a request, or a cancel when the host withdrew it or the connection ended.
 
 use super::*;
 use ghostty_vt::{
@@ -40,6 +48,36 @@ pub(super) const CLIPBOARD_READ_TIMEOUT: Duration = Duration::from_secs(60);
 const CLIPBOARD_READ_REFUSED: u8 = 0;
 const CLIPBOARD_READ_GRANTED: u8 = 1;
 const CLIPBOARD_READ_REQUEST_LEN: usize = size_of::<u64>() + 1;
+
+/// What the owner connection tells the daemon broker about the host's read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClipboardReadSignal {
+    /// The host asks the user about this read.
+    Request(ClipboardReadRequest),
+    /// The host refused the read with this token itself, or the connection
+    /// that carried it ended: it can no longer be answered.
+    Cancel(u64),
+}
+
+/// Called on the connection's frame reader thread; it must not block.
+pub(crate) type ClipboardReadHandler = Arc<dyn Fn(ClipboardReadSignal) + Send + Sync>;
+
+fn decode_clipboard_read_cancel(payload: &[u8]) -> anyhow::Result<u64> {
+    let mut decoder = PayloadDecoder::new(payload);
+    let token = decoder.u64()?;
+    decoder.finish()?;
+    anyhow::ensure!(token != 0, "clipboard read token is zero");
+    Ok(token)
+}
+
+/// Sends the host's own refusal of `open` to the owner it asked, under the
+/// broadcast lock like every targeted frame.
+fn send_cancel(owners: &[ClipboardOwner], open: &OpenClipboardRead, broadcast_lock: &Mutex<()>) {
+    let Some(owner) = owners.iter().find(|owner| owner.client == open.client) else { return };
+    let frame = Frame::new(MessageKind::ClipboardReadCancel, open.token.to_le_bytes().to_vec());
+    let _broadcast = lock(broadcast_lock);
+    let _ = owner.tap.try_send(frame);
+}
 
 /// The rights a daemon asks of a host for one owner connection.
 pub(super) fn owner_rights_for(
@@ -201,17 +239,21 @@ impl ClipboardReads {
         Box::new(move |request| lock(&queued).push(request))
     }
 
-    /// Starts the timeout worker. It blocks until the earliest deadline or a
-    /// state change and exits when the terminal drains.
-    pub(super) fn start_timer(
-        &self,
-        parser_commands: SyncSender<ParserCommand>,
-    ) -> std::io::Result<()> {
+    /// Starts the timeout worker for `host` (whose broker this is). It
+    /// blocks until the earliest deadline or a state change and exits when
+    /// the terminal drains.
+    pub(super) fn start_timer(&self, host: &Arc<HostShared>) -> std::io::Result<()> {
         let shared = self.shared.clone();
+        let host = Arc::downgrade(host);
         thread::Builder::new()
             .name("terminal-host-clipboard".into())
-            .spawn(move || shared.run_timer(&parser_commands))
+            .spawn(move || shared.run_timer(&host))
             .map(drop)
+    }
+
+    #[cfg(test)]
+    pub(super) fn owner_count_for_test(&self) -> usize {
+        lock(&self.shared.state).owners.len()
     }
 
     #[cfg(test)]
@@ -292,15 +334,18 @@ impl ClipboardReads {
     }
 
     /// Parser thread, at the terminal's end: refuses every open and queued
-    /// read and stops the timer.
-    pub(super) fn end(&self, term: &mut Terminal) {
+    /// read, cancels the open one with its owner, and stops the timer.
+    pub(super) fn end(&self, term: &mut Terminal, broadcast_lock: &Mutex<()>) {
         let mut tokens: Vec<u64> =
             std::mem::take(&mut *lock(&self.queued)).iter().map(|r| r.token).collect();
         {
             let mut state = lock(&self.shared.state);
             state.ended = true;
+            if let Some(open) = state.open.take() {
+                send_cancel(&state.owners, &open, broadcast_lock);
+                tokens.push(open.token);
+            }
             state.owners.clear();
-            tokens.extend(state.open.take().map(|open| open.token));
             self.shared.changed.notify_all();
         }
         term.set_clipboard_reads_deferred(false);
@@ -311,7 +356,7 @@ impl ClipboardReads {
 }
 
 impl ClipboardReadsShared {
-    fn run_timer(&self, parser_commands: &SyncSender<ParserCommand>) {
+    fn run_timer(&self, host: &Weak<HostShared>) {
         let mut state = lock(&self.state);
         loop {
             if state.ended {
@@ -326,12 +371,16 @@ impl ClipboardReadsShared {
                 state = self.clock.wait_timeout(&self.changed, state, deadline - now);
                 continue;
             }
-            let token = state.open.take().map(|open| open.token);
+            let Some(open) = state.open.take() else { continue };
+            let Some(host) = host.upgrade() else { return };
+            // Cancel before the slot can reopen, so the owner sees it ahead
+            // of any later request.
+            send_cancel(&state.owners, &open, &host.broadcast_lock);
             drop(state);
-            if let Some(token) = token {
-                let _ = parser_commands
-                    .send(ParserCommand::ClipboardReadComplete { token, text: None });
-            }
+            let _ = host
+                .parser_commands
+                .send(ParserCommand::ClipboardReadComplete { token: open.token, text: None });
+            drop(host);
             state = lock(&self.state);
         }
     }
@@ -376,6 +425,24 @@ impl HostShared {
 pub(crate) struct ClipboardReadInbox {
     negotiated: AtomicBool,
     pending: Mutex<Option<ClipboardReadRequest>>,
+    handler: Mutex<Option<ClipboardReadHandler>>,
+}
+
+impl ClipboardReadInbox {
+    fn signal(&self, signal: ClipboardReadSignal) {
+        let handler = lock(&self.handler).clone();
+        if let Some(handler) = handler {
+            handler(signal);
+        }
+    }
+}
+
+/// The frame envelope every host-originated clipboard frame carries.
+fn clipboard_envelope_valid(frame: &Frame, protocol_version: u16) -> bool {
+    frame.version == protocol_version
+        && frame.flags == 0
+        && frame.request_id == 0
+        && frame.sequence == 0
 }
 
 impl ControlResponses {
@@ -394,6 +461,12 @@ impl ControlResponses {
         self.clipboard_reads.negotiated.load(Ordering::Acquire)
     }
 
+    /// Installs the broker's handler for this connection's reads.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the layer-3 daemon broker installs it"))]
+    pub(crate) fn set_clipboard_read_handler(&self, handler: ClipboardReadHandler) {
+        *lock(&self.clipboard_reads.handler) = Some(handler);
+    }
+
     /// The connection's frame reader got a `ClipboardReadRequest`. False
     /// ends the connection: unnegotiated, or a malformed envelope or payload.
     pub(crate) fn accept_clipboard_read_request(
@@ -401,11 +474,7 @@ impl ControlResponses {
         frame: &Frame,
         protocol_version: u16,
     ) -> bool {
-        if !self.clipboard_reads_negotiated()
-            || frame.version != protocol_version
-            || frame.flags != 0
-            || frame.request_id != 0
-            || frame.sequence != 0
+        if !self.clipboard_reads_negotiated() || !clipboard_envelope_valid(frame, protocol_version)
         {
             return false;
         }
@@ -413,7 +482,38 @@ impl ControlResponses {
             return false;
         };
         *lock(&self.clipboard_reads.pending) = Some(request);
+        self.clipboard_reads.signal(ClipboardReadSignal::Request(request));
         true
+    }
+
+    /// The connection's frame reader got a `ClipboardReadCancel`. A cancel
+    /// for a read that is no longer pending (answered, or replaced) is stale
+    /// and ignored. False ends the connection, as for a request.
+    pub(crate) fn accept_clipboard_read_cancel(
+        &self,
+        frame: &Frame,
+        protocol_version: u16,
+    ) -> bool {
+        if !self.clipboard_reads_negotiated() || !clipboard_envelope_valid(frame, protocol_version)
+        {
+            return false;
+        }
+        let Ok(token) = decode_clipboard_read_cancel(&frame.payload) else {
+            return false;
+        };
+        if self.take_clipboard_read(token) {
+            self.clipboard_reads.signal(ClipboardReadSignal::Cancel(token));
+        }
+        true
+    }
+
+    /// The connection's stream ended: its host refused the pending read, so
+    /// the broker withdraws it.
+    pub(crate) fn end_clipboard_reads(&self) {
+        let pending = lock(&self.clipboard_reads.pending).take();
+        if let Some(pending) = pending {
+            self.clipboard_reads.signal(ClipboardReadSignal::Cancel(pending.token));
+        }
     }
 
     pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {

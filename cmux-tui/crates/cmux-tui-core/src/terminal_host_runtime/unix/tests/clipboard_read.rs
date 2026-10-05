@@ -77,7 +77,7 @@ impl Harness {
         let term = Terminal::new(80, 24, 0, callbacks).unwrap();
         let (parser_commands, receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
         let host = test_host_shared_with(term, parser_commands, clipboard);
-        host.clipboard.start_timer(host.parser_commands.clone()).unwrap();
+        host.clipboard.start_timer(&host).unwrap();
         let (pty_sender, pty) = mpsc_channel();
         *host.writer.lock().unwrap() = Box::new(ChannelWriter(pty_sender));
         let initial_colors = host.term.lock().unwrap().color_overrides();

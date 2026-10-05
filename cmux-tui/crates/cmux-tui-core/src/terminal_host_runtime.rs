@@ -845,6 +845,8 @@ mod unix {
     mod control_responses;
     mod host_parser;
     mod standby;
+    #[cfg(test)]
+    pub(crate) use clipboard_read::ClipboardReadSignal;
     use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
     use clipboard_read::{owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
@@ -5210,7 +5212,7 @@ mod unix {
             fail_next_resize_publication: AtomicBool::new(false),
         });
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
-        shared.clipboard.start_timer(shared.parser_commands.clone())?;
+        shared.clipboard.start_timer(&shared)?;
 
         let parser_host = shared.clone();
         let signals = ParserSignals { pending_responses, title_changed, bell };
@@ -9871,6 +9873,11 @@ mod unix {
 
 #[cfg(unix)]
 pub use unix::unadoptable::*;
+#[cfg(all(unix, test))]
+pub(crate) use unix::{
+    ClipboardReadSignal, acquire_terminal_host_publication_lock, input_ack_surface_fixture,
+    prepare_terminal_host_publication_lock,
+};
 #[cfg(unix)]
 pub(crate) use unix::{
     ControlResponses, DecodedHostResize, DeferredCellPixelResolution, StandbyTerminalHost,
@@ -9886,11 +9893,6 @@ pub use unix::{
     load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
     terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
     validate_terminal_host_exit_record, validate_terminal_host_record,
-};
-#[cfg(all(unix, test))]
-pub(crate) use unix::{
-    acquire_terminal_host_publication_lock, input_ack_surface_fixture,
-    prepare_terminal_host_publication_lock,
 };
 
 #[cfg(not(unix))]

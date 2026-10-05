@@ -138,6 +138,7 @@ indexes are fatal.
 | 22 | `DetachAck` | host to client | response | empty; final source-ordered frame for this client |
 | 23 | `InputAck` | host to client | response | empty; confirms the authoritative PTY writer accepted and flushed `Input` |
 | 24 | `ClipboardReadRequest` | host to owner | `CLIPBOARD_READ` | `token:u64, location:u8` (0 standard, 1 selection, 2 primary) |
+| 25 | `ClipboardReadCancel` | host to owner | `CLIPBOARD_READ` | `token:u64`; the host refused that open read itself |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes; a nonzero request id asks a supporting host for `InputAck` |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -161,7 +162,14 @@ of an owner that disconnects, and every open read at terminal end are refused
 with an empty clipboard. A refused reply's text is ignored; granted text over
 1 MiB is refused. Replies to unknown or already answered tokens are ignored; a
 reply from a connection without `CLIPBOARD_READ` closes it. Without such an
-owner, reads are ignored.
+owner, reads are ignored. When the host refuses the open read itself, on the
+timeout or at terminal end, it sends `ClipboardReadCancel` with that token
+(request id and sequence 0) to the owner it asked, before the slot can take
+another read; it sends none after a reply or to an owner that disconnected.
+The owner drops its pending read for that token and ignores a cancel for any
+other token. An unnegotiated or malformed cancel ends the owner connection.
+When the newest owner disconnects, the next read goes to the newest remaining
+one.
 
 `ResizeAck.result_flags & 1` means the request changed canonical geometry;
 other bits are invalid. Acknowledgements require negotiated

@@ -26,8 +26,9 @@
 //! so a backlog can never delay an acknowledgement it still owes.
 //!
 //! A `ClipboardReadRequest` from a host that negotiated clipboard reads
-//! becomes the connection's pending read (see `ControlResponses`); from any
-//! other host it ends the connection.
+//! becomes the connection's pending read and a `ClipboardReadCancel`
+//! withdraws it (see `ControlResponses`); from any other host either ends
+//! the connection. The end of the stream withdraws a pending read too.
 //!
 //! Failure ownership: at the end of the stream the thread fails only the
 //! waiters it resolves itself; the surface's reader drains the queued frames
@@ -206,6 +207,12 @@ fn read_stream(
             }
             break;
         }
+        if frame.kind == MessageKind::ClipboardReadCancel {
+            if control_responses.accept_clipboard_read_cancel(&frame, protocol_version) {
+                continue;
+            }
+            break;
+        }
         if resolves_early(&frame, protocol_version, early) {
             // A Kitty limits acknowledgement that arrives after its
             // requester's deadline is advisory: the requester already
@@ -237,6 +244,7 @@ fn read_stream(
         state.frames.push_back(HostFrame::Frame(frame));
         queue.changed.notify_all();
     }
+    control_responses.end_clipboard_reads();
     let mut state = queue.state.lock().unwrap();
     if state.abandoned {
         drop(state);
@@ -476,7 +484,13 @@ mod tests {
         let responses = ControlResponses::new_for_test();
         responses.negotiate_clipboard_reads_for_test();
         let signals = recording_handler(&responses);
-        read_stream(stream_of(&[clipboard_request(9, 2, version)]), &responses, version, SMART, &queue());
+        read_stream(
+            stream_of(&[clipboard_request(9, 2, version)]),
+            &responses,
+            version,
+            SMART,
+            &queue(),
+        );
         assert_eq!(responses.pending_clipboard_read(), None);
         assert_eq!(signals.lock().unwrap().last(), Some(&ClipboardReadSignal::Cancel(9)));
     }
