@@ -910,6 +910,8 @@ final class BrowserReplTabAttachment {
         var body = payload
         body["targetId"] = targetID
         if let url = payload["url"] as? String { body["url"] = pageURL(url) }
+        // WebKit's error text can name URLs (a redirect's target among them).
+        if let failure = payload["failure"] as? String { body["failure"] = BrowserReplPageText(failure, creator: liveCreator) }
         if let headers = payload["headers"] as? [String: String] {
             body["headers"] = BrowserReplPageHeaders(headers, creator: liveCreator)
         }

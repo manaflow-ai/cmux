@@ -185,10 +185,15 @@ public struct BrowserReplDriverOutput: Sendable {
     /// Every event's `url` is a page's or a tab's, so one a driver left a
     /// plain string is taken as a page URL no reader gets as written: only
     /// a ``BrowserReplPageURL`` naming the reader as the tab's creator
-    /// reaches it with its credentials.
+    /// reaches it with its credentials. A `failure` text (a failed
+    /// request's error) is page text the same way (``BrowserReplPageText``).
     public func event(_ payload: [String: Any]) -> String? {
         var payload = payload
         if let url = payload["url"] as? String { payload["url"] = BrowserReplPageURL(url, creator: nil) }
+        // A failed request's `failure` is WebKit's error text, which can name
+        // any URL (a redirect's target, the URL as the network layer spelled
+        // it): left a plain string, it is page text no reader gets as written.
+        if let failure = payload["failure"] as? String { payload["failure"] = BrowserReplPageText(failure, creator: nil) }
         return JSONSerialization.browserReplString(resolve(payload))
     }
 
