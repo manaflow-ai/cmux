@@ -195,6 +195,14 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+            .init(
+                section: .terminal,
+                id: "copy-confirmation",
+                title: String(localized: "settings.terminal.showCopyConfirmation", defaultValue: "Show Copy Confirmation"),
+                detailText: String(localized: "settings.terminal.showCopyConfirmation.subtitle", defaultValue: "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it."),
+                paths: ["terminal.showCopyConfirmation"],
+                synonyms: "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
+            ),
             .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(
                 section: .terminal,
@@ -441,14 +449,6 @@ extension Array where Element == CuratedSettingEntry {
 
             // Beta
             .init(section: .betaFeatures, id: "feed", title: String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), synonyms: "Feed feed right sidebar agent decisions permissions questions approval beta unstable"),
-            .init(
-                section: .betaFeatures,
-                id: "cloudMachines",
-                title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
-                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."),
-                paths: ["cloud.beta.machines.enabled"],
-                synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
-            ),
             .init(
                 section: .betaFeatures,
                 id: "conversationSidebar",

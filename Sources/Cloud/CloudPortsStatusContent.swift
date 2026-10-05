@@ -53,6 +53,7 @@ final class CloudPortsStatusContent: NSView {
         titleLabel.stringValue = presentation.title
         messageLabel.stringValue = presentation.message
         actionButton.setTitle(presentation.actionTitle ?? "", fontSize: GlobalFontMagnification.scaledSize(max(10, style.detailSize)))
+        messageLabel.isHidden = presentation.message.isEmpty
         actionButton.isHidden = presentation.action == .none || presentation.actionTitle == nil
         actionButton.setAccessibilityLabel(presentation.actionTitle ?? presentation.title)
         let fontSize = GlobalFontMagnification.scaledSize(max(10, style.detailSize))
@@ -72,8 +73,8 @@ final class CloudPortsStatusContent: NSView {
         let titleHeight = Self.textHeight(titleLabel.stringValue, font: titleLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
         titleLabel.frame = NSRect(x: inset, y: 2, width: width - inset * 2, height: titleHeight)
         let messageY = titleLabel.frame.maxY + 2
-        let messageHeight = Self.textHeight(messageLabel.stringValue, font: messageLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
-        messageLabel.frame = NSRect(x: inset, y: messageY, width: width - inset * 2, height: messageHeight)
+        let messageHeight = messageLabel.isHidden ? 0 : Self.textHeight(messageLabel.stringValue, font: messageLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
+        messageLabel.frame = messageLabel.isHidden ? .zero : NSRect(x: inset, y: messageY, width: width - inset * 2, height: messageHeight)
         if actionButton.isHidden {
             actionButton.frame = .zero
         } else {
@@ -98,7 +99,7 @@ final class CloudPortsStatusContent: NSView {
             : NSFont.systemFont(ofSize: fontSize)
         let contentWidth = max(1, width - 4)
         let title = textHeight(presentation.title, font: titleFont, width: contentWidth)
-        let message = textHeight(presentation.message, font: messageFont, width: contentWidth)
+        let message = presentation.message.isEmpty ? 0 : textHeight(presentation.message, font: messageFont, width: contentWidth)
         let button: CGFloat = presentation.action == .none ? 0 : 26
         return ceil(title + message + button + 10)
     }

@@ -100,31 +100,42 @@ final class NewMachineModel {
 
     /// The base-image sizes the backend exposes, in ascending memory order.
     /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
-    /// 24/96, or 32/128 GB of memory/disk. The server's list trims
-    /// this set for plan limits. The 128 MiB BusyBox image is intentionally
-    /// not a coding-machine option because it has no baked dev tools.
-    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768]
+    /// 24/96, 32/128, or 64/128 GB of memory/disk; the 64 GB row is Max only.
+    /// The server's list trims this set for plan limits. Every machine draws
+    /// its vCPUs and memory from the plan's shared pool. The 128 MiB BusyBox
+    /// image is intentionally not a coding-machine option because it has no
+    /// baked dev tools.
+    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
     static let planMachineMemoryMb = 8192
     /// The pre-ladder backend default. It is used only when the server omits
     /// `limits.memoryOptionsMb`, so the client does not send an unsupported
     /// `--size` flag during a rolling upgrade.
     static let legacyPlanMachineMemoryMb = 20480
-    /// The plan that sells the ladder's 16, 24, and 32 GB rows
+    /// The plan that sells the ladder's 64 GB row and the larger pool
     /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
     nonisolated static let maxPlanId = "max"
-    /// The largest machine every plan except Max may start
-    /// (`PLAN_MAX_MEMORY_MB` on the server).
-    nonisolated static let standardPlanMaxMemoryMb = 8192
+    /// The largest machine Pro, Team, and Founder's Edition may start
+    /// (32 GB / 16 vCPU, the `xl` row).
+    nonisolated static let standardPlanMaxMemoryMb = 32768
+    /// The largest machine a free or unknown plan may start, where an operator
+    /// opens free provisioning (`PLAN_MAX_MEMORY_MB` on the server).
+    nonisolated static let freePlanMaxMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder, every other plan (and an unknown plan) stops at 8 GB.
+    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 32 GB,
+    /// Go at 4 GB, and a free or unknown plan at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
     nonisolated static func maxMemoryMb(planId: String?) -> Int {
-        if normalizedPlanId(planId) == "go" { return 4096 }
-        if normalizedPlanId(planId) == maxPlanId {
+        switch normalizedPlanId(planId) {
+        case "go":
+            return 4096
+        case maxPlanId:
             return memoryOptionsMb.max() ?? standardPlanMaxMemoryMb
+        case "pro", "team", "founders":
+            return standardPlanMaxMemoryMb
+        default:
+            return freePlanMaxMemoryMb
         }
-        return standardPlanMaxMemoryMb
     }
     /// Mirrors `defaultMemoryMbForPlan`: the provider sizing profile, never above the max.
     static func defaultMemoryMb(planId: String?) -> Int {
@@ -166,6 +177,11 @@ final class NewMachineModel {
     /// The server advertised a ladder, but every size is locked for this plan.
     /// Creation must stay disabled until the server returns an allowed size.
     private(set) var hasNoAllowedMemoryOptions = false
+    /// Whether the authoritative plan read is still in flight.
+    private(set) var planIsLoading: Bool
+    /// A terminal plan-read failure keeps the sheet open so it can retry in place.
+    private(set) var planLoadError: String?
+    var onPlanRetry: (@MainActor () -> Void)?
     var selectedUpgradePlanId = "max"
     var showsMaxUpgrade = false
     private var storedMemoryMb: Int
@@ -289,7 +305,21 @@ final class NewMachineModel {
         memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
         vcpusByMemoryMb = updated.vcpusByMemoryMb
         hasNoAllowedMemoryOptions = updated.hasNoAllowedMemoryOptions
+        planIsLoading = false
+        planLoadError = nil
         if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
+    }
+
+    /// Records a failed authoritative read without dismissing the sheet.
+    func setPlanLoadError(_ message: String) {
+        planIsLoading = false
+        planLoadError = message
+    }
+
+    /// Starts another authoritative plan read while keeping the sheet visible.
+    func setPlanLoading() {
+        planIsLoading = true
+        planLoadError = nil
     }
 
     /// `memoryOptionsMb`, `lockedMemoryOptionsMb` and `memoryUpgradePlanId`
@@ -307,6 +337,7 @@ final class NewMachineModel {
         vcpusByMemoryMb: [String: Int]? = nil,
         selectionWindowID: UUID? = nil,
         defaults: UserDefaults = .standard,
+        planIsLoading: Bool = false,
         submit: @escaping Submit
     ) {
         self.defaults = defaults
@@ -315,6 +346,8 @@ final class NewMachineModel {
         self.vcpusByMemoryMb = vcpusByMemoryMb
         self.mode = mode
         self.plan = plan
+        self.planIsLoading = planIsLoading
+        self.planLoadError = nil
         let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         let locked: [Int]
         if serverOptions.isEmpty {
@@ -456,6 +489,26 @@ final class NewMachineModel {
             ? String(localized: "machines.new.plan.single", defaultValue: "%1$d of 1 machine in use")
             : String(localized: "machines.new.plan.multi", defaultValue: "%1$d of %2$d machines in use")
         return String(format: format, plan.activeCount, maxActiveVms)
+    }
+
+    /// The shared pool's usage, "16 of 20 vCPUs · 32 of 40 GB RAM in use";
+    /// nil for plans without a pool and control planes that predate it.
+    var poolUsageText: String? {
+        guard mode == .newMachine else { return nil }
+        return plan?.resourcePool?.usageText
+    }
+
+    /// Why the selected size does not fit the pool's free vCPUs or memory
+    /// right now; nil when it fits or the server sent no pool. The server
+    /// enforces the pool, so this explains the refusal without blocking the
+    /// create on a reading that may be a poll old.
+    var selectedSizePoolShortfallText: String? {
+        guard supportsSize, let pool = plan?.resourcePool, let size = selectedSize,
+              let shortfall = pool.shortfall(vcpus: size.vcpus, memoryMb: size.memoryMb) else { return nil }
+        return CloudVMResourcePool.shortfallText(
+            shortfall,
+            offersUpgrade: Self.normalizedPlanId(plan?.planId) != Self.maxPlanId
+        )
     }
 
     /// The free plan's access window, so nobody is surprised a week later.

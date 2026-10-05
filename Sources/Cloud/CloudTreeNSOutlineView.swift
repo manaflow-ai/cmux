@@ -9,6 +9,9 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     private var dragDestinationSequenceNumber: Int?
     lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+    lazy var machineLift = CloudTreeMachineReorderLift(outline: self)
+    /// The last press, in outline coordinates: a lifted machine's grab point.
+    private(set) var lastMouseDownPoint: NSPoint?
 
     func trackDragDestination(sequenceNumber: Int) {
         dragDestinationSequenceNumber = sequenceNumber
@@ -70,8 +73,8 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     /// enter/exit state across tracking-area replacement, scrolling, or reloads.
     private func updateHover(at point: NSPoint?, keepingNode: Bool = false) {
         var next: CloudTreeCellView?
-        if let menuPinnedNodeID {
-            next = visibleCell(forNodeID: menuPinnedNodeID)
+        if let pinnedID = machineLift.sourceNodeID ?? menuPinnedNodeID {
+            next = visibleCell(forNodeID: pinnedID)
         } else if let point, visibleRect.contains(point) {
             // The whole row line counts, so the chevron and the indent before
             // the cell hover the row too.
@@ -169,6 +172,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         }
         updateHover(at: nil)
         reorderPresentation.clear()
+        machineLift.discard()
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: window)
         super.viewWillMove(toWindow: newWindow)
@@ -209,6 +213,19 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
     var onNativeDragPointerBoundary: (() -> Void)?
     var onDocumentContentChanged: (() -> Void)?
+    /// Lays out the host that sizes the document to its rows.
+    var layoutHost: (() -> Void)?
+    /// Lets the outline scroll this much further above and below its rows,
+    /// for a drag that keeps a row in place while rows around it close.
+    /// Zero for both gives the range back.
+    var lendScrollRange: ((_ above: CGFloat, _ below: CGFloat) -> Void)?
+
+    /// Sizes the document to its rows and lays the rows out now rather than
+    /// on the next pass, for a caller that measures or scrolls right after
+    /// rows open or close.
+    func layoutDocumentNow() {
+        if let layoutHost { layoutHost() } else { layoutSubtreeIfNeeded() }
+    }
 
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
 
@@ -264,6 +281,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        lastMouseDownPoint = convert(event.locationInWindow, from: nil)
         clearDragDestination()
         reorderPresentation.clear()
         onNativeDragPointerBoundary?()
@@ -423,6 +441,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func reloadData() {
         clearDragDestination()
         reorderPresentation.clear()
+        machineLift.discard()
         updateHover(at: nil, keepingNode: true)
         super.reloadData()
         needsLayout = true

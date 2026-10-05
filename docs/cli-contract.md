@@ -145,6 +145,7 @@ Environment:
 | `ssh-tmux` | Mirror a remote host's tmux sessions into the current window over SSH tmux control mode (`tmux -CC`): each session becomes a workspace, each window a tab, each pane a split. `ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]`. Unlike `mosh-tmux`, which attaches one terminal to one session, this mirrors the whole server. |
 | `local-tmux` | Opt in to a user-owned local tmux server. `start`, `attach`, `list`, `status`, `detach`, `close`, and `cleanup` preserve and manage named sessions independently of the cmux GUI; `cleanup` previews stale records unless `--prune` is supplied. `list`, `status`, `detach`, `close`, `cleanup`, and `attach --headless` work without a running cmux control socket. This preserves live processes across cmux lifecycle events, not a machine shutdown or reboot; use a remote tmux owner for continuity while the Mac is offline. See [`docs/local-tmux.md`](local-tmux.md). |
 | `tmux attach` | Compatibility alias for `local-tmux attach`. |
+| `local-zellij` | Opt in to zellij sessions in a private socket directory. `start`, `attach`, `list`, `status`, and `close` manage named sessions independently of the cmux GUI; clients attach with `--on-force-close detach`, so closing a surface detaches instead of ending the session. `list`, `status`, `close`, `start --detached`, and `attach --headless` work without a running cmux control socket. See [`docs/local-zellij.md`](local-zellij.md). |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
 | `ssh-session-attach` | Create a local terminal surface that reattaches to an existing persisted SSH PTY session. |
@@ -629,13 +630,13 @@ tmux compatibility commands:
 
 | Command | Contract |
 | --- | --- |
-| `capture-pane` | Read pane text. |
-| `resize-pane` | Resize a pane with direction flags. |
-| `pipe-pane` | Pipe pane text to a shell command. |
-| `wait-for` | Signal or wait on a named synchronization point. |
-| `swap-pane` | Swap two panes. |
-| `break-pane` | Move a pane into a new workspace. |
-| `join-pane` | Join a pane into another pane. |
+| `capture-pane` | Read pane text, targeting `--workspace`, `--surface`, or `--window`; `--scrollback` includes history and `--lines <n>` returns its last lines. |
+| `resize-pane` | Resize `--pane` in a workspace/window with `-L`, `-R`, `-U`, or `-D` and optional `--amount <n>`. |
+| `pipe-pane` | Pipe the selected surface's text to `--command <shell-command>` or a trailing shell command. Accepts workspace, surface, and window selectors. |
+| `wait-for` | Wait on a named synchronization point with optional `--timeout <seconds>`, or signal it with `-S`/`--signal`. |
+| `swap-pane` | Swap required `--pane` and `--target-pane` selectors, optionally scoped by workspace/window and `--focus <true\|false>`. |
+| `break-pane` | Move the selected pane/surface into a new pane context; accepts workspace/window selectors and `--focus <true\|false>` or `--no-focus`. |
+| `join-pane` | Join the selected pane/surface into required `--target-pane`; accepts workspace/window selectors and `--focus <true\|false>` or `--no-focus`. |
 | `next-window`, `previous-window`, `last-window` | Move workspace selection. |
 | `last-pane` | Focus the last pane. |
 | `find-window` | Find a workspace by title or content. |
@@ -656,10 +657,17 @@ Browser subcommands:
 | `browser open`, `browser open-split`, `browser new` | Create or open a browser surface. |
 | `browser goto`, `browser navigate` | Navigate to a URL. |
 | `browser back`, `browser forward`, `browser reload` | Navigate browser history or reload. |
+| `browser react-grab toggle` | Toggle React grab for the selected browser surface; `--return-to <terminal-surface>` routes the result back to a terminal. |
+| `browser devtools toggle`, `browser devtools console` | Toggle Web Inspector or show the browser console for an optional `--surface`. |
+| `browser focus-mode enter`, `browser focus-mode exit`, `browser focus-mode toggle` | Change focus mode for an optional `--surface`; `on` and `off` are also accepted. |
+| `browser design-mode enable`, `browser design-mode disable`, `browser design-mode toggle`, `browser design-mode status` | Change or read design mode for an optional `--surface`; bare `design-mode` reads status. |
+| `browser zoom in`, `browser zoom out`, `browser zoom reset`, `browser zoom <factor>` | Change page zoom for an optional `--surface`; a numeric factor sets absolute zoom. |
+| `browser history clear --force` | Permanently clear the default browser profile's history, like the View menu action; `--yes` also confirms. |
 | `browser url`, `browser get-url` | Print current URL. |
 | `browser focus-webview`, `browser is-webview-focused` | Focus or query webview focus. |
 | `browser snapshot` | Print a DOM snapshot. |
 | `browser eval` | Evaluate JavaScript. |
+| `browser repl` | Run JavaScript with a Playwright `page` API against the workspace's browser panes in a persistent session; `browser repl guide` prints the guide. |
 | `browser wait` | Wait for selector, text, URL, load state, or JS predicate. |
 | `browser click`, `browser dblclick`, `browser hover`, `browser focus`, `browser check`, `browser uncheck`, `browser scroll-into-view` | Run element interaction. |
 | `browser type`, `browser fill` | Type into or set an input. |
@@ -679,7 +687,8 @@ Browser subcommands:
 | `browser cookies` | Get, set, or clear cookies; `set` accepts `--http-only` to keep the cookie hidden from page JavaScript. `clear` requires an explicit scope such as `--url`, `--domain`, `--name`, or `--all`, and returns the removed count as `cleared` in JSON output. |
 | `browser storage` | Get, set, or clear local/session storage. |
 | `browser tab` | Create, list, switch, or close browser tabs. |
-| `browser console`, `browser errors` | List or clear console messages and errors. |
+| `browser console list`, `browser console clear` | List or clear console messages for the selected browser surface. |
+| `browser errors list`, `browser errors clear` | List or clear browser errors for the selected surface. |
 | `browser highlight` | Highlight an element. |
 | `browser state` | Save or load browser state. |
 | `browser addinitscript`, `browser addscript`, `browser addstyle` | Inject scripts or CSS. |
@@ -1078,13 +1087,13 @@ the expected text without connecting to a cmux socket.
 - `cmux rename-workspace --help` -> `Usage: cmux rename-workspace`
 - `cmux rename-window --help` -> `Usage: cmux rename-workspace`
 - `cmux current-workspace --help` -> `Usage: cmux current-workspace`
-- `cmux capture-pane --help` -> `Usage: cmux capture-pane`
-- `cmux resize-pane --help` -> `Usage: cmux resize-pane`
-- `cmux pipe-pane --help` -> `Usage: cmux pipe-pane`
-- `cmux wait-for --help` -> `Usage: cmux wait-for`
-- `cmux swap-pane --help` -> `Usage: cmux swap-pane`
-- `cmux break-pane --help` -> `Usage: cmux break-pane`
-- `cmux join-pane --help` -> `Usage: cmux join-pane`
+- `cmux capture-pane --help` -> `Usage: cmux capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]`
+- `cmux resize-pane --help` -> `Usage: cmux resize-pane [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [-L|-R|-U|-D] [--amount <n>]`
+- `cmux pipe-pane --help` -> `Usage: cmux pipe-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <shell-command> | <shell-command>]`
+- `cmux wait-for --help` -> `Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]`
+- `cmux swap-pane --help` -> `Usage: cmux swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]`
+- `cmux break-pane --help` -> `Usage: cmux break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
+- `cmux join-pane --help` -> `Usage: cmux join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
 - `cmux next-window --help` -> `Usage: cmux next-window`
 - `cmux previous-window --help` -> `Usage: cmux previous-window`
 - `cmux last-window --help` -> `Usage: cmux last-window`
@@ -1133,6 +1142,14 @@ the expected text without connecting to a cmux socket.
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
+- `cmux help browser` -> `browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]`
+- `cmux help browser` -> `browser devtools toggle|console [--surface <id>]`
+- `cmux help browser` -> `browser focus-mode enter|exit|toggle [--surface <id>]`
+- `cmux help browser` -> `browser design-mode enable|disable|toggle|status [--surface <id>]`
+- `cmux help browser` -> `browser zoom in|out|reset|<factor> [--surface <id>]`
+- `cmux help browser` -> `browser history clear --force`
+- `cmux help browser` -> `browser console <list|clear>`
+- `cmux help browser` -> `browser errors <list|clear>`
 - `cmux browser --help` -> `screenshot [--out <path>] [--json]`
 - `cmux browser --help` -> `download list [--limit <1...25>] [--json]`
 - `cmux open-browser --help` -> `Legacy alias for 'cmux browser open'`

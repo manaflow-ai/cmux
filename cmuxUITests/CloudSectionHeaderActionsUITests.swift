@@ -34,6 +34,7 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         super.tearDown()
     }
 
+    /// Verifies every Cloud machine creation entry point opens one shared sheet.
     func testCloudMachinesPlusOpensOneNewMachineSheetLikeCmdY() {
         let app = launchSignedInApp()
         defer { app.terminate() }
@@ -43,8 +44,24 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
 
         let tree = app.descendants(matching: .any).matching(identifier: "CloudMachinesTree").firstMatch
         XCTAssertTrue(tree.waitForExistence(timeout: 10), "Expected the Cloud tree with its section headers")
-        // The team picker bar above the tree has its own "New Machine" +, so
-        // the header + is found by its identifier inside the tree only.
+        XCTAssertFalse(app.buttons["CloudHeaderRefreshButton"].exists)
+        XCTAssertFalse(app.buttons["CloudHeaderNewMachineButton"].exists)
+        XCTAssertFalse(
+            app.buttons["CloudMachinesActionsMenu"].exists
+                || app.menuButtons["CloudMachinesActionsMenu"].exists
+        )
+        XCTAssertFalse(
+            app.buttons["CloudMachinesAgentMenu"].exists
+                || app.menuButtons["CloudMachinesAgentMenu"].exists
+        )
+        // The full-width action between the team header and tree opens the shared flow.
+        let topPlus = app.buttons["CloudNewMachineButton"]
+        XCTAssertTrue(topPlus.waitForExistence(timeout: 5), "Expected the right-sidebar New Cloud Machine button")
+        XCTAssertEqual(topPlus.label, "New Cloud Machine")
+        topPlus.click()
+        assertOneNewMachineSheet(in: app, opener: "the right-sidebar New Cloud Machine button")
+        cancelNewMachineSheet(in: app)
+
         let plus = tree.buttons.matching(identifier: "CloudMachinesNewMachineButton").firstMatch
         // Faded at rest, the + keeps its place in the accessibility tree.
         XCTAssertTrue(plus.waitForExistence(timeout: 5), "Expected the Cloud Machines header + in the tree")

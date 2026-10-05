@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Cloud VM 资源不足",
+      "memoryMessage": "你的 VM 已使用 {pool} GB 内存中的 {used} GB。此 VM 需要 {requested} GB。",
+      "vcpuMessage": "你的 VM 已使用 {pool} 个 vCPU 中的 {used} 个。此 VM 需要 {requested} 个 vCPU。",
+      "upgradeAction": "暂停或删除一台 VM，或升级到 Max。",
+      "action": "暂停或删除一台 VM。"
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "在 Cloud VM 上运行云端智能体",
-            "最多 5 台 Cloud VM，每台最多 4 个 vCPU 和 8 GB 内存",
+            "最多 5 台 Cloud VM，共享 20 个 vCPU 和 40 GB 内存",
             "cmux iOS 应用"
           ],
           "max": [
-            "最多 5 台 Cloud VM，每台最多 16 个 vCPU 和 32 GB 内存",
+            "最多 5 台 Cloud VM，共享 80 个 vCPU 和 160 GB 内存",
             "更大的机器规格",
             "Pro 的全部功能"
           ],
           "team": [
             "每位成员都享有 Pro 的全部功能",
+            "每个付费席位最多 5 台 Cloud VM，每个付费席位的 20 个 vCPU 和 40 GB 内存由整个团队共享",
             "整个团队一张发票",
             "优先支持"
           ]
@@ -2920,11 +2928,12 @@
       "planMax": "Max",
       "sizesDefault": "如果不选择规格，新机器将使用 8 GB 内存。运行 cmux vm ls --json 可查看你的套餐允许的规格。",
       "limitsTitle": "套餐限制",
-      "limitsDesc": "套餐限制按机器数量计算，而不是共享的 CPU 或内存池。每台机器都会获得其规格对应的资源。",
+      "limitsDesc": "你的活跃机器共享同一个 vCPU 和内存资源池。你可以运行一台大机器，也可以运行几台小机器。已暂停的机器不占用资源池。磁盘按每台机器单独设置，不计入资源池。",
       "limitsFree": "免费账户无法创建机器。",
-      "limitsPaid": "Pro 和 Max 账户最多可拥有 5 台活跃机器。正在运行或正在启动的机器即为活跃机器。",
-      "limitsTeam": "Team 账户每个付费席位最多可拥有 5 台活跃机器。",
-      "limitsMax": "大于 8 GB 的机器需要 cmux Max。Max 机器最高可达 32 GB 和 16 vCPU。",
+      "limitsPaid": "Pro 和 Founder's Edition 账户最多可拥有 5 台活跃机器，共享 20 个 vCPU 和 40 GB 内存。正在运行或正在启动的机器即为活跃机器。",
+      "limitsTeam": "Team 账户每个付费席位最多可拥有 5 台活跃机器。每个付费席位会为团队资源池增加 20 个 vCPU 和 40 GB 内存。",
+      "limitsMax": "Max 账户最多可拥有 5 台活跃机器，共享 80 个 vCPU 和 160 GB 内存。在 Pro 和 Team 中，单台机器最高 32 GB 和 16 vCPU；在 Max 中最高 64 GB 和 32 vCPU。",
+      "limitsPoolFull": "如果新建、恢复、扩容或分叉的机器会超出资源池，cmux 会拒绝该请求，并显示资源池的已用量。暂停或删除一台机器以释放资源，或升级到 Max。",
       "limitsPricing": "当前价格请查看定价页面。不按用量计费，也没有超额费用。",
       "agentUpdatesTitle": "让编码代理保持最新",
       "agentUpdatesDesc": "开启此设置后，机器会更新 Claude Code、Codex、OpenCode、pi 和 agent-browser。机器创建后以及每次连接时都会检查，每 24 小时最多一次。更新在后台独立运行，因此不会阻塞连接。",
@@ -2933,7 +2942,7 @@
       "agentUpdatesToggle": "“新建机器”面板默认开启此设置。要为现有机器更改，请右键点击机器并选择“让代理保持最新”，或运行 cmux vm agent-updates。除非传入 --agent-updates latest，否则 cmux vm new 会保留镜像中的版本。关闭更新后，已安装的版本会保留。",
       "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有网络模式下都允许这些主机，包括“允许列表”和“无互联网”，因此网络策略不会阻止更新。",
       "resizeTitle": "调整规格",
-      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长最多扩展到 256 GB，内存最多 32 GB，CPU 最多 16 vCPU。实际上限由你的套餐决定。",
+      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长最多扩展到 256 GB。在 Pro 和 Team 中，内存最多 32 GB，CPU 最多 16 vCPU；在 Max 中，内存最多 64 GB，CPU 最多 32 vCPU。机器越大，占用的资源池越多。实际上限由你的套餐决定。",
       "pauseTitle": "暂停与恢复",
       "pauseDesc": "cmux vm pause 会停止机器的计算资源。磁盘、工作区和终端历史会保留，正在运行的进程会停止。cmux vm resume 会重新启动机器。打开已暂停的机器或在其上运行命令也会启动它。",
       "pauseIdle": "机器空闲时不会自动暂停。机器会一直运行，直到你暂停或删除它。",
@@ -3084,9 +3093,11 @@
       "errPlan": "Cloud VM 需要付费套餐",
       "fixPlan": "免费账户无法创建机器。请在定价页面升级。",
       "errSize": "所选规格需要更高级的套餐",
-      "fixSize": "大于 8 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
+      "fixSize": "大于 32 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
       "errLimit": "已达到活跃机器数量上限",
       "fixLimit": "暂停或删除一台机器后重试。",
+      "errPool": "Cloud VM 资源不足",
+      "fixPool": "你的活跃机器已经用完了共享的 vCPU 或内存。暂停或删除一台机器、选择更小的规格，或升级到 Max。",
       "errLocked": "机器已被锁定",
       "fixLocked": "你的付费套餐已到期，且该机器创建已超过 7 天。升级后即可重新连接。你的文件会被保留。",
       "errAgentMissing": "claude 或 codex: command not found",

@@ -839,13 +839,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // duplicated payload that the jump-unread XCUITest asserts on, so they are left app-side per
     // the wave brief's escape hatch. The coordinator's `onDidFocusForJumpUnread` hook is therefore
     // left unwired (wiring it would double-record). The recorder-FREE members of the open/click
-    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in
-    // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
+    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
     /// Explicit Cloud machine pins and stable fleet order, built by the composition root.
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
+    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() })
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var deviceWorkspaceCreationCoordinator: DeviceWorkspaceCreationCoordinator?
@@ -1579,9 +1579,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
     /// Shared native auth callback entrypoint for LaunchServices and embedded
-    /// browser handoffs. The returned value reflects completed sign-in.
+    /// browser handoffs. `delivery` must be `.trustedEmbeddedBrowser` only for
+    /// the embedded browser's policy-checked handoff; LaunchServices callbacks
+    /// are `.external`, so unsolicited stateless ones need user approval.
+    /// The returned value reflects completed sign-in.
     @MainActor
-    func handleAuthCallbackURLInProcess(_ url: URL) async -> Bool {
+    func handleAuthCallbackURLInProcess(
+        _ url: URL,
+        delivery: AuthCallbackDelivery = .external
+    ) async -> Bool {
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
         guard callbackRouter.isAuthCallbackURL(url) else {
             AuthDebugLog().log("auth.callback rejected: URL is not an accepted callback")
@@ -1591,7 +1597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
             return false
         }
-        let signedIn = await accountFlow.handleCallbackURL(url)
+        let signedIn = await accountFlow.handleCallbackURL(url, delivery: delivery)
         guard signedIn else {
             AuthDebugLog().log("auth.callback did not complete sign-in")
             return false
@@ -1620,7 +1626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         for url in authCallbacks {
             Task { @MainActor in
-                _ = await handleAuthCallbackURLInProcess(url)
+                _ = await handleAuthCallbackURLInProcess(url, delivery: .external)
             }
         }
         let externalFileURLs = externalOpenFileURLs(from: urls)
@@ -2624,7 +2630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator,
             operations: cloudOperations,
             telemetry: .live(),
-            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }
+            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }, isCloudAvailable: { CloudMachinesFeature.offMainIsAvailable() }
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
         // Warms the New Machine sheet's plan and network catalog per signed-in
@@ -3718,6 +3724,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
+
+        let environment = ProcessInfo.processInfo.environment
+        if !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached {
+            Task.detached(priority: .utility) {
+                SessionScrollbackReplayStore.sweepStaleReplayFiles(
+                    olderThan: Date().addingTimeInterval(
+                        -SessionScrollbackReplayStore.staleReplayLifetime
+                    )
+                )
+            }
+        }
+
         if shouldAwaitCrashRecoveryProbe() {
             isWaitingForStartupCrashRecoveryProbe = true
             let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
@@ -3742,8 +3760,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
-    /// crash-artifact probe completes. Defer cleanup and window bootstrap only
-    /// for that rare case; normal launches never wait on crash-file I/O.
+    /// crash-artifact probe completes. Replay-file cleanup runs independently
+    /// in a detached utility task and does not participate in this restore gate.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -5643,7 +5661,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
+        // Resolve the owner before creating the destination. The active/fallback
+        // window may differ from the workspace's source, especially when moving
+        // a workspace out of a native fullscreen window.
+        let sourceWindow = mainWindowContainingWorkspace(workspaceId)
+        let windowId = createMainWindow(sourceWindow: sourceWindow)
         guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
@@ -10492,6 +10514,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sourceWindow = resolvedMainWindowSource(preferredSourceWindow)
             ?? sourceContext.flatMap { resolvedWindow(for: $0) }
         let existingFrame = sourceWindow?.frame
+        let shouldTemporarilyDisallowFullScreenTiling =
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: sourceWindow,
+                restoringSessionWindow: sessionWindowSnapshot != nil
+            )
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
@@ -10572,6 +10599,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 && !self.isTerminatingApp
                 && !self.isApplyingSessionRestore
                 && !displayReconcilePending
+        }
+        if shouldTemporarilyDisallowFullScreenTiling {
+            controller.disallowFullscreenTilingUntilPresentation()
         }
         controller.onClose = { [weak self, weak controller] closingWindow in
             guard let self, let controller else { return }
@@ -19279,6 +19309,11 @@ private extension NSApplication {
     }
 
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+        // WebKit sends a key no page handled back through here, to the key
+        // window. For a key browser automation typed into a tab that is the
+        // user's window: its terminal would get the text and its menus the
+        // Command shortcuts. The page already received the key.
+        if event.isResentBrowserAutomationKeyEvent { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
@@ -19605,7 +19640,12 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
-        if AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true {
+        let cloudMountKeyEventForwarded =
+            AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true
+        if cloudMountKeyEventForwarded {
+            if event.type == .keyDown {
+                AppDelegate.shared?.recordTypingActivity()
+            }
             return
         }
 #if DEBUG
@@ -19630,7 +19670,19 @@ private extension NSWindow {
         // recordTypingActivity runs in all builds so the autosave coordinator
         // can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
-        if event.type == .keyDown { AppDelegate.shared?.recordTypingActivity() }
+        let terminalInputIsRouted: Bool = {
+            guard event.type == .keyDown,
+                  let app = AppDelegate.shared,
+                  let context = app.contextForMainWindow(self) ?? app.contextForMainTerminalWindow(self),
+                  context.tabManager.selectedWorkspace?.focusedTerminalInputTarget() != nil else {
+                return false
+            }
+            guard let firstResponder = self.firstResponder else { return true }
+            return !shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
+                app.isRightSidebarFocusResponder($0, in: self)
+            })
+        }()
+        if terminalInputIsRouted { AppDelegate.shared?.recordTypingActivity() }
         if event.type == .leftMouseDown,
            AppDelegate.shared?.handleMinimalModeSidebarChromeMouseDown(window: self, event: event) == true {
             return
