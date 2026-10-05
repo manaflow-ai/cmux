@@ -23,11 +23,15 @@ fn dir(tag: &str) -> PathBuf {
     std::fs::canonicalize(&d).unwrap()
 }
 
-/// The fake agent under the claude family (asking: default, plan); its
-/// starting mode `normal` is not in that row.
+/// The fake agent under the claude family (asking: default, plan) and the
+/// opencode family (asking: plan), a handoff target; its starting mode
+/// `normal` is in neither row.
 fn hub(d: &Path, store_root: Option<&Path>) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fclaude": {"argv": ["python3", FAKE], "family": "claude"}},
+        "harnesses": {
+            "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
+            "fopencode": {"argv": ["python3", FAKE], "family": "opencode"},
+        },
         "defaultHarness": "fclaude",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
@@ -214,5 +218,52 @@ async fn a_queued_web_prompt_is_dropped_when_the_mode_left_the_table_before_disp
     assert!(reason(&r).starts_with("remote.mode_"), "{r}");
     let events = wait_events(&mut local, &s, "prompt_refused").await;
     assert!(!events.contains("echo: queued-web"), "the harness got the prompt: {events}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A Web handoff from a Web session to a new target on another harness.
+async fn web_handoff(web: &mut Client, d: &Path, key: &str) -> (String, String) {
+    let src = web.new_session(d).await;
+    assert!(web.prompt(&src, "some work").await.get("error").is_none());
+    let p = json!({"sessionId": src, "harness": "fopencode", "handoffKey": key});
+    let h = web.call("_acpmux/handoff_prepare", p).await;
+    let id = h["result"]["handoffId"].as_str().unwrap_or_else(|| panic!("{h}")).to_owned();
+    let target = h["result"]["target"]["sessionId"].as_str().unwrap().to_owned();
+    (id, target)
+}
+
+fn start(id: &str) -> Value {
+    json!({"handoffId": id, "revision": 1, "checkpoint": {"ref": "abc123", "attest": true}})
+}
+
+#[tokio::test]
+async fn a_web_handoff_start_moves_a_new_target_to_an_asking_mode_first() {
+    let d = dir("handoff-new");
+    let hub = hub(&d, None);
+    let mut web = Client::new(&hub, Origin::Web);
+    let mut local = Client::new(&hub, Origin::Local);
+    let (id, target) = web_handoff(&mut web, &d, "k-new").await;
+    // The target starts in the harness's own mode, which does not ask.
+    let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
+    assert_eq!(info["result"]["modes"]["currentModeId"], json!("normal"), "{info}");
+    let r = web.call("_acpmux/handoff_start", start(&id)).await;
+    assert_eq!(r["result"]["outcome"], json!("started"), "{r}");
+    let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
+    assert_eq!(info["result"]["modes"]["currentModeId"], json!("plan"), "{info}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_web_handoff_start_whose_target_does_not_resolve_is_refused() {
+    let d = dir("handoff-gone");
+    let hub = hub(&d, None);
+    let mut web = Client::new(&hub, Origin::Web);
+    let mut local = Client::new(&hub, Origin::Local);
+    let (id, target) = web_handoff(&mut web, &d, "k-gone").await;
+    let r = local.call("_acpmux/kill", json!({"sessionId": target, "purge": true})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = web.call("_acpmux/handoff_start", start(&id)).await;
+    let msg = r["error"]["message"].as_str().unwrap_or_default();
+    assert!(msg.contains("target cannot be resolved"), "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
