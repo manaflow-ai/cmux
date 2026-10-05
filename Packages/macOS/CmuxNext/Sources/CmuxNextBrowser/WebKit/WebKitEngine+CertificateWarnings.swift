@@ -18,40 +18,47 @@ extension WebKitEngine {
         return true
     }
 
-    /// Called at each commit: a host being rechecked has the committed
-    /// page's server trust evaluated (off the main thread); an untrusted one
-    /// stops the page and shows the interstitial, a trusted one ends the
-    /// recheck.
-    func recheckCertificate(_ tab: WebKitTab) {
-        guard let url = tab.webView.url, url.scheme?.lowercased() == "https", let host = url.host(),
-              needsCertificateRecheck(host, profile: tab.profileID), let trust = tab.webView.serverTrust else { return }
-        let box = ServerTrustBox(trust: trust)
-        let profile = tab.profileID
-        Task.detached { [weak self, weak tab] in
-            let failure = box.evaluate()
-            await MainActor.run {
-                guard let self, let tab, tab.webView.url == url else { return }
-                guard let failure else {
-                    self.certificateRechecks[profile]?.remove(host)
-                    return
-                }
-                tab.pageInfoActivity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
-                tab.webView.stopLoading()
-                let id = tab.allocateNavigationID()
-                tab.apply(.started(id, url: url))
-                tab.apply(.failed(id, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted,
-                                                       message: failure.reason ?? "", failingURL: url)))
-            }
-        }
-    }
-
     /// The navigation action policy of a main-frame load in `tab`: a host
     /// being rechecked has its certificate checked first, and `decide` (the
     /// policy decision) waits for the result, so the page never commits
     /// before it. Untrusted: the load is cancelled and the interstitial
     /// shows.
     func admitMainFrameLoad(_ url: URL, in tab: WebKitTab, decide: @escaping @MainActor (Bool) -> Void) {
-        decide(true)
+        guard url.scheme?.lowercased() == "https", let host = url.host(),
+              needsCertificateRecheck(host, profile: tab.profileID) else { return decide(true) }
+        let profile = tab.profileID, tabID = tab.id
+        let probe = certificateProbe
+        let admission = (certificateAdmissions[tabID] ?? 0) + 1
+        certificateAdmissions[tabID] = admission
+        Task { [weak self, weak tab] in
+            let result = await probe(url)
+            let newest = self?.certificateAdmissions[tabID] == admission
+            if newest { self?.certificateAdmissions[tabID] = nil }
+            guard let self, let tab, !tab.isClosed else { return decide(false) }
+            switch result {
+            case .trusted:
+                certificateRechecks[profile]?.remove(host)
+                decide(true)
+            case .unknown:
+                // WebKit's own TLS check still runs on a new connection.
+                decide(true)
+            case .untrusted(let chain, let reason):
+                decide(false)
+                // A newer load of this tab replaced this one: no interstitial for it.
+                guard newest else { return }
+                showCertificateInterstitial(url, chain: chain, reason: reason, in: tab)
+            }
+        }
+    }
+
+    /// The interstitial for `url` in `tab`, without a WebKit navigation (a
+    /// synthetic failed load with NSURLErrorServerCertificateUntrusted).
+    private func showCertificateInterstitial(_ url: URL, chain: [Data], reason: String?, in tab: WebKitTab) {
+        tab.pageInfoActivity.recordCertificateFailure(chain: chain, reason: reason)
+        let id = tab.allocateNavigationID()
+        tab.apply(.started(id, url: url))
+        tab.apply(.failed(id, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted,
+                                               message: reason ?? "", failingURL: url)))
     }
 
     /// The user proceeded past `host`'s certificate in `profile` (the
@@ -61,10 +68,12 @@ extension WebKitEngine {
         certificateRechecks[profile]?.remove(host)
     }
 
-    /// The next committed page of `host` in `profile` must have its server
-    /// trust verified again: warnings were turned on again, and WebKit may
-    /// reuse a kept-alive connection that was trusted by the old exception
-    /// (no new TLS challenge, so the page would load without the warning).
+    /// The next page of `host` in `profile` must have its server trust
+    /// verified again before it loads (`admitMainFrameLoad`): warnings were
+    /// turned on again, and WebKit may reuse a kept-alive connection that
+    /// was trusted by the old exception (no new TLS challenge, so the page
+    /// would load without the warning). WebKit has no public call to close
+    /// those connections.
     func needsCertificateRecheck(_ host: String, profile: BrowserProfileID) -> Bool {
         certificateRechecks[profile]?.contains(host) == true && !hasCertificateException(host, profile: profile)
     }

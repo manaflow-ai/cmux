@@ -31,6 +31,11 @@ public protocol BrowserCertificateWarningRevoking: AnyObject {
     func turnOnCertificateWarnings() async -> Bool
 }
 
+extension BrowserCertificateWarningRevoking {
+    /// The page's site (WebKit); Chromium overrides it.
+    public var certificateWarningScope: BrowserCertificateWarningScope { .site }
+}
+
 /// What "Turn on warnings" turns on again.
 public nonisolated enum BrowserCertificateWarningScope: Hashable, Sendable {
     /// The page's site in the tab's profile (WebKit).
