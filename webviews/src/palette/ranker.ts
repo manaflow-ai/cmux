@@ -495,7 +495,8 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     if (!match) return;
     let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
     if (titleIsQuery(entry.title, query.raw)) score += wholeTitleBonus;
-    else if (entry.entersScope && entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw))) score += wholeKeywordBonus;
+    else if (entry.entersScope && entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw)))
+      score += wholeKeywordBonus;
     if (entry.isEnabled === false) score -= disabledPenalty;
     scored.push({ index, score, highlights: match.highlights });
   });
