@@ -339,7 +339,17 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
         },
         {
           "id": "commandPalettePrevious",
@@ -373,7 +383,17 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
         },
         {
           "id": "goToWorkspace",
@@ -579,6 +599,390 @@
                 }
               ],
               "when": "listFocus"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.firstItem",
+          "title": {
+            "en": "Palette: First Item",
+            "ja": "パレット: 最初の項目"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen && (palette.actionsMenuOpen || palette.hierarchical && palette.queryEmpty)"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.lastItem",
+          "title": {
+            "en": "Palette: Last Item",
+            "ja": "パレット: 最後の項目"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen && (palette.actionsMenuOpen || palette.hierarchical && palette.queryEmpty)"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.pageUp",
+          "title": {
+            "en": "Palette: Page Up",
+            "ja": "パレット: 前のページ"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.pageDown",
+          "title": {
+            "en": "Palette: Page Down",
+            "ja": "パレット: 次のページ"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.submit",
+          "title": {
+            "en": "Palette: Run Item",
+            "ja": "パレット: 項目を実行"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\r",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen"
+            },
+            {
+              "keys": [
+                {
+                  "key": "\r",
+                  "modifiers": [
+                    "shift"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            },
+            {
+              "keys": [
+                {
+                  "key": "\r",
+                  "modifiers": [
+                    "opt"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            },
+            {
+              "keys": [
+                {
+                  "key": " ",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen && palette.queryEmpty && palette.togglesInPlace && !palette.actionsMenuOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.submitAlternate",
+          "title": {
+            "en": "Palette: Run Item's Other Command",
+            "ja": "パレット: 項目の別のコマンドを実行"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\r",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            },
+            {
+              "keys": [
+                {
+                  "key": "\r",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.openActions",
+          "title": {
+            "en": "Palette: Show Actions",
+            "ja": "パレット: アクションを表示"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.closeActions",
+          "title": {
+            "en": "Palette: Hide Actions",
+            "ja": "パレット: アクションを隠す"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "shift"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.toggleActions",
+          "title": {
+            "en": "Palette: Show or Hide Actions",
+            "ja": "パレット: アクションの表示を切り替え"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "k",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.escape",
+          "title": {
+            "en": "Palette: Clear or Close",
+            "ja": "パレット: クリアまたは閉じる"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\u001b",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.enterRow",
+          "title": {
+            "en": "Palette: Open Item",
+            "ja": "パレット: 項目を開く"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen && palette.hierarchical && !palette.actionsMenuOpen && palette.caretAtEnd"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.leaveLevel",
+          "title": {
+            "en": "Palette: Up One Level",
+            "ja": "パレット: 1つ上の階層へ"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "paletteOpen && palette.hierarchical && !palette.actionsMenuOpen"
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen && palette.hierarchical && !palette.actionsMenuOpen && palette.caretAtStart"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.back",
+          "title": {
+            "en": "Palette: Back",
+            "ja": "パレット: 戻る"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\b",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen && palette.queryEmpty && !palette.actionsMenuOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.filterDeleteBackward",
+          "title": {
+            "en": "Palette: Delete Filter Character",
+            "ja": "パレット: フィルタの1文字を削除"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\b",
+                  "modifiers": []
+                }
+              ],
+              "when": "paletteOpen && palette.actionsMenuOpen"
+            }
+          ]
+        },
+        {
+          "id": "paletteKey.closeItem",
+          "title": {
+            "en": "Palette: Close Item's Object",
+            "ja": "パレット: 項目の対象を閉じる"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "w",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "paletteOpen"
             }
           ]
         }
