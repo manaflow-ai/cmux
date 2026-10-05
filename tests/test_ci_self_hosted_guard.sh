@@ -1152,9 +1152,9 @@ check_no_bare_github_hosted_runners() {
   # GitHub-hosted macOS label may appear only as the MACOS_RUNNER_BACKGROUND
   # fallback; check_background_macos_lane enforces that.
   # Control-plane jobs that hold trusted tokens (CLA, backend migrations, web
-  # complexity, merge-group policy) use the CI_TRUSTED_RUNNER selector, which
-  # can only pick ephemeral GitHub-hosted or Blacksmith labels;
-  # test_ci_fork_runner_routing.py pins its exact form.
+  # complexity) use the CI_TRUSTED_RUNNER selector, which can only pick
+  # ephemeral GitHub-hosted or Blacksmith labels; test_ci_fork_runner_routing.py
+  # pins its exact form.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.

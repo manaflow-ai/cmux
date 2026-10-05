@@ -45,10 +45,9 @@ REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS
 # Checks that judge a pull request's author and head in workflows a pull request
 # may not edit. BRIDGE reports them for a merge group without running anything, so it
 # must stay exactly this document: any other job, step, trigger or permission
-# would run with those names' authority.
+# would run with those names' authority. The no-op bridge uses the standard
+# Blacksmith expression because it has no token, checkout, or candidate code.
 BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_ci_fork_runner_routing import TRUSTED_RUNNER_EXPRESSION  # noqa: E402
 BRIDGED_CHECKS = {
     "cla-assistant": "CLA Assistant",
     "cla-policy-guard": "CLA policy guard",
@@ -64,8 +63,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                # Ephemeral either way; see test_ci_fork_runner_routing.py.
-                "runs-on": TRUSTED_RUNNER_EXPRESSION,
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }

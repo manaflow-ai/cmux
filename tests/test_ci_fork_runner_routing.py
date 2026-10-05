@@ -90,8 +90,6 @@ TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "apply-production"),
     ("backend-migrations.yml", "gate"),
     ("web-complexity-trusted.yml", "complexity"),
-    ("merge-group-policy-checks.yml", "cla-assistant"),
-    ("merge-group-policy-checks.yml", "cla-policy-guard"),
 )
 
 # A fork pull request into manaflow-ai runs with repository_owner ==
