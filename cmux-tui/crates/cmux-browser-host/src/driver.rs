@@ -25,9 +25,12 @@ pub struct RequestInfo<'a> {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestKind {
-    /// A main-frame or sub-frame document, each redirect hop included
-    /// (CDP resourceType "Document"; the provider's navigation checks).
+    /// A main-frame document, each redirect hop included (CDP resourceType
+    /// "Document" in the tab's main frame; the provider's navigation
+    /// checks). Refusals of these are logged (`blocked: before`), as main.
     Document,
+    /// A sub-frame (iframe) document, each redirect hop included.
+    SubframeDocument,
     /// Everything else (scripts, fetch, WebSocket, ping, prefetch, unknown).
     Subresource,
 }

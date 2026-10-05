@@ -1154,3 +1154,39 @@ fn headless_tabs_get_the_hidden_tab_viewport() {
     );
     assert!(!sent.iter().any(|(m, _)| m == "Emulation.clearDeviceMetricsOverride"));
 }
+
+/// RequestKind (5c): a main-frame document is Document, an iframe's document
+/// SubframeDocument, everything else Subresource.
+#[test]
+fn request_kinds_tell_main_frame_documents_from_iframes() {
+    use cmux_browser_host::driver::RequestKind;
+    let h = Harness::new();
+    let target = h.open(None);
+    let seen = Arc::new(Mutex::new(Vec::<RequestKind>::new()));
+    let record = seen.clone();
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(move |request| {
+        record.lock().unwrap().push(request.kind);
+        None
+    });
+    assert!(h.driver.set_request_filter(Some(filter)));
+    let session = format!("S{}", &target[1..]);
+    let main = format!("F-{target}");
+    for (id, frame, kind) in [
+        ("r1", main.as_str(), "Document"),
+        ("r2", "CROSS", "Document"),
+        ("r3", main.as_str(), "Script"),
+    ] {
+        h._conn.receive(&json!({"sessionId": session, "method": "Fetch.requestPaused", "params": {
+            "requestId": id, "frameId": frame, "request": {"url": "https://a.test/x", "method": "GET", "headers": {}},
+            "resourceType": kind}}).to_string());
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while seen.lock().unwrap().len() < 3 {
+        assert!(std::time::Instant::now() < deadline, "the filter saw {:?}", seen.lock().unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![RequestKind::Document, RequestKind::SubframeDocument, RequestKind::Subresource]
+    );
+}
