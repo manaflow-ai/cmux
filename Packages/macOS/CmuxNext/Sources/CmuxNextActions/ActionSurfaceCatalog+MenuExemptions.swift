@@ -24,6 +24,7 @@ nonisolated extension ActionSurfaceCatalog {
         .noObject: [
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
+            "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.allowAgentWithExtensions",

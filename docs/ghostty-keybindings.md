@@ -82,6 +82,10 @@ cleared. Write a different Ghostty binding, such as Ctrl+B followed by a digit.
 | `check_for_updates` | Check for cmux updates. |
 | `prompt_surface_title`, `prompt_tab_title` | Rename the tab. |
 | `prompt_window_title`, `set_window_title:TITLE` | Rename the active workspace (cmux's window title). |
+| `close_all_windows` | Close every cmux window, each through its own confirmation. |
+| `toggle_maximize` | Zoom the window (Window > Zoom). |
+| `goto_window:next`, `goto_window:previous` | Select the next or previous cmux window. |
+| `move_tab_to_new_window` | Move the tab to a new window. |
 
 Terminal actions already handled by Ghostty, such as text input, copying,
 scrolling, and font changes, continue to work. Existing split actions continue

@@ -9,11 +9,11 @@ class FakeHost {
   calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
   connection = 7;
   answer = true;
-  post = async <T,>(method: string, params?: Record<string, unknown>): Promise<T> => {
+  post = async <T>(method: string, params?: Record<string, unknown>): Promise<T> => {
     this.calls.push({ method, params });
     if (method === "transport.open") return { connection: this.connection } as T;
     if (method === "transport.send" && this.answer) {
-      const frames = (params?.frames as string[]).map((raw) => {
+      const frames = ((params?.frames as string[] | undefined) ?? []).map((raw) => {
         const { id, method: m } = JSON.parse(raw) as { id?: number; method: string };
         const result = m === "_acpmux/watch" ? { sessions: [] } : {};
         return id === undefined ? undefined : JSON.stringify({ jsonrpc: "2.0", id, result });
@@ -65,7 +65,10 @@ test("host pushes become messages, and the host's close ends the socket with its
   await tick();
   receiveTransportEvent({ connection: 7, frames: ["x", "y"] });
   receiveTransportEvent({ connection: 99, frames: ["not mine"] });
-  receiveTransportEvent({ connection: 7, closed: { code: 1008, reason: "inbound overflow", error: "transport.inbound_overflow" } });
+  receiveTransportEvent({
+    connection: 7,
+    closed: { code: 1008, reason: "inbound overflow", error: "transport.inbound_overflow" },
+  });
   expect(got).toEqual(["x", "y"]);
   expect(closed?.code).toBe(1008);
   expect(socket.closeError).toBe("transport.inbound_overflow");

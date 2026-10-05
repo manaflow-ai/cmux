@@ -31,3 +31,20 @@ import Testing
         #expect(decoded == .setWindowTitle("build"))
     }
 }
+
+/// Window actions decode, and the `set_window_title` read stays sound: it
+/// reads the `set_title` member (ghostty.h has no `set_window_title`
+/// member; apprt's SetTitle payload is one C string), so that member must
+/// stay exactly one C string pointer (a union member starts at offset 0).
+@Suite struct GhosttyWindowActionDecodeTests {
+    @Test func windowActionsDecode() {
+        #expect(GhosttyActionRouteDecodeTests.host(GHOSTTY_ACTION_GOTO_WINDOW) { $0.goto_window = GHOSTTY_GOTO_WINDOW_NEXT } == .gotoWindow(next: true))
+        #expect(GhosttyActionRouteDecodeTests.host(GHOSTTY_ACTION_GOTO_WINDOW) { $0.goto_window = GHOSTTY_GOTO_WINDOW_PREVIOUS } == .gotoWindow(next: false))
+        #expect(GhosttyActionRouteDecodeTests.host(GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW) == .moveTabToNewWindow)
+    }
+
+    @Test func theSetTitleMemberIsOneStringPointerAtTheStartOfTheUnion() {
+        #expect(MemoryLayout<ghostty_action_set_title_s>.size == MemoryLayout<UnsafePointer<CChar>?>.size)
+        #expect(MemoryLayout<ghostty_action_set_title_s>.offset(of: \.title) == 0)
+    }
+}
