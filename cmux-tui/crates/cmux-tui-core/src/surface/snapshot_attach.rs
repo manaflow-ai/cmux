@@ -248,9 +248,10 @@ impl Surface {
         };
         let term = pty.term.lock().unwrap();
         let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
-        let images = images_cap
-            .and_then(|cap| pty.snapshot_position.kitty_replay.images_locked(&term, cap, self.id));
-        let (generation, offset) = pty.snapshot_position.load();
+        let cut = pty.snapshot_position.load();
+        let (generation, offset) = cut;
+        let replay = &pty.snapshot_position.kitty_replay;
+        let images = images_cap.and_then(|cap| replay.images_locked(&term, cut, cap, self.id));
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
         let (cols, rows) = (term.cols(), term.rows());

@@ -871,9 +871,9 @@ fn live_output_overtakes_images_and_a_new_ready_cancels_the_old_images() {
     mux.shutdown();
 }
 
-/// The replay is encoded at most once per image generation: a second viewer
-/// at the same generation reuses the bytes, and an image change encodes
-/// again once.
+/// The replay is encoded at most once per cut: a second viewer whose READY
+/// is at the same cut and image generation reuses the bytes, and an image
+/// change encodes again once.
 #[test]
 fn viewers_at_the_same_image_generation_share_one_encode() {
     let (mux, surface) = quiet_surface_with_image("snapshot-images-cache", 4, 4, false);
