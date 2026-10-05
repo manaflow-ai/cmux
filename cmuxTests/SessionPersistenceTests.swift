@@ -1624,6 +1624,50 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredAgentWithoutLiveEvidenceDoesNotPersistRunningState() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminal = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-stale-running-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/repo",
+                capturedAt: nil,
+                source: "test"
+            )
+        )
+
+        workspace.restoredAgentLifecycle.seedSessionRestore(
+            panelId: panelId,
+            snapshot: agent,
+            manualResumeAvailable: false,
+            willRunStartupInput: true,
+            resumeWorkingDirectory: "/tmp/repo"
+        )
+
+        let wasRunning = workspace.sessionAgentWasRunning(
+            panelId: panelId,
+            restorableAgent: agent,
+            resumeBinding: nil,
+            terminal: terminal,
+            observation: nil,
+            currentAgentProcessIdentity: { _ in nil },
+            agentProcessPresence: { _ in .absent }
+        )
+
+        XCTAssertEqual(
+            wasRunning,
+            false,
+            "A queued restore is not live evidence and must not keep Running in the next snapshot"
+        )
+    }
+
+    @MainActor
     func testRestoredAntigravityAgentAutoResumeUsesConversationCommand() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
