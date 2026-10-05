@@ -31,6 +31,9 @@ pub type CdpEventHandler = Arc<dyn Fn(CdpEvent) + Send + Sync>;
 
 type Reply = Result<Value, DriverError>;
 
+/// A call's waiter and the session the call went to.
+type Waiter = (Option<String>, mpsc::SyncSender<Reply>);
+
 /// A sent call waiting for its reply.
 struct Pending {
     id: u64,
@@ -41,7 +44,9 @@ struct Pending {
 pub struct CdpConnection {
     wire: Box<dyn CdpWire>,
     next_id: AtomicU64,
-    pending: Mutex<HashMap<u64, mpsc::SyncSender<Reply>>>,
+    /// Waiters by call id, with the session each call went to (a session
+    /// that detaches never answers; its calls fail at once).
+    pending: Mutex<HashMap<u64, Waiter>>,
     handler: Mutex<Option<CdpEventHandler>>,
     on_close: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     closed: Mutex<Option<String>>,
@@ -142,7 +147,10 @@ impl CdpConnection {
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::sync_channel(1);
-        self.pending.lock().unwrap_or_else(PoisonError::into_inner).insert(id, tx);
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id, (session_id.map(str::to_owned), tx));
         // A close that ran between the check above and the insert drained
         // `pending` before this waiter was in it.
         if let Some(reason) = self.closed_reason() {
@@ -200,7 +208,7 @@ impl CdpConnection {
         };
         if let Some(id) = object.get("id").and_then(Value::as_u64) {
             let waiter = self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
-            if let Some(waiter) = waiter {
+            if let Some((_, waiter)) = waiter {
                 let reply = match object.remove("error") {
                     Some(error) => Err(protocol_error(&error)),
                     None => Ok(object.remove("result").unwrap_or_else(|| json!({}))),
@@ -212,6 +220,12 @@ impl CdpConnection {
         let Some(Value::String(method)) = object.remove("method") else {
             return;
         };
+        if method == "Target.detachedFromTarget"
+            && let Some(session) =
+                object.get("params").and_then(|p| p.get("sessionId")).and_then(Value::as_str)
+        {
+            self.fail_session(session);
+        }
         let event = CdpEvent {
             session_id: object
                 .get("sessionId")
@@ -227,6 +241,26 @@ impl CdpConnection {
         }
     }
 
+    /// A session detached (its target closed or crashed): Chromium never
+    /// answers the calls sent to it, so they fail now with a typed error
+    /// instead of at their deadline.
+    fn fail_session(&self, session: &str) {
+        let waiters: Vec<_> = {
+            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let ids: Vec<u64> = pending
+                .iter()
+                .filter(|(_, (on, _))| on.as_deref() == Some(session))
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter().filter_map(|id| pending.remove(&id)).collect()
+        };
+        for (_, waiter) in waiters {
+            let _ = waiter.try_send(Err(DriverError::closed(format!(
+                "Target closed: CDP session {session} detached"
+            ))));
+        }
+    }
+
     /// Marks the connection closed and fails every pending call.
     pub fn close(&self, reason: &str) {
         {
@@ -237,7 +271,7 @@ impl CdpConnection {
         }
         let waiters: Vec<_> =
             self.pending.lock().unwrap_or_else(PoisonError::into_inner).drain().collect();
-        for (_, waiter) in waiters {
+        for (_, (_, waiter)) in waiters {
             let _ = waiter.try_send(Err(DriverError::closed(reason.to_owned())));
         }
         let hook = self.on_close.lock().unwrap_or_else(PoisonError::into_inner).take();
