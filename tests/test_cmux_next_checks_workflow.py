@@ -196,6 +196,30 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("Packages/macOS/CmuxNext/*", route_script)
         self.assertIn("Packages/*", route_script)
 
+    def test_push_head_preflight_skips_superseded_macos_jobs(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        preflight = jobs["push-head-preflight"]
+        self.assertIn("github.sha", preflight["steps"][0]["env"]["SHA"])
+        self.assertIn("git", preflight["steps"][0]["run"])
+        self.assertIn("ls-remote", preflight["steps"][0]["run"])
+        self.assertIn("current", preflight["outputs"])
+        for job_id in ("macos-placement", "swift-test", "release-compile", "cmux-scheme-compile"):
+            job = jobs[job_id]
+            needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
+            with self.subTest(job=job_id):
+                self.assertIn("push-head-preflight", needs)
+                self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+
+    def test_current_feat_push_still_requests_nightly_next(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        nightly = jobs["request-nightly-next"]
+        self.assertEqual(nightly["needs"], "release-compile")
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
+        self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
+
 
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 

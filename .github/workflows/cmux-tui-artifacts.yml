@@ -91,8 +91,99 @@ env:
   CMUX_GHOSTTY_SRC: ""
 
 jobs:
+  # Keep the common path cheap: a tree-addressed publication is complete when
+  # its checksum marker exists, so there is no reason to spend a macOS build
+  # or daemon-test slot on another commit with the same inputs. The source
+  # checkout is used only for git plumbing and never executes PR code.
+  tree-preflight:
+    name: cmux-tui tree preflight
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      key: ${{ steps.inspect.outputs.key }}
+      tree_ready: ${{ steps.inspect.outputs.tree_ready }}
+      run_macos: ${{ steps.inspect.outputs.run_macos }}
+      superseded: ${{ steps.inspect.outputs.superseded }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Check the branch head and tree publication
+        id: inspect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          superseded=false
+          run_macos=true
+
+          # A queued push can be obsolete before its first runner starts. Fail
+          # open on a transient ref lookup failure so a real head still gets
+          # its compile and nightly promotion.
+          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/feat-cmux-next ]]; then
+            remote_sha="$(git -c "http.extraHeader=Authorization: Bearer $GH_TOKEN" \
+              ls-remote "${SERVER_URL}/${REPOSITORY}.git" "$REF" 2>/dev/null | awk 'NR==1{print $1}')" || remote_sha=""
+            if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
+              superseded=true
+              run_macos=false
+              echo "Superseded feat-cmux-next push $SHA; current branch head is $remote_sha."
+            elif [[ -z "$remote_sha" ]]; then
+              echo "::warning::could not resolve the current feat-cmux-next head; keeping macOS work enabled"
+            fi
+          fi
+
+          if [[ "$HEAD_REPOSITORY" != "$REPOSITORY" ]]; then
+            run_macos=false
+            echo "Fork pull request: no trusted cmux-tui build is run."
+          fi
+
+          tui_tree="$(git rev-parse --verify "$SOURCE_COMMIT:cmux-tui")"
+          ghostty_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty")"
+          entries="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty' "$tui_tree" "$ghostty_commit")"
+          if ghostty_next_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty-next" 2>/dev/null)"; then
+            entries+="$(printf '\n160000 commit %s\tghostty-next' "$ghostty_next_commit")"
+          fi
+          key="$(printf '%s\n' "$entries" | git mktree --missing)"
+          [[ "$key" =~ ^[0-9a-f]{40}$ ]]
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+          tree_ready=false
+          marker="https://files.cmux.com/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256?preflight=$RUN_ID"
+          if digest="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 "$marker" 2>/dev/null)" \
+            && [[ "$digest" =~ ^[0-9a-f]{64}[[:space:]] ]]; then
+            tree_ready=true
+            echo "Published tree $key is ready; macOS build can be skipped."
+          else
+            echo "Tree $key is missing or has no valid checksum marker; macOS publication is required."
+          fi
+          echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
+
+          # Main still needs commit-addressed artifacts and latest/ updates.
+          # Other trusted refs only spend macOS time for a new tree.
+          if [[ "$tree_ready" == true && "$REF" != refs/heads/main ]]; then
+            run_macos=false
+          fi
+          echo "run_macos=$run_macos" >> "$GITHUB_OUTPUT"
+          echo "superseded=$superseded" >> "$GITHUB_OUTPUT"
+
   build:
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
+          (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: tree-preflight
     permissions:
       contents: read
       # The reusable package workflow declares an optional attestation job.
@@ -123,7 +214,10 @@ jobs:
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. publish-tree waits for them.
   cmux-next-daemon-tests:
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
+          (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: tree-preflight
     name: cmux_next_ daemon tests (macOS)
     runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
     timeout-minutes: 60
@@ -209,12 +303,13 @@ jobs:
     name: requeue failed cmux-tui publish
     if: >-
       ${{ always() && github.run_attempt < 3 &&
-          (needs.build.result == 'failure' ||
+          (needs.tree-preflight.result == 'failure' ||
+           needs.build.result == 'failure' ||
            needs.cmux-next-daemon-tests.result == 'failure' ||
            needs.publish.result == 'failure' ||
            needs.publish-tree.result == 'failure' ||
            needs.publish-pr-tree.result == 'failure') }}
-    needs: [build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
+    needs: [tree-preflight, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
