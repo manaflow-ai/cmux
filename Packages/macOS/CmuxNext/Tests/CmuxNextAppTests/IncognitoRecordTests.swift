@@ -15,7 +15,7 @@ struct IncognitoRecordTests {
         let services = ActionBindingCoverageTests.boundServices()
         let browserTabs = try #require(services.cache.browserTabs)
         var created: [String] = []
-        browserTabs.create = { _, url, _, _ in
+        browserTabs.create = { _, url, _, _, _ in
             created.append(url)
             return SurfaceID(rawValue: 9)
         }

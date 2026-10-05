@@ -4447,13 +4447,7 @@ impl Mux {
                 let size = effect_browser_cell_size(self, fields)?;
                 let identity = self.effect_browser_reservation(intent)?;
                 let surface = match slots.pane {
-                    Some(pane) => self.new_browser_tab_reserved(
-                        required_str(fields, "url")?.to_string(),
-                        Some(pane),
-                        size,
-                        identity,
-                        None,
-                    )?,
+                    Some(pane) => self.new_browser_tab_for_effect(fields, pane, size, identity)?,
                     None if slots.workspace.is_some() => self.create_browser_surface_in_workspace(
                         slots.workspace.expect("checked"),
                         required_str(fields, "url")?.to_string(),

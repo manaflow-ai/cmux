@@ -804,6 +804,18 @@ impl Mux {
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_frontend_browser_tab_activating(pane, record, size, true)
+    }
+
+    /// [`Mux::new_frontend_browser_tab`]; with `activate` false the tab does
+    /// not become its pane's active tab (`frontend-browser-activate-v1`).
+    pub fn new_frontend_browser_tab_activating(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<Arc<Surface>> {
         record.validate()?;
         let browser_id = BrowserPublicId::random()?;
         {
@@ -811,10 +823,7 @@ impl Mux {
             registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
-        let fields = Map::from_iter([(
-            "frontend_browser_id".to_string(),
-            Value::String(browser_id.as_str().to_string()),
-        )]);
+        let fields = frontend_browser_fields(&browser_id, activate);
         match self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields) {
             Ok(surface) => {
                 if let Some(runtime) = surface.as_browser()

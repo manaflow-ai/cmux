@@ -14802,6 +14802,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "activate": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": true
      }
     },
     "additional_properties": false

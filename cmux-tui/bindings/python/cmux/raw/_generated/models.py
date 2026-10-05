@@ -2744,6 +2744,7 @@ class NewFrontendBrowserTabRequest:
     engine: str
     url: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
+    activate: Union[bool, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
     idempotency_key: Union[str, None, MissingType] = field(default=MISSING)

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5a43dd2e2f4de5ead9ba3ef3571fb4a4e897d93ea951e4795baad62319561b0d";
+pub const ir_sha256 = "5de21219cdefd725a855d27e4a1958bb298685a08a022e39e04aecb18e404b52";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -5194,6 +5194,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
 }
 
 pub const NewFrontendBrowserTabRequest = struct {
+    activate: ?bool = null,
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,
@@ -5204,6 +5205,10 @@ pub const NewFrontendBrowserTabRequest = struct {
     rows: wire.Field(u16) = .absent,
     title: wire.Field([]const u8) = .absent,
     url: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "activate",
+    };
 };
 
 pub const NewFrontendBrowserTabResult = JsonValue;

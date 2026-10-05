@@ -275,17 +275,17 @@ mod unix {
             };
             IdleExit::new(Duration::from_millis(ms), Arc::new(SystemClock), Box::new(busy))
         });
-        let on_change: Arc<dyn Fn() + Send + Sync> = match &idle {
-            Some(idle) => {
-                let idle = Arc::downgrade(idle);
-                Arc::new(move || {
-                    if let Some(idle) = idle.upgrade() {
-                        idle.changed();
-                    }
-                })
+        let idle_weak = idle.as_ref().map(Arc::downgrade);
+        let signal = Arc::downgrade(&engines);
+        // A provider connected or left: the idle stop and waiting sessions see it.
+        let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            if let Some(idle) = idle_weak.as_ref().and_then(std::sync::Weak::upgrade) {
+                idle.changed();
             }
-            None => Arc::new(|| {}),
-        };
+            if let Some(engines) = signal.upgrade() {
+                engines.provider_changed();
+            }
+        });
         host.on_sessions_changed(on_change.clone());
         if let Some(secret) = secret {
             let provider_listener = match options.provider_listen_fd {
