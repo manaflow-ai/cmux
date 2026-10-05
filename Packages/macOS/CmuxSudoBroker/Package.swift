@@ -10,9 +10,15 @@ let package = Package(
     products: [
         .library(name: "CmuxSudoBroker", targets: ["CmuxSudoBroker"]),
     ],
+    dependencies: [
+        .package(path: "../CmuxFoundation"),
+    ],
     targets: [
         .target(
             name: "CmuxSudoBroker",
+            dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
