@@ -175,7 +175,6 @@ nonisolated extension ActionSurfaceCatalog {
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
             "findPrevious", "hideFind", "useSelectionForFind", "terminal.scrollToSelection", "terminalCopy", "terminalPaste",
-            "openLinkInNewTab",
             "browserScreenshotSection", "saveFilePreview", "markdownSave", "markdownLink", "markdownBack", "markdownForward", "toggleFileEditorWordWrap", "diffViewerNextLine",
             "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp", "diffViewerNextHunk",
             "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop", "diffViewerSearch",

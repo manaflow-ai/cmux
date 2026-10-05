@@ -3,7 +3,7 @@ public import WebKit
 
 /// Downloads: WebKit hands a `WKDownload` to the tab, which mirrors it into a
 /// `BrowserDownload` for the host and writes it to the engine's folder.
-extension WebKitTab: WKDownloadDelegate {
+extension WebKitTab: WKDownloadDelegate, BrowserURLSaving {
     func register(_ download: WKDownload, source: URL?) {
         let item = BrowserDownload(sourceURL: source, filename: source?.lastPathComponent ?? "download")
         item.cancelHandler = { [weak download] in download?.cancel(nil) }
@@ -15,6 +15,16 @@ extension WebKitTab: WKDownloadDelegate {
             Task { @MainActor in item?.fraction = fraction }
         })
         emit(.download(item))
+    }
+
+    /// Downloads `url` with the page's session into `destination`, a file
+    /// the person chose (Save Link As…, Save Image As…).
+    public func save(_ url: URL, to destination: URL) {
+        webView.startDownload(using: URLRequest(url: url)) { [weak self] download in
+            guard let self else { return download.cancel(nil) }
+            self.chosenDestinations[ObjectIdentifier(download)] = destination
+            self.register(download, source: url)
+        }
     }
 
     func download(for download: WKDownload) -> BrowserDownload? {
@@ -32,7 +42,14 @@ extension WebKitTab: WKDownloadDelegate {
         decideDestinationUsing response: URLResponse,
         suggestedFilename: String
     ) async -> URL? {
-        let destination = DownloadDestination.uniqueURL(in: downloadsDirectory, suggestedFilename: suggestedFilename)
+        let destination: URL
+        if let chosen = chosenDestinations.removeValue(forKey: ObjectIdentifier(download)) {
+            // The save panel already asked before replacing a file there.
+            try? FileManager.default.removeItem(at: chosen)
+            destination = chosen
+        } else {
+            destination = DownloadDestination.uniqueURL(in: downloadsDirectory, suggestedFilename: suggestedFilename)
+        }
         if let item = self.download(for: download) {
             item.filename = destination.lastPathComponent
             item.destination = destination

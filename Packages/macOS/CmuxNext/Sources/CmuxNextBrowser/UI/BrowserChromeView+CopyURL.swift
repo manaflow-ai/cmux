@@ -24,3 +24,24 @@ extension BrowserChromeView {
         return true
     }
 }
+
+/// Where the page menu's copy rows write: a link (``PageURLPasteboard``),
+/// text, an image. NSPasteboard in the app, a fake in tests.
+public protocol BrowserPasteboard: PageURLPasteboard {
+    /// Replaces the contents with `text`.
+    func writeText(_ text: String)
+    /// Replaces the contents with `image` (and its address as a URL).
+    func writeImage(_ image: NSImage, source: URL)
+}
+
+extension NSPasteboard: BrowserPasteboard {
+    public func writeText(_ text: String) {
+        clearContents()
+        setString(text, forType: .string)
+    }
+
+    public func writeImage(_ image: NSImage, source: URL) {
+        clearContents()
+        writeObjects([image, source as NSURL])
+    }
+}
