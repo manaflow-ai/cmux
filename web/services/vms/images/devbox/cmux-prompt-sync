@@ -169,17 +169,30 @@ def seed_terminal(ready, directory):
         if not terminal:
             time.sleep(1)
     if terminal and ready.wait(timeout=60):
-        # The snapshot can resume with the builder's prompt already rendered.
-        # Always clear that bytes/history and redraw it after the clone
-        # identity is published. The first-prompt marker only says that the
-        # clone hook ran; it cannot remove prompt bytes captured in the
-        # snapshot, so skipping this cleanup leaves a stale `cmux@cmux` line
-        # above the real machine prompt. Ctrl-L redraws without discarding
-        # input typed while the identity was arriving. These calls are
-        # deliberately detached from the name refresh loop, so New Machine
-        # never waits on them.
-        tui("terminal", terminal, "history", "clear", "--quiet")
-        tui("terminal", terminal, "keys", "ctrl+l", "--quiet")
+        refresh_terminal(terminal)
+
+
+def refresh_terminal(terminal, attempts=30):
+    """Clear the snapshot prompt and report cwd after the daemon is ready.
+
+    Terminal discovery can win the daemon-adoption race: ``terminal list``
+    already sees the adopted row while control requests still fail briefly.
+    Retrying the pair keeps the stale builder prompt and its missing OSC 7
+    cwd report from becoming permanent. Each operation is idempotent and the
+    bounded retry leaves a machine usable even if the daemon never recovers.
+    """
+    for attempt in range(attempts):
+        try:
+            history = tui("terminal", terminal, "history", "clear", "--quiet")
+            if history.returncode == 0:
+                redraw = tui("terminal", terminal, "keys", "ctrl+l", "--quiet")
+                if redraw.returncode == 0:
+                    return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+        if attempt + 1 < attempts:
+            time.sleep(0.1)
+    return False
 
 
 # The bake leaves this default in vm-name. A clone's real name arrives either

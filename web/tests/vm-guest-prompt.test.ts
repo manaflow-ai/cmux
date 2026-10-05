@@ -252,6 +252,40 @@ print("named", ready.wait(2.0))
     expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
   });
 
+  test("prompt sync retries the redraw while the adopted daemon becomes ready", async () => {
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const run = path.join(fixture(), "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "bound"), "CMUX_TUI_SESSION_ID=session_clone\nCMUX_TUI_TERMINAL_ID=term_adopted\n");
+    const result = await runChild("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+module.time = types.SimpleNamespace(sleep=lambda _: None, monotonic=module.time.monotonic)
+calls = []
+attempts = 0
+def tui(*args):
+    global attempts
+    calls.append(" ".join(args))
+    if args[:2] == ("terminal", "term_adopted") and args[2:4] == ("history", "clear"):
+        attempts += 1
+        return types.SimpleNamespace(returncode=1 if attempts == 1 else 0, stdout="")
+    return types.SimpleNamespace(returncode=0, stdout="")
+module.tui = tui
+ready = threading.Event(); ready.set()
+module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
+print(json.dumps(calls))
+`, script, run], { env: { ...process.env, CMUX_PROMPT_RUN_DIR: run } });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual([
+      "terminal term_adopted history clear --quiet",
+      "terminal term_adopted history clear --quiet",
+      "terminal term_adopted keys ctrl+l --quiet",
+    ]);
+  });
+
   test("prompt sync creates the first workspace only after the daemon answers with no terminal", async () => {
     // A warm clone's daemon is still adopting the template terminal when the
     // prompt sync starts. An unanswered list must not fall through to a
