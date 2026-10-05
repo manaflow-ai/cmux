@@ -87,6 +87,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let portsDemand = CloudPortsDiscoveryDemand()
+        let displaysDemand = CloudDisplaysDiscoveryDemand()
         let expansionStore: CloudTreeExpansionStore
         let nodeCache: CloudTreeNodeCache
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -343,6 +344,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             contentSignature = nextContent
             if structureUnchanged, !self.nodes.isEmpty {
                 portsDemand.update(nodes: self.nodes)
+                displaysDemand.update(nodes: self.nodes, actions: nodeActions)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
@@ -354,6 +356,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             self.nodes = nodes
             portsDemand.update(nodes: nodes)
+            displaysDemand.update(nodes: nodes, actions: nodeActions)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {

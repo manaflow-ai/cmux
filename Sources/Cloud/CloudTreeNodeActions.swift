@@ -64,6 +64,8 @@ struct CloudTreeNodeActions {
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
+    /// Starts guest display discovery, which also warms the machine's standby display.
+    var discoverDisplays: @MainActor (SurfaceMachineID) -> Void = { _ in }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
@@ -594,6 +596,7 @@ struct CloudTreeNodeActions {
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
+        actions.discoverDisplays = { machine in Task { await catalog().discoverDisplays(on: machine) } }
         actions.newDisplay = { machine in
             let target = try? destination(.split)
             if let target,

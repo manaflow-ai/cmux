@@ -15,6 +15,36 @@ extension CloudTreeOutlineView.Coordinator {
         if opened == .ports {
             portsDemand.schedule(coordinator: self)
         }
+        if opened == .displays {
+            displaysDemand.request(machine, actions: nodeActions)
+        }
+    }
+}
+
+/// Requests guest display discovery once per machine whose Displays tab is
+/// open, including a tab restored as selected. Discovery starts the guest
+/// helper and its standby display before the first New Display.
+@MainActor
+final class CloudDisplaysDiscoveryDemand {
+    private var requested: Set<SurfaceMachineID> = []
+
+    func update(nodes: [CloudTreeNode], actions: CloudTreeNodeActions) {
+        var shown: Set<SurfaceMachineID> = []
+        for node in CloudTreeNodeBuilder.flattened(nodes) {
+            if case .machineDetailTabs(let tabs) = node.kind, tabs.selected == .displays {
+                shown.insert(tabs.machine)
+            }
+        }
+        // A machine that leaves the tree, or whose tab closes, asks again next time.
+        requested.formIntersection(shown)
+        for machine in shown where !requested.contains(machine) {
+            request(machine, actions: actions)
+        }
+    }
+
+    func request(_ machine: SurfaceMachineID, actions: CloudTreeNodeActions) {
+        requested.insert(machine)
+        actions.discoverDisplays(machine)
     }
 }
 

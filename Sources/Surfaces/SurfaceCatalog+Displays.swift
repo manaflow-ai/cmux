@@ -2,6 +2,14 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
+    /// Guest display discovery for a machine whose Displays are on screen. The
+    /// guest helper starts a standby display on this request, so the first
+    /// New Display hands over a running desktop.
+    func discoverDisplays(on machine: SurfaceMachineID) async {
+        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else { return }
+        await provider.refreshDisplays()
+    }
+
     /// Creates a guest display and publishes it in the machine pool. Projection
     /// into a local workspace is intentionally separate: the guest resource
     /// must survive a missing or changing local destination.
