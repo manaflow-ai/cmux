@@ -37,7 +37,10 @@ struct BrowserReplSecretRedactionTests {
         await page.goto("https://example.com/login");
         const read = await page.evaluate(() => 1);
         console.log(JSON.stringify(read).split("").join(" "));
-        console.log(read.text.includes("<secret:otp>"), String(read.number).includes("<secret:otp>"));
+        // A code read as a number is masked when it keeps its six digits; one
+        // with a leading zero reads as a shorter number, which masking by shape
+        // leaves (masking every shorter number would mask every small number).
+        console.log(read.text.includes("<secret:otp>"), String(read.number).includes("<secret:otp>") || (typeof read.number === "number" && String(read.number).length < 6));
         await page.screenshot().catch(() => {});
         """)
         let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""

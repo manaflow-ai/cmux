@@ -31,10 +31,10 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); a store no tab this session may use has (another running session's tab, a tab of another workspace) fails with `invalid` |
 | `tabs.close` | `{ targetId, runBeforeUnload? }` | Only a tab the session created, or a user's tab of its workspace it is attached to (it drove it, for example after `tabs.use`); another fails with `denied` |
 | `tabs.activate` | `{ targetId }` | |
-| `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
-| `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
+| `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }`; `url` as for `tab.info` |
+| `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }` (as for `tab.info`), or `null` when no entry (the blank page a tab opened on is not an entry); an error that names the entry gives it with its credential values `redacted` unless the session created the tab |
 | `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
-| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }`. The live values come from a read of the main document through the frame checks (see "Guards"); while the domain policy blocks that document they come from the browser's own state (the URL and title `tabs.list` shows), and the page is not read |
+| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }`. The live values come from a read of the main document through the frame checks (see "Guards"); while the domain policy blocks that document they come from the browser's own state (the URL and title `tabs.list` shows), and the page is not read. `url` is written as the session could read it itself: in a tab it created, as written; in another tab, the main document's `location.href` its frame gate read, and when the gate refuses that document, a dialog holds its script or the read does not answer, the address with its userinfo and credential-named query and fragment parameters reading `redacted` (the rule `tabs.list` uses). A refusal that names a page the session cannot read (a user's tab on a blocked page) names it that way too |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
@@ -328,8 +328,8 @@ way reaches every session in that form.
 | `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (the native panel is not shown; see `tab.handleEvents` for which tabs send it) |
 | `download.started` | `{ downloadId, url, suggestedFilename }`. Only the tab's creating session gets `url` as written; a session that gets a download in a user's tab (its own input started it) gets it with the userinfo and credential-named query and fragment parameters reading `redacted`, as in network events |
 | `download.finished` | `{ downloadId, path?, error? }`. The driver judges where the download came from again at each redirect WebKit reports after it picked the destination and, under the session's domain policy and directories then, before it names the path: a place they refuse gives `error` (`refused: ...`, which names that place; a session that did not create the tab gets it with its credential values replaced, as `download.started` gives the URL, and without the rule's explanation) and no path, and in a tab the session created the download is cancelled and its file removed (in a user's tab it goes to the user's download location) |
-| `console` | `{ type, text, args?, location? }` |
-| `pageerror` | `{ message, stack }` |
+| `console` | `{ type, text, args?, location? }`. Only the tab's live creator gets `text` as written; every other session gets each URL in it (from its scheme to whitespace, a quote, `<`, `>` or a backquote) with its userinfo and credential-named query and fragment parameters reading `redacted`, as in network events |
+| `pageerror` | `{ message, stack }`, its URLs (a stack names the document's URL and its scripts') given as `console` gives `text`'s |
 | `request` / `response` / `requestfailed` / `requestfinished` | `{ requestId, url, method, resourceType, status?, headers?, note? }`. The driver holds each unfinished request's details for its later events, at most 1,000 requests or 8 MiB of them per tab: past that the oldest are dropped, and their `requestfailed` or `requestfinished` comes without their headers and with a `note` saying so. Sent only to the tab's creating session, to a session whose last `tab.handleEvents` for the tab names `network`, and to the session whose call the page was handling when the request started (the rest of that request's events follow it). Only the creating session gets the credential headers (`cookie`, `set-cookie`, `authorization`, `proxy-authorization`, `x-api-key`, `x-auth-token`, `x-csrf-token`, `x-xsrf-token`, and any whose name says it carries one); the others get the headers without them, and the `url` and URL-valued headers (`location`, `content-location`, `referer`, `refresh`, `link`) with the userinfo and each credential-named query or fragment parameter (that name rule, or `code`, `sig`, `key`, `jwt`, `otp`, `pass`, `pwd`, `sid`, `ticket`, `assertion`, `SAMLResponse`, `SAMLRequest`) reading `redacted` |
 
 ## Browser state
@@ -493,7 +493,22 @@ native (`BrowserReplBoundary` in the session, and the driver):
   A TOTP secret's typed value is its code, masked as that literal.
   A value that reads as a number (`0042`, `0012345678`, `3.140`) is also
   masked where a result holds it as a JSON number (`Number(value)` drops
-  leading zeros), whatever its length.
+  leading zeros), whatever its length, except a value masked by its shape.
+  Masking by shape: masking runs over data the agent chooses (what it
+  prints, writes, or has a page echo), so a mask that appears only where
+  that data equals a held value answers a guess. A value from a set one
+  call can list whole is therefore never compared: while a session holds a
+  TOTP secret, every whole six-digit number (no letter or digit on either
+  side) is masked as `<secret:name>`, and while it holds (or another
+  session typed) a digit-only value of at most 8 digits (a PIN, a typed
+  TOTP code), every whole number with as many digits is masked with that
+  value's mask, in text and as a JSON number with those digits. Their
+  encoded forms (Base64, escapes) and their numbers without leading zeros
+  are not looked for. Every other value is matched by value, so a value an
+  agent can guess (a short or dictionary password) can still be confirmed
+  by printing guesses: value masking keeps a value out of what pages and
+  files hand back, not away from an agent that guesses it. Capture masks
+  still mask the exact values and codes.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session. Redaction is best-effort
@@ -515,8 +530,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   values over its life, current and retired, and a new one past that is
   refused until a reset, and one value is registered for at most 1,024
   domains over its life. One masking pass matches the session's own values
-  (current and retired), the values other sessions typed and the valid
-  TOTP codes together against the original input, so no value's mask can
+  (current and retired), the values other sessions typed and the numbers
+  masked by shape together against the original input, so no value's mask can
   replace part of another value before that value is looked for. It tries
   every position, also one inside an earlier match, and masks
   intersecting matches as their union (each distinct mask once), so a
@@ -1041,7 +1056,9 @@ when present.
   world dispatches that event on each element, and the page world reads the
   targets, then runs `source`. Detached elements fail with `stale`.
 - Evaluation errors carry `{ code, message, errorName }`; page exceptions use
-  code `evaluation`.
+  code `evaluation` unless the thrown value has its own `code`. The page
+  chooses all three, so the session's egress gate masks each of them as it
+  masks a result.
 - `tab.info` answers from native state (URL, title, `isLoading`) while a
   JavaScript dialog is open, since page script is blocked then.
 - `frameId` is WebKit's frame handle id (`-[WKFrameInfo _handle].frameID`);

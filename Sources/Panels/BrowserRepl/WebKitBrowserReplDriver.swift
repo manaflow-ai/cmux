@@ -851,6 +851,45 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         panel.webView.url?.absoluteString ?? panel.currentURL?.absoluteString ?? ""
     }
 
+    /// `address` (the tab's, by default) as this session may read it
+    /// (``BrowserReplPageURL/tabAddress(_:liveCreator:reader:documentLocation:)``):
+    /// as written in a tab it created, as `documentLocation` (the main
+    /// document's `location.href` it read through its frame gate), and
+    /// otherwise without its credential values.
+    @MainActor
+    private func tabAddress(_ panel: BrowserPanel, address: String? = nil, documentLocation: String? = nil) -> BrowserReplPageURL {
+        BrowserReplPageURL.tabAddress(
+            address ?? Self.url(panel),
+            liveCreator: BrowserReplTabAttachments.shared.attachment(for: panel.id)?.liveCreatorSessionID,
+            reader: sessionID,
+            documentLocation: documentLocation
+        )
+    }
+
+    /// The tab's address for a result: in a tab another session or the
+    /// user owns, the main document's `location.href` read through this
+    /// session's frame gate, as a script it may run there reads it; the
+    /// address without credential values when the gate refuses the
+    /// document, a dialog holds its script or the read does not answer.
+    @MainActor
+    private func readableTabAddress(_ panel: BrowserPanel) async -> BrowserReplPageURL {
+        guard BrowserReplTabAttachments.shared.attachment(for: panel.id)?.liveCreatorSessionID != sessionID,
+              !attachment(panel).hasPendingDialog,
+              let mainFrame = try? await frame(panel, [:]) else { return tabAddress(panel) }
+        let webView = panel.webView
+        let location = await withTimeout(milliseconds: 2_000) { () -> String? in
+            let value = try? await self.frameGate.callAsyncJavaScript(
+                "return location.href;",
+                arguments: [:],
+                in: webView,
+                frame: mainFrame,
+                contentWorld: BrowserReplAgentWorld.world
+            )
+            return value as? String
+        } ?? nil
+        return tabAddress(panel, documentLocation: location)
+    }
+
     /// Wakes a hibernated tab before `method` and waits, at most
     /// ``BrowserReplTabWaker/defaultTimeout``, for its page to load again,
     /// or fails with why the tab cannot run it (crashed, a restore the user
@@ -858,7 +897,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// focuses it.
     @MainActor
     private func prepareTab(_ panel: BrowserPanel, for method: String, params: [String: Any]) async throws -> BrowserReplTabPreparation {
-        let label = BrowserReplTabLabel(id: panel.id.uuidString, title: Self.title(panel), url: Self.url(panel))
+        let label = BrowserReplTabLabel(id: panel.id.uuidString, title: Self.title(panel), url: tabAddress(panel).string(for: sessionID))
         // A reload keeps its own timeout; other calls get the wake's bound.
         let timeout: Duration = method == "tab.reload" ? .milliseconds(Self.timeout(params)) : BrowserReplTabWaker.defaultTimeout
         return try await BrowserReplTabWaker(sleeper: sleeper, timeout: timeout).prepare(
@@ -1321,7 +1360,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             Self.waitUntil(params),
             remainingMilliseconds: Self.remaining(timeout, since: started)
         )
-        var result: [String: Any] = ["url": panel.webView.url?.absoluteString ?? raw]
+        // The landed page was judged after this returns (judgesLandedPage).
+        // The session's own URL until the tab has an address; then the
+        // address as the session may read it.
+        var result: [String: Any] = ["url": panel.webView.url == nil ? raw : await readableTabAddress(panel)]
         if let status = attachment(panel).mainDocumentStatus { result["status"] = status }
         return result
     }
@@ -1374,13 +1416,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 await panel.finishAutomationNavigation(ticket)
             }
         }
-        try Self.check(outcome, url: item.url.absoluteString)
+        // A history entry is the user's and every session's: only the tab's
+        // live creator reads its credential values.
+        try Self.check(outcome, url: tabAddress(panel, address: item.url.absoluteString).string(for: sessionID))
         try await waitForLoadState(
             panel,
             Self.waitUntil(params),
             remainingMilliseconds: Self.remaining(timeout, since: started)
         )
-        return ["url": webView.url?.absoluteString ?? item.url.absoluteString]
+        if webView.url == nil { return ["url": tabAddress(panel, address: item.url.absoluteString)] }
+        return ["url": await readableTabAddress(panel)]
     }
 
     @MainActor
@@ -1397,7 +1442,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             return (outcome, target)
         }
-        try Self.check(outcome, url: target.absoluteString)
+        try Self.check(outcome, url: tabAddress(panel, address: target.absoluteString).string(for: sessionID))
         try await waitForLoadState(
             panel,
             Self.waitUntil(params),
@@ -1511,7 +1556,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             "viewport": ["width": Int(fallbackSize.width), "height": Int(fallbackSize.height)],
             "deviceScaleFactor": 1,
         ]
-        result["url"] = Self.url(panel)
+        // From native state the session reads the address without credential
+        // values unless it created the tab; the live read below gives the
+        // document's own location.
+        result["url"] = tabAddress(panel)
         result["title"] = Self.title(panel)
         result["state"] = tabCondition(panel).state.rawValue
         // The web content process's pid (WKWebView SPI), so a test can end
@@ -1550,7 +1598,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // old one; report "commit" so load-state waits hold until it lands.
         let pendingURL = webView.isLoading ? webView.url?.absoluteString : nil
         let navigationPending = pendingURL.map { $0 != href } ?? false
-        result["url"] = href
+        result["url"] = tabAddress(panel, documentLocation: href)
         result["title"] = metrics[4] as? String ?? result["title"]
         result["loadState"] = navigationPending
             ? "commit"

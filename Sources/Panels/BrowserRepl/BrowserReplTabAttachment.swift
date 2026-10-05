@@ -881,10 +881,16 @@ final class BrowserReplTabAttachment {
     /// Sends a console message or page error from `document` only to the
     /// sessions whose authority allows that document
     /// (``BrowserReplPageTelemetry``).
+    /// Its text (`text`, `message`, `stack`) is the page's and can name
+    /// URLs, the document's own among them (``BrowserReplPageText``): only
+    /// the tab's live creator reads their credential values.
     private func emitTelemetry(_ event: BrowserReplDriverEvent, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
         guard event.isDelivered(through: .fromDocument) else { return }
         var body = payload
         body["targetId"] = targetID
+        for key in ["text", "message", "stack"] {
+            if let text = payload[key] as? String { body[key] = BrowserReplPageText(text, creator: liveCreator) }
+        }
         let recipients = BrowserReplPageTelemetry().recipients(of: document, in: authorityFacts, among: Array(sinks.keys)) {
             Self.authority(for: $0)
         }

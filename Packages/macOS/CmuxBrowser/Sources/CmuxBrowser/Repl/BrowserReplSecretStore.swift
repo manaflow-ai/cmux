@@ -26,11 +26,23 @@ public import Foundation
 /// matching once, when it is registered.
 ///
 /// A TOTP secret's value is its seed. The codes it generates are secrets too
-/// while a server can still accept them: the code of the current 30-second
-/// window and of the windows on each side (the clock skew RFC 6238 servers
-/// allow, so the code typed now stays covered until it expires) are masked as
-/// `<secret:name>` wherever they stand as a whole number, and are capture
-/// masks for the secret's domains.
+/// while a server can still accept them (the current 30-second window and
+/// the windows on each side, the clock skew RFC 6238 servers allow): they
+/// are capture masks for the secret's domains, and in text every whole
+/// six-digit number is masked as `<secret:name>` while the session holds a
+/// TOTP secret, whatever its digits.
+///
+/// Masking by value runs over data the agent chooses (what it prints,
+/// writes, or has a page echo), so a mask that appears only where the data
+/// equals a held value answers the agent's guess. A value from a set the
+/// agent can list whole in one call, a TOTP code or a digit-only value of
+/// at most ``maximumDigitsMaskedByShape`` digits (a PIN), is therefore
+/// masked by its shape (``masksByShape(_:)``): every whole number of its
+/// length, as text or a JSON number, gets its mask, and its encoded forms
+/// are not looked for. Any other value is masked by value, so a value an
+/// agent can guess (a short or dictionary password) can still be confirmed
+/// by printing guesses: value masking keeps a value out of what pages and
+/// files hand back, not away from an agent that guesses it.
 public final class BrowserReplSecretStore: @unchecked Sendable {
     public struct Entry: Sendable {
         public let name: String
@@ -64,6 +76,9 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// Every value the session held, its current and retired ones.
     private var heldValues: Set<String> = []
     private var values: [BrowserReplSecretScanner.Value] = []
+    /// The masks of the values masked by their shape (``masksByShape(_:)``),
+    /// by their number of digits (index), in the order they were held.
+    private var digitRunMasks: [[String]] = []
     /// The mask of each held value that reads as a number (`0042`,
     /// `0012345678`, `3.140`), by the number's bits: a page that converts
     /// the value with `Number()` returns it as a JSON number.
@@ -98,6 +113,20 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// session's life, under all its names, current and retired: a retired
     /// value stays a capture mask on every one of them.
     public static let maximumDomainsPerValue = 1024
+    /// The longest digit-only value masked by its shape: a whole number of
+    /// up to 8 digits has at most 10^8 forms, which one call lists whole
+    /// (a 900 MB file, under a session's 2 GiB of writes).
+    public static let maximumDigitsMaskedByShape = 8
+    /// The digits of a TOTP code.
+    static let totpDigits = 6
+
+    /// Whether `value` is masked by its shape instead of by comparison:
+    /// it is digits only, at most ``maximumDigitsMaskedByShape`` of them.
+    static func masksByShape(_ value: String) -> Bool {
+        let utf8 = value.utf8
+        return !utf8.isEmpty && utf8.count <= maximumDigitsMaskedByShape
+            && utf8.allSatisfy { $0 >= UInt8(ascii: "0") && $0 <= UInt8(ascii: "9") }
+    }
 
     /// Secrets registered through `set`, not values other sessions typed.
     private var registered: Set<String> = []
@@ -185,6 +214,10 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             // first order puts it instead of rebuilding, so filling a store
             // is not quadratic.
             codeCache = nil
+            if Self.masksByShape(value) {
+                addDigitRunMaskLocked(length: value.utf8.count, mask: "<secret:\(maskName)>")
+                return
+            }
             let length = entry.compiled.utf8.count
             let index = values.firstIndex { $0.utf8.count < length } ?? values.endIndex
             values.insert(entry.compiled, at: index)
@@ -383,13 +416,31 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             Self.base32Decode(entry.value).map { (entry.maskName, $0, entry.domains) }
         }
         // Each value was compiled when it was registered; a change only reorders.
-        values = masked.map(\.compiled)
+        let byShape = { (entry: Entry) in !entry.totp && Self.masksByShape(entry.value) }
+        values = masked.filter { !byShape($0) }.map(\.compiled)
             .sorted { $0.utf8.count > $1.utf8.count }
+        digitRunMasks = []
+        for entry in masked {
+            if entry.totp {
+                addDigitRunMaskLocked(length: Self.totpDigits, mask: "<secret:\(entry.maskName)>")
+            } else if byShape(entry) {
+                addDigitRunMaskLocked(length: entry.value.utf8.count, mask: "<secret:\(entry.maskName)>")
+            }
+        }
         numericMasks = [:]
-        for entry in masked where !entry.totp {
+        for entry in masked where !entry.totp && !byShape(entry) {
             guard let number = Self.numericValue(entry.value) else { continue }
             numericMasks[Self.numericKey(number)] = numericMasks[Self.numericKey(number)] ?? "<secret:\(entry.maskName)>"
         }
+    }
+
+    /// Masks every whole number of `length` digits with `mask` too. Call
+    /// with `lock` held.
+    private func addDigitRunMaskLocked(length: Int, mask: String) {
+        if digitRunMasks.count <= length {
+            digitRunMasks += Array(repeating: [], count: length + 1 - digitRunMasks.count)
+        }
+        if !digitRunMasks[length].contains(mask) { digitRunMasks[length].append(mask) }
     }
 
     /// The number JavaScript's `Number()` gives a value that is a decimal
@@ -407,13 +458,10 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         (number == 0 ? 0 : number).bitPattern
     }
 
-    /// What this store masks now, with the TOTP codes valid at `date`.
-    fileprivate func snapshot(at date: Date) -> (values: [BrowserReplSecretScanner.Value], codes: [(digits: [UInt8], mask: [UInt8])], numericMasks: [UInt64: String]) {
-        let (values, numericMasks) = lock.withLock { (self.values, self.numericMasks) }
-        let codes = values.isEmpty ? [] : validCodes(at: date).flatMap { entry in
-            entry.codes.map { (digits: Array($0.utf8), mask: Array(entry.mask.utf8)) }
-        }
-        return (values, codes, numericMasks)
+    /// What this store masks now: values by comparison, whole numbers by
+    /// their number of digits, and JSON numbers.
+    fileprivate func snapshot() -> (values: [BrowserReplSecretScanner.Value], digitRunMasks: [[String]], numericMasks: [UInt64: String]) {
+        lock.withLock { (values, digitRunMasks, numericMasks) }
     }
 
     /// Why masking withheld `count` bytes.
@@ -430,11 +478,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// TOTP codes valid now. Text that masking would grow by more than
     /// ``maximumGrowth`` is replaced by a note saying it was withheld.
     public func redact(_ text: String) -> String {
-        redact(text, at: Date())
-    }
-
-    func redact(_ text: String, at date: Date) -> String {
-        Redaction(stores: [self], at: date)?.redact(text) ?? text
+        Redaction(stores: [self])?.redact(text) ?? text
     }
 
     /// `data` with every registered value and its encodings masked, text or
@@ -444,7 +488,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// - Throws: `invalid` when masking would grow the bytes by more than
     ///   ``maximumGrowth``.
     public func redact(_ data: Data) throws -> Data {
-        try Redaction(stores: [self], at: Date())?.redact(data) ?? data
+        try Redaction(stores: [self])?.redact(data) ?? data
     }
 
     /// A JSON document with every string (keys too) redacted. Text that is
@@ -466,7 +510,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// - Throws: `invalid` when masking would grow it by more than
     ///   ``maximumGrowth`` in all.
     public func redactedValue(_ value: Any) throws -> Any {
-        try Redaction(stores: [self], at: Date())?.redactedValue(value) ?? value
+        try Redaction(stores: [self])?.redactedValue(value) ?? value
     }
 
     /// One masking of the values of one or more stores, taken at once:
@@ -481,9 +525,18 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         private let numericMasks: [UInt64: String]
 
         /// `nil` when the stores mask nothing.
-        init?(stores: [BrowserReplSecretStore], at date: Date) {
-            let snapshots = stores.map { $0.snapshot(at: date) }.filter { !$0.values.isEmpty }
+        init?(stores: [BrowserReplSecretStore]) {
+            let snapshots = stores.map { $0.snapshot() }.filter { !$0.values.isEmpty || !$0.digitRunMasks.isEmpty }
             guard !snapshots.isEmpty else { return nil }
+            // Every store's mask for a length, each once, in store order: one
+            // mask for every whole number of that length.
+            var runMasks: [[String]] = []
+            for snapshot in snapshots {
+                for (length, masks) in snapshot.digitRunMasks.enumerated() {
+                    if runMasks.count <= length { runMasks += Array(repeating: [], count: length + 1 - runMasks.count) }
+                    for mask in masks where !runMasks[length].contains(mask) { runMasks[length].append(mask) }
+                }
+            }
             // Each store's values are longest first; merge them keeping that
             // order, and the first store's value first among equal lengths.
             var values = snapshots[0].values
@@ -506,7 +559,10 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 values = merged
                 numericMasks.merge(snapshot.numericMasks) { first, _ in first }
             }
-            scanner = BrowserReplSecretScanner(values: values, codes: snapshots.flatMap(\.codes))
+            scanner = BrowserReplSecretScanner(
+                values: values,
+                digitRunMasks: runMasks.map { $0.isEmpty ? nil : Array($0.joined().utf8) }
+            )
             self.numericMasks = numericMasks
         }
 
@@ -580,17 +636,11 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                     guard budget >= 0 else { throw BrowserReplSecretStore.limitError(number.stringValue.utf8.count) }
                     return mask
                 }
-                // A TOTP code it reads that way drops a leading zero too.
-                var forms = [number.stringValue]
-                let integer = number.int64Value
-                if Double(integer) == number.doubleValue, (0..<1_000_000).contains(integer) {
-                    forms.append(String(format: "%06lld", integer))
-                }
-                for form in forms {
-                    let masked = try redact(form, budget: &budget)
-                    if masked != form { return masked }
-                }
-                return value
+                // As text: a whole number of a length masked by its shape
+                // (a TOTP code, a PIN) is masked whatever its digits.
+                let form = number.stringValue
+                let masked = try redact(form, budget: &budget)
+                return masked != form ? masked : value
             default:
                 return value
             }
@@ -619,7 +669,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
 
     static let totpPeriod: Double = 30
 
-    static func totp(key: Data, time: TimeInterval, digits: Int = 6, period: Double = totpPeriod) -> String {
+    static func totp(key: Data, time: TimeInterval, digits: Int = totpDigits, period: Double = totpPeriod) -> String {
         var counter = UInt64(max(0, floor(time / period))).bigEndian
         let message = Data(bytes: &counter, count: 8)
         let mac = Array(HMAC<Insecure.SHA1>.authenticationCode(for: message, using: SymmetricKey(data: key)))

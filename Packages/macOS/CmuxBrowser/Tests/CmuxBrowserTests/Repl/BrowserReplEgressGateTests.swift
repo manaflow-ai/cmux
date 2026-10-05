@@ -69,6 +69,28 @@ struct BrowserReplEgressGateTests {
         #expect(!delivered.contains(Self.suffix), "\(delivered)")
     }
 
+    /// A page exception's `code` and `name` are the page's, like its
+    /// message: a page (or the agent's own page script) can throw an object
+    /// whose `code` holds a value, and the runtime hands `code` to the
+    /// agent as `Error.code`.
+    @Test("A page exception's code and name reach JavaScript masked, as its message does")
+    func pageExceptionMetadataIsMasked() throws {
+        let boundary = BrowserReplBoundary()
+        try boundary.secrets.set(name: "key", value: Self.protected, domains: ["example.com"], totp: false, title: "t")
+        let thrown = BrowserReplDriverError(code: "c-\(Self.protected)", message: "boom", errorName: "E-\(Self.protected)")
+        let egress = boundary.egress(.driverResult(method: "frame.evaluate", .failure(thrown)))
+        guard case .failure(let error) = egress.result else {
+            Issue.record("expected the failure to stay a failure")
+            return
+        }
+        #expect(!error.json.contains(Self.protected), "\(error.json)")
+        #expect(error.code == "c-<secret:key>", "\(error.json)")
+        #expect(error.errorName == "E-<secret:key>", "\(error.json)")
+        let fetched = boundary.egress(.fetch(.failure(thrown)))
+        #expect(!fetched.text.contains(Self.protected))
+        if case .failure(let error) = fetched.result { #expect(!error.json.contains(Self.protected), "\(error.json)") }
+    }
+
     static let signed = "https://user:hunter2@app.example/callback?code=c0de&state=s"
 
     /// The navigation guard tells every attached session of a navigation

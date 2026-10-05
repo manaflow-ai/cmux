@@ -180,10 +180,14 @@ public struct BrowserReplDocumentAuthority: Sendable {
                 return .refused(BrowserReplRefusal(code: "blocked", reason: reason, message: reason))
             }
             guard !url.isEmpty, let reason = policy.blockReason(url) else { return .allowed }
+            // The session cannot read a page it is refused, so only the
+            // tab's live creator gets its address with credential values.
+            let shown = BrowserReplPageURL.tabAddress(url, liveCreator: access.tab?.creatorSessionID, reader: sessionID, documentLocation: nil)
+                .string(for: sessionID)
             return .refused(BrowserReplRefusal(
                 code: "blocked",
                 reason: reason,
-                message: "the tab shows \(url), which the domain policy blocks: \(reason); navigate it to an allowed page"
+                message: "the tab shows \(shown), which the domain policy blocks: \(reason); navigate it to an allowed page"
             ))
         case .document(let document):
             if let reason = policy.blockReason(document: document) {
@@ -295,10 +299,14 @@ extension BrowserReplDocumentAuthority {
         guard let refusal = verdict(BrowserReplAccess(.tabPage(url), in: tab)).refusal else { return .allowed }
         let isCreator = tab?.creatorSessionID == sessionID
         let tail = isCreator ? "" : "; the tab is the user's, so it stays there and the session cannot read it"
+        // The session cannot read a page it is refused, so only the tab's
+        // live creator gets its address with credential values.
+        let shown = BrowserReplPageURL.tabAddress(url, liveCreator: tab?.creatorSessionID, reader: sessionID, documentLocation: nil)
+            .string(for: sessionID)
         return .refused(BrowserReplRefusal(
             code: refusal.code,
             reason: refusal.reason,
-            message: "navigation to \(url) was blocked: \(refusal.reason)\(tail)"
+            message: "navigation to \(shown) was blocked: \(refusal.reason)\(tail)"
         ))
     }
 

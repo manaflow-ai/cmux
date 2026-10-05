@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The pass never rescans its own output and never builds an intermediate
 /// copy: at each position of the input it checks, in order, a Base64 token that starts
-/// there, a valid TOTP code standing as a whole number, and each value in
+/// there, a whole number of a length masked by its shape, and each value in
 /// any of its encodings, copying unmatched bytes through. Only values whose
 /// first byte the position can start are tried: the byte itself, or the
 /// first byte of the character an escape there (`%41`, `\u0041`, `&#65;`,
@@ -54,7 +54,11 @@ struct BrowserReplSecretScanner {
     }
 
     private let values: [Value]
-    private let codes: [(digits: [UInt8], mask: [UInt8])]
+    /// The mask of every whole number with this many digits (index), or
+    /// `nil`: values from a set small enough to guess whole (TOTP codes,
+    /// short digit-only values) are masked by their shape, never compared
+    /// (``BrowserReplSecretStore/masksByShape(_:)``).
+    private let digitRunMasks: [[UInt8]?]
     /// Bytes at which some value's match can start.
     private let startBytes: [Bool]
     /// The values (indices into `values`, longest first) whose UTF-8 starts
@@ -69,10 +73,11 @@ struct BrowserReplSecretScanner {
 
     /// - Parameters:
     ///   - values: The values to mask, longest first.
-    ///   - codes: TOTP codes to mask where they stand as a whole number.
-    init(values: [Value], codes: [(digits: [UInt8], mask: [UInt8])]) {
+    ///   - digitRunMasks: The mask of every whole number with as many
+    ///     digits as the index, or `nil`.
+    init(values: [Value], digitRunMasks: [[UInt8]?] = []) {
         self.values = values
-        self.codes = codes
+        self.digitRunMasks = digitRunMasks
         var startBytes = [Bool](repeating: false, count: 256)
         var valuesByFirstByte = [[Int]](repeating: [], count: 256)
         for (index, value) in values.enumerated() {
@@ -86,7 +91,7 @@ struct BrowserReplSecretScanner {
         self.valuesByFirstByte = valuesByFirstByte
     }
 
-    var isEmpty: Bool { values.isEmpty && codes.isEmpty }
+    var isEmpty: Bool { values.isEmpty && !digitRunMasks.contains { $0 != nil } }
 
     /// Masks `input`. `budget` is how many bytes the output may grow past
     /// the input; it is reduced by the growth of this pass.
@@ -120,12 +125,16 @@ struct BrowserReplSecretScanner {
                 }
                 tokenCheckedUntil = end
             }
-            if !codes.isEmpty, Self.isDigit(byte), index == 0 || !Self.isDigit(input[index - 1]) {
+            // A whole number (no letter or digit on either side) is masked
+            // by its length alone, whatever its digits, so the mask says
+            // nothing about which number a value is.
+            if !digitRunMasks.isEmpty, Self.isDigit(byte), index == 0 || !Self.isAlphanumeric(input[index - 1]) {
                 var end = index
-                while end < input.count, Self.isDigit(input[end]) { end += 1 }
-                let run = UnsafeBufferPointer(rebasing: input[index..<end])
-                if let code = codes.first(where: { $0.digits.elementsEqual(run) }) {
-                    guard span.add(from: index, to: end, mask: code.mask, into: &pass) else { return .overLimit }
+                while end < input.count, end - index < digitRunMasks.count, Self.isDigit(input[end]) { end += 1 }
+                work += end - index
+                let whole = end - index < digitRunMasks.count && (end == input.count || !Self.isAlphanumeric(input[end]))
+                if whole, let mask = digitRunMasks[end - index] {
+                    guard span.add(from: index, to: end, mask: mask, into: &pass) else { return .overLimit }
                 }
             }
             if startBytes[Int(byte)] {
@@ -583,6 +592,10 @@ struct BrowserReplSecretScanner {
 
     private static func isDigit(_ byte: UInt8) -> Bool {
         byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9")
+    }
+
+    private static func isAlphanumeric(_ byte: UInt8) -> Bool {
+        isDigit(byte) || (byte | 0x20 >= UInt8(ascii: "a") && byte | 0x20 <= UInt8(ascii: "z"))
     }
 
     private static func has(_ input: UnsafeBufferPointer<UInt8>, at start: Int, _ text: String) -> Bool {
