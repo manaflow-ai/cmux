@@ -28,6 +28,8 @@ public final class BrowserPrompt: Identifiable {
     /// The response used when the prompt is dismissed without an answer.
     public var dismissalResponse: BrowserPromptResponse {
         switch kind {
+        // Closing the tab refuses the waiting downloads and remembers nothing.
+        case .permission(.automaticDownloads): .cancel
         case .permission: .deny
         case .alert: .accept
         case .confirm, .textInput, .credentials: .cancel

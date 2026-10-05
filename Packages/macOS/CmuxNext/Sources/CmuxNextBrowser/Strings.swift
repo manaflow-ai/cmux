@@ -68,8 +68,13 @@ nonisolated enum Strings {
     static func permissionCameraAndMicrophone(_ origin: String) -> String {
         String(localized: "browser.permission.cameraAndMicrophone", defaultValue: "\(origin) wants to use your camera and microphone.", bundle: .module)
     }
+    /// The automatic-downloads question; `origin` is empty for a page
+    /// without one (data:, about:blank).
     static func permissionAutomaticDownloads(_ origin: String) -> String {
-        String(localized: "browser.permission.automaticDownloads", defaultValue: "\(origin) wants to download multiple files.", bundle: .module)
+        guard !origin.isEmpty else {
+            return String(localized: "browser.permission.automaticDownloads.thisPage", defaultValue: "This page wants to download multiple files.", bundle: .module)
+        }
+        return String(localized: "browser.permission.automaticDownloads", defaultValue: "\(origin) wants to download multiple files.", bundle: .module)
     }
     static func dialogFrom(_ origin: String) -> String {
         String(localized: "browser.dialog.from", defaultValue: "\(origin) says", bundle: .module)
