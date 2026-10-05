@@ -3385,6 +3385,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.applyCurrentAppWebTheme(to: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+                self.focusPendingContentAfterAttachment()
                 self.notePageRestorationLoadFinished(webView)
             }
         }
