@@ -388,7 +388,7 @@ struct CloudTreeMachineMenuTests {
         func render() {
             coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
                 machines: model.sidebarMachines, snapshot: model.catalog, localWorkspaces: [], includeLocalMachine: false
-            ))
+            ).withoutCoderouterSection)
         }
         render()
         let outline = try #require(coordinator.outlineView)
@@ -490,7 +490,7 @@ struct CloudTreeMachineMenuTests {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: model.catalog, localWorkspaces: [], source: .cloudWithDevicesSection
         )
-        #expect(nodes.last?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
+        #expect(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID }?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
     }
 
     private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
@@ -622,9 +622,10 @@ struct CloudTreeMachineMenuTests {
 
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         try Self.choose(Self.title("cloudTree.menu.rename", "Rename\u{2026}"), in: menu)
-        #expect(recorder.renamedRemoteViews.count == 1)
-        #expect(recorder.renamedRemoteViews.first?.0 == desktop.id)
-        #expect(recorder.renamedRemoteViews.first?.1 == "tab-9")
+        // A display's name belongs to the display, shared by every row and pane
+        // that shows it, so Rename names the display rather than one view's tab.
+        #expect(recorder.renamedDisplays == [desktop.id])
+        #expect(recorder.renamedRemoteViews.isEmpty)
     }
 
     /// Another Mac's browser rows carry a tab, so "does this row have a tab"
@@ -926,6 +927,9 @@ struct CloudTreeMachineMenuTests {
         actions.openWorkspace = { machine, workspace, group in
             recorder.openWorkspaces.append((machine: machine, workspace: workspace, group: group))
         }
+        actions.renameDisplay = { resource in
+            recorder.renamedDisplays.append(resource.id)
+        }
         return actions
     }
 }
@@ -949,4 +953,5 @@ private final class CloudTreeMenuVerbRecorder {
     var networkEdits: [(String, String?)] = []
     var agentUpdateChanges: [(String, Bool)] = []
     var renamedRemoteViews: [(SurfaceResourceID, String)] = []
+    var renamedDisplays: [SurfaceResourceID] = []
 }

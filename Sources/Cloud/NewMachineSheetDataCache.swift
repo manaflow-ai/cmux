@@ -13,6 +13,7 @@ struct NewMachineSheetData {
     /// The list endpoint's `limits`; nil when the server sent none.
     var limits: VMPlanLimits?
     var activeCount: Int
+    var machines: [VMSummary] = []
     /// The preset catalog; nil until it loads.
     var catalog: CloudNetworkPresetCatalog?
     /// The catalog request failed and no earlier answer exists, so the sheet
@@ -63,6 +64,7 @@ final class NewMachineSheetDataCache {
     /// The scope the stored values belong to.
     private(set) var scope: AuthenticatedTeamScope?
     private var page: (limits: VMPlanLimits?, activeCount: Int)?
+    private var machines: [VMSummary] = []
     private var catalog: CloudNetworkPresetCatalog?
     private var catalogFailed = false
     private var fetchedAt: ContinuousClock.Instant?
@@ -159,6 +161,7 @@ final class NewMachineSheetDataCache {
             hasPlan: page?.limits != nil,
             limits: page?.limits,
             activeCount: page?.activeCount ?? 0,
+            machines: machines,
             catalog: catalog,
             catalogFailed: catalogFailed
         )
@@ -248,6 +251,7 @@ final class NewMachineSheetDataCache {
                 guard !Task.isCancelled, self.isCurrent(scope) else { return }
                 if case .success(let page) = result {
                     self.page = (page.limits, page.vms.count)
+                    self.machines = page.vms
                     self.fetchedAt = self.clock.now
                 }
                 self.notify()
@@ -282,6 +286,7 @@ final class NewMachineSheetDataCache {
     func ingest(page: VMListPage, scope: AuthenticatedTeamScope?) {
         guard let scope, isCurrent(scope) else { return }
         self.page = (page.limits, page.vms.count)
+        self.machines = page.vms
         fetchedAt = clock.now
         notify()
         if readyData != nil { resumeAllWaiters() }
@@ -308,6 +313,7 @@ final class NewMachineSheetDataCache {
         resumeAllWaiters()
         self.scope = scope
         page = nil
+        machines = []
         catalog = nil
         catalogFailed = false
         fetchedAt = nil

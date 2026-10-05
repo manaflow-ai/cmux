@@ -2859,9 +2859,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
-    /// True when `cmux.json` does not configure surface tab bar buttons, so
-    /// the pane tab bars show ``CompactSurfaceTabBarCluster`` instead.
-    private(set) var surfaceTabBarUsesCompactCluster = false
     private var featureFlagsObserver: NSObjectProtocol?
     private var browserAvailabilityObserver: NSObjectProtocol?
 
@@ -4591,8 +4588,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         globalConfigPath: String,
         settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
-        workspaceCommands: [String: CmuxResolvedCommand],
-        usesCompactCluster: Bool = false
+        workspaceCommands: [String: CmuxResolvedCommand]
     ) {
         surfaceTabBarButtonConfiguration = SurfaceTabBarButtonConfiguration(
             buttons: buttons,
@@ -4600,10 +4596,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             globalConfigPath: globalConfigPath,
             settingPresets: settingPresets,
             terminalCommandSourcePaths: terminalCommandSourcePaths,
-            workspaceCommands: workspaceCommands,
-            usesCompactCluster: usesCompactCluster
+            workspaceCommands: workspaceCommands
         )
-        surfaceTabBarUsesCompactCluster = usesCompactCluster
         let buttons = buttons.filter { button in
             guard case .builtIn(let builtInAction) = button.action else { return true }
             return Self.surfaceTabBarBuiltInActionIsAvailable(builtInAction)
@@ -4662,7 +4656,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         surfaceTabBarButtonSourcePath = sourcePath
         surfaceTabBarButtonGlobalConfigPath = globalConfigPath
 
-        let configuredBonsplitButtons: [BonsplitConfiguration.SplitActionButton] = buttons.map { button in
+        let bonsplitButtons = buttons.map { button in
             let executable = executableButtons[button.id]
             let allowProjectLocalIcon = executable.map {
                 CmuxConfigExecutor.isTrustedSurfaceButton(
@@ -4679,21 +4673,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 allowProjectLocalIcon: allowProjectLocalIcon
             )
         }
-        // Without a user list, the compact cluster replaces the four default
-        // buttons. Built-in actions stay reachable through their shortcuts and
-        // the command palette either way.
-        let bonsplitButtons = usesCompactCluster
-            ? CompactSurfaceTabBarCluster.bonsplitButtons(
-                for: .standard,
-                availability: compactSurfaceTabBarAvailability()
-            )
-            : configuredBonsplitButtons
         var configuration = bonsplitController.configuration
-        if configuration.appearance.splitButtons != bonsplitButtons {
-            configuration.appearance.splitButtons = bonsplitButtons
-            bonsplitController.configuration = configuration
-        }
-        refreshCompactSurfaceTabBarButtons()
+        guard configuration.appearance.splitButtons != bonsplitButtons else { return }
+        configuration.appearance.splitButtons = bonsplitButtons
+        bonsplitController.configuration = configuration
     }
 
     private func reapplySurfaceTabBarButtonsForFeatureFlags() {
@@ -4704,8 +4687,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             globalConfigPath: configuration.globalConfigPath,
             settingPresets: configuration.settingPresets,
             terminalCommandSourcePaths: configuration.terminalCommandSourcePaths,
-            workspaceCommands: configuration.workspaceCommands,
-            usesCompactCluster: configuration.usesCompactCluster
+            workspaceCommands: configuration.workspaceCommands
         )
     }
 
@@ -5228,10 +5210,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
-            if self.surfaceTabBarUsesCompactCluster,
-               let paneId = self.bonsplitController.paneId(containing: tabId) {
-                self.refreshCompactSurfaceTabBarButtons(inPane: paneId)
-            }
             guard let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
             if self.panelTitles[browserPanel.id] != nextTitle {
@@ -13774,9 +13752,6 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
-        if surfaceTabBarUsesCompactCluster {
-            refreshCompactSurfaceTabBarButtons()
-        }
         tmuxOverlaySelectionRevision &+= 1
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
@@ -14470,9 +14445,6 @@ extension Workspace: BonsplitDelegate {
         // without a didClosePane call; release projections of a split that
         // just left the model (#13387).
         releaseProvisionalSplitPaneGeometryForRemovedSplits()
-        if surfaceTabBarUsesCompactCluster {
-            refreshCompactSurfaceTabBarButtons()
-        }
         forceCloseTabIds.remove(tabId)
         tabStripCloseButtonByTabId.removeValue(forKey: tabId)
         let remoteTmuxWorkspaceCloseButton = remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
@@ -14882,11 +14854,6 @@ extension Workspace: BonsplitDelegate {
         // Same transaction as the tree update: no commit may show the split
         // pane's terminal over the new pane (#13387).
         applyProvisionalSplitPaneGeometry(originalPane: originalPane, newPane: newPane)
-        // A drag split moves a tab without a selection event; both panes may change kind.
-        if surfaceTabBarUsesCompactCluster {
-            refreshCompactSurfaceTabBarButtons(inPane: originalPane)
-            refreshCompactSurfaceTabBarButtons(inPane: newPane)
-        }
 #if DEBUG
         let originalSelectedKind = controller.selectedTab(inPane: originalPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"
         let newSelectedKind = controller.selectedTab(inPane: newPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"
@@ -15215,14 +15182,7 @@ extension Workspace: BonsplitDelegate {
             "pane=\(pane.id.uuidString.prefix(5)) identifier=\(identifier)"
         )
 #endif
-        if handleCompactSurfaceTabBarCustomAction(identifier, inPane: pane) {
-            return
-        }
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
-    }
-
-    func splitTabBar(_ controller: BonsplitController, menuForSplitActionButton buttonId: String, inPane pane: PaneID) -> NSMenu? {
-        compactSurfaceTabBarMenu(forButton: buttonId, inPane: pane)
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {

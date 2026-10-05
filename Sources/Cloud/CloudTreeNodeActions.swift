@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import AppKit
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -58,6 +59,11 @@ struct CloudTreeNodeActions {
     /// rather than falling back to an all-views rename the way a terminal pool
     /// row does. A display open in two workspaces is exactly that case.
     var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
+    /// Renames a display for every client: its rows and every pane showing it.
+    var renameDisplay: @MainActor (_ resource: SurfaceResource) -> Void = { _ in }
+    /// Takes a display out of one Cloud workspace on this Mac: closes its pane
+    /// there and removes this Mac's membership for it.
+    var removeDisplayFromWorkspace: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
@@ -73,6 +79,12 @@ struct CloudTreeNodeActions {
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Presents an inline Cloud action explanation without starting a remote operation.
     var showHint: @MainActor (_ message: String) -> Void = { _ in }
+    /// Runs CodeRouter's add flow for one account type in a terminal.
+    var addCoderouterAccount: @MainActor (_ provider: CoderouterProvider) -> Void = { _ in }
+    /// Confirms, then removes one account from the selected team's CodeRouter organization.
+    var removeCoderouterAccount: @MainActor (_ account: CloudTreeNode.CoderouterAccount) -> Void = { _ in }
+    /// Re-reads the selected team's CodeRouter accounts now.
+    var refreshCoderouter: @MainActor () -> Void = {}
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Y.
@@ -82,6 +94,8 @@ struct CloudTreeNodeActions {
     /// Pops up a row's context menu from its trailing "⋯" button. Bound per
     /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a header row's guide (the Coderouter "?"), anchored like `showRowMenu`.
+    var showRowGuide: @MainActor (_ nodeID: String) -> Void = { _ in }
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
@@ -590,6 +604,11 @@ struct CloudTreeNodeActions {
             _ = runKeyed(key, label, { catalog in
                 guard let current = try catalog.currentCloudWorkspace(group),
                       catalog.provider(for: machine) === provider else {
+                    // Cancellation is silent by design; log it so a row that
+                    // resolves to nothing is diagnosable from the debug log.
+#if DEBUG
+                    cmuxDebugLog("cloudTree.openWorkspace unresolved machine=\(machine.rawValue) workspace=\(workspace.id)")
+#endif
                     throw CancellationError()
                 }
                 let currentWorkspace = SurfaceRemoteWorkspace(
@@ -619,6 +638,27 @@ struct CloudTreeNodeActions {
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
         actions.discoverDisplays = { machine, completion in catalog().beginDisplayDiscovery(on: machine, completion: completion) }
+        actions.renameDisplay = { resource in
+            let current = resource.title.isEmpty ? resource.id.key : resource.title
+            guard let name = promptForName(
+                title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                current: current,
+                // Clearing restores the numbered name ("Display 2").
+                allowsClear: true
+            ), name != current else { return }
+            let operationLabel = name.isEmpty
+                ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
+            run(operationLabel) { catalog in
+                try await catalog.renameDisplay(resource.id, name: name)
+            }
+        }
+        actions.removeDisplayFromWorkspace = { resource, view in
+            // Removes the display from that Cloud workspace for every client,
+            // as closing its pane does.
+            let catalog = catalog()
+            catalog.cloudPlacementCoordinator.removeDisplay(resource.id, fromCloudWorkspace: view.workspace.id, catalog: catalog)
+        }
         actions.newDisplay = { machine in
             let target = try? destination(.split)
             if let target,

@@ -3170,6 +3170,16 @@ class TerminalController {
         case "agent.runtime.list": return v2Result(id: id, self.v2AgentRuntimeList(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.rows":
+            // The Cloud sidebar's rows from the same builder the sidebar uses, so
+            // dogfood can assert what is listed (duplicate rows were invisible to
+            // `cloud tree --json`, which reports catalog state, not rows).
+            let rows = CloudTreeNodeBuilder.flattened(SurfaceCatalog.shared.sidebarNodes()).map { node -> [String: Any] in
+                var row: [String: Any] = ["id": node.id, "kind": node.structureTag]
+                if case .display(let resource, _, _) = node.kind { row["resource"] = resource.id.rawValue; row["title"] = resource.title }
+                return row
+            }
+            return v2Ok(id: id, result: ["rows": rows])
         case "debug.cloudtree.spacing":
             // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
             AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
