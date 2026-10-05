@@ -184,11 +184,16 @@ fn hit(y: f64, rows: &[Row]) -> Option<(&Row, f64)> {
     Some((row, fraction))
 }
 
+/// The section header right above `row`, when it is expanded. A collapsed
+/// one answers None; it is never skipped for an expanded one further up
+/// (Swift `previousExpandedSection`).
 fn previous_expanded_section<'a>(row: &Row, rows: &'a [Row]) -> Option<&'a Row> {
     let index = rows.iter().position(|candidate| candidate == row)?;
-    rows[..index].iter().rev().find(|candidate| {
-        matches!(candidate.key, RowKey::Section { .. }) && !candidate.is_collapsed
-    })
+    let previous = rows[..index]
+        .iter()
+        .rev()
+        .find(|candidate| matches!(candidate.key, RowKey::Section { .. }))?;
+    (!previous.is_collapsed).then_some(previous)
 }
 
 fn workspace_target(
