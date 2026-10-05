@@ -65,6 +65,11 @@ export class AccountStore {
     if (options?.initialize !== false) this.initialize();
   }
 
+  /** False until the first account request: a team notice for a user with no account rows never creates storage. */
+  exists(): boolean {
+    return this.#db.get(sql`SELECT 1 AS "found" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'account_meta'`) !== undefined;
+  }
+
   initialize(): void {
     this.storage.transactionSync(() => { for (const statement of statements) this.#db.run(sql.raw(statement)); });
   }
@@ -106,8 +111,9 @@ export class AccountStore {
     return row ? fromRow(row) : null;
   }
 
-  rowsForTeamDevice(teamId: string, deviceRecordId: string): AccountMacRow[] {
-    return this.#db.all<Row>(sql`SELECT * FROM "account_macs" WHERE "team_id" = ${teamId} AND "device_record_id" = ${deviceRecordId}`).map(fromRow);
+  /** Rows for a changed team record, by record id or by installation (a rekeyed record can carry a new id). */
+  rowsForTeamDevice(teamId: string, deviceRecordId: string, key: string): AccountMacRow[] {
+    return this.#db.all<Row>(sql`SELECT * FROM "account_macs" WHERE "team_id" = ${teamId} AND ("device_record_id" = ${deviceRecordId} OR "installation_key" = ${key})`).map(fromRow);
   }
 
   /**

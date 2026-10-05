@@ -42,10 +42,20 @@ export class AccountControl extends DurableObject<Environment> {
   private readonly store: AccountStore;
   private brokers = new Map<string, AccountBroker>();
 
+  private initialized = false;
+
   constructor(ctx: DurableObjectState, env: Environment) {
     super(ctx, env);
+    // Storage is created lazily by the first account request, so a team
+    // notice for a user who never used the account directory writes nothing.
     this.store = new AccountStore(ctx.storage, { initialize: false });
-    ctx.blockConcurrencyWhile(async () => { this.store.initialize(); });
+  }
+
+  /** Synchronous, so no request can observe a half-created schema. */
+  private ready(): void {
+    if (this.initialized) return;
+    this.store.initialize();
+    this.initialized = true;
   }
 
   /** Overridden only by the runtime suite, which cannot open 32 live sockets cheaply. */
@@ -59,6 +69,7 @@ export class AccountControl extends DurableObject<Environment> {
       // Account routes accept only ticket authority; a Stack token never reaches here.
       if (incoming.issueTicket || incoming.path === "/session") throw new OperationError("unauthorized", 401);
       const broker = this.broker(incoming.authority.userId);
+      this.ready();
       stage = "charge";
       this.store.consumeToken(Date.now());
       if (incoming.path === "/request") {
@@ -101,6 +112,7 @@ export class AccountControl extends DurableObject<Environment> {
     try {
       if (typeof message !== "string") throw new OperationError("invalid_request", 400);
       input = parseJSON(message);
+      this.ready();
       this.store.consumeToken(Date.now());
       const result = await this.broker(attachment.session.userId).execute(attachment.session, input);
       this.send(ws, result.response);
@@ -116,14 +128,30 @@ export class AccountControl extends DurableObject<Environment> {
   async webSocketError(ws: WebSocket): Promise<void> { this.close(ws, "transport_error"); }
 
   /**
-   * TeamControl's best-effort notice that one of this user's Mac records
-   * changed in `teamId` (registration, metadata or revocation). Re-checks only
-   * rows pointing at that record and tells this user's account sockets.
+   * TeamControl's notice that one of this user's Mac records changed in
+   * `teamId` (registration, metadata or revocation). Re-checks the rows for
+   * that record or installation, tells this user's account sockets, and closes
+   * an account socket whose Mac its team no longer admits, as the team path
+   * closes a revoked team socket.
    */
-  async teamChanged(userId: string, teamId: string, deviceRecordId: string): Promise<void> {
+  async teamChanged(userId: string, teamId: string, deviceRecordId: string, identity: Identity): Promise<void> {
     identifier.parse(teamId); identifier.parse(deviceRecordId);
-    const changed = await this.broker(userId).teamChanged(teamId, deviceRecordId);
+    const parsed = IdentitySchema.parse(identity);
+    const broker = this.broker(userId);
+    if (parsed.userId !== userId || parsed.teamId !== teamId) throw new OperationError("identity_mismatch", 403);
+    if (!this.initialized && !this.store.exists()) return;
+    this.ready();
+    const changed = await broker.teamChanged(teamId, deviceRecordId, parsed);
     if (changed !== null) this.broadcast(userId, changed, null);
+    for (const ws of this.ctx.getWebSockets("installation:" + installationKey(parsed))) {
+      let attachment: Attachment;
+      try { attachment = this.load(ws); } catch { continue; }
+      if (attachment.closed || attachment.session.identity.teamId !== teamId) continue;
+      const revoked = await broker.socketRevocation(attachment.session);
+      if (!revoked) continue;
+      try { this.send(ws, errorResponse(revoked, "unsolicited").body); } catch { /* closing anyway */ }
+      this.close(ws, revoked.code);
+    }
   }
 
   private broker(userId: string): AccountBroker {
@@ -197,7 +225,7 @@ export class AccountControl extends DurableObject<Environment> {
   }
   private close(ws: WebSocket, reason: string): void {
     this.markClosed(ws);
-    const code = ["device_revoked", "identity_mismatch", "key_replacement_required"].includes(reason) ? 1008
+    const code = ["device_revoked", "identity_mismatch", "key_replacement_required", "device_not_enrolled", "permission_denied"].includes(reason) ? 1008
       : reason === "slow_consumer" ? 1013 : reason === "transport_error" ? 1011 : 1000;
     try { ws.close(code, reason); } catch { /* already closed */ }
   }

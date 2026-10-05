@@ -1,6 +1,6 @@
 import type { VerifiedAuthority } from "./auth";
 import { parseInput } from "./boundary";
-import { accountRequest, type AccountDirectory, type AccountRequest, type AccountResponse } from "./contracts/account";
+import { ACCOUNT_INBOUND_GRANT_SECONDS, ACCOUNT_RECORD_BYTES, accountRequest, type AccountDirectory, type AccountRequest, type AccountResponse } from "./contracts/account";
 import type { DeviceRecord, Identity } from "./contracts/common";
 import type { SocketSetup } from "./contracts/requests";
 import { API_TICKET_SECONDS, accountRequestSigningInput, verifyDeviceSignature } from "./crypto";
@@ -39,6 +39,13 @@ export interface AccountResult {
   readonly changed?: number;
 }
 
+/** A directory page stays under the 64 KiB frame bound with room for the envelope. */
+const ACCOUNT_PAGE_BYTES = 60 * 1024;
+
+function recordBytes(record: DeviceRecord): number {
+  return new TextEncoder().encode(JSON.stringify(record)).byteLength;
+}
+
 function isMacPeer(record: DeviceRecord): boolean {
   const { platform, capabilities } = record.descriptor.metadata;
   return platform === "mac" && (capabilities.includes(MAC_HOST_CAPABILITY) || capabilities.includes(MAC_DEVICES_CAPABILITY));
@@ -66,6 +73,8 @@ function eligible(record: AccountMacRecord | null, expected: { endpointId: strin
  * and every read re-checks that against the team objects.
  */
 export class AccountBroker {
+  /** Team-change notices seen by this object instance; see `consistent`. */
+  private notices = 0;
   constructor(readonly dependencies: AccountDependencies) {}
 
   /**
@@ -108,7 +117,7 @@ export class AccountBroker {
     this.assertLive(session);
     switch (request.schemaId) {
       case "account.publish.v1": return this.publish(session, request.requestId);
-      case "account.directory.v1": return this.directory(session, request.requestId);
+      case "account.directory.v1": return this.directory(session, request);
       case "account.withdraw.v1": {
         // Withdrawal needs only the ticket and proof, so a Mac its team revoked
         // can still take itself out of its other Macs' lists.
@@ -118,9 +127,16 @@ export class AccountBroker {
     }
   }
 
-  /** TeamControl reports a change to one of this user's Mac rows; re-check only rows that point at it. */
-  async teamChanged(teamId: string, deviceRecordId: string): Promise<number | null> {
-    const rows = this.dependencies.store.rowsForTeamDevice(teamId, deviceRecordId);
+  /**
+   * TeamControl reports a change to one of this user's Mac records. Rows are
+   * matched by record id or by installation, since a rekeyed record can carry
+   * a new id. The notice counter moves first, before any await, so a publish or
+   * directory read that consulted the team earlier retries instead of
+   * committing or returning what it read.
+   */
+  async teamChanged(teamId: string, deviceRecordId: string, identity: Identity): Promise<number | null> {
+    this.notices++;
+    const rows = this.dependencies.store.rowsForTeamDevice(teamId, deviceRecordId, installationKey(identity));
     if (rows.length === 0) return null;
     const records = await this.records(teamId, rows.map(row => row.device.descriptor.identity));
     const changes = rows.flatMap((row, index) => this.revalidation(row, records[index] ?? null) ?? []);
@@ -128,9 +144,37 @@ export class AccountBroker {
     return result.changed ? result.revision : null;
   }
 
+  /** Why a socket's Mac may no longer use the account directory, or null while it still may. */
+  async socketRevocation(session: AccountSession): Promise<OperationError | null> {
+    const [record] = await this.records(session.identity.teamId, [session.identity]);
+    try { assertEligible(record ?? null, session); return null; }
+    catch (error) { return error instanceof OperationError ? error : new OperationError("device_revoked", 403); }
+  }
+
+  /**
+   * Team records are read across an await. A revocation notice or another
+   * account write landing meanwhile means what was read may predate the
+   * revocation, so the read is retried; a persistently busy object answers
+   * resync_required rather than commit or report a stale record as current.
+   */
+  private async consistent<T>(read: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const before = this.snapshot();
+      const value = await read();
+      if (this.snapshot() === before) return value;
+    }
+    throw new OperationError("resync_required", 409, true, 250);
+  }
+
+  private snapshot(): string { return this.notices + ":" + this.dependencies.store.readRevision(); }
+
   private async publish(session: AccountSession, requestId: string): Promise<AccountResult> {
-    const [found] = await this.records(session.identity.teamId, [session.identity]);
-    const record = assertEligible(found ?? null, session);
+    // The upsert below runs in the same synchronous turn as the consistency check.
+    const record = await this.consistent(async () => {
+      const [found] = await this.records(session.identity.teamId, [session.identity]);
+      return assertEligible(found ?? null, session);
+    });
+    if (recordBytes(record.device) > ACCOUNT_RECORD_BYTES) throw new OperationError("payload_too_large", 413);
     this.assertLive(session);
     const before = this.dependencies.store.readRevision();
     // Metadata always comes from the team record, never from the caller.
@@ -144,24 +188,25 @@ export class AccountBroker {
     };
   }
 
-  private async directory(session: AccountSession, requestId: string): Promise<AccountResult> {
-    const rows = this.dependencies.store.list();
-    const groups = new Map<string, { identities: Identity[]; rows: AccountMacRow[] }>();
-    const group = (teamId: string) => {
-      let value = groups.get(teamId);
-      if (!value) { value = { identities: [], rows: [] }; groups.set(teamId, value); }
-      return value;
-    };
-    group(session.identity.teamId).identities.push(session.identity);
-    for (const row of rows) {
-      const entry = group(row.teamId);
-      entry.identities.push(row.device.descriptor.identity);
-      entry.rows.push(row);
-    }
-    const fetched = await Promise.all([...groups.entries()].map(async ([teamId, entry]) => [teamId, await this.records(teamId, entry.identities)] as const));
-    const byTeam = new Map(fetched);
-    const requesterRecords = byTeam.get(session.identity.teamId)!;
-    const requester = assertEligible(requesterRecords[0] ?? null, session);
+  private async directory(session: AccountSession, request: { requestId: string; cursor?: string | undefined; haveRevision?: number | undefined }): Promise<AccountResult> {
+    const { byTeam, groups } = await this.consistent(async () => {
+      const groups = new Map<string, { identities: Identity[]; rows: AccountMacRow[] }>();
+      const group = (teamId: string) => {
+        let value = groups.get(teamId);
+        if (!value) { value = { identities: [], rows: [] }; groups.set(teamId, value); }
+        return value;
+      };
+      group(session.identity.teamId).identities.push(session.identity);
+      for (const row of this.dependencies.store.list()) {
+        const entry = group(row.teamId);
+        entry.identities.push(row.device.descriptor.identity);
+        entry.rows.push(row);
+      }
+      const fetched = await Promise.all([...groups.entries()].map(async ([teamId, entry]) => [teamId, await this.records(teamId, entry.identities)] as const));
+      return { byTeam: new Map(fetched), groups };
+    });
+    // Everything below is synchronous: no notice or account write can interleave.
+    const requester = assertEligible(byTeam.get(session.identity.teamId)![0] ?? null, session);
     const changes: AccountRevalidation[] = [];
     const current: { row: AccountMacRow; record: AccountMacRecord }[] = [];
     for (const [teamId, entry] of groups) {
@@ -171,39 +216,63 @@ export class AccountBroker {
         const record = records[index + offset] ?? null;
         const change = this.revalidation(row, record);
         if (change) changes.push(change);
-        if (eligible(record, row.device.descriptor)) current.push({ row, record });
+        if (change?.kind !== "delete" && record !== null) current.push({ row, record });
       });
     }
     const now = this.dependencies.now();
     const { revision, changed } = this.dependencies.store.revalidate(changes, now);
+    if (request.cursor !== undefined && request.haveRevision !== revision) throw new OperationError("resync_required", 409, true);
     const self = installationKey(session.identity);
     const requesterDescriptor = requester.device.descriptor;
     const namespace = requesterDescriptor.identity.appNamespace;
     const hosts = requesterDescriptor.metadata.capabilities.includes(MAC_HOST_CAPABILITY);
-    const ordered = current.sort((left, right) => left.record.device.deviceRecordId.localeCompare(right.record.device.deviceRecordId));
-    const macs = ordered.filter(({ row, record }) => row.installationKey !== self
-      && record.device.descriptor.identity.appNamespace === namespace
-      && record.device.descriptor.metadata.capabilities.includes(MAC_HOST_CAPABILITY)).map(({ record }) => record.device);
-    // Same predicates as the team directory's Mac inbound rule, without the team:
-    // opted-in host, same user (this object), namespace and build, another
-    // endpoint, and an unexpired authority lease in the peer's own team.
-    const inboundMacs = hosts ? ordered.filter(({ record }) => {
-      const descriptor = record.device.descriptor;
-      return descriptor.identity.appNamespace === namespace && descriptor.identity.buildTag === requesterDescriptor.identity.buildTag
-        && descriptor.endpointId !== requesterDescriptor.endpointId && descriptor.metadata.capabilities.includes(MAC_DEVICES_CAPABILITY)
-        && record.authorityExpiresAt !== null && record.authorityExpiresAt > now;
-    }).map(({ record }) => ({ device: record.device, permissionExpiresAt: Math.min(session.expiresAt, record.authorityExpiresAt!) })) : [];
+    const ordered = current
+      .filter(({ record }) => request.cursor === undefined || record.device.deviceRecordId > request.cursor)
+      .sort((left, right) => left.record.device.deviceRecordId < right.record.device.deviceRecordId ? -1 : 1);
+    const macs: DeviceRecord[] = [];
+    const inboundMacs: { device: DeviceRecord; permissionExpiresAt: number }[] = [];
     const directory: AccountDirectory = {
       userId: session.userId, revision, macs, inboundMacs, relayURLs: [...this.dependencies.relayURLs],
       issuedAt: now, permissionExpiresAt: Math.min(session.expiresAt, now + API_TICKET_SECONDS), rules: [...ACCOUNT_DIRECTORY_RULES],
+      nextCursor: null,
     };
+    let bytes = new TextEncoder().encode(JSON.stringify({ schemaId: "account.directory.result.v1", requestId: request.requestId, directory })).byteLength;
+    let lastRecordId: string | null = null;
+    for (const { row, record } of ordered) {
+      const descriptor = record.device.descriptor;
+      const listed = row.installationKey !== self && descriptor.identity.appNamespace === namespace
+        && descriptor.metadata.capabilities.includes(MAC_HOST_CAPABILITY);
+      // Same predicates as the team directory's Mac inbound rule, without the
+      // team: opted-in host, same user (this object), namespace and build,
+      // another endpoint, and an unexpired authority lease in the peer's team.
+      const admitted = hosts && descriptor.identity.appNamespace === namespace && descriptor.identity.buildTag === requesterDescriptor.identity.buildTag
+        && descriptor.endpointId !== requesterDescriptor.endpointId && descriptor.metadata.capabilities.includes(MAC_DEVICES_CAPABILITY)
+        && record.authorityExpiresAt !== null && record.authorityExpiresAt > now;
+      if (!listed && !admitted) continue;
+      const inbound = admitted ? {
+        device: record.device,
+        permissionExpiresAt: Math.min(session.expiresAt, record.authorityExpiresAt!, now + ACCOUNT_INBOUND_GRANT_SECONDS),
+      } : null;
+      const size = (listed ? recordBytes(record.device) + 1 : 0) + (inbound ? new TextEncoder().encode(JSON.stringify(inbound)).byteLength + 1 : 0);
+      if (bytes + size > ACCOUNT_PAGE_BYTES) {
+        // Never publish a complete-looking page that silently omits a Mac.
+        if (lastRecordId === null) throw new OperationError("payload_too_large", 413);
+        directory.nextCursor = lastRecordId;
+        break;
+      }
+      if (listed) macs.push(record.device);
+      if (inbound) inboundMacs.push(inbound);
+      lastRecordId = record.device.deviceRecordId;
+      bytes += size;
+    }
     this.assertLive(session);
-    return { response: { schemaId: "account.directory.result.v1", requestId, directory }, ...(changed ? { changed: revision } : {}) };
+    return { response: { schemaId: "account.directory.result.v1", requestId: request.requestId, directory }, ...(changed ? { changed: revision } : {}) };
   }
 
   /** The write that brings a row in line with its team record, or null when it already matches. */
   private revalidation(row: AccountMacRow, record: AccountMacRecord | null): AccountRevalidation | null {
-    if (!eligible(record, row.device.descriptor) || record.device.descriptor.identity.userId !== this.dependencies.userId) {
+    if (!eligible(record, row.device.descriptor) || record.device.descriptor.identity.userId !== this.dependencies.userId
+      || recordBytes(record.device) > ACCOUNT_RECORD_BYTES) {
       return { kind: "delete", installationKey: row.installationKey, rowVersion: row.rowVersion };
     }
     const visible = JSON.stringify(record.device) !== JSON.stringify(row.device);

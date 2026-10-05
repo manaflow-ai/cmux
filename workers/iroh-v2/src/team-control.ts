@@ -364,10 +364,21 @@ export class TeamControl extends DurableObject<Environment> {
       if (!record || record.descriptor.metadata.platform !== "mac") return;
       const userId = record.descriptor.identity.userId;
       const scope = environmentScope(this.env);
-      const account = this.env.ACCOUNT_CONTROL.getByName(accountObjectName(scope.environment, scope.projectId, userId));
-      this.ctx.waitUntil(account.teamChanged(userId, teamId, deviceRecordId).catch(error => {
-        observe(this.ctx, this.env, { event: "iroh.account.notify_failed", environment: this.env.ENVIRONMENT, ...failureDiagnostics(error) });
-      }));
+      const identity = record.descriptor.identity;
+      const name = accountObjectName(scope.environment, scope.projectId, userId);
+      // A few immediate attempts ride out a transient object reset. A notice
+      // that still fails is bounded by the account directory itself: every
+      // read re-checks the team, and inbound grants last at most
+      // ACCOUNT_INBOUND_GRANT_SECONDS.
+      const deliver = async () => {
+        let failure: unknown;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try { await this.env.ACCOUNT_CONTROL.getByName(name).teamChanged(userId, teamId, deviceRecordId, identity); return; }
+          catch (error) { failure = error; }
+        }
+        observe(this.ctx, this.env, { event: "iroh.account.notify_failed", environment: this.env.ENVIRONMENT, ...failureDiagnostics(failure) });
+      };
+      this.ctx.waitUntil(deliver());
     } catch (error) {
       observe(this.ctx, this.env, { event: "iroh.account.notify_failed", environment: this.env.ENVIRONMENT, ...failureDiagnostics(error) });
     }
