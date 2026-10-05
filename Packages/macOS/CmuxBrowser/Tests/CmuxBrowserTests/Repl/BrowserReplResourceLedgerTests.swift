@@ -90,6 +90,18 @@ private func browserReplEventually(seconds: Double = 30, _ condition: @escaping 
     return condition()
 }
 
+extension BrowserReplResourceLimits {
+    /// These limits with every byte limit divided by `divisor`, so a test
+    /// reaches them without allocating hundreds of MiB.
+    func dividingBytes(by divisor: Int) -> Self {
+        BrowserReplResource.allCases.filter(\.isBytes).reduce(self) { limits, resource in
+            var scaled = limits.with(resource, limits[resource] == .max ? .max : limits[resource] / divisor)
+            if let each = limits.each(resource) { scaled = scaled.with(resource, each: each / divisor) }
+            return scaled
+        }
+    }
+}
+
 @Suite("Browser REPL resource ledger", .serialized)
 struct BrowserReplResourceLedgerTests {
     @Test("A reservation past a limit is refused whole, with one message that names the limit")
@@ -185,5 +197,57 @@ struct BrowserReplResourceLedgerTests {
         session.close()
         driver.releaseAll()
         #expect(await browserReplEventually { ledger.outstanding.isEmpty }, "still held after the session ended: \(ledger.outstanding)")
+    }
+
+    /// Each holder has its own limit, and the session also has one for
+    /// all it holds in memory together, 512 MiB (decided 2026-10-04). The
+    /// limits are divided by 64: eight calls hold 450 KiB of parameters
+    /// each while their 900 KiB results wait for a busy thread. Each
+    /// holder stays under its own limit (8 MiB), but together they would
+    /// hold 10.8 MiB, past the session's 8 MiB.
+    @Test("What a session holds in memory is bounded together, not only per holder")
+    func sessionMemoryIsBoundedTogether() async throws {
+        let divisor = 64
+        let sessionLimit = (512 << 20) / divisor
+        let resultBytes = 900 << 10
+        let paramsBytes = 450 << 10
+        let driver = LargeResultDriver(resultCharacters: resultBytes - 2)
+        let session = BrowserReplSession(
+            id: "memory-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "memory.js", source: ledgerRuntime)], agentScripts: []),
+            driver: driver,
+            limits: BrowserReplResourceLimits.standard.dividingBytes(by: divisor),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer {
+            driver.releaseAll()
+            session.close()
+        }
+        let started = await session.evaluate(code: """
+        const pad = JSON.stringify({ pad: "p".repeat(\(paramsBytes - 12)) });
+        globalThis.settled = Promise.all(Array.from({ length: 8 }, () =>
+          driverWith("big", pad).then((r) => "ok", (e) => e.message)));
+        """)
+        #expect(started.error == nil, "\(started.error ?? "")")
+        #expect(await browserReplWithDeadline(seconds: 30) { await driver.waitForEntries(8) } != nil)
+
+        // The results arrive while the session's thread is busy, so they wait.
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        driver.countRedactions()
+        driver.releaseAll()
+        let masked = await browserReplWithDeadline(seconds: 60) { await driver.waitForRedactions(8) }
+        busy.signal()
+        #expect(masked != nil)
+
+        let result = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: "console.log(JSON.stringify(await globalThis.settled));")
+        }
+        let outcomes = (try? JSONSerialization.jsonObject(with: Data((result?.lines.first?.text ?? "[]").utf8))) as? [String] ?? []
+        #expect(outcomes.count == 8, "\(outcomes)")
+        let admitted = outcomes.filter { $0 == "ok" }.count
+        #expect(8 * paramsBytes + admitted * resultBytes <= sessionLimit, "\(admitted) results of \(resultBytes) bytes waited beside \(8 * paramsBytes) bytes of parameters")
+        #expect(outcomes.contains { $0.contains("REPL session limit: memory the session holds") && $0.contains("8 MiB") }, "\(outcomes)")
     }
 }

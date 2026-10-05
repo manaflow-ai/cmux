@@ -119,3 +119,55 @@ test("every page agent export replies through the reply budget, and a reply past
     removeTestDir(host.tmpdir);
   }
 });
+
+// A REPL on the dev driver, on the fixture page, for one test.
+async function withRepl(fn) {
+  const servers = await startFixtureServers();
+  const dir = makeTestDir("cmux-repl-reply-budget-");
+  const browser = await createDevBrowser();
+  const lines = [];
+  const host = createNodeHost({ workDir: dir, sessionId: `reply-budget-${process.pid}`, print: (level, text) => lines.push(text) });
+  const repl = createDevRepl({ host, driver: browser.driver() });
+  const run = async (code) => {
+    const start = lines.length;
+    const r = await repl.evaluate(code);
+    const output = lines.slice(start).join("\n");
+    assert.equal(r.ok, true, `${r.error}\n${output.slice(0, 2000)}`);
+    return JSON.parse((output.split("\n").find((l) => l.startsWith("@@")) || "@@null").slice(2));
+  };
+  try {
+    await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+    await fn(run);
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+    removeTestDir(host.tmpdir);
+  }
+}
+
+test("an agent reply past the default reply budget (10,000,000 characters) is cut with the page-read note", async () => {
+  await withRepl(async (run) => {
+    const r = await run(`
+      await page.evaluate(() => { document.body.innerHTML = '<p id="big"></p>'; document.getElementById("big").textContent = "A".repeat(12000000); });
+      const [h] = await page._mainFrame._agent("queryAll", "#big");
+      const got = await page._mainFrame._agent("read", h, "textContent").then((v) => "replied " + v.length, (e) => String(e.message));
+      console.log("@@" + JSON.stringify(got));
+    `);
+    assert.match(r, /the page is too large to read whole: read stopped after 10,000,000 characters/, String(r).slice(0, 300));
+  });
+});
+
+test("queryAll makes and returns at most the page-read node budget of handles, and says it was cut", async () => {
+  await withRepl(async (run) => {
+    const r = await run(`
+      await page.evaluate(() => { document.body.innerHTML = "<div></div>".repeat(300000); });
+      const got = await page.locator("div").count().then((n) => "counted " + n, (e) => String(e.message));
+      const kept = await page._mainFrame._call("agent", "() => " + 'globalThis[Symbol.for("cmux.browserRepl.agent")]' + ".stats().handles", []);
+      console.log("@@" + JSON.stringify({ got, kept }));
+    `);
+    assert.match(r.got, /the page is too large to read whole: queryAll stopped after 250,000 nodes/, r.got.slice(0, 300));
+    assert.ok(r.kept <= 250001, `the page agent made ${r.kept} handles`);
+  });
+});
