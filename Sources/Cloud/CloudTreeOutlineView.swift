@@ -96,6 +96,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         private var organizationObserver: NSObjectProtocol?
         weak var outlineView: CloudTreeNSOutlineView?
+        /// The Coderouter guide, kept so a second "?" replaces it instead of stacking.
+        var guidePopover: NSPopover?
         var nodes: [CloudTreeNode] = []
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
@@ -417,6 +419,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ?? CloudTreeCellView(frame: .zero)
             var rowActions = nodeActions
             rowActions.showRowMenu = { [weak self] nodeID in self?.popUpRowMenu(nodeID: nodeID) }
+            rowActions.showRowGuide = { [weak self] nodeID in self?.showCoderouterGuide(nodeID: nodeID) }
             rowActions.selectMachineDetailTab = { [weak self] machine, tab in self?.toggleMachineDetailTab(tab, machine: machine) }
             cell.configure(
                 node: node, machineActions: machineActions, nodeActions: rowActions, style: style,

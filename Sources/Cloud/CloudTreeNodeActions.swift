@@ -88,6 +88,8 @@ struct CloudTreeNodeActions {
     /// Pops up a row's context menu from its trailing "⋯" button. Bound per
     /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a header row's guide (the Coderouter "?"), anchored like `showRowMenu`.
+    var showRowGuide: @MainActor (_ nodeID: String) -> Void = { _ in }
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }

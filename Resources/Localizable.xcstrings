@@ -625758,6 +625758,360 @@
           }
         }
       }
+    },
+    "coderouter.guide.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter"
+          }
+        }
+      }
+    },
+    "coderouter.guide.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما هو CodeRouter؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was ist CodeRouter?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What Is CodeRouter?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Qué es CodeRouter?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qu’est-ce que CodeRouter ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter とは？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter란?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么是 CodeRouter？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什麼是 CodeRouter？"
+          }
+        }
+      }
+    },
+    "coderouter.guide.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف حسابات Codex وClaude وOpenCode التي لديك بالفعل، وسيستخدمها الوكلاء على أجهزتك السحابية فورًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge deine vorhandenen Codex-, Claude- und OpenCode-Konten hinzu, und Agents auf deinen Cloud-Maschinen nutzen sie sofort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add the Codex, Claude and OpenCode accounts you already have, and agents on your Cloud machines use them right away."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade las cuentas de Codex, Claude y OpenCode que ya tienes y los agentes de tus máquinas en la nube las usarán de inmediato."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez vos comptes Codex, Claude et OpenCode existants : les agents de vos machines Cloud les utilisent aussitôt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お持ちの Codex、Claude、OpenCode アカウントを追加すると、Cloud マシン上のエージェントがすぐに使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 가진 Codex, Claude, OpenCode 계정을 추가하면 Cloud 머신의 에이전트가 바로 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加你已有的 Codex、Claude 和 OpenCode 账户，云机器上的代理即可立即使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增你已有的 Codex、Claude 和 OpenCode 帳號，雲端機器上的代理程式即可立即使用。"
+          }
+        }
+      }
+    },
+    "coderouter.guide.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح خيار حساب Codex أو Claude أو OpenCode جديد طرفيةً لتسجيل الدخول. يظهر الحساب هنا عند انتهاء تسجيل الدخول."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neues Codex-, Claude- oder OpenCode-Konto öffnet ein Terminal zur Anmeldung. Das Konto erscheint hier, sobald die Anmeldung abgeschlossen ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Codex, Claude or OpenCode Account opens a terminal to sign in. The account appears here when sign-in finishes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva cuenta de Codex, Claude u OpenCode abre un terminal para iniciar sesión. La cuenta aparece aquí al terminar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau compte Codex, Claude ou OpenCode ouvre un terminal pour vous connecter. Le compte apparaît ici une fois la connexion terminée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい Codex、Claude、OpenCode アカウントを選ぶとサインイン用のターミナルが開きます。サインインが終わるとここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Codex, Claude 또는 OpenCode 계정을 선택하면 로그인용 터미널이 열립니다. 로그인이 끝나면 계정이 여기에 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“新建 Codex、Claude 或 OpenCode 账户”会打开终端以登录。登录完成后账户会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「新增 Codex、Claude 或 OpenCode 帳號」會開啟終端機以登入。登入完成後帳號會顯示在這裡。"
+          }
+        }
+      }
+    },
+    "coderouter.guide.routing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يبلغ حساب حده، تنتقل الجلسة إلى حساب آخر. يعرض كل صف مقدار ما تبقى من حده."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreicht ein Konto sein Limit, wechselt die Sitzung zu einem anderen Konto. Jede Zeile zeigt, wie viel vom Limit übrig ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When an account reaches its limit, the session moves to another account. Each row shows how much of its limit is left."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando una cuenta alcanza su límite, la sesión pasa a otra cuenta. Cada fila muestra cuánto le queda de su límite."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un compte atteint sa limite, la session passe à un autre compte. Chaque ligne indique ce qu’il reste de sa limite."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントが上限に達すると、セッションは別のアカウントに移ります。各行に上限の残りが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정이 한도에 도달하면 세션이 다른 계정으로 이동합니다. 각 행에 남은 한도가 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当某个账户达到上限时，会话会转到另一个账户。每一行都会显示剩余额度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當某個帳號達到上限時，工作階段會轉到另一個帳號。每一列都會顯示剩餘額度。"
+          }
+        }
+      }
+    },
+    "coderouter.guide.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتمي الحسابات إلى الفريق المحدد أعلى هذه اللوحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konten gehören zum Team, das oben in diesem Bereich ausgewählt ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts belong to the team selected at the top of this panel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las cuentas pertenecen al equipo seleccionado en la parte superior de este panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les comptes appartiennent à l’équipe sélectionnée en haut de ce panneau."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントはこのパネル上部で選択したチームに属します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정은 이 패널 상단에서 선택한 팀에 속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账户属于此面板顶部所选的团队。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳號屬於此面板頂端所選的團隊。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
