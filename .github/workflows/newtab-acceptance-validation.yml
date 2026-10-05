@@ -1,0 +1,64 @@
+name: New Tab acceptance validation
+on:
+  push:
+    branches: [validate/next-newtab-cx3]
+permissions:
+  contents: read
+concurrency:
+  group: newtab-acceptance-validation
+  cancel-in-progress: true
+jobs:
+  catalog:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: true
+      - name: Read pinned comparison base
+        run: git fetch --no-tags --depth=1 origin db2fe75e223aa1d926da271c9f93b62f256426fd
+      - name: Audit changed New Tab catalog keys
+        run: |
+          python3 - <<'PY_AUDIT'
+          import json, subprocess, tempfile
+          from pathlib import Path
+          base = 'db2fe75e223aa1d926da271c9f93b62f256426fd'
+          catalog = 'Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings'
+          old = json.loads(subprocess.check_output(['git', 'show', base + ':' + catalog]))
+          new = json.loads(Path(catalog).read_text())
+          with tempfile.TemporaryDirectory() as tmp:
+              tmp = Path(tmp)
+              def check(data, name):
+                  path = tmp / name
+                  path.write_text(json.dumps(data))
+                  result = subprocess.run(['python3', 'scripts/localization_catalog.py', 'check', '--catalog', str(path), '--limit', '0'], text=True, capture_output=True)
+                  print(name, result.stdout.strip())
+                  return result, {line.split(':', 1)[1] for line in result.stderr.splitlines()}
+              _, before = check(old, 'base.xcstrings')
+              _, after = check(new, 'head.xcstrings')
+              introduced = after - before
+              assert not introduced, '\n'.join(sorted(introduced))
+              changed = {k: v for k, v in new['strings'].items() if old['strings'].get(k) != v}
+              scoped = dict(new, strings=changed)
+              result, errors = check(scoped, 'changed-native.xcstrings')
+              assert result.returncode == 0, result.stderr
+              print('Audited native keys:', ', '.join(changed))
+              pane = json.loads(Path('webviews/src/agent-session/acpmux/Localizable.xcstrings').read_text())
+              scoped = dict(pane, strings={k: pane['strings'][k] for k in ['empty.new', 'empty.import', 'newTab.placeholder']})
+              result, errors = check(scoped, 'changed-pane.xcstrings')
+              assert result.returncode == 0, result.stderr
+              for key, entry in scoped['strings'].items():
+                  assert len(entry['localizations']) == 21, key
+                  assert all(row['stringUnit']['state'] == 'translated' and row['stringUnit']['value'] for row in entry['localizations'].values()), key
+              print('All 21 pane translations present; no introduced native catalog errors.')
+          PY_AUDIT
+          node webviews/scripts/pages/gen-strings.mjs --check agentPane
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.4.2'
+      - name: Install dependencies
+        run: cd webviews && bun install --frozen-lockfile
+      - name: Focused composer and compiled localization
+        run: |
+          cd webviews
+          bun test src/agent-session/acpmux/emptyState.test.ts src/agent-session/acpmux/composer.test.tsx src/agent-session/acpmux/quickComposer.test.tsx src/agent-session/acpmux/NewTabPage.test.tsx src/agent-session/acpmux/omnibar.test.ts src/agent-session/acpmux/newtab src/agent-session/acpmux/i18n.test.ts src/agent-session/acpmux/i18n.compiled.test.ts test/pane-english.test.ts test/agent-pane-locale.test.ts
