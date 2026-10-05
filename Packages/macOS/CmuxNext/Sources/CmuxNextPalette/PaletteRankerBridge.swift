@@ -32,81 +32,8 @@ public enum PaletteRankerBridgeError: Error, LocalizedError, Sendable {
 /// that owns it. The palette keeps ranking inputs and rendering in Swift, while
 /// the scoring, frecency and tie-breaking rules live in `webviews/src/palette`.
 public final class PaletteRankerBridge {
-    private let context: JSContext
-
-    private struct Entry: Encodable {
-        let title: String
-        let keywords: [String]
-        let subtitle: String?
-        let accessory: String?
-        let rankBias: Int
-        let frecencyKey: String?
-        let isEnabled: Bool
-        let isVisibleWhenQueryEmpty: Bool
-        let queryPrefix: String?
-        let hidesWhenTyping: Bool
-        let sectionIndex: Int
-
-        init(_ entry: PaletteSearchEntry) {
-            title = entry.title
-            keywords = entry.keywords
-            subtitle = entry.subtitle
-            accessory = entry.accessory
-            rankBias = entry.rankBias
-            frecencyKey = entry.frecencyKey
-            isEnabled = entry.isEnabled
-            isVisibleWhenQueryEmpty = entry.isVisibleWhenQueryEmpty
-            queryPrefix = entry.queryPrefix
-            hidesWhenTyping = entry.hidesWhenTyping
-            sectionIndex = entry.sectionIndex
-        }
-    }
-
-    private struct FrecencyEntry: Encodable {
-        let score: Double
-        let lastUsed: Double
-    }
-
-    private struct Frecency: Encodable {
-        let entries: [String: FrecencyEntry]
-        let halfLife: Double
-        let capacity: Int
-
-        init(_ store: FrecencyStore) {
-            entries = store.entries.mapValues { entry in
-                FrecencyEntry(score: entry.score, lastUsed: entry.lastUsed.timeIntervalSinceReferenceDate)
-            }
-            halfLife = store.halfLife
-            capacity = store.capacity
-        }
-    }
-
-    private struct Request: Encodable {
-        let operation: String
-        let entries: [Entry]
-        let version: Int?
-        let query: String?
-        let sectionOrders: [Int]
-        let frecency: Frecency
-        let now: Double
-        let showsRecent: Bool
-        let keepsSectionOrder: Bool
-        let ranksPrefixFirst: Bool
-        let recentLimit: Int
-        let rowLimit: Int
-        let highlightLimit: Int
-    }
-
-    private struct Row: Decodable {
-        let index: Int
-        let score: Int
-        let highlights: [Int]
-    }
-
-    private struct Section: Decodable {
-        let sectionIndex: Int?
-        let rows: [Row]
-    }
+    // crash-allow: JavaScriptCore is serialized by each owning actor or Mutex-protected ranker.
+    nonisolated(unsafe) private let context: JSContext
 
     /// Creates a bridge from the checked-in JavaScriptCore-compatible bundle.
     nonisolated public init() throws {
@@ -146,13 +73,13 @@ public final class PaletteRankerBridge {
         rowLimit: Int = 400,
         highlightLimit: Int = 60
     ) throws -> [PaletteRankedSection] {
-        try invoke(Request(
+        try invoke(PaletteRankerBridgeRequest(
             operation: "rank",
-            entries: index.entries.map(Entry.init),
+            entries: index.entries.map(PaletteRankerBridgeEntry.init),
             version: version,
             query: query,
             sectionOrders: sectionOrders,
-            frecency: Frecency(frecency),
+            frecency: PaletteRankerBridgeFrecency(frecency),
             now: now.timeIntervalSinceReferenceDate,
             showsRecent: showsRecent,
             keepsSectionOrder: keepsSectionOrder,
@@ -172,13 +99,13 @@ public final class PaletteRankerBridge {
         showsRecent: Bool,
         recentLimit: Int = 5
     ) throws -> [PaletteRankedSection] {
-        try invoke(Request(
+        try invoke(PaletteRankerBridgeRequest(
             operation: "rankEmpty",
-            entries: entries.map(Entry.init),
+            entries: entries.map(PaletteRankerBridgeEntry.init),
             version: nil,
             query: nil,
             sectionOrders: sectionOrders,
-            frecency: Frecency(frecency),
+            frecency: PaletteRankerBridgeFrecency(frecency),
             now: now.timeIntervalSinceReferenceDate,
             showsRecent: showsRecent,
             keepsSectionOrder: false,
@@ -189,7 +116,7 @@ public final class PaletteRankerBridge {
         ))
     }
 
-    nonisolated private func invoke(_ request: Request) throws -> [PaletteRankedSection] {
+    nonisolated private func invoke(_ request: PaletteRankerBridgeRequest) throws -> [PaletteRankedSection] {
         let data = try JSONEncoder().encode(request)
         guard let requestJSON = String(data: data, encoding: .utf8),
               let function = context.objectForKeyedSubscript("__cmuxPaletteRank") else {
@@ -204,7 +131,7 @@ public final class PaletteRankerBridge {
             throw PaletteRankerBridgeError.invalidResult
         }
         do {
-            let sections = try JSONDecoder().decode([Section].self, from: resultData)
+            let sections = try JSONDecoder().decode([PaletteRankerBridgeSection].self, from: resultData)
             return sections.map { section in
                 PaletteRankedSection(
                     sectionIndex: section.sectionIndex,
