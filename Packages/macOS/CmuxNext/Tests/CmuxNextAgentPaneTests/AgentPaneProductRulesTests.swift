@@ -50,12 +50,22 @@ import Testing
             let text = String(decoding: try! JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]), as: UTF8.self)
             let error = await transport.send(connection: connection, frames: [text])
             #expect(error == expect, "\(method) \(params)")
+            // The daemon sees relay-owned ids: a counter per connection, 1 for the initialize, then
+            // one more for each request the relay forwards.
+            if error == nil {
+                forwarded += 1
+                relayIDs[nextID] = forwarded
+            }
             return nextID
         }
 
+        var forwarded = 1
+        var relayIDs: [Int: Int] = [:]
+
         /// The daemon's copy of request `id`, when it got one (matched parsed: the relay re-encodes a
         /// checked frame, so its key order is not the page's).
-        func received(_ id: Int) async -> [String: Any]? {
+        func received(_ pageID: Int) async -> [String: Any]? {
+            guard let id = relayIDs[pageID] else { return nil }
             let find = { @Sendable (peers: [AcpmuxStandInServer.Peer]) -> [String: Any]? in
                 for text in peers.first?.frames ?? [] {
                     if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],

@@ -62,11 +62,12 @@ public nonisolated enum AcpmuxPaneMethods {
         }
     }
 
-    /// A reply to a filtered request, rebuilt from its id and its filtered result. An error keeps
-    /// only its code and message.
-    static func filteredReply(_ text: String, shape: ReplyShape) -> String {
+    /// A reply to a filtered request, rebuilt with the page's id (raw JSON) and its filtered
+    /// result. An error keeps only its code and message.
+    static func filteredReply(_ text: String, shape: ReplyShape, pageID: String) -> String {
         let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
-        var reply: [String: Any] = ["jsonrpc": "2.0", "id": object["id"] ?? NSNull()]
+        let id = (try? JSONSerialization.jsonObject(with: Data(pageID.utf8), options: [.fragmentsAllowed])) ?? NSNull()
+        var reply: [String: Any] = ["jsonrpc": "2.0", "id": id]
         if let error = object["error"] as? [String: Any] {
             reply["error"] = ["code": error["code"] as? Int ?? -32603, "message": error["message"] as? String ?? ""]
         } else {
@@ -293,7 +294,8 @@ public nonisolated enum AcpmuxPaneMethods {
         if params.keys.contains(where: denied.contains) { return true }
         guard let rawMeta = params["_meta"] else { return false }
         guard let meta = rawMeta as? [String: Any] else { return true }
-        if setting, meta["cmuxGesture"] != nil { return false }
+        // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
+        if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
         if meta.keys.contains(where: { $0 != "acpmux" }) { return true }
         guard let rawAcpmux = meta["acpmux"] else { return false }
         guard let acpmux = rawAcpmux as? [String: Any] else { return true }

@@ -183,8 +183,8 @@ public extension AgentPaneTransportPacer {
     public var requestModeConfirmation: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
-    /// Replies cut to what the pane renders (`_acpmux/status`).
-    let replies = AcpmuxReplyFilter()
+    /// The current socket's request ids (relay-owned, mapped back on the reply).
+    private var requestIds: AcpmuxRequestIds?
     private var socketPath: String?
 
     /// Pushes and flushes so far (tests and the bench read them).
@@ -217,9 +217,10 @@ public extension AgentPaneTransportPacer {
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         sentFirst = false
-        replies.clear()
+        let ids = AcpmuxRequestIds()
+        requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions, sessions: sessions,
-                                      replies: replies) { [weak self] in
+                                      ids: ids) { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.arrived(id) } }
         }
         self.socket = socket
@@ -471,7 +472,23 @@ public extension AgentPaneTransportPacer {
     private func deliverToSocket(frame: PageFrame, decision: AcpmuxPaneMethods.Decision, rootRequested: Bool) -> Step {
         guard let socket else { return .stop(.staleConnection) }
         switch decision {
-        case .send(let text):
+        case .send(let pageText):
+            // The daemon sees only relay-owned ids; a page id is used by one request at a time.
+            var text = pageText
+            var relayID: Int?
+            if let pageID = frame.id {
+                guard let ids = requestIds, let id = ids.begin(pageID: pageID, method: frame.method ?? "") else {
+                    // No answer: the page's earlier request with this id still waits for its own.
+                    Self.logger.error("agent pane transport refused frame error=\(AgentPaneTransportError.requestIdInFlight.rawValue, privacy: .public)")
+                    return .refused(.requestIdInFlight)
+                }
+                guard let rewritten = AcpmuxRequestIds.withID(String(id), in: pageText) else {
+                    ids.cancel(id)
+                    return .refused(.invalidFrame)
+                }
+                text = rewritten
+                relayID = id
+            }
             if !sentFirst {
                 sentFirst = true
                 localAppToken = nil
@@ -481,6 +498,7 @@ public extension AgentPaneTransportPacer {
                 if frame.method == "session/prompt" { gestures.clearTickets() }
             }
             if let error = socket.send(text) {
+                if let relayID { requestIds?.cancel(relayID) }
                 if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
                 return .stop(error)
             }
@@ -518,7 +536,6 @@ public extension AgentPaneTransportPacer {
            gestures.consume() {
             sessions.add(session)
         }
-        replies.expect(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         if AcpmuxPaneSessions.starting.contains(method) {
             sessions.sent(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID), params: params)
         }
@@ -609,17 +626,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let limits: AgentPaneTransport.Limits
     private let options: AcpmuxPermissionOptions
     private let sessions: AcpmuxPaneSessions
-    private let replies: AcpmuxReplyFilter
+    private let ids: AcpmuxRequestIds
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
 
     init(request: URLRequest, limits: AgentPaneTransport.Limits, options: AcpmuxPermissionOptions,
-         sessions: AcpmuxPaneSessions, replies: AcpmuxReplyFilter, signal: @escaping @Sendable () -> Void) {
+         sessions: AcpmuxPaneSessions, ids: AcpmuxRequestIds, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.limits = limits
         self.options = options
         self.sessions = sessions
-        self.replies = replies
+        self.ids = ids
         self.signal = signal
     }
 
@@ -664,8 +681,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         }
     }
 
-    private func arrived(_ received: String) {
-        let text = replies.filter(received)
+    /// A frame for the page: from the daemon (its ids mapped back, unknown replies dropped), or
+    /// the relay's own answer to a refused request (`fromDaemon` false).
+    private func arrived(_ received: String, fromDaemon: Bool = true) {
+        guard let text = fromDaemon ? ids.toPage(received) : received else { return }
         options.observe(text)
         sessions.observe(text)
         let bytes = text.utf8.count
@@ -687,7 +706,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
-    func inject(_ text: String) { arrived(text) }
+    func inject(_ text: String) { arrived(text, fromDaemon: false) }
 
     /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
     /// once every frame before it was taken. Dropped queues on an overflow close are not kept.
