@@ -88,20 +88,18 @@ enum DebugKey {
         let previousKey = services.keyWindowSource
         services.keyWindowSource = { [window] in window }
         defer { services.keyWindowSource = previousKey }
-        var handledBy = "responder"
-        var action: JSONValue = .null
         let isChord = !flags.isDisjoint(with: [.command, .control])
-        if services.keyRouter.interceptKeyDown(event, in: window) {
-            handledBy = "app"
-            action = services.keyRouter.lastInterception.map { .string($0.action.rawValue) } ?? .null
-        } else if isChord, window.performKeyEquivalent(with: event) {
-            handledBy = window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page"
-        } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
-            handledBy = "menu"
-            action = NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null
-        } else {
+        // As in AppKit's dispatch, the menu gate sees this key as the current event.
+        let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
+            if services.keyRouter.interceptKeyDown(event, in: window) {
+                return ("app", services.keyRouter.lastInterception.map { .string($0.action.rawValue) } ?? .null)
+            } else if isChord, window.performKeyEquivalent(with: event) {
+                return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
+            } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+                return ("menu", NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null)
+            }
             window.sendEvent(event)
-            if window !== shell { handledBy = "page" }
+            return (window !== shell ? "page" : "responder", .null)
         }
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal

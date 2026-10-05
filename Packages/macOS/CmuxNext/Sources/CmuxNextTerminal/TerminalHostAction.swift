@@ -30,4 +30,14 @@ public nonisolated enum TerminalHostAction: Sendable, Equatable {
     case redo
     /// Open the host's find UI (copy mode's `/`).
     case find
+    /// Show or hide every window of the app (`toggle_visibility`).
+    case toggleVisibility
+    /// Ghostty's tab overview (`toggle_tab_overview`).
+    case toggleTabOverview
+    /// Ask for a window title (`prompt_window_title`).
+    case promptWindowTitle
+    /// Set the window title (`set_window_title:<title>`).
+    case setWindowTitle(String)
+    /// Bring this terminal to the front (`present_terminal`).
+    case presentTerminal
 }

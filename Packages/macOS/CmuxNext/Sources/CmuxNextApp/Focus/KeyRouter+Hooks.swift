@@ -52,8 +52,18 @@ extension KeyRouter {
     /// dispatcher decided never runs a menu item (menus are display only
     /// for keys). Other key windows (panels, sheets, windows of their own)
     /// follow the tier rule of the key window's focus.
+    /// Runs `body` while `event` is dispatched outside
+    /// `NSApplication.sendEvent` (`debug.key`), where `NSApp.currentEvent`
+    /// is not that event.
+    func dispatchingSynthetic<T>(_ event: NSEvent, _ body: () -> T) -> T {
+        let previous = syntheticKeyEvent
+        syntheticKeyEvent = event
+        defer { syntheticKeyEvent = previous }
+        return body()
+    }
+
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
-        if let event = NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
+        if let event = syntheticKeyEvent ?? NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
         return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)

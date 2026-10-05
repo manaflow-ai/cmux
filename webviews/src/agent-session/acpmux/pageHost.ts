@@ -3,6 +3,7 @@
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
 import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { NativeError } from "./nativeError";
+import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -81,6 +82,8 @@ export function applyHostEvent(event: HostEvent): void {
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;
+    case "transport":
+      return receiveTransportEvent(event.value as TransportEvent);
   }
 }
 

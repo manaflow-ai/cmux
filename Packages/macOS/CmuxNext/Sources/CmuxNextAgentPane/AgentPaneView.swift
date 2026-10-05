@@ -5,8 +5,9 @@ import os
 public import WebKit
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
-/// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The page
-/// connects to acpmux itself after the handshake; this view only answers
+/// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The model's
+/// ``AgentPaneTransport`` owns the acpmux socket and relays its frames to the
+/// page (the page never holds an endpoint or a token); this view answers
 /// host requests, keeps the page on its source, and applies the theme
 /// of the scope it sits in (window, workspace), re-applied whenever that
 /// scope repaints.
@@ -56,6 +57,10 @@ public final class AgentPaneView: NSView {
     private var motionObservation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+    /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
+    private var gestureMonitor: Any?
+    /// Paces the transport's pushes (stopped when the pane closes).
+    var transportPacer: AgentPaneFramePacer?
 
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
@@ -148,6 +153,15 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // A frame that grants needs a real gesture in this pane; page script cannot make one.
+        gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
+            guard Thread.isMainThread else { return event }
+            // crash-allow: guarded by Thread.isMainThread above, so it cannot trap; the decision must read the window's focus and the web view's bounds at event time, before AppKit dispatches the event, which a hop would read too late
+            MainActor.assumeIsolated { self?.monitored(event) }
+            return event
+        }
+        installTransport()
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
@@ -269,6 +283,8 @@ public final class AgentPaneView: NSView {
         let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
                        "permissionRetry", "permissionRevoke", "permissionRefresh"]
         guard allowed.contains(command) else { return }
+        // The user pressed the app's permission shortcut: that is the gesture its answer uses.
+        model.transport.gestures.record()
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
 
@@ -290,6 +306,11 @@ public final class AgentPaneView: NSView {
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
+        if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
+        gestureMonitor = nil
+        if let connection = model.transport.connection { model.transport.close(connection: connection) }
+        model.transport.deliver = nil
+        transportPacer?.stop()
         if let page {
             page.close()
         } else {
@@ -318,7 +339,6 @@ public final class AgentPaneView: NSView {
         if window == nil { dictation.handle(.stop) }
         applyTheme()
     }
-
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
@@ -360,3 +380,4 @@ public final class AgentPaneView: NSView {
         }
     }
 }
+

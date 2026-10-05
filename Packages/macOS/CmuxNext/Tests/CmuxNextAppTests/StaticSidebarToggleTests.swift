@@ -58,15 +58,44 @@ import Testing
         #expect(model.presentation == start)
     }
 
+    /// With the sidebar hidden the window controls collapse at rest and the
+    /// strip keeps no room for them (nxdog41, which supersedes R68's "the
+    /// strip starts after the toggle" for the resting state). While the
+    /// corner is hovered the toggle shows and the strip starts after it.
+    /// The sidebar state reaches the window root through an observation, so
+    /// the test waits for it instead of for a fixed number of turns. The
+    /// sidebar starts hidden through the restore path (a relaunch with the
+    /// sidebar hidden), which sets its width without animating: this test
+    /// is about the resting hidden state, and a host with no screen
+    /// (aws-m4pro fleet Macs, NSScreen.screens empty) never advances the
+    /// width animation, so the pane stayed at x 210 there.
     @Test func withTheSidebarHiddenTheStripStartsAfterTheToggle() async throws {
         let harness = try await ViewChangePermissionTests.harness()
         defer { harness.stop() }
-        harness.window.sidebar.model.presentation = .hidden
+        let root = harness.window.root
+        harness.window.sidebar.container.restore(width: nil, presentation: .hidden)
+        try await ViewChangePermissionTests.waitUntil { root.sidebarHidden }
+        try #require(root.sidebarHidden, "the sidebar state reached the window root")
         await settle(harness)
-        let toggle = try #require(harness.window.root.sidebarToggleFrame)
+        let toggle = try #require(root.sidebarToggleFrame)
         let strip = try #require(harness.pane?.view.stripView)
+        // The pane moves to the window edge as the sidebar's hide finishes.
+        try await ViewChangePermissionTests.waitUntil {
+            root.layoutSubtreeIfNeeded()
+            return strip.convert(strip.bounds, to: nil).minX < toggle.minX
+        }
         let stripFrame = strip.convert(strip.bounds, to: nil)
+        try #require(stripFrame.minX < toggle.minX, "the strip reaches the window edge, under the toggle")
+
+        root.cornerReveal.setPointerInside(false)
+        try #require(!root.cornerReveal.isRevealed, "nothing else holds the corner open")
+        #expect(root.windowControlsCollapsed)
+        #expect(strip.computeWindowControlsInset() == 0, "collapsed: the strip keeps no room for the controls")
+
+        root.cornerReveal.setPointerInside(true)
+        #expect(!root.windowControlsCollapsed)
         #expect(stripFrame.minX + strip.computeWindowControlsInset() >= toggle.maxX)
+        root.cornerReveal.setPointerInside(false)
     }
 
     @Test func theToggleNamesItsActionAndShortcut() async throws {

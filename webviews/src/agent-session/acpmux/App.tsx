@@ -39,6 +39,7 @@ import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } f
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
+import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
@@ -1455,6 +1456,7 @@ function AcpmuxPane() {
         const host = await callNative<{
           protocolVersion: number;
           transport?: string;
+          /// Only the browser dev slot (devHost.ts) sends these; the app never does.
           endpoint?: string;
           token?: string;
           sessionId?: string;
@@ -1499,7 +1501,9 @@ function AcpmuxPane() {
               : "compact",
           );
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
-        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) {
+        // The app's host owns the socket (`acpmux-bridge`); the page never gets an endpoint or token.
+        const bridge = host.transport === "acpmux-bridge";
+        if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
           // A host with no daemon to reach has nothing left to fail.
           setHostError(undefined);
           return;
@@ -1539,7 +1543,11 @@ function AcpmuxPane() {
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
           },
-          mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined,
+          mock
+            ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
+            : bridge
+              ? () => new BridgeSocket() as unknown as WebSocket
+              : undefined,
           mock ? "daemon" : "native",
         );
         if (cancelled) {

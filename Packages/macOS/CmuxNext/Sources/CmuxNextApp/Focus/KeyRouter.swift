@@ -39,6 +39,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// A key that is not a Command or Control chord goes on to `window`'s
     /// focused view: the user types into that pane (notification dismissal).
     var onTyping: ((NSWindow?) -> Void)?
+    /// The key-down `debug.key` dispatches (``dispatchingSynthetic(_:_:)``),
+    /// which `NSApp.currentEvent` does not report.
+    var syntheticKeyEvent: NSEvent?
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
     private var resignObserver: (any NSObjectProtocol)?

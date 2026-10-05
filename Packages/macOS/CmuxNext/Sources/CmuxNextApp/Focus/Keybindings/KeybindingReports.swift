@@ -59,14 +59,31 @@ enum KeybindingReports {
         return .object(object)
     }
 
+    /// The Keyboard Shortcuts page's list (`cmux.keybindings.list`): every
+    /// entry, but a user Ghostty keybind once. Its app-wide
+    /// `.ghosttyFallback` entry (same keys and command as its `.ghostty`
+    /// entry) is not a second row, so the remaining `ghostty-fallback` rows
+    /// are Ghostty's defaults.
+    static func pageList(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
+        let entries = RegistryKeyBindings(registry).table.entries
+        let user = Set(entries.filter { $0.source == .ghostty }.map { GhosttyRow(keys: $0.keys, command: $0.command) })
+        return list(params, registry: registry) { entry in
+            entry.source != .ghosttyFallback || !user.contains(GhosttyRow(keys: entry.keys, command: entry.command))
+        }
+    }
+
+    private struct GhosttyRow: Hashable {
+        var keys: [Shortcut]
+        var command: ActionID
+    }
+
     /// `keybinding.list`: every entry in precedence order (a later entry
     /// wins), optionally filtered by `query` (title, command id or key text,
     /// case-insensitive), `command` and `source`. Each entry has an `id`
     /// (its position in the table) and `conflicts`: the ids of the other
     /// entries on the same keys whose `when` can hold at the same time.
-    /// `includeGhostty` false leaves the Ghostty config's keybinds out (the
-    /// Keyboard Shortcuts page has no label for their sources yet).
-    static func list(_ params: [String: JSONValue], registry: ActionRegistry, includeGhostty: Bool = true) -> JSONValue {
+    /// `shows` leaves entries out (``pageList(_:registry:)``).
+    static func list(_ params: [String: JSONValue], registry: ActionRegistry, shows: (KeyBinding) -> Bool = { _ in true }) -> JSONValue {
         let query = params["query"]?.stringValue?.lowercased() ?? ""
         let command = params["command"]?.stringValue
         let source = params["source"]?.stringValue
@@ -74,7 +91,7 @@ enum KeybindingReports {
         let byKeys = Dictionary(grouping: entries.indices, by: { entries[$0].keys })
         let rows = entries.indices.filter { index in
             let entry = entries[index]
-            if !includeGhostty, entry.source.isGhostty { return false }
+            if !shows(entry) { return false }
             if let command, registry.canonicalID(for: ActionID(rawValue: command)) != entry.command { return false }
             if let source, entry.source.name != source { return false }
             guard !query.isEmpty else { return true }
@@ -86,7 +103,7 @@ enum KeybindingReports {
             guard case .object(var object) = json(entry, registry: registry) else { return .null }
             object["id"] = JSONValue(index)
             let conflicts = (byKeys[entry.keys] ?? []).filter {
-                $0 != index && (includeGhostty || !entries[$0].source.isGhostty) && WhenClause.canOverlap(entries[$0].when, entry.when)
+                $0 != index && shows(entries[$0]) && WhenClause.canOverlap(entries[$0].when, entry.when)
             }
             object["conflicts"] = .array(conflicts.map { JSONValue($0) })
             return .object(object)
