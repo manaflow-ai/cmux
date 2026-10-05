@@ -59,3 +59,18 @@ struct TerminalHostRouteFillTests {
         }
     }
 }
+
+/// libghostty sends app-scoped actions (`quit`, `toggle_visibility`,
+/// `check_for_updates`, `close_all_windows`) with the app as target, not a
+/// surface: they must still run their routed action.
+@MainActor
+struct TerminalHostAppActionTests {
+    @Test func anAppScopedGhosttyActionRunsItsRoutedAction() {
+        let services = ActionBindingCoverageTests.boundServices()
+        var ran: [ActionID] = []
+        services.registry.bind("tab.search", invoke: { _ in ran.append("tab.search") })
+        #expect(services.terminalDelegate.performAppAction(.toggleTabOverview))
+        #expect(ran == ["tab.search"])
+        #expect(!services.terminalDelegate.performAppAction(.redo), "no route: not performed")
+    }
+}
