@@ -22,6 +22,8 @@ public enum ProUpgradeSource: String, CaseIterable, Sendable {
     case settingsCloudMachines = "mac_settings_cloud_machines"
     /// Machines panel empty state: plan does not include Cloud machines.
     case machinesPanelRequiresPro = "mac_machines_panel_requires_pro"
+    /// "Introducing cmux Cloud" welcome window, Free plan.
+    case cloudWelcome = "mac_cloud_welcome"
     /// Machines panel nudge under the create button.
     case machinesPanelUpgradeNudge = "mac_machines_panel_upgrade_nudge"
     /// Machines panel free-access countdown / expired banner.
