@@ -1,6 +1,7 @@
 //! The real daemon link (cmux-sdk) against a fake conversation owner on a
-//! Unix socket: create exactly like mux/host, bind as agent_mux, subscribe,
-//! write as agent_mux, and reconnect after the subscription ends.
+//! Unix socket: find the app's Chief conversation (create it with the app's
+//! exact request only when none exists), bind as agent_mux, subscribe, write
+//! as agent_mux, and reconnect after the subscription ends.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -13,12 +14,16 @@ use optchat_chief::daemon::{DaemonEvent, LinkConfig, spawn_link};
 use serde_json::{Value, json};
 
 fn summary() -> Value {
+    summary_at("conv_x", "2026-10-03T00:00:00.000Z")
+}
+
+fn summary_at(id: &str, created: &str) -> Value {
     json!({
-        "id": "conv_x", "owner": "local", "title": "mux", "last_seq": 0, "rev": 1,
-        "created_at": "2026-10-03T00:00:00.000Z", "updated_at": "2026-10-03T00:00:00.000Z",
+        "id": id, "owner": "local", "title": "mux", "last_seq": 0, "rev": 1,
+        "created_at": created, "updated_at": "2026-10-03T00:00:00.000Z",
         "participants": [
             {"id": "user_local", "kind": "human", "display_name": "Ada"},
-            {"id": "agent_mux", "kind": "agent", "display_name": "mux", "agent_class": "mux", "acp_session": "mux"}
+            {"id": "agent_mux", "kind": "agent", "display_name": "Chief", "agent_class": "mux", "acp_session": "mux"}
         ],
         "read_cursors": {}
     })
@@ -29,10 +34,12 @@ fn serve(
     listener: UnixListener,
     requests: Arc<Mutex<Vec<Value>>>,
     subscribers: Arc<Mutex<Vec<UnixStream>>>,
+    listed: Arc<Mutex<Vec<Value>>>,
 ) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
-            let (requests, subscribers) = (requests.clone(), subscribers.clone());
+            let (requests, subscribers, listed) =
+                (requests.clone(), subscribers.clone(), listed.clone());
             std::thread::spawn(move || {
                 let mut out = conn.try_clone().unwrap();
                 for line in BufReader::new(conn.try_clone().unwrap()).lines() {
@@ -43,12 +50,17 @@ fn serve(
                         "identify" => {
                             json!({"app": "cmux", "version": "test", "protocol": 12, "capabilities": ["local-conversations-v1"]})
                         }
+                        "conversation-list" => {
+                            json!({"conversations": listed.lock().unwrap().clone()})
+                        }
                         "conversation-create" => {
                             json!({"conversation": summary(), "replayed": true})
                         }
                         "conversation-op" => {
                             json!({"rev": 2, "replayed": false, "change": {"kind": "read-cursor", "participant": "agent_mux", "seq": 1}})
                         }
+                        // The typed SDK reads conversation-bind's result.
+                        "conversation-bind" => json!({"participant": req["participant"]}),
                         "subscribe" => {
                             subscribers.lock().unwrap().push(conn.try_clone().unwrap());
                             json!({})
@@ -74,10 +86,12 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
     std::fs::write(&token, "tok-1\n").unwrap();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let subscribers = Arc::new(Mutex::new(Vec::new()));
+    let listed = Arc::new(Mutex::new(Vec::new()));
     serve(
         UnixListener::bind(&socket).unwrap(),
         requests.clone(),
         subscribers.clone(),
+        listed.clone(),
     );
 
     let (tx, rx) = channel();
@@ -87,6 +101,7 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
             socket,
             token_file: Some(token),
             display_name: "Ada".into(),
+            title: "Chief".into(),
         },
         Arc::new(move |e| tx.lock().unwrap().send(e).unwrap()),
         Arc::new(|_: &str| {}),
@@ -107,9 +122,11 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
             .iter()
             .find(|r| r["cmd"] == "conversation-create")
             .unwrap();
-        assert_eq!(create["idempotency_key"], "mux-home-default");
+        // The app's create request (HomeChiefName.createRequest): same key,
+        // title and participants, so the owner replays one conversation.
+        assert_eq!(create["idempotency_key"], "home-chief");
         assert_eq!(create["actor"], "user_local");
-        assert_eq!(create["title"], "mux");
+        assert_eq!(create["title"], "Chief");
         assert_eq!(create["participants"], summary()["participants"]);
         let bind = requests
             .iter()
@@ -127,6 +144,7 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
             order,
             vec![
                 "identify",
+                "conversation-list",
                 "conversation-create",
                 "conversation-bind",
                 "subscribe"
@@ -175,13 +193,26 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
         _ => panic!("expected the message"),
     }
 
+    // The app's Chief conversation exists now, with a newer one beside it.
+    *listed.lock().unwrap() = vec![
+        summary_at("conv_newer", "2026-10-04T00:00:00.000Z"),
+        summary(),
+    ];
     // The subscription ends: Down, then the link connects (and binds) again.
     sub.shutdown(std::net::Shutdown::Both).unwrap();
     assert!(matches!(rx.recv_timeout(wait).unwrap(), DaemonEvent::Down));
-    assert!(matches!(
-        rx.recv_timeout(wait).unwrap(),
-        DaemonEvent::Up { .. }
-    ));
+    match rx.recv_timeout(wait).unwrap() {
+        // The oldest conversation with agent_mux, whatever the list order.
+        DaemonEvent::Up { conversation, .. } => assert_eq!(conversation.id, "conv_x"),
+        _ => panic!("expected Up"),
+    }
+    let creates = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r["cmd"] == "conversation-create")
+        .count();
+    assert_eq!(creates, 1, "an existing Chief conversation is found, not created");
     let binds = requests
         .lock()
         .unwrap()

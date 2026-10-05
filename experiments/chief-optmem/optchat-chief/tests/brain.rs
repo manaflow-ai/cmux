@@ -133,6 +133,7 @@ fn a_group_message_without_a_mention_does_not_wake() {
         display_name: "Bo".into(),
         agent_class: None,
         acp_session: None,
+        person: None,
     });
     let owner = Arc::new(std::sync::Mutex::new(Owner {
         summary: Some(s),

@@ -28,6 +28,9 @@ import Testing
         let host = try #require(Self.resolve([:], bin: bin), "a bundled optchat-chief is the default brain host")
         #expect(host.executable.standardizedFileURL == bin.appendingPathComponent("optchat-chief").standardizedFileURL)
         #expect(host.muxHome.path == "/Users/someone/.cmux/mux/tags/hmchief")
+        // The host's create request equals the app's (the owner refuses a different one under "home-chief").
+        #expect(host.childEnvironment["MUX_USER_NAME"] == HomeChiefName.localUserName)
+        #expect(host.childEnvironment["MUX_CHIEF_TITLE"] == HomeStrings.chiefName)
         #expect(host.arguments.suffix(5) == ["host", "--daemon-socket", "/tmp/d.sock", "--mux-home", "/Users/someone/.cmux/mux/tags/hmchief"])
     }
 
