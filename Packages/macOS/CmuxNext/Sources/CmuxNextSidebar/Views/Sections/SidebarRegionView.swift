@@ -140,7 +140,12 @@ final class SidebarRegionView: NSView {
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
                 // rests on the tile fill in every arrangement (R97).
-                case .tile: if case .grid = SectionFlow.mode(section, look: content.look) { .tile } else if item.ref.builtIn != nil { .tile } else { .icon }
+                case .tile:
+                    switch SectionFlow.mode(section, look: content.look) {
+                    case .tiles?: .favorite
+                    case .grid?: .tile
+                    default: item.ref.builtIn != nil ? .tile : .icon
+                    }
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
