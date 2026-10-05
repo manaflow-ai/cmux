@@ -280,10 +280,14 @@ final class AgentTabStore {
             return await handler.listProjects(query)
         }
         model.onImportAndSync = { [weak self] in
-            if let page = self?.newTabPages[resolve(provisional)] { page.handler.importAndSync() }
-            else { _ = self?.actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
+            guard let self else { return }
+            if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
+            else { _ = actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
         }
-        model.onAppAction = { [weak self] id in self?.newTabPages[resolve(provisional)]?.handler.action(id) }
+        model.onAppAction = { [weak self] id in
+            guard let self else { return }
+            newTabPages[resolve(provisional)]?.handler.action(id)
+        }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
