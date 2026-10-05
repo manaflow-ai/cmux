@@ -348,4 +348,22 @@ struct CloudWorkspaceMembershipTests {
         let displays = try #require(tree.first { $0.id == CloudTreeNodeBuilder.nodeID(displaysPool: machine) })
         #expect(displays.children.count == 2, "available displays remain at machine level")
     }
+
+    @Test("A new workspace's provisional title is the name the daemon will assign")
+    func predictedDefaultWorkspaceName() {
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: []) == "workspace-1")
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-1", "workspace-2", "workspace-3"]) == "workspace-4")
+        // Renamed workspaces still count, so the sequence never reuses a number.
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["shell", "workspace-2"]) == "workspace-3")
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-7"]) == "workspace-8")
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-x", "workspace-"]) == "workspace-3")
+        // Other unnamed creates still awaiting receipts take the next numbers.
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(existingNames: ["workspace-1"], pendingCreations: 2) == "workspace-4")
+    }
+
+    @Test("No prediction before the machine reports its workspaces")
+    func predictedDefaultWorkspaceNameNeedsWorkspaceList() {
+        let snapshot = SurfaceCatalogSnapshot(machines: [], resources: [], projections: [])
+        #expect(CloudTreeNodeBuilder.predictedDefaultWorkspaceName(on: machine, snapshot: snapshot) == nil)
+    }
 }
