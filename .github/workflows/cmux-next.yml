@@ -42,6 +42,7 @@ on:
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
+      - tests/test_cmux_next_personality_log_filter.sh
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -82,6 +83,7 @@ on:
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
+      - tests/test_cmux_next_personality_log_filter.sh
   workflow_dispatch:
 
 permissions:
@@ -372,6 +374,7 @@ jobs:
           bash scripts/cmux-next/tests/cef-build-flags.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
           bash scripts/cef/tests/test-embedder-step.test.sh
+          bash tests/test_cmux_next_personality_log_filter.sh
 
       - name: Checks job structure
         id: checks-structure
