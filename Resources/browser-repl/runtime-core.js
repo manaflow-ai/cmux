@@ -29,6 +29,8 @@
     return wrapped;
   })();
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
+  // The key of the page agent's cut marker (page-agent.js, `reply`).
+  const REPLY_CUT = "__cmuxReplyCut";
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -1004,18 +1006,32 @@
     }
     // Script cannot run while a JavaScript dialog is open, so calls fail fast
     // with the way out instead of hanging until the evaluation timeout.
-    _call(world, source, args, handles) {
+    //
+    // Every agent-world reply goes through the page agent's reply budget
+    // (page-agent.js, `reply`): the call's function runs inside it, and a
+    // reply past the budget comes back as a cut marker, which fails the
+    // call with core.readCutNote's words. `what` names the read in them.
+    _call(world, source, args, handles, what) {
       const blocked = this._page._blockedError();
       if (blocked) return Promise.reject(blocked);
-      return this._page._raceDialog(this._session.call("frame.evaluate", {
+      const limit = this._session._replyLimit;
+      const sealed = world !== "agent" ? source
+        : `(...a) => { const A = ${AGENT}; if (!A || typeof A.reply !== "function") throw new Error("the cmux page agent is not in this frame"); ` +
+          `return A.reply((${source})(...a), ${typeof limit === "number" ? limit : "undefined"}); }`;
+      const call = this._page._raceDialog(this._session.call("frame.evaluate", {
         targetId: this._page._targetId,
         frameId: this._id || undefined,
         world,
-        source,
+        source: sealed,
         args: args || [],
         handles: handles || [],
         awaitPromise: true,
       }), true);
+      if (world !== "agent") return call;
+      return call.then((r) => {
+        if (r && typeof r === "object" && !Array.isArray(r) && r[REPLY_CUT]) throw new Error(`Error: ${readCutNote(what || "the page reply", r[REPLY_CUT])}`);
+        return r;
+      });
     }
     // A user function in the page world. JSON has no undefined, so a function
     // that returns undefined sends a marker the result turns back into it,
@@ -1026,7 +1042,7 @@
       return r && typeof r === "object" && !Array.isArray(r) && r[UNDEFINED_MARK] === 1 && Object.keys(r).length === 1 ? undefined : r;
     }
     _agent(method, ...args) {
-      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args], undefined, method);
     }
     async _contentFrame(handle) {
       try {

@@ -956,7 +956,7 @@
   // ---------------------------------------------------------------------------
 
   const fnSource = (fn) => fn.toString();
-  const agentCall = (frame, fn, ...args) => frame._call("agent", fnSource(fn), args);
+  const agentCall = (frame, fn, ...args) => frame._call("agent", fnSource(fn), args, undefined, fn.name);
   const errCode = (e) => e && (e.code || (e.cause && e.cause.code));
 
   function install(ctx) {

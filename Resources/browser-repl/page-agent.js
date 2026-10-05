@@ -894,6 +894,46 @@
       report: () => ({ visited: b.nodes - b.left, size: b.size - b.sizeLeft, maxNodes: b.nodes, maxSize: b.size, truncated: b.truncated }),
     };
   }
+  // The reply budget. Every reply this world sends to the session passes
+  // through `reply`: the runtime wraps each agent-world call in it
+  // (runtime-core.js, Frame._call), so a method or page function added
+  // here cannot reply around it. Past `limit` characters of JSON (at most
+  // MAX_REPLY) the reply becomes a cut marker, which the runtime turns into
+  // an error worded by core.readCutNote, as every read cut at its budget.
+  // A caller can lower the limit, never raise it.
+  const MAX_REPLY = Infinity;
+  const REPLY_CUT = "__cmuxReplyCut";
+  // The characters of JSON `value` takes, counted until they pass `max`.
+  // Iterative, and it stops there, so measuring costs at most the limit.
+  function replySize(value, max) {
+    let size = 0;
+    const stack = [value];
+    while (stack.length && size <= max) {
+      const v = stack.pop();
+      if (typeof v === "string") size += v.length + 2;
+      else if (v === null || v === undefined || typeof v !== "object") size += typeof v === "function" ? 0 : 8;
+      else if (Array.isArray(v)) {
+        size += 2 + v.length;
+        for (let i = 0; i < v.length && size <= max; i++) stack.push(v[i]);
+      } else {
+        size += 2;
+        for (const key of Object.keys(v)) {
+          size += key.length + 4;
+          stack.push(v[key]);
+          if (size > max) break;
+        }
+      }
+    }
+    return size;
+  }
+  function sealReply(value, limit) {
+    const max = Math.min(MAX_REPLY, typeof limit === "number" && limit >= 0 ? Math.floor(limit) : MAX_REPLY);
+    if (max === Infinity || replySize(value, max) <= max) return value;
+    return { [REPLY_CUT]: { truncated: "size", maxSize: max } };
+  }
+  function reply(value, limit) {
+    return value instanceof Promise ? value.then((v) => sealReply(v, limit)) : sealReply(value, limit);
+  }
   // Reading the clock every node costs; every 256th is enough.
   function spend(ctx, count) {
     if (ctx.truncated) return false;
@@ -2086,6 +2126,7 @@
     annotate,
     clearAnnotations,
     budget,
+    reply,
   };
   // Frozen and permanent: other code in this world cannot replace a method
   // or the agent itself (see the top of this file).
