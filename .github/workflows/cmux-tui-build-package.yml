@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      windows_notices_pending:
+        description: "Dogfood only: write a pending, never publishable Windows notice (mingw-w64 review pending)"
+        required: false
+        default: false
+        type: boolean
       target_set:
         description: "Binary targets to build: all or macos-arm64"
         required: false
@@ -683,6 +688,12 @@ jobs:
             --out-dir dist/package-notices \
             --source-tag "$(git rev-parse HEAD)" \
             --cache "$RUNNER_TEMP/cmux-notices"
+
+      # Dogfood only (cmux-tui.yml build-artifacts): Windows notices are pending the
+      # mingw-w64 review. Publish callers never set the input, so they stay closed.
+      - name: Write the pending Windows notices (dogfood)
+        if: inputs.windows_notices_pending && inputs.include_windows
+        run: python3 cmux-tui/dist/scripts/windows_notice_pending.py --out-dir dist/package-notices
 
       - name: Upload the third-party notices
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

@@ -1144,6 +1144,8 @@ jobs:
       package_npm: ${{ inputs.mode == 'full' }}
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
+      # Windows notices are pending the mingw-w64 review: dogfood packages only.
+      windows_notices_pending: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
       # Build the exact reference plugin beside the daemon artifact.
       build_agent_plugin: true
