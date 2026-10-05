@@ -163,18 +163,19 @@ pub fn integrate_default_shell(
         return ShellLaunch { command, env: extra_env };
     }
     let user = ghostty_files::read(&lookup);
-    let Some(shell) = shell_for(user.mode, &command) else {
-        if user.mode == Mode::Detect {
-            return ShellLaunch { command, env: extra_env };
-        }
-        // `shell-integration = none` (or a shell with no scripts here):
-        // Ghostty still exports the features, for a manual integration.
-        let mut env = extra_env;
+    // No integration (`shell-integration = none`, an unknown shell, a shell
+    // with no scripts here, or no scripts at all): Ghostty still exports the
+    // features (`Exec` sets them before it detects the shell), for a manual
+    // integration.
+    let features_only = |mut env: Vec<(String, String)>| {
         export_features(&mut env, &lookup, &user);
-        return ShellLaunch { command, env };
+        env
+    };
+    let Some(shell) = shell_for(user.mode, &command) else {
+        return ShellLaunch { env: features_only(extra_env), command };
     };
     let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {
-        return ShellLaunch { command, env: extra_env };
+        return ShellLaunch { env: features_only(extra_env), command };
     };
     apply(shell, &root, command, extra_env, &lookup, &user)
 }
