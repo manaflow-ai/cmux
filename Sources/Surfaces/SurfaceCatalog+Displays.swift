@@ -93,9 +93,12 @@ extension SurfaceCatalog {
             _ = try await createDisplay(on: machine)
             return
         }
-        SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID)?.cloudAccess.showStarting(
-            String(localized: "cloud.display.starting", defaultValue: "Starting display…")
-        )
+        let starting = String(localized: "cloud.display.starting", defaultValue: "Starting display…")
+        SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID)?.cloudAccess.showStarting(starting)
+        // The tab says what the pane is from the click; materializing the
+        // display replaces it with the display's name.
+        Workspace.liveWorkspace(id: pane.workspaceID)?.setPanelCustomTitle(
+            panelId: pane.panelID, title: starting, source: .remote, propagateToCloud: false, catalog: self)
         let resource: SurfaceResource
         do {
             resource = try await createDisplay(on: machine)
