@@ -11792,113 +11792,8 @@ struct VerticalTabsSidebar: View, Equatable {
         }()
 #endif
         let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
-        // Retain the native table identity while hidden without continuing the
-        // O(workspaces) projection pipeline. Reveal rebuilds one authoritative
-        // snapshot from the current model before the controller applies again.
-        let tabs = isPresented ? tabManager.tabs : []
-        let workspaceCount = tabs.count
-        let canCloseWorkspace = workspaceCount > 1
-        let workspaceNumberShortcut = self.workspaceNumberShortcut
-        let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabIds = tabs.map(\.id)
-        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
-            ($0.element.id, $0.offset)
-        })
-        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
-            workspacesById: workspaceById,
-            liveWorkspaceIds: Set(tabIds)
-        )
-        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
-        let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
-        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter {
-            $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace
-        }
-        let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
-        let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
-            selectedRemoteContextMenuTargets.allSatisfy {
-                $0.remoteConnectionState == .connecting || $0.remoteConnectionState == .reconnecting
-            }
-        let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
-            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
-        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
-            tabs: tabs,
-            groupsById: workspaceGroupById
-        )
-        let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(
-            tabs: tabs,
-            groupsById: workspaceGroupById,
-            effectiveMembership: workspaceGroupIdByWorkspaceId
-        )
-        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
-        )
-        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
-            groupsById: workspaceGroupById,
-            orderedGroups: workspaceGroups,
-            effectiveMembership: workspaceGroupIdByWorkspaceId
-        )
-        let numberedWorkspaceIndexById = SidebarWorkspaceRenderItem.numberedWorkspaceIndexById(
-            from: workspaceRenderItems
-        )
-        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
-        let draggedSidebarTabId = dragState.draggedTabId
-        let dropIndicatorScope = dragState.dropIndicatorScope
-        let sidebarReorderIds = draggedSidebarTabId.map {
-            sidebarDropIndicatorRowIds(
-                draggedWorkspaceId: $0,
-                scope: dropIndicatorScope,
-                tabs: tabs,
-                workspaceGroups: workspaceGroups,
-                visibleWorkspaceRowIds: visibleWorkspaceRowIds
-            )
-        } ?? []
-#if DEBUG
-        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            lazyContractProbe: sidebarLazyContractProbe,
-            displayAccessibility: sidebarDisplayAccessibility,
-            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
-        )
-#else
-        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
-            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            displayAccessibility: sidebarDisplayAccessibility,
-            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
-        )
-#endif
-        let renderContext = WorkspaceListRenderContext(
-            environment: tableEnvironment,
-            tabs: tabs,
-            tabIds: tabIds,
-            sidebarReorderIds: sidebarReorderIds,
-            workspaceCount: workspaceCount,
-            canCloseWorkspace: canCloseWorkspace,
-            workspaceNumberShortcut: workspaceNumberShortcut,
-            tabItemSettings: tabItemSettings,
-            showsAgentActivity: tabItemSettings.details.showAgentActivity
-                && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
-            pinResolutionContext: pinResolutionContext,
-            tabIndexById: tabIndexById,
-            numberedWorkspaceIndexById: numberedWorkspaceIndexById,
-            workspaceById: workspaceById,
-            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
-            selectedContextTargetIds: selectedContextTargetIds,
-            selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
-            allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
-            allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceGroups: workspaceGroups,
-            workspaceGroupById: workspaceGroupById,
-            memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
-            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
-            workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
-        )
+        let renderContext = makeWorkspaceListRenderContext()
+        let tabIds = renderContext.tabIds
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
             Group {
@@ -12034,6 +11929,117 @@ struct VerticalTabsSidebar: View, Equatable {
             sidebarDisplayAccessibility = options
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Rebuild from native state at use time; an attached extension can outlive a render.
+    private func makeWorkspaceListRenderContext() -> WorkspaceListRenderContext {
+        // Retain the native table identity while hidden without continuing the
+        // O(workspaces) projection pipeline. Reveal rebuilds one authoritative
+        // snapshot from the current model before the controller applies again.
+        let tabs = isPresented ? tabManager.tabs : []
+        let workspaceCount = tabs.count
+        let canCloseWorkspace = workspaceCount > 1
+        let workspaceNumberShortcut = self.workspaceNumberShortcut
+        let tabItemSettings = tabItemSettingsStore.snapshot
+        let tabIds = tabs.map(\.id)
+        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
+            workspacesById: workspaceById,
+            liveWorkspaceIds: Set(tabIds)
+        )
+        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
+        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter {
+            $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace
+        }
+        let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
+        let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
+            selectedRemoteContextMenuTargets.allSatisfy {
+                $0.remoteConnectionState == .connecting || $0.remoteConnectionState == .reconnecting
+            }
+        let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
+            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
+        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
+            tabs: tabs,
+            groupsById: workspaceGroupById
+        )
+        let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(
+            tabs: tabs,
+            groupsById: workspaceGroupById,
+            effectiveMembership: workspaceGroupIdByWorkspaceId
+        )
+        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
+            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+        )
+        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: tabs,
+            groupsById: workspaceGroupById,
+            orderedGroups: workspaceGroups,
+            effectiveMembership: workspaceGroupIdByWorkspaceId
+        )
+        let numberedWorkspaceIndexById = SidebarWorkspaceRenderItem.numberedWorkspaceIndexById(
+            from: workspaceRenderItems
+        )
+        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let draggedSidebarTabId = dragState.draggedTabId
+        let dropIndicatorScope = dragState.dropIndicatorScope
+        let sidebarReorderIds = draggedSidebarTabId.map {
+            sidebarDropIndicatorRowIds(
+                draggedWorkspaceId: $0,
+                scope: dropIndicatorScope,
+                tabs: tabs,
+                workspaceGroups: workspaceGroups,
+                visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            )
+        } ?? []
+#if DEBUG
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: sidebarColorScheme,
+            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+            lazyContractProbe: sidebarLazyContractProbe,
+            displayAccessibility: sidebarDisplayAccessibility,
+            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
+        )
+#else
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: sidebarColorScheme,
+            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+            displayAccessibility: sidebarDisplayAccessibility,
+            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
+        )
+#endif
+        return WorkspaceListRenderContext(
+            environment: tableEnvironment,
+            tabs: tabs,
+            tabIds: tabIds,
+            sidebarReorderIds: sidebarReorderIds,
+            workspaceCount: workspaceCount,
+            canCloseWorkspace: canCloseWorkspace,
+            workspaceNumberShortcut: workspaceNumberShortcut,
+            tabItemSettings: tabItemSettings,
+            showsAgentActivity: tabItemSettings.details.showAgentActivity
+                && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
+            pinResolutionContext: pinResolutionContext,
+            tabIndexById: tabIndexById,
+            numberedWorkspaceIndexById: numberedWorkspaceIndexById,
+            workspaceById: workspaceById,
+            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
+            selectedContextTargetIds: selectedContextTargetIds,
+            selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
+            allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
+            allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
+            workspaceGroups: workspaceGroups,
+            workspaceGroupById: workspaceGroupById,
+            memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
+            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            workspaceRenderItems: workspaceRenderItems,
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+        )
     }
 
     private func manageCortexSidebar() {
@@ -12945,7 +12951,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 unreadSource: sidebarUnread,
-                actionHandler: { await handleCMUXSidebarExtensionAction($0, renderContext: renderContext) },
+                actionHandler: { action, authorization in
+                    await handleCMUXSidebarExtensionAction(action, authorization: authorization)
+                },
                 onUseDefaultSidebar: {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID, source: "extension_default_button")
                 }
@@ -13338,8 +13346,10 @@ struct VerticalTabsSidebar: View, Equatable {
     }
     private func handleCMUXSidebarExtensionAction(
         _ action: CmuxSidebarAction,
-        renderContext: WorkspaceListRenderContext
+        authorization: SidebarActionAuthorization
     ) async -> CmuxSidebarActionResult {
+        guard authorization.isValid else { return .cancelled }
+        let renderContext = makeWorkspaceListRenderContext()
         if case .classicMenu(let request) = action {
             return SidebarExtensionClassicMenuCoordinator(
                 tabManager: tabManager, notificationStore: notificationStore,
@@ -13348,13 +13358,25 @@ struct VerticalTabsSidebar: View, Equatable {
                 readSelectionIndex: { lastSidebarSelectionIndex }, writeSelectionIndex: { lastSidebarSelectionIndex = $0 },
                 selectTabs: { selection = .tabs }, refreshSnapshot: { refreshExtensionSidebarSnapshot() },
                 groupConfiguration: { id in
-                    appKitWorkspaceTableRows(renderContext: renderContext).first { $0.groupId == id && $0.isGroupHeader }
+                    appKitWorkspaceTableRows(renderContext: makeWorkspaceListRenderContext()).first { $0.groupId == id && $0.isGroupHeader }
+                },
+                presentMenu: { menu in
+                    // Keep the immutable native menu adapter, while fencing every
+                    // AppKit command against the admitting connection and grant.
+                    if case .presentWorkspaceMenu(let id, _) = request,
+                       let workspace = tabManager.tabs.first(where: { $0.id == id }) {
+                        menu.items.first?.title = workspace.title
+                    }
+                    SidebarAuthorizedMenuDispatch(authorization: authorization).present(menu) { guarded in
+                        guarded.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+                    }
                 }
             ).perform(request)
         }
         if let result = SidebarExtensionManagementCoordinator(
             tabManager: tabManager,
-            notificationStore: notificationStore
+            notificationStore: notificationStore,
+            authorization: authorization
         ).perform(action) { return result }
         switch action {
         case .selectWorkspaceRow(let workspaceID, let requestedModifiers):
