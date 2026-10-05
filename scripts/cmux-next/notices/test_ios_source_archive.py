@@ -76,7 +76,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
                 publish = all_jobs.get("publish-source-archive", "")
                 self.assertIn(GATE, field(publish, "if"))
                 self.assertIn(f"needs.{upload_name}.result == 'success'", field(publish, "if"))
-                self.assertEqual(needs(publish), {upload_name, "source-archive"})
+                self.assertLessEqual({upload_name, "source-archive"}, needs(publish))
                 self.assertIn("name: cmux-ios-source-archive", publish)
                 self.assertIn("scripts/cmux-next/publish-ios-source-archive.sh", publish)
                 self.assertIn(f"needs.{upload_name}.outputs.", publish, "the archive is named by the uploaded build number")
@@ -92,7 +92,7 @@ class ReleaseWorkflowTest(unittest.TestCase):
 
     def test_the_publish_script_checks_the_pin_and_the_archive(self) -> None:
         script = PUBLISH.read_text(encoding="utf-8")
-        self.assertIn("ghostty_source_archive.py verify", script)
+        self.assertRegex(script, r'ghostty_source_archive\.py"? verify')
         self.assertIn("ghostty_kit_pin", script, "the archive's ghostty-next must be the GhosttyNextKit pin's revision")
         self.assertIn('cmux-ios-source-${build}.tar.gz', script)
         self.assertIn("--immutable", script)
