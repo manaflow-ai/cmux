@@ -16,7 +16,10 @@ import WebKit
 /// default the key window, else the active main window. `path` is the PNG
 /// to write (default a file in the temporary directory). Returns `path`,
 /// `width`, `height` (pixels), `kind`, `window_number` and `method`
-/// (`composited` or `appkit`).
+/// (`composited` or `appkit`). `webviews: false` skips painting WebKit
+/// pages over the window (the window server's image alone: a Chromium
+/// page's own child window is not in it, but native UI over it is, such as
+/// the prompt bar).
 enum DebugWindowSnapshot {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -39,6 +42,7 @@ enum DebugWindowSnapshot {
     /// content because it is rendered by the WebContent process.
     @MainActor
     static func captureAsync(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
+        if params["webviews"]?.boolValue == false { return capture(params, services: services) }
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
         let kind = kind(of: window, services: services)
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }

@@ -53,6 +53,24 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "chevron.up.circle", surfaces: [.keyboard], requires: [.browserFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember), contextMenuExemption: .familyMember)
             ),
+            // The prompt bar's permission question (automatic downloads,
+            // camera, microphone) answered without the mouse: the keyboard
+            // path, the palette, and `action.run` for scripts and proofs.
+            // It answers the live question in the focused tab only.
+            ActionDescriptor(
+                id: "browser.prompt.allow",
+                title: String(localized: "action.browser.prompt.allow", defaultValue: "Allow Site Request", bundle: .module),
+                keywords: ["browser", "permission", "prompt", "allow", "download", "multiple files", "camera", "microphone"],
+                category: .browser, symbol: "checkmark.circle", surfaces: [.palette], requires: [.browserFocused], targets: [.tab],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
+            ),
+            ActionDescriptor(
+                id: "browser.prompt.block",
+                title: String(localized: "action.browser.prompt.block", defaultValue: "Block Site Request", bundle: .module),
+                keywords: ["browser", "permission", "prompt", "block", "deny", "never allow", "download", "camera", "microphone"],
+                category: .browser, symbol: "nosign", surfaces: [.palette], requires: [.browserFocused], targets: [.tab],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
+            ),
         ]
     }
 }

@@ -10775,6 +10775,52 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "action browser-prompt-allow",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.prompt.allow",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Allow Site Request",
+      "title_key" : "action.browser.prompt.allow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action browser-prompt-block",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.prompt.block",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Block Site Request",
+      "title_key" : "action.browser.prompt.block",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "browser open-link-in-new-tab",
       "context_menu" : "offered",

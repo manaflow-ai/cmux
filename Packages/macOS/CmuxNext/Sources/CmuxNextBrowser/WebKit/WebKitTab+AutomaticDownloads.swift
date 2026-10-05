@@ -13,7 +13,9 @@ extension WebKitTab {
         return AutomaticDownloadGate(
             permissions: { [weak self] in (self?.pageInfoSettings ?? .shared).permissions(for: profile) },
             ask: { [weak self] site, answer in
-                guard let self else { return false }
+                // Fail closed: a tab that is closed or in no window cannot
+                // show the prompt bar, so nothing waits for it.
+                guard let self, !isClosed, contentView.window != nil else { return false }
                 enqueuePrompt(.permission(.automaticDownloads), origin: site, completion: answer)
                 return true
             }
@@ -21,8 +23,24 @@ extension WebKitTab {
     }
 
     /// Asks the gate for a navigation that becomes a download.
-    func admitDownload(decide: @escaping (Bool) -> Void) {
-        automaticDownloads.request(site: pageSite) { decide($0 == .allowed) }
+    func admitDownload(_ url: URL?, decide: @escaping (Bool) -> Void) {
+        admitDownload(url, site: pageSite, decide: decide)
+    }
+
+    /// Asks the gate for a download of `url` counted for `site`; a declined
+    /// or unanswered one is listed blocked (`BrowserDownload.Status.blocked`).
+    func admitDownload(_ url: URL?, site: String?, decide: @escaping (Bool) -> Void) {
+        automaticDownloads.request(site: site) { [weak self] outcome in
+            if let reason = AutomaticDownloadGate.blockedReason(outcome) { self?.listBlockedDownload(url, reason: reason) }
+            decide(outcome == .allowed)
+        }
+    }
+
+    /// Lists a refused download in the App's downloads list, blocked.
+    private func listBlockedDownload(_ url: URL?, reason: String) {
+        let item = BrowserDownload(sourceURL: url, filename: DownloadDestination.sanitizedFilename(url?.lastPathComponent ?? ""))
+        emit(.download(item))
+        item.complete(.blocked(reason))
     }
 
     /// The origin of the page the tab shows (asked before a navigation

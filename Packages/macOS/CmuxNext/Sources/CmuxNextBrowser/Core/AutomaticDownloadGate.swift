@@ -71,7 +71,6 @@ public final class AutomaticDownloadGate {
             case .allow:
                 finish(key, .allowed)
             case .refuse:
-                logger.notice("automatic download refused: blocked for \(key, privacy: .private)")
                 finish(key, .refused)
             case .ask:
                 let shown = ask(site ?? "") { [self] response in
@@ -82,16 +81,37 @@ public final class AutomaticDownloadGate {
                         default: break
                         }
                     }
-                    let allowed = response == .allow || response == .allowOnce
-                    if !allowed { logger.notice("automatic download refused by the person for \(key, privacy: .private)") }
-                    finish(key, allowed ? .allowed : .refused)
+                    finish(key, Self.outcome(of: response))
                 }
-                if !shown { finish(key, .refused) }
+                if !shown {
+                    finish(key, .unanswered)
+                }
             }
         }
     }
 
+    /// Allow (or this time) lets the downloads go; Block declines them; a
+    /// dismissal (the tab closed with the question open) has no answer.
+    static func outcome(of response: BrowserPromptResponse) -> Outcome {
+        switch response {
+        case .allow, .allowOnce: .allowed
+        case .deny: .declined
+        default: .unanswered
+        }
+    }
+
+    /// Why a download with `outcome` is listed blocked (localized); nil
+    /// for one that goes ahead or is refused silently.
+    public static func blockedReason(_ outcome: Outcome) -> String? {
+        switch outcome {
+        case .allowed, .refused: nil
+        case .declined: Strings.downloadBlockedDeclined
+        case .unanswered: Strings.downloadBlockedUnanswered
+        }
+    }
+
     private func finish(_ key: String, _ outcome: Outcome) {
+        if outcome != .allowed { logger.notice("automatic download \(String(describing: outcome), privacy: .public) for \(key, privacy: .private)") }
         for decide in waiting.removeValue(forKey: key) ?? [] { decide(outcome) }
     }
 }

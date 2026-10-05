@@ -76,6 +76,15 @@ nonisolated enum Strings {
         }
         return String(localized: "browser.permission.automaticDownloads", defaultValue: "\(origin) wants to download multiple files.", bundle: .module)
     }
+    /// Why a download was listed blocked: no one could be asked whether the
+    /// site may download multiple files.
+    static var downloadBlockedUnanswered: String {
+        String(localized: "browser.download.blockedUnanswered", defaultValue: "Blocked: cmux could not ask whether this site may download multiple files.", bundle: .module)
+    }
+    /// Why a download was listed blocked: the person answered Block.
+    static var downloadBlockedDeclined: String {
+        String(localized: "browser.download.blockedDeclined", defaultValue: "Blocked: you chose to block multiple downloads from this site.", bundle: .module)
+    }
     static func dialogFrom(_ origin: String) -> String {
         String(localized: "browser.dialog.from", defaultValue: "\(origin) says", bundle: .module)
     }
