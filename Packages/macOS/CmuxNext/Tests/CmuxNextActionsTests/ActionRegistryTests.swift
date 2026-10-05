@@ -18,7 +18,6 @@ import Testing
     /// in DEBUG), so a second binding can never silently replace the first.
     @Test func aSecondBindOfOneCatalogIDIsReported() {
         let registry = ActionRegistry(catalog: ActionCatalog.all)
-        registry.assertsOnDuplicateBinding = false
         #expect(registry.bind("openDiffViewer") {})
         #expect(registry.duplicateBindings.isEmpty)
         registry.bind("openDiffViewer") {}
@@ -26,6 +25,19 @@ import Testing
         // An unbind first is a deliberate rebind, not a duplicate.
         registry.unbind("openDiffViewer")
         registry.bind("openDiffViewer") {}
+        #expect(registry.duplicateBindings == ["openDiffViewer"])
+    }
+
+    /// The policy (keybindings lead review): a real bind that replaces an unavailable placeholder
+    /// (`bindUnavailable`) is the owner arriving, not a duplicate; a placeholder over a real
+    /// binding is a duplicate.
+    @Test func aRealBindReplacesAnUnavailablePlaceholderWithoutADuplicate() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
+        registry.bindUnavailable("openDiffViewer", reason: "not yet")
+        registry.bind("openDiffViewer") {}
+        #expect(registry.duplicateBindings.isEmpty)
+        #expect(registry.unavailableReason(for: "openDiffViewer") == nil)
+        registry.bindUnavailable("openDiffViewer", reason: "not yet")
         #expect(registry.duplicateBindings == ["openDiffViewer"])
     }
 

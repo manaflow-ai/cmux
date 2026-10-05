@@ -16,12 +16,10 @@ struct ActionBindingCoverageTests {
     /// Services with every handler bound; no daemon, no windows.
     /// Every catalog action has one owner: the app binds no id twice (diff-host S4 and R89 had both
     /// bound openDiffViewer and palette.openDirectoryDiffViewer).
+    /// The check is this test, never a runtime trap (a Debug dogfood build must not crash at
+    /// launch); at runtime a double bind only logs a fault.
     @Test func noActionIsBoundTwice() {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        services.registry.assertsOnDuplicateBinding = false
-        AppActions.bind(services)
-        services.palette.bindRegistryActions()
+        let services = Self.boundServices()
         #expect(services.registry.duplicateBindings.isEmpty, "\(services.registry.duplicateBindings)")
     }
 
