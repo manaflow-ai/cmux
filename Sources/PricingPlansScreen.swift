@@ -3,7 +3,6 @@ import AppKit
 import Bonsplit
 import Foundation
 import SwiftUI
-import WebKit
 
 /// Shared entrypoint for every "Upgrade to cmux Pro" surface (sidebar badge,
 /// titlebar badge, Settings Account card, command palette, Help menu). Opens
@@ -51,18 +50,21 @@ enum ProUpgradePresenter {
             return
         }
         if AppDelegate.shared?.auth?.coordinator.isAuthenticated == true {
-            Task { @MainActor in
-                guard let auth = AppDelegate.shared?.auth else {
-                    presentAppPricingWebWithoutSession(url: url)
-                    return
-                }
-                let outcome = await auth.browserAppSession.request(destinationURL: url)
-                if case let .navigation(navigation) = outcome,
-                   presentBrowserSplit(navigation: navigation) {
-                    return
-                }
-                presentAppPricingWebWithoutSession(url: url)
-            }
+            Task { await presentAuthenticatedPricing(url: url) }
+            return
+        }
+        presentAppPricingWebWithoutSession(url: url)
+    }
+
+    @MainActor
+    private static func presentAuthenticatedPricing(url: URL) async {
+        guard let auth = AppDelegate.shared?.auth else {
+            presentAppPricingWebWithoutSession(url: url)
+            return
+        }
+        let outcome = await auth.browserAppSession.request(destinationURL: url)
+        if case let .navigation(navigation) = outcome,
+           presentBrowserSplit(navigation: navigation) {
             return
         }
         presentAppPricingWebWithoutSession(url: url)
