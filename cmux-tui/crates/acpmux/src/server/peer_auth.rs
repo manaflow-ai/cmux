@@ -54,9 +54,7 @@ impl PeerAuth {
             [one] => !one.is_empty() && cmux_local_auth::tokens_match(one, &self.token),
             _ => false,
         };
-        // RED: the transport is not checked yet.
-        let _ = from;
-        token
+        token && from.ip().to_canonical().is_loopback()
     }
 
     /// The file this launch's token is in (removed when the daemon stops).
