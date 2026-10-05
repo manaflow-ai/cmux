@@ -941,6 +941,81 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testTabBarVisibilityInvalidReloadPreservesLastGoodValueUntilFixed() throws {
+        let defaults = UserDefaults.standard
+        let key = AppCatalogSection().tabBarVisibility.userDefaultsKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "tabBarVisibility": "multiple-tabs"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let invalidIssueReported = expectation(description: "invalid tab bar visibility is reported")
+            let clearedIssueReported = expectation(description: "tab bar visibility issue clears")
+            var didReportInvalid = false
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false,
+                onConfigurationIssue: { messages in
+                    if messages.contains(where: { $0.contains("app.tabBarVisibility") }), !didReportInvalid {
+                        didReportInvalid = true
+                        invalidIssueReported.fulfill()
+                    } else if didReportInvalid, messages.isEmpty {
+                        clearedIssueReported.fulfill()
+                    }
+                }
+            )
+            XCTAssertEqual(AppCatalogSection().tabBarVisibility.value(in: defaults), .multipleTabs)
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "tabBarVisibility": "never"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+            wait(for: [invalidIssueReported], timeout: 1)
+            XCTAssertEqual(AppCatalogSection().tabBarVisibility.value(in: defaults), .multipleTabs)
+            XCTAssertTrue(store.configurationIssues.contains { $0.contains("app.tabBarVisibility") })
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "tabBarVisibility": "always"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+            wait(for: [clearedIssueReported], timeout: 1)
+            XCTAssertEqual(AppCatalogSection().tabBarVisibility.value(in: defaults), .always)
+            XCTAssertTrue(store.configurationIssues.isEmpty)
+        }
+    }
+
     func testLegacyWarnBeforeQuitMapsToConfirmQuitWhenConfirmQuitIsAbsent() throws {
         let defaults = UserDefaults.standard
         let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
