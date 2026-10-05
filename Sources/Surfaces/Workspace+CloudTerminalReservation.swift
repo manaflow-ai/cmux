@@ -57,7 +57,9 @@ extension Workspace {
               reservation.boundResourceID == resource.id,
               cloudPendingCreations[reservation.panelID] === reservation,
               let panel = panels[reservation.panelID] as? TerminalPanel,
-              panel.surface.ioMode == .manualMirror else { return nil }
+              panel.surface.ioMode == .manualMirror,
+              // A pane binds one mirror session; a second adoption must not replace it.
+              panel.deviceAttachment == nil else { return nil }
         return (id, panel.id, panel.surface)
     }
 
