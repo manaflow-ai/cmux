@@ -1,6 +1,7 @@
 // The session sidebar's model: what each session row shows and how rows group
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
+import { type Translate, translate } from "./i18n";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -117,9 +118,9 @@ export function sessionTitle(session: { title?: string; name?: string; harness?:
 }
 
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
-export function projectLabel(cwd: string | undefined): string {
+export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
-  if (!trimmed) return "No folder";
+  if (!trimmed) return t("project.noFolder");
   const parts = trimmed.split("/").filter(Boolean);
   if (parts.length === 2 && (parts[0] === "Users" || parts[0] === "home")) return "~";
   return parts[parts.length - 1] ?? trimmed;
@@ -273,13 +274,13 @@ export function groupMark(group: SessionGroup, selectedId?: string): "input" | "
 }
 
 /** A compact age for the history list: `now`, `5m`, `3h`, `2d`, `6w`. */
-export function shortAge(updatedAt: number | undefined, now: number): string {
+export function shortAge(updatedAt: number | undefined, now: number, t: Translate = translate): string {
   if (updatedAt === undefined) return "";
   const minutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1) return t("age.now");
+  if (minutes < 60) return t("age.minutes", { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
+  if (hours < 24) return t("age.hours", { n: hours });
   const days = Math.floor(hours / 24);
-  return days < 14 ? `${days}d` : `${Math.floor(days / 7)}w`;
+  return days < 14 ? t("age.days", { n: days }) : t("age.weeks", { n: Math.floor(days / 7) });
 }

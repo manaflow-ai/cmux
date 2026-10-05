@@ -24,6 +24,7 @@ import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
+import { useT } from "./i18n";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -76,6 +77,7 @@ export function DiffPanel({
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
   turn?: { source: "checkpoint" | "tools"; note?: string };
 }) {
+  const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch } = useScopeChanges(source, scope);
@@ -175,10 +177,10 @@ export function DiffPanel({
   const openFile = useStableCallback((path: string, where: OpenTarget) => {
     const request = ++latestOpen.current;
     setOpenFailure(undefined);
-    const opening = onOpenFile ? onOpenFile(path, where) : Promise.reject(new Error("The file could not be opened."));
+    const opening = onOpenFile ? onOpenFile(path, where) : Promise.reject(new Error(t("changes.openFailed")));
     opening.catch((error: unknown) => {
       if (request !== latestOpen.current) return;
-      setOpenFailure(error instanceof Error && error.message ? error.message : "The file could not be opened.");
+      setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.openFailed"));
     });
   });
   const on = useMemo<FileActions>(
@@ -228,13 +230,13 @@ export function DiffPanel({
   const tools: { id: Tool; label: string; icon: React.ReactNode; pressed: boolean }[] = [
     {
       id: "collapse",
-      label: allCollapsed ? "Expand all files" : "Collapse all files",
+      label: allCollapsed ? t("changes.expandAllFiles") : t("changes.collapseAllFiles"),
       icon: <CollapseAll />,
       pressed: allCollapsed,
     },
-    { id: "wrap", label: "Wrap lines", icon: <Wrap />, pressed: wrap },
-    { id: "split", label: "Split view", icon: <SplitView />, pressed: layout === "split" },
-    { id: "tree", label: "File tree", icon: <Panels />, pressed: showTree },
+    { id: "wrap", label: t("changes.wrapLines"), icon: <Wrap />, pressed: wrap },
+    { id: "split", label: t("changes.splitView"), icon: <SplitView />, pressed: layout === "split" },
+    { id: "tree", label: t("changes.fileTree"), icon: <Panels />, pressed: showTree },
   ];
   // Last turn's files come from the transcript, so it neither refreshes nor has git's patches.
   const command = useMemo(
@@ -248,26 +250,26 @@ export function DiffPanel({
     retry();
   };
   const options: OptionsRow[] = [
-    { label: "Refresh", disabled: scope === "lastTurn", run: retry },
-    { label: wrap ? "Disable word wrap" : "Word wrap", run: () => press("wrap") },
-    { label: layout === "split" ? "Switch to unified diff" : "Switch to split diff", run: () => press("split") },
+    { label: t("changes.refresh"), disabled: scope === "lastTurn", run: retry },
+    { label: wrap ? t("changes.disableWrap") : t("changes.wordWrap"), run: () => press("wrap") },
+    { label: layout === "split" ? t("changes.toUnified") : t("changes.toSplit"), run: () => press("split") },
     {
-      label: allCollapsed ? "Expand all diffs" : "Collapse all diffs",
+      label: allCollapsed ? t("changes.expandAllDiffs") : t("changes.collapseAllDiffs"),
       disabled: files.length === 0,
       run: () => press("collapse"),
     },
     null,
-    { label: "Copy git apply command", disabled: !command, run: () => command && copyText(command) },
+    { label: t("changes.copyApply"), disabled: !command, run: () => command && copyText(command) },
   ];
   return (
-    <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
+    <section ref={panel} className="acpmux-diff-panel" aria-label={t("changes.panel")}>
       <header className="acpmux-diff-header">
         <button
           ref={back}
           type="button"
           className="acpmux-diff-back"
-          aria-label="Back to transcript"
-          title="Back to transcript"
+          aria-label={t("changes.back")}
+          title={t("changes.back")}
           onClick={onClose}
         >
           <ChevronLeft />
@@ -288,7 +290,7 @@ export function DiffPanel({
         >
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
-        <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
+        <div className="acpmux-diff-tools" role="toolbar" aria-label={t("changes.viewTools")}>
           {checkpointAction}
           <OptionsMenu rows={options} />
           {tools.map((tool) => (
@@ -325,7 +327,7 @@ export function DiffPanel({
           {scopeState ? (
             <LoadState state={scopeState} onRetry={refresh} />
           ) : files.length === 0 ? (
-            <div className="acpmux-muted">No file changes in this turn.</div>
+            <div className="acpmux-muted">{t("changes.noTurnChanges")}</div>
           ) : (
             files.flatMap((file) =>
               file.edits.map((edit, index) => (
@@ -347,7 +349,7 @@ export function DiffPanel({
           )}
         </div>
         {showTree && (
-          <nav className="acpmux-diff-tree" aria-label="Changed files">
+          <nav className="acpmux-diff-tree" aria-label={t("changes.changedFiles")}>
             <ChangedFilesTree files={files} selected={selected} onSelect={revealFromTree} />
           </nav>
         )}
