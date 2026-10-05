@@ -54,6 +54,14 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host)
+        container.sidebarView.helpMenuProvider = { [weak services] in
+            guard let services else { return nil }
+            let menu = NSMenu()
+            for item in services.registry.makeMainMenuItems(for: .help) {
+                menu.addItem(item)
+            }
+            return menu
+        }
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in
