@@ -321,6 +321,10 @@ rest. Measurements: [performance.md](performance.md).
   `allInnerTexts`) and the composer check before a site's Send or Post
   read at most 250,000 nodes and 2,000,000 characters, for 8 s, with one
   budget in the page agent (`A.budget()`), and say where they stopped.
+  Every reply from the page agent's world, whatever read made it, also
+  passes one reply budget (`reply` in `page-agent.js`, applied to every
+  agent-world call by the runtime): past 10,000,000 characters the call
+  fails with the same note, and `queryAll` makes at most 250,000 handles.
   A DOM getter (`textContent`, `innerText`, `outerHTML`) builds its whole
   string before anything can cut it, so the page agent first counts the
   nodes and the lengths it would join, within what the budget has left,
@@ -556,6 +560,66 @@ rest. Measurements: [performance.md](performance.md).
   refreshed after every driver call. The live view returns to the pane as
   soon as the pane is shown, its window becomes key, or the session ends,
   resets or expires.
+
+## Limits
+
+Every limit a session has, in one place. A session's holders reserve from
+one ledger (`BrowserReplResourceLedger` in `Packages/macOS/CmuxBrowser`,
+the values in `BrowserReplResourceLimits.standard`) before they hold
+memory, work, a slot or disk, and release when they deliver or drop. A
+reservation past a limit is refused whole with one message form,
+`REPL session limit: <what> at most <limit> <at once | each | per cell |
+over the session's life> (<held> held, this needs <n> more); <what to do>`,
+after the call or method it refused (`fetch: …`, `Error: REPL session
+'NAME': …`). A test runs a workload that reserves every resource and
+checks nothing stays reserved after the session ends.
+
+| Resource | Limit | Past it |
+| --- | --- | --- |
+| Memory the session holds in all (the rows marked M) | 512 MiB at once | the reservation is refused |
+| Cells waiting for the running one | 64 | the cell fails at once |
+| Source of the waiting cells (M) | 64 MiB | the cell fails at once |
+| A cell's timeout (`--timeout`, `timeout_ms`) | 10 minutes (default 120 s) | refused before the cell runs |
+| Output a cell keeps in memory (M) | 16 MiB per cell | the rest goes to a spill file |
+| Output a cell spills | 64 MiB per cell, within the fs budget | the rest is dropped |
+| Browser calls running | 256 | later ones wait in order |
+| Browser calls waiting | 10,000 | the call fails at once |
+| One browser call's parameters | 64 MiB (`filechooser.respond`: its 256 MiB of files in Base64, plus 1 MiB) | the call fails before it is parsed |
+| Parameters of calls and fetch requests waiting or running (M) | 512 MiB | the call fails at once |
+| One browser call's result | 64 MiB, also with secrets masked | the call fails before its result is masked |
+| Results the session's JavaScript has not taken yet (M) | 512 MiB | the call fails instead of waiting |
+| Fetches waiting for their response headers | 16 | later ones wait in order |
+| Open fetches | 64 | later ones wait in order |
+| Fetches waiting for a slot | 256 | the fetch fails at once |
+| One fetch's request body / response body | 64 MiB / 64 MiB | the fetch fails |
+| Response bodies the session's fetches hold (M) | 128 MiB | the fetch fails |
+| A fetch's duration | 10 minutes | `timeout` |
+| Page events waiting for the session's thread | 10,000 | a new one is dropped (the next cell says so) |
+| Bytes of those events (M) | 64 MiB, masked | a new one is dropped, or arrives withheld |
+| One page event | 1 MiB | arrives withheld (`{ targetId, withheld }`) |
+| Page events held between cells | 10,000 | the oldest is dropped |
+| Pending timers | 10,000 | `setTimeout` throws `RangeError` |
+| Timer or event callback outside a cell | 10 s per run, 10% of the thread's time | stopped, or held until the next cell |
+| One fs write or copy | 256 MiB | `EFBIG` |
+| fs writes, spill files and file chooser answers over the session's life | 2 GiB | `EDQUOT` |
+| fs file changes over the session's life | 100,000 | `EDQUOT` |
+| One `readFile` / `readdir` | 64 MiB / 10,000 entries | `ERR_FS_FILE_TOO_LARGE` / `ERR_FS_DIR_TOO_LARGE` |
+| A page read (snapshot, Markdown, extract, locator reads, …) | 250,000 nodes, 2,000,000 characters, 8 s | cut, with a note |
+| One reply from the page agent's world | 10,000,000 characters (the page-read budget's characters plus 32 per node) | the call fails with the page-read note |
+| Handles one `queryAll` makes | 250,000 | without a limit, the call fails with the page-read note |
+| A screenshot / PDF | 16,384 CSS pixels an edge and 33,554,432 pixels / 14,400-point edges | `invalid` |
+| An owner token / a working directory | 128 bytes / 1,024 bytes (`PATH_MAX`) | refused before a session is made |
+| Sessions in one cmux instance | 32 | the next is refused |
+| Secrets per session | 256, each at most 4 KiB with 64 domains | refused, naming the limit |
+| Domain policy | 1,024 patterns per list, 1,024 bytes a pattern | `invalid`, naming the limit |
+
+Outside the session's ledger, bounded by their own tables: the driver's
+per-tab holders (unfinished network requests, 1,000 or 8 MiB a tab; the
+virtual clipboard, 32 items and 64 MiB of Base64), the values typed
+secrets left in pages (4,096 in the whole app, shared by sessions on
+purpose so each masks the others'), the session registry (32 sessions),
+and the scripts the page agent runs in the page's world (`page.evaluate`,
+bounded only by the 64 MiB result).
 
 ## Hibernated and crashed tabs
 
