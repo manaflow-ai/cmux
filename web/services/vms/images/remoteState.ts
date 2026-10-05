@@ -19,6 +19,11 @@
  * supervisor restarts the daemon on its next tick, about a second later.
  */
 const DEVBOX_REMOTE_STATE_HOMES = ["/home/cmux", "/root"] as const;
+/** The supervisor's BOUND_INSTANCE_FILE: the machine whose identity the daemon state holds. */
+const DEVBOX_BOUND_INSTANCE_FILE = "/etc/cmux/daemon-instance-id";
+/** The supervisor's instance_id(): the platform metadata service's id for this machine. */
+const DEVBOX_METADATA_INSTANCE_ID_COMMAND =
+  "curl -sf -m 1 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 1 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
 
 export function devboxStrandedRemoteSessionRepairCommand(homes: readonly string[] = DEVBOX_REMOTE_STATE_HOMES): string {
   const dirs = homes.map((home) => `"${home}"/.local/state/cmux/remote/sessions/*`).join(" ");
@@ -29,11 +34,36 @@ export function devboxStrandedRemoteSessionRepairCommand(homes: readonly string[
   );
 }
 
-/** Waits for the daemon's remote listener (port 1337) on any address family. */
-export function devboxRemoteListenerWaitCommand(timeoutSeconds: number): string {
+/**
+ * Repairs a clone's stranded session and waits until THIS machine's daemon
+ * listens on port 1337.
+ *
+ * When create returns, the clone may still be running the source's resumed
+ * daemon, listening on 1337 with the source's identity: the supervisor
+ * notices the clone only on its next tick. Neither the listener nor the
+ * session state means anything until the supervisor has run its clone branch
+ * (stop the source daemon, delete auth/, write daemon-instance-id), so the
+ * loop first waits for daemon-instance-id to name this machine's metadata
+ * instance id. From then on any listener belongs to a daemon started on this
+ * machine. The repair runs on every pass because the supervisor deletes
+ * auth/, the step that strands the session, only inside that branch.
+ */
+/** `homes` and `boundInstanceFile` exist for tests. */
+export interface DevboxForkDaemonReadyOptions {
+  readonly homes?: readonly string[];
+  readonly boundInstanceFile?: string;
+}
+
+export function devboxForkDaemonReadyCommand(timeoutSeconds: number, options: DevboxForkDaemonReadyOptions = {}): string {
+  const boundInstanceFile = options.boundInstanceFile ?? DEVBOX_BOUND_INSTANCE_FILE;
   return (
+    'cmux_id=""; ' +
     `for cmux_try in $(seq 1 ${timeoutSeconds * 2}); do` +
-    " if ss -Hltn 2>/dev/null | grep -q ':1337 '; then exit 0; fi; sleep 0.5;" +
-    ` done; echo "cmux-tui daemon did not listen on port 1337 within ${timeoutSeconds}s" >&2; exit 1`
+    ` [ -n "$cmux_id" ] || cmux_id=$(${DEVBOX_METADATA_INSTANCE_ID_COMMAND} 2>/dev/null) || cmux_id="";` +
+    ` if [ -n "$cmux_id" ] && [ "$cmux_id" = "$(cat "${boundInstanceFile}" 2>/dev/null)" ]; then` +
+    ` ${devboxStrandedRemoteSessionRepairCommand(options.homes)};` +
+    " if ss -Hltn 2>/dev/null | grep -q ':1337 '; then exit 0; fi;" +
+    " fi; sleep 0.5;" +
+    ` done; echo "cmux-tui daemon for this machine did not listen on port 1337 within ${timeoutSeconds}s" >&2; exit 1`
   );
 }

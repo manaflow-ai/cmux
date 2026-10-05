@@ -1064,6 +1064,11 @@ function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Paramete
   };
 }
 
+/** Forks and checkpoint restores both resume a live machine's memory image. */
+function resumesLiveMachine(origin: VmCreateOrigin | undefined): boolean {
+  return origin === "fork" || origin === "restore";
+}
+
 export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const runtimeBudgetSeconds = yield* requireGoCreate(input);
@@ -1171,7 +1176,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
-        forked: input.origin === "fork",
+        forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
         // blocking post-create rename on current backends.

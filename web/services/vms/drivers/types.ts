@@ -78,7 +78,7 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
-  /** The image is a live machine snapshot and needs a fresh daemon identity before attach. */
+  /** The image is a live machine snapshot (fork or checkpoint restore); create waits for this machine's own daemon. */
   forked?: boolean;
   /** Provider-enforced lifetime runtime allowance for this allocation. */
   runtimeBudgetSeconds?: number;

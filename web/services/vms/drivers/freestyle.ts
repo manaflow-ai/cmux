@@ -59,7 +59,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
-import { devboxRemoteListenerWaitCommand, devboxStrandedRemoteSessionRepairCommand } from "../images/remoteState";
+import { devboxForkDaemonReadyCommand } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
@@ -1728,16 +1728,16 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /**
-   * A fork resumes the source guest's memory image. Its boot supervisor
-   * rebinds the daemon to this machine but leaves the copied session
-   * stranded (remoteState.ts), so the daemon never listens. Repair that one
-   * state, then wait for the listener so a fork is never reported ready
-   * while attach would be refused.
+   * A fork or restore resumes a live guest's memory image. Its boot
+   * supervisor rebinds the daemon to this machine but leaves the copied
+   * session stranded (remoteState.ts), so the daemon never listens. Wait for
+   * the rebind, repair that one state, and wait for this machine's listener
+   * so the machine is never reported ready while attach would be refused.
    */
   private async awaitForkDaemon(vm: Vm, vmId: string): Promise<void> {
     const ready = await this.execResult(
       vm,
-      `${devboxStrandedRemoteSessionRepairCommand()}; ${devboxRemoteListenerWaitCommand(FORK_DAEMON_LISTEN_TIMEOUT_SECONDS)}`,
+      devboxForkDaemonReadyCommand(FORK_DAEMON_LISTEN_TIMEOUT_SECONDS),
       (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
     );
     if (!ready || ready.exitCode !== 0) {

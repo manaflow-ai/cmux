@@ -3,7 +3,7 @@ import { runChild } from "./helpers/run-child";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { devboxStrandedRemoteSessionRepairCommand } from "../services/vms/images/remoteState";
+import { devboxForkDaemonReadyCommand, devboxStrandedRemoteSessionRepairCommand } from "../services/vms/images/remoteState";
 
 // A fork of a machine from an image whose boot supervisor deleted only
 // sessions/<session>/auth resumes with the session's lifecycle fence still in
@@ -38,5 +38,51 @@ describe("stranded remote session repair (services/vms/images/remoteState.ts)", 
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// When create returns, a clone may still run the source's resumed daemon on
+// port 1337 before its supervisor has noticed the clone. Readiness must wait
+// for the supervisor's bind to this machine, not take that stale listener.
+describe("fork daemon readiness (services/vms/images/remoteState.ts)", () => {
+  const withFakeGuest = async (
+    bound: string,
+    run: (env: Record<string, string>, root: string, boundFile: string) => Promise<void>,
+  ) => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-fork-ready-"));
+    try {
+      const bin = path.join(root, "bin");
+      mkdirSync(bin);
+      // Metadata answers this clone's id; a daemon is listening on 1337.
+      writeFileSync(path.join(bin, "curl"), "#!/bin/sh\necho vm-clone\n", { mode: 0o755 });
+      writeFileSync(path.join(bin, "ss"), "#!/bin/sh\necho 'LISTEN 0 128 *:1337 *:*'\n", { mode: 0o755 });
+      const boundFile = path.join(root, "daemon-instance-id");
+      writeFileSync(boundFile, `${bound}\n`);
+      await run({ PATH: `${bin}:/usr/bin:/bin` }, root, boundFile);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  test("does not accept the source daemon's listener before the clone is bound", async () => {
+    await withFakeGuest("vm-source", async (env, root, boundFile) => {
+      const command = devboxForkDaemonReadyCommand(1, { homes: [path.join(root, "home")], boundInstanceFile: boundFile });
+      const result = await runChild("/bin/sh", ["-c", command], { env });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("did not listen on port 1337");
+    });
+  });
+
+  test("repairs the stranded session and accepts the listener once bound", async () => {
+    await withFakeGuest("vm-clone", async (env, root, boundFile) => {
+      const home = path.join(root, "home");
+      const stranded = path.join(home, ".local/state/cmux/remote/sessions/Y2xvdWQ");
+      mkdirSync(stranded, { recursive: true });
+      writeFileSync(path.join(stranded, "lifecycle-fence.json"), "{\"version\":1}");
+      const command = devboxForkDaemonReadyCommand(1, { homes: [home], boundInstanceFile: boundFile });
+      const result = await runChild("/bin/sh", ["-c", command], { env });
+      expect(result.status).toBe(0);
+      expect(existsSync(stranded)).toBe(false);
+    });
   });
 });
