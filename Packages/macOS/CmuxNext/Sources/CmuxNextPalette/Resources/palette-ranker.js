@@ -211,7 +211,11 @@
       return null;
     const contiguousStart = substringStart(token, text.folded, text.bonus, true);
     if (contiguousStart !== null) {
-      return { score: windowScore(token, text.folded, text.bonus, contiguousStart, contiguousStart + token.length - 1), start: contiguousStart, end: contiguousStart + token.length - 1 };
+      return {
+        score: windowScore(token, text.folded, text.bonus, contiguousStart, contiguousStart + token.length - 1),
+        start: contiguousStart,
+        end: contiguousStart + token.length - 1
+      };
     }
     let tokenIndex = 0;
     let end = -1;
@@ -449,11 +453,14 @@
       const section = entries[item.index].sectionIndex ?? 0;
       if (!rowsBySection.has(section))
         order.push(section);
-      rowsBySection.set(section, [...rowsBySection.get(section) ?? [], {
-        index: item.index,
-        score: item.score,
-        highlights: rank < highlightLimit ? item.highlights : []
-      }]);
+      rowsBySection.set(section, [
+        ...rowsBySection.get(section) ?? [],
+        {
+          index: item.index,
+          score: item.score,
+          highlights: rank < highlightLimit ? item.highlights : []
+        }
+      ]);
     });
     if (request.keepsSectionOrder)
       sectionOrder(order, request.sectionOrders ?? []);
