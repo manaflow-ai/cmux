@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import Observation
 import SwiftUI
 import Testing
 
@@ -10,10 +11,9 @@ import Testing
 #endif
 
 /// A pop-up's ideal width is its widest row. A pop-up pinned to that width
-/// (`.fixedSize()`) overflows the fixed-width sheet once a row is long, and
-/// the overflowing layout crashed the app with an AppKit "Update Constraints
-/// in Window" loop while the sheet opened (Cmd+Y). Every control must stay
-/// inside the sheet whatever the machine names are.
+/// (`.fixedSize()`) overflows the fixed-width sheet once a row is long; the
+/// sheet's root frame hides that from its fitting size, so this checks every
+/// control's frame against the sheet whatever the machine names are.
 @MainActor
 @Suite("New machine sheet layout")
 struct NewMachineSheetLayoutTests {
@@ -48,11 +48,31 @@ struct NewMachineSheetLayoutTests {
         }
     }
 
+    @Test("an unchanged machine list does not rebuild the Base pop-up")
+    func unchangedSourceMachinesDoNotInvalidate() {
+        let machines = [
+            VMSummary(id: "machine-0", provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, displayName: "one"),
+        ]
+        let model = NewMachineModel(mode: .newMachine, plan: nil, sourceMachines: machines, submit: { _ in true })
+        var invalidated = false
+        withObservationTracking {
+            _ = model.sourceMachines
+        } onChange: {
+            invalidated = true
+        }
+        model.applySourceMachines(machines)
+        #expect(!invalidated)
+
+        var renamed = machines
+        renamed[0].displayName = "two"
+        model.applySourceMachines(renamed)
+        #expect(invalidated)
+    }
+
     private func assertControlsInsideSheet(model: NewMachineModel, layout: NewMachineSheetLayout, label: String) {
         _ = NSApplication.shared
         let host = NSHostingView(rootView: NewMachineSheet(model: model, layout: layout))
         let size = host.fittingSize
-        #expect(size.width <= layout.width + 0.5, "\(label): sheet is \(size.width) wide, layout is \(layout.width)")
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
