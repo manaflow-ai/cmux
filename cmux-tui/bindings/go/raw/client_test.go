@@ -23,8 +23,8 @@ import (
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()
-	if len(commands) != 216 {
-		t.Fatalf("generated commands = %d, want 216", len(commands))
+	if len(commands) != 217 {
+		t.Fatalf("generated commands = %d, want 217", len(commands))
 	}
 	clientType := reflect.TypeOf((*Client)(nil))
 	commandNames := make(map[string]struct{}, len(commands))

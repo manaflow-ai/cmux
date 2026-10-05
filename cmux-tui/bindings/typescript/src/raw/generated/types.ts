@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3117b4552592c333990727719bd3f574a23fcf0977583a45c9e05e63b269fcaa. */
+/* cmux-tui mux protocol 12, IR b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -59,6 +59,12 @@ export type BrowserFrame = {
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserHostProviderResult = {
+  "host_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type BrowserProviderAuthentication = "none" | "bearer";

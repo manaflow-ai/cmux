@@ -7229,6 +7229,36 @@
     }
    },
    "additional_properties": false
+  },
+  "BrowserHostProviderResult": {
+   "kind": "object",
+   "fields": {
+    "socket": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "secret": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -18849,6 +18879,25 @@
    },
    "since": 12,
    "stream": null
+  },
+  "browser-host-provider": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "browser-host-provider-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BrowserHostProviderResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
+    "The secret is never journaled, logged or put in an event."
+   ]
   }
  },
  "events": {

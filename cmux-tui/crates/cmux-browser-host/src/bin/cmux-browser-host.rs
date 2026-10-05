@@ -44,6 +44,10 @@ mod unix {
         /// An inherited fd that carries the per-launch provider secret
         /// (the daemon writes it and closes its end). Never argv or env.
         provider_secret_fd: Option<i32>,
+        /// Started by the daemon (`--supervised`): print `ready` on stdout
+        /// once both sockets listen, and exit when stdin reaches its end
+        /// (the daemon closed it or died), so no host outlives its daemon.
+        supervised: bool,
     }
 
     fn parse(args: &[String]) -> Result<Options, String> {
@@ -55,6 +59,7 @@ mod unix {
             timeout_ms: None,
             code: None,
             provider_secret_fd: None,
+            supervised: false,
         };
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
@@ -85,6 +90,7 @@ mod unix {
                             .map_err(|_| "--provider-secret-fd: expected a file descriptor")?,
                     );
                 }
+                "--supervised" => options.supervised = true,
                 "-" => {
                     let mut code = String::new();
                     std::io::stdin()
@@ -216,6 +222,9 @@ mod unix {
             return 1;
         }
         let host = Arc::new(Host::new(engines, cwd));
+        if options.supervised {
+            supervise_from_stdin();
+        }
         match serve(listener, host) {
             Ok(()) => 0,
             Err(error) => {
@@ -225,10 +234,47 @@ mod unix {
         }
     }
 
-    /// Connects, starting a host in the background when none answers.
+    /// `--supervised`: both sockets listen now, so the daemon may hand out
+    /// the credentials; then a thread waits for the end of stdin (the
+    /// daemon's end of the pipe closes when it stops or dies) and exits.
+    fn supervise_from_stdin() {
+        let mut stdout = std::io::stdout().lock();
+        // A daemon that cannot read the ready line is gone: stop with it.
+        if writeln!(stdout, "ready").and_then(|()| stdout.flush()).is_err() {
+            // crash-allow: a supervised host whose daemon is gone stops; no state to save (sessions are in memory).
+            std::process::exit(0);
+        }
+        drop(stdout);
+        let spawned = std::thread::Builder::new().name("supervisor-stdin".into()).spawn(|| {
+            let mut sink = [0_u8; 256];
+            let mut stdin = std::io::stdin().lock();
+            // Bytes from the daemon mean nothing; only the end does.
+            while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+            // crash-allow: the end of stdin means the daemon stopped or died; the host stops with it.
+            std::process::exit(0);
+        });
+        if spawned.is_err() {
+            eprintln!("cmux-browser-host: cannot watch stdin; stopping");
+            // crash-allow: without the stdin watch a supervised host could outlive its daemon.
+            std::process::exit(1);
+        }
+    }
+
+    /// Connects, starting a host in the background when none answers,
+    /// except on a socket a cmux daemon owns: there the daemon starts and
+    /// supervises the host (with the app's provider secret), and a host
+    /// started here would take its socket, so this waits for it instead.
     fn connect(options: &Options) -> Result<UnixStream, String> {
         if let Ok(stream) = UnixStream::connect(&options.socket) {
             return Ok(stream);
+        }
+        if daemon_owns(&options.socket) {
+            return wait_for(&options.socket).map_err(|()| {
+                format!(
+                    "the cmux daemon's browser host does not answer on {}",
+                    options.socket.display()
+                )
+            });
         }
         let exe = std::env::current_exe().map_err(|e| format!("cannot find myself: {e}"))?;
         std::process::Command::new(exe)
@@ -242,17 +288,29 @@ mod unix {
             .process_group(0)
             .spawn()
             .map_err(|e| format!("cannot start the browser host: {e}"))?;
+        wait_for(&options.socket)
+            .map_err(|()| format!("the browser host did not start on {}", options.socket.display()))
+    }
+
+    /// The daemon's terminals name its host socket in `CMUX_BROWSER_HOST_SOCKET`
+    /// next to `CMUX_TUI_SOCKET`.
+    fn daemon_owns(socket: &std::path::Path) -> bool {
+        let named = std::env::var_os("CMUX_BROWSER_HOST_SOCKET").filter(|p| !p.is_empty());
+        let in_daemon = std::env::var_os("CMUX_TUI_SOCKET").is_some_and(|p| !p.is_empty());
+        in_daemon && named.is_some_and(|named| std::path::Path::new(&named) == socket)
+    }
+
+    /// Connects within 10 seconds (a host that is starting).
+    fn wait_for(socket: &std::path::Path) -> Result<UnixStream, ()> {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            if let Ok(stream) = UnixStream::connect(&options.socket) {
+            if let Ok(stream) = UnixStream::connect(socket) {
                 return Ok(stream);
             }
             if Instant::now() >= deadline {
-                return Err(format!(
-                    "the browser host did not start on {}",
-                    options.socket.display()
-                ));
+                return Err(());
             }
+            // A bounded connect retry while the host starts, not a synchronization.
             std::thread::sleep(Duration::from_millis(50));
         }
     }

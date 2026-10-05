@@ -63,6 +63,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final BrowserHostProviderResult browserHostProvider() throws CmuxException {
+        Object result = execute(Commands.BROWSER_HOST_PROVIDER, Map.of());
+        return BrowserHostProviderResult.fromWire(result);
+    }
+
     public final EmptyResult browserInsertText(BrowserInsertTextRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_INSERT_TEXT, request.toWire());
         return EmptyResult.fromWire(result);

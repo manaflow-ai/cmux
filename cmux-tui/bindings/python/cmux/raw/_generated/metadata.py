@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3117b4552592c333990727719bd3f574a23fcf0977583a45c9e05e63b269fcaa'
+IR_SHA256 = 'b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e'
 
 
 @dataclass(frozen=True)
@@ -167,6 +167,16 @@ COMMANDS = {
         {
             'frame_seq': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'browser-host-provider': CommandMetadata(
+        'browser-host-provider',
+        'local-admin',
+        12,
+        'browser-host-provider-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'browser-insert-text': CommandMetadata(

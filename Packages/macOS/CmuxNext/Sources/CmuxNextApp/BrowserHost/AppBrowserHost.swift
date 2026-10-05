@@ -3,7 +3,9 @@ import CmuxNextAgentCursor
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextDaemon
 import Foundation
+import Observation
 
 /// The app as the browser host's engine provider (plans/cmux-next/browser-host.md,
 /// step c3): the provider bridge, the WebKit driver behind it, and the app's
@@ -30,7 +32,7 @@ final class AppBrowserHost {
         let relay = AppDevToolsRelay(services: services, marking: tabs)
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
         let driver = WebKitDriver(provider: tabs)
-        let credentials = AppProviderCredentials()
+        let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
         self.tabs = tabs
         self.relay = relay
@@ -70,7 +72,7 @@ final class AppBrowserHost {
         }
     }
 
-    /// Starts the provider (idle until step c2) and feeds it a person's key
+    /// Starts the provider (it dials once the daemon gives credentials) and feeds it a person's key
     /// downs and scroll starts: before dispatch, when focus already names the
     /// page that gets them. A key down is reported before the key router
     /// runs, so an app shortcut pressed on a leased page also pauses the
@@ -79,11 +81,28 @@ final class AppBrowserHost {
     /// to the clicked page).
     func start() {
         provider.start()
+        watchDaemonConnection()
         let application = NSApp as? CmuxApplication
         let earlier = application?.inputObserver
         application?.inputObserver = { [weak self] event in
             earlier?(event)
             if event.type == .keyDown || event.type == .scrollWheel { self?.noteInput(event) }
+        }
+    }
+
+    /// Each daemon connection (a launch, a reconnect, a new daemon) may bring a new browser
+    /// host: the provider asks for fresh credentials and reconnects when they differ. Event
+    /// driven: it re-arms an observation of the store's connection state.
+    private func watchDaemonConnection() {
+        guard let store = services?.daemon.store else { return }
+        withObservationTracking {
+            _ = store.connectionState
+        } onChange: { [weak self] in
+            // task-owner: one hop per observed change, re-arms itself; ends with the host
+            Task { @MainActor [weak self] in
+                self?.provider.credentialsChanged()
+                self?.watchDaemonConnection()
+            }
         }
     }
 
@@ -119,10 +138,19 @@ final class AppBrowserHost {
     }
 }
 
-/// The provider endpoint comes from the daemon's app-origin op
-/// `browser.host.provider` (step c2), over the app's own daemon connection.
-/// Until that op exists this answers nil, so the provider stays idle and
-/// dials nothing.
+/// The provider endpoint from the daemon's `browser-host-provider` (step c2), asked over the
+/// app's own daemon connection (the verified app connection; the daemon refuses every other
+/// caller). Nil while there is no connection, the daemon has no such command, or it has no
+/// browser host; the provider then stays idle until ``AppBrowserHost`` reports a new connection.
 final class AppProviderCredentials: ProviderCredentialsSource {
-    func providerCredentials() async -> ProviderCredentials? { nil }
+    private weak var daemon: DaemonService?
+
+    init(daemon: DaemonService?) { self.daemon = daemon }
+
+    func providerCredentials() async -> ProviderCredentials? {
+        guard let daemon, daemon.supports(DaemonCapabilities.shared.browserHostProvider),
+              let connection = daemon.connection,
+              let reply = try? await connection.request(BrowserHostProviderRequest()) else { return nil }
+        return ProviderCredentials(socketPath: reply.socket, secret: ProviderSecret(reply.secret), hostPID: reply.hostPID)
+    }
 }
