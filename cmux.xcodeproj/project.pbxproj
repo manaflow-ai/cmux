@@ -2612,6 +2612,7 @@
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */; };
 		001BEAAF850238E93D30046A /* NewCloudWorkspaceShortcutWindowFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27114D4287F6D2D20F8B68F /* NewCloudWorkspaceShortcutWindowFixture.swift */; };
+		5CA1AFB486DF86FAF22509F3 /* NewMachineModel+PlanRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751BACEC44FF7CFC02CE9A58 /* NewMachineModel+PlanRefresh.swift */; };
 		5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */; };
 		D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */; };
 		EBEEFD57F5B44FD3D569C2A7 /* NewMachineModelUncappedPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D01FA1A02DF947CEAEA499 /* NewMachineModelUncappedPlanTests.swift */; };
@@ -7016,6 +7017,7 @@
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCloudWorkspaceShortcutTests.swift"; sourceTree = "<group>"; };
 		B27114D4287F6D2D20F8B68F /* NewCloudWorkspaceShortcutWindowFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCloudWorkspaceShortcutWindowFixture.swift"; sourceTree = "<group>"; };
+		751BACEC44FF7CFC02CE9A58 /* NewMachineModel+PlanRefresh.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "NewMachineModel+PlanRefresh.swift"; sourceTree = "<group>"; };
 		751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModel.swift; sourceTree = "<group>"; };
 		5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModelTests.swift; sourceTree = "<group>"; };
 		70D01FA1A02DF947CEAEA499 /* NewMachineModelUncappedPlanTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModelUncappedPlanTests.swift; sourceTree = "<group>"; };
@@ -9490,6 +9492,7 @@
 				668F7B9BC77445B793C0298A /* CloudFeatureAvailabilityObserver.swift */,
 				D3770734999CDCF396F04F32 /* NewMachineSheet.swift */,
 				751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */,
+				751BACEC44FF7CFC02CE9A58 /* NewMachineModel+PlanRefresh.swift */,
 				7492FFBAD4190E9582BB6863 /* CloudTreePendingMachineRowContent.swift */,
 				952C5F710BB34A9AA8652CEF /* CloudTreeRemoteWorkspaces.swift */,
 				45500183C33186986F073F0B /* MachineCreateRowActions.swift */,
@@ -15568,6 +15571,7 @@
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 					A6AC72030000000000000001 /* NativeSpinner.swift in Sources */,
 				A1002000000000000000000F /* NativeTextSurfaceSelectionReader.swift in Sources */,
+				5CA1AFB486DF86FAF22509F3 /* NewMachineModel+PlanRefresh.swift in Sources */,
 				5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */,
 				DD3322FE8D4021EB0FAFE7F6 /* NewMachineSheet.swift in Sources */,
 				9D7E898A080AA8345EEEAD95 /* NewMachineSheetDataCache.swift in Sources */,
