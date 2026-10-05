@@ -58,4 +58,24 @@ describe("resize", { timeout: 60_000 }, () => {
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))).toMatchObject({ t: "result", value: { deleted: true } })
     expect((await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).ok).toBe(false)
   })
+
+  it("create records the VM's real size, not the requested one (Freestyle has no size at create)", async () => {
+    const x = person()
+    await ensureUser(x)
+    await x.stub.fakeControl({ image_size: { cpu: 4, memory: 8192, storage: 32768 } } as never)
+    const { machine } = await createdAndBound(x)
+    expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } } })
+  })
+
+  it("after a final resize failure the record takes the VM's real size (a partial resize), not the old size (review P3)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    // The provider grows vCPU, then refuses the memory: the VM ends at 4 vCPU / 4096 MiB.
+    await x.stub.fakeControl({ resize_partial: 1 } as never)
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.resize", { machine, size: { cpu: 4, memory_mb: 8192 } })))
+    const got = await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })
+    expect(got.value.size).toMatchObject({ cpu: 4, memory_mb: 4096 })
+    expect(got.value.error).toMatchObject({ code: expect.any(String) })
+  })
 })
