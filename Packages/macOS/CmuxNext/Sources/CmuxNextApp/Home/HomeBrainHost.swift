@@ -20,8 +20,12 @@ nonisolated struct HomeBrainHost: Sendable {
     let controlSocket: String
     let acpmux: AcpmuxEnvironment?
 
+    /// The OptChat Chief's file name in the app's Contents/Resources/bin.
+    static let bundledChiefName = "optchat-chief"
+
     static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
-                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> HomeBrainHost? {
+                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                        bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> HomeBrainHost? {
         guard let path = environment["CMUX_NEXT_MUX_HOST"], !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else {
             return nil
         }
@@ -34,7 +38,7 @@ nonisolated struct HomeBrainHost: Sendable {
         } else {
             home = base
         }
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let bin = bundledBinDirectory
         return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket, controlSocket: controlSocket,
                              acpmux: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
     }
