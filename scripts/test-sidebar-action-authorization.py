@@ -111,12 +111,19 @@ __CONFIRM_CLOSE_METHOD__
         confirmationAuthorization.perform {
             closeAccepted = confirmation.confirmClose(title: "Captured target", message: "Confirmation", acceptCmdD: false)
         }
+        var inheritedAsync = false
+        await SidebarActionAuthorization.$current.withValue(authorization) {
+            await Task.yield()
+            inheritedAsync = SidebarActionAuthorization.current != nil
+        }
+        let restoredAsync = SidebarActionAuthorization.current == nil
         let result: [String: Any] = ["cancelledMutations": cancelledMutations,
             "staleMutations": staleMutations, "menuCommands": counter.count,
             "stalePresentations": presentations, "title": item.title,
             "inheritedAuthorization": counter.inheritedAuthorization,
             "restoredContext": restoredContext, "nestedModalMutations": counter.nestedModalMutations,
-            "closeAcceptedAfterRevoke": closeAccepted]
+            "closeAcceptedAfterRevoke": closeAccepted,
+            "inheritedAsync": inheritedAsync, "restoredAsync": restoredAsync]
         print(String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self))
     }
 }
@@ -164,6 +171,10 @@ class SidebarAuthorizationTests(unittest.TestCase):
 
     def test_actual_native_confirmation_rejects_revocation_before_commit(self):
         self.assertFalse(self.actual["closeAcceptedAfterRevoke"])
+
+    def test_async_dispatch_inherits_and_restores_authorization(self):
+        self.assertTrue(self.actual["inheritedAsync"])
+        self.assertTrue(self.actual["restoredAsync"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -1685,7 +1685,9 @@ private final class CMUXSidebarExtensionHostXPC {
                     message: String(localized: "sidebar.extensions.action.scopeRejected", defaultValue: "Extension action is not granted")
                 )
             }
-            return await actionHandler(action, authorization)
+            return await SidebarActionAuthorization.$current.withValue(authorization) {
+                await actionHandler(action, authorization)
+            }
         }
     }
 

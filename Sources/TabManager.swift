@@ -2949,6 +2949,7 @@ class TabManager: ObservableObject {
     func markRemoteTmuxKillOnWindowCloseIfNeeded(for workspaces: [Workspace]) {}
 
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
+        guard SidebarActionAuthorization.current?.isValid ?? true else { return }
         let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
         guard !workspaces.isEmpty else { return }
         guard workspaces.count > 1 else {
@@ -3069,6 +3070,8 @@ class TabManager: ObservableObject {
         acceptCmdD: Bool,
         dontAskAgain: CloseWarningKinds = []
     ) -> Bool {
+        let authorization = SidebarActionAuthorization.current
+        guard authorization?.isValid ?? true else { return false }
         guard beginCloseConfirmationSession() else { return false }
         defer { endCloseConfirmationSession() }
 
@@ -3077,7 +3080,10 @@ class TabManager: ObservableObject {
         } ?? CmuxAlertContent(informativeText: message)
         if let confirmCloseHandler {
             let accepted = confirmCloseHandler(title, content.flattenedText, acceptCmdD)
-            if !dontAskAgain.isEmpty, confirmCloseDontAskAgainHandler?(dontAskAgain) == true {
+            guard authorization?.isValid ?? true else { return false }
+            let disableWarnings = !dontAskAgain.isEmpty && confirmCloseDontAskAgainHandler?(dontAskAgain) == true
+            guard authorization?.isValid ?? true else { return false }
+            if disableWarnings {
                 CloseTabWarningStore(defaults: closeTabWarningDefaults).disableWarnings(dontAskAgain)
             }
             return accepted
@@ -3109,6 +3115,7 @@ class TabManager: ObservableObject {
 
         CloseDontAskAgainCheckbox.add(to: alert, offering: dontAskAgain)
         let accepted = runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
+        guard authorization?.isValid ?? true else { return false }
         CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: closeTabWarningDefaults)
         return accepted
     }
@@ -3267,6 +3274,7 @@ class TabManager: ObservableObject {
         source: CloseConfirmationSource = .workspace,
         closeAlreadyConfirmed: Bool = false
     ) -> Bool {
+        guard SidebarActionAuthorization.current?.isValid ?? true else { return false }
         // Closing a group's anchor is non-destructive to the group: its next
         // member is promoted to anchor in closeWorkspace, so the members stay
         // grouped instead of scattering to root. No special anchor prompt is
@@ -3428,6 +3436,7 @@ class TabManager: ObservableObject {
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
+        guard SidebarActionAuthorization.current?.isValid ?? true else { return }
         guard tab.panels[panelId] != nil else {
 #if DEBUG
             cmuxDebugLog(

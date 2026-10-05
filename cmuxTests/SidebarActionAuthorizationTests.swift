@@ -21,6 +21,15 @@ struct SidebarActionAuthorizationTests {
         #expect(mutations == 0)
     }
 
+    @Test func asyncDispatchRetainsAndRestoresScopedAuthority() async {
+        let authorization = SidebarActionAuthorization(isCurrent: { true })
+        await SidebarActionAuthorization.$current.withValue(authorization) {
+            await Task.yield()
+            #expect(SidebarActionAuthorization.current?.isValid == true)
+        }
+        #expect(SidebarActionAuthorization.current == nil)
+    }
+
     @Test func capturedEpochDoesNotBecomeValidAfterRegrant() {
         var revision = 1
         let captured = revision
