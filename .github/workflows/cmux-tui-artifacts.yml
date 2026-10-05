@@ -1102,13 +1102,15 @@ jobs:
           PY
           mv manifest.json.tmp manifest.json
           if [[ "${source_args[*]}" == *"--publish-source"* ]]; then
-            python3 - "$KEY" "$SOURCE_COMMIT" "$tui_tree" manifest.json > tree/source.json <<'PY'
+            python3 - "$KEY" "$SOURCE_COMMIT" "$tui_tree" "$ghostty_commit" "$ghostty_next_commit" manifest.json > tree/source.json <<'PY'
           import json, os, sys
-          key, commit, tui_tree, manifest_path = sys.argv[1:]
+          key, commit, tui_tree, ghostty_commit, ghostty_next_commit, manifest_path = sys.argv[1:]
           manifest = json.load(open(manifest_path))
           print(json.dumps({
               "key": key,
               "cmuxTuiTree": tui_tree,
+              "ghosttyCommit": ghostty_commit,
+              "ghosttyNextCommit": ghostty_next_commit,
               "commit": commit,
               "run": os.environ["GITHUB_RUN_ID"],
               "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
