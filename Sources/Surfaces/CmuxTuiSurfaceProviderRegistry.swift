@@ -724,7 +724,11 @@ final class CmuxTuiSurfaceProviderRegistry {
             .subtracting(pendingMachineCreationIDs)
             .subtracting(seen)
             .subtracting(retainedForeignIDs)
-            .subtracting(page.vms.isEmpty ? catalog.pendingRestoredMachineIDs : [])
+            // A restored projection is itself an ownership claim. Keep its
+            // machine registered until its provider resolves the projection
+            // or reports access loss, even when discovery returns a partial
+            // page that omits the machine.
+            .subtracting(catalog.pendingRestoredMachineIDs)
         for id in staleIDs {
             unregisterMachine(id)
         }
