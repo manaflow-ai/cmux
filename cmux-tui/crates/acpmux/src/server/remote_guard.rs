@@ -82,6 +82,11 @@ pub(super) async fn check(
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
         return Err(refused("changing peers"));
     }
+    // The native relay reads the guard's own table and lists over the unix
+    // socket; no WebSocket origin (LocalApp and Peer included) gets them.
+    if m == method::MUX_WEB_MODES {
+        return Err(refused("_acpmux/web_modes"));
+    }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
         return Err(refused("mcpServers"));
@@ -228,11 +233,6 @@ pub(super) async fn settle_web_session_mode(
     Ok(())
 }
 
-/// Config options a Web connection may set to any value: they choose a model
-/// or how hard it thinks, never what runs without asking.
-const FREE_CONFIG_OPTIONS: &[&str] =
-    &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
-
 /// The only permission policies a Web connection may set: `ask` (every
 /// tool call asks) and `deny-all` (nothing runs, nothing is approved). The
 /// exact names only; aliases, other policies and unknown values are refused.
@@ -256,7 +256,7 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
     };
     let policy_refused = || refused("a permission policy other than ask or deny-all");
     if m == method::SESSION_NEW
-        && MODE_FIELDS.iter().any(|f| {
+        && crate::web_modes::MODE_FIELDS.iter().any(|f| {
             params.get(*f).is_some() || params.pointer(&format!("/_meta/acpmux/{f}")).is_some()
         })
     {
@@ -340,7 +340,7 @@ async fn web_starts_asking(
     );
     let sets_mode = matches!(m, method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION);
     if copies
-        && MODE_FIELDS.iter().any(|f| {
+        && crate::web_modes::MODE_FIELDS.iter().any(|f| {
             params.get(*f).is_some() || params.pointer(&format!("/_meta/acpmux/{f}")).is_some()
         })
     {
@@ -412,25 +412,19 @@ async fn web_starts_asking(
     }
     let meta = s.meta();
     if sets_mode {
-        let id = params.get("configId").and_then(Value::as_str);
-        if m == method::SESSION_SET_CONFIG_OPTION
-            && id.is_some_and(|i| FREE_CONFIG_OPTIONS.contains(&i))
-        {
-            return Ok(());
-        }
-        let value = if m == method::SESSION_SET_MODE {
-            params.get("modeId").and_then(Value::as_str)
-        } else if id == Some("mode") {
-            params.get("value").and_then(Value::as_str)
+        // The decision `_acpmux/web_modes` reports as `asks`.
+        let (id, value) = if m == method::SESSION_SET_MODE {
+            (None, params.get("modeId").and_then(Value::as_str))
         } else {
-            None
+            let id = params.get("configId").and_then(Value::as_str);
+            (Some(id.unwrap_or_default()), params.get("value").and_then(Value::as_str))
         };
-        let allowed = asking_modes(hub, &family_of(&meta)).await;
-        return match value {
-            Some(v) if allowed.iter().any(|a| a == v) => Ok(()),
-            _ => Err(RpcError::invalid_params(format!(
+        return if hub.web_modes().config_value_asks(&family_of(&meta), id, value) {
+            Ok(())
+        } else {
+            Err(RpcError::invalid_params(format!(
                 "{m}: this mode or option is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
-            ))),
+            )))
         };
     }
     let default = hub.config.read().await.permission_policy;
@@ -442,20 +436,6 @@ async fn web_starts_asking(
     }
     Ok(())
 }
-
-/// Fields a Web request may not carry: they could set a mode or a sandbox
-/// that acpmux does not check.
-const MODE_FIELDS: &[&str] = &[
-    "modeId",
-    "mode",
-    "permissionMode",
-    "permission_mode",
-    "approvalPolicy",
-    "approval_policy",
-    "sandbox",
-    "sandboxMode",
-    "sandbox_mode",
-];
 
 /// Rules a Web connection may set: none (a clear), or only `autoDeny` and
 /// `ask` lists with a `default` of `ask` or `deny`. No `autoApprove` entry,

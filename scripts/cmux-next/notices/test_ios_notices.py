@@ -8,6 +8,7 @@ import importlib.util
 import json
 import plistlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,8 +24,7 @@ SPEC.loader.exec_module(ios)
 
 PIN = "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa"
 MACHO = b"\xcf\xfa\xed\xfe" + b"\0" * 60
-JOB = "9bd58301641521918a3561ba"
-ARTIFACT = "cbbad2368077ac5bf9d67957baf0aec8f9c4f24fe93e109a2ec1682ed5249f27"
+MUSL_TEXT = (ROOT / "cmux-tui/dist/notices/texts/musl-1.2.5/COPYRIGHT").read_text()
 
 
 class RepositoryTests(unittest.TestCase):
@@ -32,11 +32,23 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(ios.check_repo(), [])
 
     def test_the_pane_omits_only_what_the_real_link_proves_absent(self) -> None:
+        # The evidence is the real link of a cmux-ci iOS build for the CURRENT pin
+        # (ghosttykit_repin.py rewrites it on a pin change; the 134477ce13b2 pin used
+        # job 9bd58301641521918a3561ba, the 736e8f05256b pin job 3ec204658b6b4cf775f360e9,
+        # the 788fe6a6e42f pin job 3cb75148fdc2bb261c043703).
         record = json.loads(ios.LINK_SET.read_text())["app_link"]
-        self.assertEqual(record["evidence"]["cmux_ci_job"], JOB)
-        self.assertEqual(record["evidence"]["artifact_sha256"], ARTIFACT)
-        self.assertIn("zig-package:gettext", record["absent_owners"])
-        self.assertIn("vendored:pkg/libintl", record["absent_owners"])
+        self.assertEqual(record["pin_sha256"], ios.ghostty_kit_pin()["sha256"])
+        job, artifact = record["evidence"]["cmux_ci_job"], record["evidence"]["artifact_sha256"]
+        self.assertRegex(job, r"^[0-9a-f]{24}$")
+        self.assertRegex(artifact, r"^[0-9a-f]{64}$")
+        # Since D1 (ghostty-next 3320bd06e) the xcframework has no gettext at all: it is
+        # not an owner of the archive, so the app link has nothing to prove absent.
+        links = json.loads(ios.LINK_SET.read_text())
+        self.assertFalse(links["libintl"])
+        for gettext in ("zig-package:gettext", "vendored:pkg/libintl"):
+            self.assertNotIn(gettext, links["dwarf_owners"])
+            self.assertNotIn(gettext, record["absent_owners"])
+            self.assertNotIn(gettext, record["present_owners"])
         self.assertEqual(sorted(record["absent_zig_packages"]), ["iterm2_themes", "zig_js"])
         pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
         titles = {group["Title"] for group in pane}
@@ -45,13 +57,49 @@ class RepositoryTests(unittest.TestCase):
         # Zig code keeps no symbol names: no evidence either way, so these stay listed.
         for kept in ("vaxis (in Ghostty)", "zf (in Ghostty)", "zigimg (in Ghostty)", "freetype (in Ghostty)", "z2d (in Ghostty)"):
             self.assertIn(kept, titles)
-        self.assertIn(JOB, pane[-1]["FooterText"])
-        self.assertIn(ARTIFACT, pane[-1]["FooterText"])
+        self.assertIn(job, pane[-1]["FooterText"])
+        self.assertIn(artifact, pane[-1]["FooterText"])
 
     def test_the_pane_credits_the_freetype_project(self) -> None:
         pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
         freetype = next(group for group in pane if group["Title"] == "freetype (in Ghostty)")
         self.assertIn(FTL_CREDIT, freetype["FooterText"])
+
+    def test_the_pane_carries_musl_for_the_zig_std_math(self) -> None:
+        # GhosttyNextKit's Termio inlines std.math.cbrt (ported from musl) into LAB.fromRgb:
+        # found in the device app of cmux-ci job a9f238cb599baeb9b17f8ff4 (machine-code match).
+        pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
+        musl = next(group for group in pane if group["Title"] == ios.MUSL_TITLE)
+        self.assertIn(MUSL_TEXT.strip(), musl["FooterText"])
+        self.assertIn("std.math.cbrt", musl["FooterText"])
+
+    def test_the_mac_notices_carry_musl_for_the_app_binary(self) -> None:
+        # The published nightly-next app (3728109721001) has the same code in Contents/MacOS/cmux.
+        self.assertEqual(ios.mac_notice_errors(), [])
+        notices = (ROOT / "THIRD_PARTY_LICENSES.md").read_text()
+        self.assertIn("<!-- notices-section: manual-musl-in-the-zig-standard-library -->", notices)
+        self.assertIn(MUSL_TEXT.strip(), notices)
+        entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
+        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
+        self.assertIn("section:manual-musl-in-the-zig-standard-library", app["notices"])
+
+    def test_the_mac_notices_credit_the_freetype_project(self) -> None:
+        # FTL section 3: the macos slice links FreeType (ghosttykit-macos-link-set.json), so the
+        # app's documentation cites the FreeType Project, as the iOS pane does.
+        notices = (ROOT / "THIRD_PARTY_LICENSES.md").read_text()
+        self.assertIn("<!-- notices-section: manual-freetype -->", notices)
+        self.assertIn(FTL_CREDIT, notices)
+        entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
+        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
+        self.assertIn("section:manual-freetype", app["notices"])
+
+    def test_mac_notices_refuse_a_missing_freetype_credit(self) -> None:
+        hand = ios.HAND_WRITTEN.read_text().replace(FTL_CREDIT, "FreeType credit removed", 1)
+        self.assertTrue(any("FreeType" in error for error in ios.mac_notice_errors(hand)))
+
+    def test_mac_notices_refuse_a_changed_musl_text(self) -> None:
+        hand = ios.HAND_WRITTEN.read_text().replace("Rich Felker", "R. Felker", 1)
+        self.assertTrue(any("musl" in error for error in ios.mac_notice_errors(hand)))
 
     def test_settings_bundle_root_links_the_pane(self) -> None:
         root = plistlib.loads((ios.SETTINGS / "Root.plist").read_bytes())
@@ -94,10 +142,26 @@ class LibintlRuleTests(unittest.TestCase):
         stripped.write_bytes(MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0")
         self.assertTrue(ios.libintl_errors("0" * 64, [stripped], self.exceptions))
 
-    def test_the_repository_lists_the_current_and_the_next_pre_d1_pins(self) -> None:
-        pins = json.loads(ios.EXCEPTIONS.read_text())["pins"]
-        self.assertIn(PIN, pins)
-        self.assertIn("736e8f05256b6453ef2dd05c58eff3088cfc1eda7ae748c041e877c8a66741ba", pins)
+    def test_the_repository_has_no_exception_after_d1(self) -> None:
+        self.assertEqual(json.loads(ios.EXCEPTIONS.read_text())["pins"], {})
+
+    def test_libintl_fails_check_binaries_for_the_current_pin(self) -> None:
+        # Negative test with the committed exceptions file: libintl in a slice of the
+        # current pin fails `ios_notices.py check-binaries`, stripped or not.
+        stripped = self.tmp / "stripped.a"
+        stripped.write_bytes(MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0")
+        for path in (self.with_intl, stripped):
+            with self.subTest(path=path.name):
+                result = subprocess.run(
+                    [sys.executable, str(Path(ios.__file__)), "check-binaries", str(self.without), str(path)],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("LGPL-2.1 libintl", result.stderr)
+        clean = subprocess.run(
+            [sys.executable, str(Path(ios.__file__)), "check-binaries", str(self.without)], capture_output=True, text=True,
+        )
+        self.assertEqual(clean.returncode, 0, clean.stdout + clean.stderr)
 
     def test_clean_binaries_pass_for_a_new_pin(self) -> None:
         self.assertEqual(ios.libintl_errors("1" * 64, [self.without], self.exceptions), [])
@@ -118,14 +182,22 @@ class BuiltAppTests(unittest.TestCase):
         return app
 
     def test_refuses_an_app_that_links_a_package_the_pane_omits(self) -> None:
+        # The current pin proves no owner absent, so the rule is shown on a record that does.
+        record = json.loads(ios.LINK_SET.read_text())["app_link"]
+        record["absent_owners"] = {"zig-package:gettext": {"members": ["dcigettext.o"], "symbols": ["_libintl_dcigettext"]}}
         self.symbols.add("_libintl_dcigettext")
-        errors = ios.check_app(self.app())
+        errors = ios.app_link_errors([self.app() / "cmux"], [], {"app_link": record})
         self.assertTrue(any("zig-package:gettext is omitted" in error for error in errors), errors)
 
-    def test_refuses_libintl_strings_when_the_pane_omits_gettext(self) -> None:
-        app = self.app()
-        (app / "cmux").write_bytes(MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0")
-        self.assertTrue(any("gettext (libintl) is omitted" in error for error in ios.check_app(app)))
+    def test_refuses_an_app_with_libintl(self) -> None:
+        # The pane has no gettext and the current pin has no exception: libintl in the
+        # app fails, by its symbol name or by the string literal that survives strip.
+        for data in (MACHO + b"\0_libintl_dcigettext\0", MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0"):
+            with self.subTest(data=data[-26:]):
+                app = self.app()
+                (app / "cmux").write_bytes(data)
+                errors = ios.check_app(app)
+                self.assertTrue(any("LGPL-2.1 libintl" in error for error in errors), errors)
 
     def test_refuses_an_app_without_symbols(self) -> None:
         # Absence of a symbol proves nothing in a stripped binary: fail closed.
@@ -249,6 +321,12 @@ class PaneTests(unittest.TestCase):
         self.assertIn("cmux-ci job job1", record)
         self.assertIn("gettext, zig_js", record)
 
+    def test_pane_has_the_musl_text_after_zig(self) -> None:
+        pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
+        links = {"dwarf_owners": ["zig-lib:std"], "zig_source_packages": [], "zig_version": "0.16.0"}
+        titles = [group["Title"] for group in ios.build_pane(self.tree("a" * 40), links, pin)["PreferenceSpecifiers"]]
+        self.assertEqual(titles[titles.index("Zig 0.16.0 (compiler_rt and standard library)") + 1], ios.MUSL_TITLE)
+
     def test_refuses_a_tree_for_another_ghostty_revision(self) -> None:
         pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
         with self.assertRaises(ios.NoticeError):
@@ -263,6 +341,9 @@ class PaneTests(unittest.TestCase):
 
 class MacLinkSetTests(unittest.TestCase):
     """The macOS app links GhosttyNextKit's macos slice and ships the ghostty-next license tree."""
+
+    def setUp(self) -> None:
+        PaneTests.setUp(self)  # the fake tree's FreeType LICENSE.TXT is reviewed FreeType 2.13.2 (2023)
 
     def test_the_macos_link_set_names_the_current_pin(self) -> None:
         links = json.loads(ios.MACOS_LINK_SET.read_text())
@@ -287,6 +368,20 @@ class MacLinkSetTests(unittest.TestCase):
         pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
         links = {"pin": pin, "dwarf_owners": ["zig-package:harfbuzz"], "zig_source_packages": []}
         self.assertTrue(ios.check_macos(self.tree(), links, pin))
+
+    def test_the_credit_must_name_the_linked_freetype_version(self) -> None:
+        pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
+        links = {"pin": pin, "dwarf_owners": ["zig-package:freetype"], "zig_source_packages": []}
+        self.assertEqual(ios.check_macos(self.tree(), links, pin), [])
+        ios.FREETYPE_YEARS[hashlib.sha256(b"FreeType text\n").hexdigest()] = ("2.14.1", 2025)
+        errors = ios.check_macos(self.tree(), links, pin)
+        self.assertTrue(any("2.14.1" in error and "hand-written" in error for error in errors), errors)
+
+    def test_an_unreviewed_freetype_fails(self) -> None:
+        ios.FREETYPE_YEARS.clear()
+        pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
+        links = {"pin": pin, "dwarf_owners": ["zig-package:freetype"], "zig_source_packages": []}
+        self.assertTrue(any("FREETYPE_YEARS" in error for error in ios.check_macos(self.tree(), links, pin)))
 
     def test_a_tree_for_another_revision_fails(self) -> None:
         pin = {"url": "u", "sha256": PIN, "ghostty_revision": "b" * 40}

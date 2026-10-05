@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextTerminal
 
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
@@ -152,6 +153,7 @@ final class KeyRouter: BrowserKeyRouting {
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
         if cancelsAttachedSheet(event, in: window) { return true }
+        if runsUndoToast(event, in: window) { return true }
         // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
         if let keyRecorder, keyRecorder(event, window) {
             cancelChord()
@@ -169,6 +171,7 @@ final class KeyRouter: BrowserKeyRouting {
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
+            if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
             onTyping?(window)
             return false
@@ -207,6 +210,16 @@ final class KeyRouter: BrowserKeyRouting {
         case .deliver, .panel, .primaryInput, .typeAhead:
             return runExtensionShortcut(event, focus: focus)
         }
+    }
+
+    /// A bare key in a page that owns bare keys (KeyRouter+BareKeys): a sequence step, else its binding.
+    func dispatchBare(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext, facts: Facts) -> Bool {
+        if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
+        guard let winner = bareKeyWinner(event, context: context) else { return false }
+        decided.add(event)
+        run(Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
+                      arguments: winner.arguments), context: context, window: controller.state.id)
+        return true
     }
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
@@ -248,6 +261,8 @@ final class KeyRouter: BrowserKeyRouting {
     /// Ends the topmost sheet on a window as cancelled; returns whether one
     /// ended. A seam: tests without a window session (no sheets) replace it.
     var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }
+    /// The toasts Cmd-Z may undo (`runsUndoToast`); tests replace it.
+    var undoToasts: CmuxToastCenter = .shared
 
     /// The last intercepted action and window (for `debug.key`).
     private(set) var lastInterception: (action: ActionID, window: String)?

@@ -22,7 +22,8 @@ extension CEFRuntime {
         return raw < 0 ? nil : CEFContentSetting(rawValue: raw)
     }
 
-    /// Stores `value` for `kind` on `url` (`.default` clears the exception).
+    /// Stores `value` for `kind` on `url` (`.default` clears the exception);
+    /// url "" sets the profile default.
     @discardableResult
     func setContentSetting(_ browser: Int32, url: String, kind: SitePermissionKind, value: CEFContentSetting) -> Bool {
         shim?.setContentSetting(browser, url, kind.rawValue, value.rawValue) == 1

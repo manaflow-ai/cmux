@@ -35,6 +35,11 @@ fn profile(tag: &str) -> Value {
 
 impl Daemon {
     fn new(tag: &str, debounce_ms: u64) -> Self {
+        Self::with_fakeb(tag, debounce_ms, &profile("b"))
+    }
+
+    /// `new` with another `fakeb` profile, written before the first start.
+    fn with_fakeb(tag: &str, debounce_ms: u64, fakeb: &Value) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("asp-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -46,7 +51,7 @@ impl Daemon {
             debounce_ms,
             ready: String::new(),
         };
-        daemon.write_config(&profile("b"));
+        daemon.write_config(fakeb);
         daemon.start();
         daemon
     }
@@ -506,16 +511,12 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as Frame;
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
-    let mut daemon = Daemon::new("claudepool", 0);
-    daemon.write_config(&json!({
+    let fakeb = json!({
         "kind": "claude-stdio",
         "family": "claude",
         "argv": ["python3", fake_claude, "--permission-mode", "bypassPermissions"],
-    }));
-    let mut rpc = daemon.rpc().await;
-    rpc.call("_acpmux/shutdown", json!({})).await;
-    daemon.wait_exit();
-    daemon.start();
+    });
+    let daemon = Daemon::with_fakeb("claudepool", 0, &fakeb);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
     let warmed =

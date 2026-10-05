@@ -13,6 +13,11 @@ import PackageDescription
 // cursor defaults as local policy (ghostty-next PR 20).
 // Since bbb7320b4 it restores a READY cut at the owner's resize with the
 // surface's own reflowed history, checked by the history digest (PR 23).
+// Since 94fe86949 it applies the owner's Kitty image replay on a trusted path
+// (ghostty_surface_apply_kitty_replay; PR 24), keeps images across a
+// local-history restore with no frame between its swaps (PR 26), and fetches
+// its build dependencies from our release mirror (PR 25).
+// Since 3320bd06e the Apple slices contain no GNU libintl (i18n off; PR 27).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -37,8 +42,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-bbb7320b451edb0ca0eee898c6bc4a8a15a5705d-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-3320bd06ec13ca5479ef842372be1736d9cdfecf-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "788fe6a6e42fc0062007cf7292992dd3bb770cbce7a33f5040d5180e40150bc1"
         ),
     ]
 )

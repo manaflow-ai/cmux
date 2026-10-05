@@ -41,7 +41,19 @@ fi
 if ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   echo "error: the app FFI sources changed since the pinned source $sha:" >&2
   git diff --stat "$sha" HEAD -- "${paths[@]}" >&2
-  echo "Publish a new release (app-ffi-release.yml runs on the push) and pin its URL and checksum in Package.swift." >&2
+  # Who owns the drift: the lane of each changed crate, and the commits.
+  owners=""
+  for path in $(git diff --name-only "$sha" HEAD -- "${paths[@]}"); do
+    case "$path" in
+      cmux-tui/crates/cmux-rd-*) owners+=$'\n  remote desktop lane (cmux-rd-core/proto/ffi)' ;;
+      cmux-tui/crates/cmux-layout-reducer*) owners+=$'\n  sidebar lane (cmux-layout-reducer, -ffi)' ;;
+      *) owners+=$'\n  app FFI packaging (test triage lane: cmux-app-ffi, build-app-ffi.sh, toolchain)' ;;
+    esac
+  done
+  echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
+  echo "Commits since the pin:" >&2
+  git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
+  echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
   exit 1
 fi
 echo "app FFI pin: sources match $sha"
@@ -50,8 +62,11 @@ if [[ "${1:-}" == "--verify-release" ]]; then
   base="${url%/"$asset"}"
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
-  curl -fsSL --retry 3 -o "$work/SOURCE_SHA" "$base/SOURCE_SHA"
-  curl -fsSL --retry 3 -o "$work/SHA256SUMS" "$base/SHA256SUMS"
+  # Every error retries (a runner's TLS read timeout is curl 35, which plain
+  # --retry treats as fatal: cmux-next.yml run 37317248488).
+  fetch() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 -o "$1" "$2"; }
+  fetch "$work/SOURCE_SHA" "$base/SOURCE_SHA"
+  fetch "$work/SHA256SUMS" "$base/SHA256SUMS"
   [[ "$(tr -d '[:space:]' < "$work/SOURCE_SHA")" == "$sha" ]] \
     || { echo "error: release SOURCE_SHA $(cat "$work/SOURCE_SHA") is not the pinned sha $sha" >&2; exit 1; }
   grep -qxF "$checksum  $asset" "$work/SHA256SUMS" \

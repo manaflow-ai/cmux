@@ -31,6 +31,14 @@ extension Motion {
         runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
     }
 
+    /// An exit: `token`'s duration on a slow-start curve, so a change reversed soon after it
+    /// started (the pointer passing over a hover region) barely moved (no timer, no hold).
+    public static func animateExit(_ token: MotionSpring, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
+        let duration = self.duration(token)
+        runTimed(duration, changes, completion: duration > 0 ? traced("exit.\(token.rawValue)", completion) : completion,
+                 curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
+    }
+
     /// Timed animation with a fade token (NSWindow alpha).
     public static func animateTimed(_ token: MotionFade, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
         let duration = self.duration(token)
@@ -47,10 +55,11 @@ extension Motion {
         }
     }
 
-    private static func runTimed(_ duration: TimeInterval, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?) {
+    private static func runTimed(_ duration: TimeInterval, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?,
+                                 curve: CAMediaTimingFunction? = nil) {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
-            context.timingFunction = fadeCurve
+            context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
         }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })

@@ -55,6 +55,15 @@ extension PageInfoController {
         }
     }
 
+    /// Site settings of `origin` (any site of this tab's profile, such as
+    /// one whose automatic downloads were blocked), from outside the bubble.
+    public func showSiteSettings(origin: String) {
+        guard let store, let provider, let url = URL(string: origin) else { return }
+        close()
+        let site = PageInfoSite(url: url, security: url.scheme == "https" ? .secure : .insecure)
+        windows.showSiteSettings(origin: origin, site: site, store: store, provider: provider, send: { [weak self] in self?.send($0) })
+    }
+
     private func showCertificate(site: PageInfoSite) {
         guard let provider else { return }
         close()

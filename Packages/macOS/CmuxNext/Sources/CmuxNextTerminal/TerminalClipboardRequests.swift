@@ -65,7 +65,9 @@ final class TerminalClipboardRequests {
         }
     }
 
-    /// Allow (Return) or Deny (Escape), with a preview of the text.
+    /// Deny on Escape, with a preview of the text. Allow has no key: a
+    /// Return typed into the terminal as the dialog opens must never paste
+    /// or hand over the clipboard (as in the clipboard-read broker dialog).
     static func spec(_ title: String, _ message: String, preview text: String) -> CmuxDialogSpec {
         let limit = 2_000
         let preview = text.count > limit ? String(text.prefix(limit)) + "…" : text
@@ -73,7 +75,7 @@ final class TerminalClipboardRequests {
             title: title, lines: [message], fields: [.preview(preview)],
             buttons: [
                 CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .module), role: .cancel),
-                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module), role: .default),
+                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module), role: .normal),
             ],
             identifier: "cmux.dialog.terminalClipboard")
     }

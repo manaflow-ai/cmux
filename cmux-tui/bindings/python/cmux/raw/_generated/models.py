@@ -350,6 +350,14 @@ class BrowserFrame:
 
 
 @dataclass(frozen=True)
+class BrowserHostProviderResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserHostProviderResult'
+    host_pid: int
+    secret: str
+    socket: str
+
+
+@dataclass(frozen=True)
 class BrowserProviderSnapshot:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderSnapshot'
     available: bool
@@ -1741,6 +1749,7 @@ class AttachSurfaceRequest:
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
+    snapshot_images: Union[bool, MissingType] = field(default=MISSING)
     snapshot_local_history: Union[bool, MissingType] = field(default=MISSING)
     snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
     viewer_backlog_bytes: Union[int, None, MissingType] = field(default=MISSING)
@@ -1785,6 +1794,12 @@ class BrowserFramePresentedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-frame-presented/request'
     surface: Id
     frame_seq: int
+
+
+@dataclass(frozen=True)
+class BrowserHostProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-host-provider/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -4368,6 +4383,7 @@ __all__ = [
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'BrowserFrame',
+    'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
     'BrowserProviderTarget',
     'BrowserProviderUnregisterResult',
@@ -4518,6 +4534,7 @@ __all__ = [
     'BrowserBackRequest',
     'BrowserForwardRequest',
     'BrowserFramePresentedRequest',
+    'BrowserHostProviderRequest',
     'BrowserInsertTextRequest',
     'BrowserKeyRequest',
     'BrowserKeyPressRequest',

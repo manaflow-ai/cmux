@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: SettingsController?
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
+    /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
+    private var clipboardReads: TerminalClipboardReadService?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
@@ -69,6 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
+        let clipboardReads = TerminalClipboardReadService(services: services)
+        self.clipboardReads = clipboardReads
+        clipboardReads.start()
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)

@@ -2,7 +2,6 @@
   "dwarf_owners": [
     "vendored:pkg/dcimgui",
     "vendored:pkg/highway",
-    "vendored:pkg/libintl",
     "vendored:pkg/macos",
     "vendored:pkg/simdutf",
     "zig-lib:include",
@@ -10,7 +9,6 @@
     "zig-lib:std",
     "zig-package:bindings",
     "zig-package:freetype",
-    "zig-package:gettext",
     "zig-package:glslang",
     "zig-package:highway",
     "zig-package:imgui",
@@ -19,11 +17,11 @@
     "zig-package:spirv_cross",
     "zig-package:zlib"
   ],
-  "libintl": true,
+  "libintl": false,
   "pin": {
-    "ghostty_revision": "bbb7320b451edb0ca0eee898c6bc4a8a15a5705d",
-    "sha256": "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa",
-    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-bbb7320b451edb0ca0eee898c6bc4a8a15a5705d-apple-v6/GhosttyNextKit.xcframework.zip"
+    "ghostty_revision": "3320bd06ec13ca5479ef842372be1736d9cdfecf",
+    "sha256": "788fe6a6e42fc0062007cf7292992dd3bb770cbce7a33f5040d5180e40150bc1",
+    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-3320bd06ec13ca5479ef842372be1736d9cdfecf-apple-v6/GhosttyNextKit.xcframework.zip"
   },
   "schema": 1,
   "slice": "macos-arm64_x86_64",

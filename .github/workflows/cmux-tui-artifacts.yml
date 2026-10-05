@@ -76,14 +76,14 @@ on:
         type: string
 
 concurrency:
-  # Main remains serialized because each main run also updates latest/. Branch
-  # dogfood runs publish commit-addressed objects only, so different commits
-  # can build in parallel instead of waiting behind an obsolete branch run.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.ref == 'refs/heads/feat-cmux-next' && 'feat-cmux-next-push' || github.event.pull_request.number || github.sha }}
-  # A queued feat-cmux-next push is superseded by the newest branch head. Keep
-  # main, PR and pin publications non-cancelling because their objects are
-  # write-once and may be the only recovery path for a key.
-  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+  # Main remains serialized because each main run also updates latest/. Keep
+  # push runs keyed by commit: GitHub evaluates workflow concurrency before the
+  # tree-preflight job can compute the immutable tree key, so a branch-wide
+  # cancel can drop the only publisher for an older base tree. Preflight skips
+  # only a superseded push whose newer head has the same key (or a key that is
+  # already complete); distinct keys remain publishable for PR merge trees.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}
+  cancel-in-progress: false
 
 permissions: {}
 
@@ -133,18 +133,18 @@ jobs:
           superseded=false
           run_macos=true
 
+          remote_sha=""
+          authorization=""
           # A queued push can be obsolete before its first runner starts. Fail
           # open on a transient ref lookup failure so a real head still gets
-          # its compile and nightly promotion.
+          # its compile and nightly promotion. The remote SHA is compared
+          # after the local key is known; a newer commit is not enough to drop
+          # this run because its tree may still be required by a PR merge ref.
           if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/feat-cmux-next ]]; then
             authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
             remote_sha="$(timeout 15 git -c "http.extraHeader=Authorization: Basic $authorization" \
               ls-remote "${SERVER_URL}/${REPOSITORY}.git" "$REF" 2>/dev/null | awk 'NR==1{print $1}')" || remote_sha=""
-            if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
-              superseded=true
-              run_macos=false
-              echo "Superseded feat-cmux-next push $SHA; current branch head is $remote_sha."
-            elif [[ -z "$remote_sha" ]]; then
+            if [[ -z "$remote_sha" ]]; then
               echo "::warning::could not resolve the current feat-cmux-next head; keeping macOS work enabled"
             fi
           fi
@@ -157,6 +157,26 @@ jobs:
           key="$(python3 scripts/ci/cmux_tui_tree_key.py "$SOURCE_COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
+            current_key=""
+            if git -c "http.extraHeader=Authorization: Basic $authorization" \
+                fetch --no-tags --depth=1 "${SERVER_URL}/${REPOSITORY}.git" "$remote_sha" >/dev/null 2>&1 \
+              && git diff --quiet "$SOURCE_COMMIT" "$remote_sha" -- \
+                scripts/ci/cmux_tui_tree_key.py scripts/cmux-next/cmux-tui-tree-inputs.txt \
+              && current_key="$(python3 scripts/ci/cmux_tui_tree_key.py "$remote_sha" 2>/dev/null)" \
+              && [[ "$current_key" =~ ^[0-9a-f]{40}$ ]]; then
+              if [[ "$current_key" == "$key" ]]; then
+                superseded=true
+                run_macos=false
+                echo "Superseded feat-cmux-next push $SHA; current branch head $remote_sha has the same tree key $key."
+              else
+                echo "Current feat-cmux-next head $remote_sha has tree key $current_key; retaining publication for superseded tree $key."
+              fi
+            else
+              echo "::warning::could not verify the current feat-cmux-next tree key definition; keeping macOS work enabled"
+            fi
+          fi
 
           tree_ready=true
           base="https://files.cmux.com/cmux-tui/tree/$key"
@@ -215,6 +235,12 @@ jobs:
       ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: tree-preflight
+    # Once preflight has computed the immutable key, duplicate feat-cmux-next
+    # pushes may cancel one another safely. Distinct keys use distinct groups,
+    # so an older base tree cannot be dropped by a newer tree publication.
+    concurrency:
+      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}
+      cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     permissions:
       contents: read
       # The reusable package workflow declares an optional attestation job.
@@ -249,6 +275,9 @@ jobs:
       ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: tree-preflight
+    concurrency:
+      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}
+      cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux_next_ daemon tests (macOS)
     runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
     timeout-minutes: 60

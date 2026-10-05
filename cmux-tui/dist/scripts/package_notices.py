@@ -8,6 +8,7 @@
   package_notices.py check-data
   package_notices.py check-windows-toolchain [--gcc GCC]
   package_notices.py check-windows-binary BINARY [BINARY ...]
+  package_notices.py check-darwin-binary BINARY [BINARY ...]
 
 `generate` writes DIR/<kind>-<rust target>.md for kind `cmux-tui` (bin/cmux-tui
 and bin/cmux-tui-hook: npm cmux-tui-<os>-<cpu>, every wheel) and `relay`
@@ -30,6 +31,11 @@ Each notice names everything the static binaries link, for that target:
     GCC 15.2.0 runtime (libgcc_eh, crtbegin) of the one reviewed toolchain,
     and musl's COPYRIGHT for Zig compiler_rt's musl-derived math
     (package-notices.json windows_gnu, independent review of 2026-10-05).
+Darwin (aarch64/x86_64-apple-darwin) has no musl text: the real Darwin link has
+no musl-derived code (package-notices.json darwin.review). `check-darwin-binary`
+(the package job) fails a Darwin binary without a symbol table, with a
+compiler_rt module outside the reviewed list, with the libghostty-vt export
+that reaches musl-ported std.math.cbrt, or with a musl-ported Zig function.
 `check-windows-toolchain` (the Windows build job, before linking) fails when
 the MinGW gcc that rustc links with is not the reviewed build (GCC version and
 build string, mingw-w64 version, UCRT); `check-windows-binary` (the package
@@ -49,6 +55,7 @@ import json
 import os
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -191,6 +198,14 @@ def data_problems(inputs: Inputs) -> list[str]:
             _vt_owner_texts(inputs, owner)
         except (OSError, NoticeError) as error:
             problems.append(str(error))
+    darwin = inputs.data["darwin"]
+    zig_versions = [zig.version for zig in inputs.toolchains.zig]
+    if darwin["zig"] not in zig_versions:
+        problems.append(
+            f"package-notices.json darwin reviews the Darwin link for Zig {darwin['zig']}, but the toolchain is Zig "
+            f"{', '.join(zig_versions)}: review the new Zig's musl-ported compiler_rt and std code in the real "
+            "Darwin binaries, then update darwin"
+        )
     problems += toolchain_notices.text_problems(inputs.toolchains)
     return problems
 
@@ -236,6 +251,77 @@ def windows_binary_problems(binary: bytes, inputs: Inputs) -> list[str]:
         f"the binary contains code built by {', '.join(other)}; the reviewed Windows runtime notices cover only "
         f"'GCC: {reviewed}' (package-notices.json windows_gnu)"
     ]
+
+
+def macho_symbols(binary: bytes) -> tuple[set[str], set[str]] | None:
+    """(defined, undefined) symbol names of a 64-bit Mach-O or of every slice of a
+    universal one; None when it is not a Mach-O or has no symbols."""
+    if binary[:4] == b"\xca\xfe\xba\xbe":
+        (count,) = struct.unpack_from(">I", binary, 4)
+        defined, undefined = set(), set()
+        for index in range(count):
+            _, _, offset, size, _ = struct.unpack_from(">iiIII", binary, 8 + 20 * index)
+            symbols = macho_symbols(binary[offset:offset + size])
+            if symbols is None:
+                return None
+            defined |= symbols[0]
+            undefined |= symbols[1]
+        return defined, undefined
+    if binary[:4] != b"\xcf\xfa\xed\xfe":
+        return None
+    ncmds, offset = struct.unpack_from("<I", binary, 16)[0], 32
+    for _ in range(ncmds):
+        command, size = struct.unpack_from("<II", binary, offset)
+        if command == 0x2:  # LC_SYMTAB
+            symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", binary, offset + 8)
+            strings = binary[stroff:stroff + strsize]
+            defined, undefined = set(), set()
+            for index in range(nsyms):
+                strx, kind, _, _, _ = struct.unpack_from("<IBBHQ", binary, symoff + 16 * index)
+                if kind & 0xE0:  # stab (debug map) entries
+                    continue
+                name = strings[strx:strings.index(b"\0", strx)].decode("utf-8", "replace")
+                (defined if kind & 0x0E == 0x0E else undefined).add(name)
+            return (defined, undefined) if defined else None
+        offset += size
+    return None
+
+
+def darwin_binary_problems(binary: bytes, inputs: Inputs) -> list[str]:
+    """A Darwin package binary must keep its symbols and link no musl-derived code
+    (package-notices.json darwin): the Darwin notices carry no musl text."""
+    darwin = inputs.data["darwin"]
+    symbols = macho_symbols(binary)
+    if symbols is None:
+        return ["not a Mach-O with a symbol table (stripped?): the musl-free Darwin link cannot be checked"]
+    defined, undefined = symbols
+    problems = []
+    if any(name.startswith("_ghostty_") for name in defined) and not any(name.startswith("_terminal.") for name in defined):
+        problems.append(
+            "links libghostty-vt but has no local Zig symbols (terminal.*): local symbols were stripped, so the "
+            "musl-free Darwin link cannot be checked"
+        )
+    modules = sorted({m.group(1) for name in defined if (m := re.match(r"_?compiler_rt\.([A-Za-z0-9_]+)\.", name))})
+    other = [module for module in modules if module not in darwin["compiler_rt_modules"]]
+    if other:
+        problems.append(
+            f"links Zig compiler_rt.{', compiler_rt.'.join(other)}, which the Darwin review does not cover "
+            "(several compiler_rt math files are ported from musl): review them, then add musl's COPYRIGHT to the "
+            "Darwin notices or add the module to package-notices.json darwin.compiler_rt_modules"
+        )
+    entries = sorted(set(darwin["musl_entry_symbols"]) & (defined | undefined))
+    if entries:
+        problems.append(
+            f"links {', '.join(entries)}, which reaches Zig code ported from musl (std.math.cbrt): the Darwin "
+            "notices then need musl's COPYRIGHT (package-notices.json darwin)"
+        )
+    ported = sorted(name for name in defined if any(re.match(p, name) for p in darwin["musl_ported_symbol_patterns"]))
+    if ported:
+        problems.append(
+            f"contains Zig code ported from musl ({', '.join(ported[:5])}): the Darwin notices then need musl's "
+            "COPYRIGHT (package-notices.json darwin)"
+        )
+    return problems
 
 
 def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -> str:
@@ -379,6 +465,8 @@ def main(argv: list[str]) -> int:
     check_toolchain.add_argument("--gcc", default="x86_64-w64-mingw32-gcc", help="the linker rustc uses for x86_64-pc-windows-gnu")
     check_windows = sub.add_parser("check-windows-binary")
     check_windows.add_argument("binaries", type=Path, nargs="+")
+    check_darwin = sub.add_parser("check-darwin-binary")
+    check_darwin.add_argument("binaries", type=Path, nargs="+")
     args = parser.parse_args(argv)
     try:
         if args.command == "generate":
@@ -404,6 +492,16 @@ def main(argv: list[str]) -> int:
                     failed = True
             if not failed:
                 print(f"package_notices: {len(args.binaries)} Windows binaries name no GCC build but the reviewed one")
+            return 1 if failed else 0
+        if args.command == "check-darwin-binary":
+            inputs = load_inputs()
+            failed = False
+            for binary in args.binaries:
+                for problem in darwin_binary_problems(binary.read_bytes(), inputs):
+                    print(f"package_notices: error: {binary}: {problem}", file=sys.stderr)
+                    failed = True
+            if not failed:
+                print(f"package_notices: {len(args.binaries)} Darwin binaries link no musl-derived code")
             return 1 if failed else 0
         problems = data_problems(load_inputs())
     except NoticeError as error:
