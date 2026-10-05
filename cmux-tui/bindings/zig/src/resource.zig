@@ -2124,23 +2124,32 @@ fn parseMutationRecovery(value: []const u8) MutationRecovery {
     return .{ .unknown = value };
 }
 
+/// The error codes this SDK types (`spec/resource-operations-v2.json` `errors`;
+/// a test compares the two sets). Any other code decodes as `.unknown`.
+const catalog_error_codes = [_][]const u8{
+    "confirmation.required",
+    "creation.conflict",
+    "cursor.gap",
+    "cursor.invalid",
+    "idempotency.conflict",
+    "local.io",
+    "mutation.indeterminate",
+    "operation.failed",
+    "resource.not_found",
+    "revision.conflict",
+    "selector.ambiguous",
+    "selector.invalid",
+    "selector.not_found",
+    "selector.wrong_parent",
+    "transport.closed",
+    "validation.invalid",
+};
+
 fn isCatalogErrorCode(code: []const u8) bool {
-    return std.mem.eql(u8, code, "confirmation.required") or
-        std.mem.eql(u8, code, "creation.conflict") or
-        std.mem.eql(u8, code, "cursor.gap") or
-        std.mem.eql(u8, code, "cursor.invalid") or
-        std.mem.eql(u8, code, "idempotency.conflict") or
-        std.mem.eql(u8, code, "local.io") or
-        std.mem.eql(u8, code, "mutation.indeterminate") or
-        std.mem.eql(u8, code, "operation.failed") or
-        std.mem.eql(u8, code, "resource.not_found") or
-        std.mem.eql(u8, code, "revision.conflict") or
-        std.mem.eql(u8, code, "selector.ambiguous") or
-        std.mem.eql(u8, code, "selector.invalid") or
-        std.mem.eql(u8, code, "selector.not_found") or
-        std.mem.eql(u8, code, "selector.wrong_parent") or
-        std.mem.eql(u8, code, "transport.closed") or
-        std.mem.eql(u8, code, "validation.invalid");
+    for (catalog_error_codes) |known| {
+        if (std.mem.eql(u8, code, known)) return true;
+    }
+    return false;
 }
 
 fn parseCatalogErrorDetails(
@@ -19102,121 +19111,150 @@ test "indeterminate mutations retain fields and never retry" {
     );
 }
 
+const CatalogErrorDetailTag = std.meta.Tag(ResourceErrorDetails);
+const CatalogErrorFixture = struct {
+    code: []const u8,
+    details: []const u8,
+    tag: CatalogErrorDetailTag,
+};
+const catalog_error_fixtures = [_]CatalogErrorFixture{
+    .{
+        .code = "confirmation.required",
+        .details = "{\"revision\":\"3\",\"closes_panes\":[" ++
+            "\"pane_11111111111111111111111111111111\"]," ++
+            "\"confirmation_token\":\"confirm-3\"}",
+        .tag = .confirmation_required,
+    },
+    .{
+        .code = "creation.conflict",
+        .details = "{\"correlation_key\":\"create-1\"," ++
+            "\"existing_operation\":\"workspace.create\"," ++
+            "\"requested_operation\":\"terminal.create\"," ++
+            "\"existing_fingerprint\":\"sha256:old\"," ++
+            "\"requested_fingerprint\":\"sha256:new\"}",
+        .tag = .creation_conflict,
+    },
+    .{
+        .code = "cursor.gap",
+        .details = "{\"requested\":{\"generation\":\"g\"," ++
+            "\"revision\":\"1\"},\"current\":{\"generation\":\"g\"," ++
+            "\"revision\":\"3\"},\"oldest_revision\":\"2\"}",
+        .tag = .cursor_gap,
+    },
+    .{
+        .code = "cursor.invalid",
+        .details = "{\"requested\":{\"generation\":\"old\"," ++
+            "\"revision\":\"1\"},\"current\":{\"generation\":\"new\"," ++
+            "\"revision\":\"1\"},\"reason\":\"generation changed\"}",
+        .tag = .cursor_invalid,
+    },
+    .{
+        .code = "idempotency.conflict",
+        .details = "{\"idempotency_key\":\"key\"," ++
+            "\"committed_operation\":\"workspace.rename\"}",
+        .tag = .idempotency_conflict,
+    },
+    .{
+        .code = "local.io",
+        .details = "{\"path\":\"/tmp/socket\",\"reason\":\"closed\"}",
+        .tag = .local_io,
+    },
+    .{
+        .code = "mutation.indeterminate",
+        .details = "{\"idempotency_key\":\"key\"," ++
+            "\"operation\":\"workspace.rename\",\"recovery\":" ++
+            "\"inspect_state_then_retry_with_new_key\"}",
+        .tag = .mutation_indeterminate,
+    },
+    .{
+        .code = "operation.failed",
+        .details = "{\"operation\":\"workspace.run\"," ++
+            "\"reason\":\"failed\",\"extra\":{\"exit_code\":2}}",
+        .tag = .operation_failed,
+    },
+    .{
+        .code = "resource.not_found",
+        .details = "{\"scope\":\"workspace\",\"id\":" ++
+            "\"ws_11111111111111111111111111111111\"}",
+        .tag = .resource_not_found,
+    },
+    .{
+        .code = "revision.conflict",
+        .details = "{\"expected\":\"4\",\"actual\":\"5\"}",
+        .tag = .revision_conflict,
+    },
+    .{
+        .code = "selector.ambiguous",
+        .details = "{\"scope\":\"workspace\"," ++
+            "\"selector\":\"name:duplicate\",\"candidates\":[" ++
+            "\"ws_11111111111111111111111111111111\"," ++
+            "\"ws_22222222222222222222222222222222\"]}",
+        .tag = .selector_ambiguous,
+    },
+    .{
+        .code = "selector.invalid",
+        .details = "{\"scope\":\"workspace\"," ++
+            "\"selector\":\"invalid\",\"reason\":\"bad syntax\"}",
+        .tag = .selector_invalid,
+    },
+    .{
+        .code = "selector.not_found",
+        .details = "{\"scope\":\"workspace\"," ++
+            "\"selector\":\"name:missing\"}",
+        .tag = .selector_not_found,
+    },
+    .{
+        .code = "selector.wrong_parent",
+        .details = "{\"scope\":\"pane\",\"selector\":" ++
+            "\"pane_11111111111111111111111111111111\"," ++
+            "\"parent_scope\":\"screen\",\"expected_parent\":" ++
+            "\"screen_11111111111111111111111111111111\"," ++
+            "\"actual_parent\":" ++
+            "\"screen_22222222222222222222222222222222\"}",
+        .tag = .selector_wrong_parent,
+    },
+    .{
+        .code = "transport.closed",
+        .details = "{\"reason\":\"peer closed\"}",
+        .tag = .transport_closed,
+    },
+    .{
+        .code = "validation.invalid",
+        .details = "{\"field\":\"name\",\"reason\":\"too long\"}",
+        .tag = .validation_invalid,
+    },
+};
+
+test "catalog error codes are exactly the codes this SDK types" {
+    const catalog = @import("resource_catalog");
+    // Only a checkout of the cmux repository has the catalog beside the package.
+    if (!catalog.present) return error.SkipZigTest;
+    for (catalog.error_codes) |code| {
+        if (!isCatalogErrorCode(code)) {
+            std.debug.print("catalog error code {s} is not typed by the Zig SDK\n", .{code});
+            return error.CatalogErrorCodeNotTyped;
+        }
+    }
+    for (catalog_error_codes) |known| {
+        for (catalog.error_codes) |code| {
+            if (std.mem.eql(u8, code, known)) break;
+        } else {
+            std.debug.print("Zig SDK error code {s} is not in the catalog\n", .{known});
+            return error.ErrorCodeNotInCatalog;
+        }
+    }
+    for (catalog_error_codes) |known| {
+        for (catalog_error_fixtures) |fixture| {
+            if (std.mem.eql(u8, fixture.code, known)) break;
+        } else {
+            std.debug.print("Zig SDK error code {s} has no decode fixture\n", .{known});
+            return error.ErrorCodeWithoutFixture;
+        }
+    }
+}
+
 test "catalog error details decode every declared shape" {
-    const DetailTag = std.meta.Tag(ResourceErrorDetails);
-    const Fixture = struct {
-        code: []const u8,
-        details: []const u8,
-        tag: DetailTag,
-    };
-    const fixtures = [_]Fixture{
-        .{
-            .code = "confirmation.required",
-            .details = "{\"revision\":\"3\",\"closes_panes\":[" ++
-                "\"pane_11111111111111111111111111111111\"]," ++
-                "\"confirmation_token\":\"confirm-3\"}",
-            .tag = .confirmation_required,
-        },
-        .{
-            .code = "creation.conflict",
-            .details = "{\"correlation_key\":\"create-1\"," ++
-                "\"existing_operation\":\"workspace.create\"," ++
-                "\"requested_operation\":\"terminal.create\"," ++
-                "\"existing_fingerprint\":\"sha256:old\"," ++
-                "\"requested_fingerprint\":\"sha256:new\"}",
-            .tag = .creation_conflict,
-        },
-        .{
-            .code = "cursor.gap",
-            .details = "{\"requested\":{\"generation\":\"g\"," ++
-                "\"revision\":\"1\"},\"current\":{\"generation\":\"g\"," ++
-                "\"revision\":\"3\"},\"oldest_revision\":\"2\"}",
-            .tag = .cursor_gap,
-        },
-        .{
-            .code = "cursor.invalid",
-            .details = "{\"requested\":{\"generation\":\"old\"," ++
-                "\"revision\":\"1\"},\"current\":{\"generation\":\"new\"," ++
-                "\"revision\":\"1\"},\"reason\":\"generation changed\"}",
-            .tag = .cursor_invalid,
-        },
-        .{
-            .code = "idempotency.conflict",
-            .details = "{\"idempotency_key\":\"key\"," ++
-                "\"committed_operation\":\"workspace.rename\"}",
-            .tag = .idempotency_conflict,
-        },
-        .{
-            .code = "local.io",
-            .details = "{\"path\":\"/tmp/socket\",\"reason\":\"closed\"}",
-            .tag = .local_io,
-        },
-        .{
-            .code = "mutation.indeterminate",
-            .details = "{\"idempotency_key\":\"key\"," ++
-                "\"operation\":\"workspace.rename\",\"recovery\":" ++
-                "\"inspect_state_then_retry_with_new_key\"}",
-            .tag = .mutation_indeterminate,
-        },
-        .{
-            .code = "operation.failed",
-            .details = "{\"operation\":\"workspace.run\"," ++
-                "\"reason\":\"failed\",\"extra\":{\"exit_code\":2}}",
-            .tag = .operation_failed,
-        },
-        .{
-            .code = "resource.not_found",
-            .details = "{\"scope\":\"workspace\",\"id\":" ++
-                "\"ws_11111111111111111111111111111111\"}",
-            .tag = .resource_not_found,
-        },
-        .{
-            .code = "revision.conflict",
-            .details = "{\"expected\":\"4\",\"actual\":\"5\"}",
-            .tag = .revision_conflict,
-        },
-        .{
-            .code = "selector.ambiguous",
-            .details = "{\"scope\":\"workspace\"," ++
-                "\"selector\":\"name:duplicate\",\"candidates\":[" ++
-                "\"ws_11111111111111111111111111111111\"," ++
-                "\"ws_22222222222222222222222222222222\"]}",
-            .tag = .selector_ambiguous,
-        },
-        .{
-            .code = "selector.invalid",
-            .details = "{\"scope\":\"workspace\"," ++
-                "\"selector\":\"invalid\",\"reason\":\"bad syntax\"}",
-            .tag = .selector_invalid,
-        },
-        .{
-            .code = "selector.not_found",
-            .details = "{\"scope\":\"workspace\"," ++
-                "\"selector\":\"name:missing\"}",
-            .tag = .selector_not_found,
-        },
-        .{
-            .code = "selector.wrong_parent",
-            .details = "{\"scope\":\"pane\",\"selector\":" ++
-                "\"pane_11111111111111111111111111111111\"," ++
-                "\"parent_scope\":\"screen\",\"expected_parent\":" ++
-                "\"screen_11111111111111111111111111111111\"," ++
-                "\"actual_parent\":" ++
-                "\"screen_22222222222222222222222222222222\"}",
-            .tag = .selector_wrong_parent,
-        },
-        .{
-            .code = "transport.closed",
-            .details = "{\"reason\":\"peer closed\"}",
-            .tag = .transport_closed,
-        },
-        .{
-            .code = "validation.invalid",
-            .details = "{\"field\":\"name\",\"reason\":\"too long\"}",
-            .tag = .validation_invalid,
-        },
-    };
-    try std.testing.expectEqual(@as(usize, 16), fixtures.len);
+    try std.testing.expectEqual(catalog_error_codes.len, catalog_error_fixtures.len);
 
     var shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -19227,7 +19265,7 @@ test "catalog error details decode every declared shape" {
     var client = Client.init(std.testing.allocator, connection, .{});
     defer client.deinit();
 
-    for (fixtures) |fixture| {
+    for (catalog_error_fixtures) |fixture| {
         const encoded = try std.fmt.allocPrint(
             std.testing.allocator,
             "{{\"code\":\"{s}\",\"message\":\"fixture\"," ++
