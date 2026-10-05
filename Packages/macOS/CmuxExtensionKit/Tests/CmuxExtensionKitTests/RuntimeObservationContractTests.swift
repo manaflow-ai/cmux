@@ -41,9 +41,24 @@ struct RuntimeObservationContractTests {
         #expect(observation.reason == nil)
         #expect(observation.transitionedAt == nil)
         #expect(observation.sampledAt == nil)
+        #expect(observation.pendingUserActionCount == 0)
         let plan = CmuxSidebarRuntimeObservation(mode: .plan)
         #expect(plan.activity == .unknown)
         #expect(plan.lifecycle == .unknown)
+    }
+
+    @Test
+    func workingAndPendingUserRequestsRoundTripIndependently() throws {
+        let original = CmuxSidebarRuntimeObservation(lifecycle: .running, provenance: .nativeLifecycle, activity: .working, mode: .plan, pendingUserActionCount: 2)
+        let restored = try JSONDecoder().decode(CmuxSidebarRuntimeObservation.self, from: JSONEncoder().encode(original))
+        #expect(restored == original)
+        #expect(restored.activity == .working)
+        #expect(restored.pendingUserActionCount == 2)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        object["pendingUserActionCount"] = NSNull()
+        #expect(try JSONDecoder().decode(CmuxSidebarRuntimeObservation.self, from: JSONSerialization.data(withJSONObject: object)).pendingUserActionCount == 0)
+        object["pendingUserActionCount"] = -1
+        #expect(try JSONDecoder().decode(CmuxSidebarRuntimeObservation.self, from: JSONSerialization.data(withJSONObject: object)).pendingUserActionCount == 0)
     }
 
     @Test

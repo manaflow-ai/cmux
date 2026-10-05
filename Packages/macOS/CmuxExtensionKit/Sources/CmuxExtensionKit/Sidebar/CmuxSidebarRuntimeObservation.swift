@@ -26,6 +26,8 @@ public struct CmuxSidebarRuntimeObservation: Codable, Equatable, Sendable {
     public var modeObservedAt: Date?
     /// Host time of the current verified process sample; it does not refresh event evidence.
     public var sampledAt: Date?
+    /// Unresolved native user-action requests, independently of current activity.
+    public var pendingUserActionCount: Int
 
     /// Creates an observation using only the evidence the host can establish.
     ///
@@ -42,6 +44,7 @@ public struct CmuxSidebarRuntimeObservation: Codable, Equatable, Sendable {
     ///   - transitionedAt: Original time of the latest activity/reason change.
     ///   - modeObservedAt: Original time of the latest mode observation.
     ///   - sampledAt: Current verified process sample time.
+    ///   - pendingUserActionCount: Exact native requests; legacy observations default to zero.
     public init(
         lifecycle: CmuxSidebarAgentLifecycle = .unknown,
         observedAt: Date? = nil,
@@ -54,7 +57,8 @@ public struct CmuxSidebarRuntimeObservation: Codable, Equatable, Sendable {
         mode: CmuxSidebarAgentMode = .unknown,
         transitionedAt: Date? = nil,
         modeObservedAt: Date? = nil,
-        sampledAt: Date? = nil
+        sampledAt: Date? = nil,
+        pendingUserActionCount: Int = 0
     ) {
         self.lifecycle = lifecycle
         self.observedAt = observedAt
@@ -68,6 +72,7 @@ public struct CmuxSidebarRuntimeObservation: Codable, Equatable, Sendable {
         self.transitionedAt = transitionedAt
         self.modeObservedAt = modeObservedAt
         self.sampledAt = sampledAt
+        self.pendingUserActionCount = max(0, pendingUserActionCount)
     }
 
     /// Decodes legacy observations without inventing rich session evidence.
@@ -87,5 +92,6 @@ public struct CmuxSidebarRuntimeObservation: Codable, Equatable, Sendable {
         transitionedAt = try container.decodeIfPresent(Date.self, forKey: .transitionedAt)
         modeObservedAt = try container.decodeIfPresent(Date.self, forKey: .modeObservedAt)
         sampledAt = try container.decodeIfPresent(Date.self, forKey: .sampledAt)
+        pendingUserActionCount = max(0, try container.decodeIfPresent(Int.self, forKey: .pendingUserActionCount) ?? 0)
     }
 }
