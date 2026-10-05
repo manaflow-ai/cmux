@@ -83,6 +83,93 @@ class Fixture:
         return archive.main(["verify", "--archive", str(out), "--license-manifest", str(self.manifest), "--revision", self.revision])
 
 
+NEXT_PKG = "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7"
+
+
+class NextFixture:
+    """A second Ghostty tree (ghostty-next, the libghostty-vt source of bin/cmux)."""
+
+    def __init__(self, root: Path):
+        self.source = root / "ghostty-next"
+        self.source.mkdir()
+        (self.source / "build.zig.zon").write_text(f'.{{ .name = .ghostty, .dependencies = .{{ .uucode = .{{ .url = "https://x/u.tgz", .hash = "{NEXT_PKG}" }} }} }}\n')
+        (self.source / "LICENSE").write_text("ghostty MIT\n")
+        git(self.source, "init", "-q")
+        git(self.source, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+        git(self.source, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "next")
+        self.revision = subprocess.run(["git", "-C", str(self.source), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        package = self.source / "zig-pkg" / NEXT_PKG
+        package.mkdir(parents=True)
+        (package / "LICENSE.md").write_text("MIT\n")
+        (package / "src.zig").write_text("// uucode\n")
+        self.manifest = root / "NEXT-SOURCE-MANIFEST.json"
+        self.manifest.write_text(json.dumps({
+            "schema": 1, "ghostty_revision": self.revision, "unresolved_packages": [],
+            "license_files": [], "zig_packages": {NEXT_PKG: {"dependency": "uucode", "url": "https://x/u.tgz"}},
+        }))
+
+    def build_args(self) -> list[str]:
+        return ["--next-name", "ghostty-next", "--next-source", str(self.source),
+                "--next-license-manifest", str(self.manifest), "--next-revision", self.revision]
+
+    def verify_args(self) -> list[str]:
+        return ["--next-name", "ghostty-next", "--next-license-manifest", str(self.manifest),
+                "--next-revision", self.revision]
+
+
+class GhosttyNextSourceArchiveTest(unittest.TestCase):
+    """The archive also holds the ghostty-next tree and its Zig packages."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.fx = Fixture(self.root)
+        self.next = NextFixture(self.root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def build(self, out: Path) -> int:
+        return archive.main([
+            "build", "--ghostty-source", str(self.fx.source), "--zig-cache", str(self.fx.cache),
+            "--license-manifest", str(self.fx.manifest), "--revision", self.fx.revision,
+            "--cmux-commit", COMMIT, "--tag", "cmux-next-src-ccccccccccc", "--out", str(out),
+            *self.next.build_args(),
+        ])
+
+    def verify(self, out: Path) -> int:
+        return archive.main(["verify", "--archive", str(out), "--license-manifest", str(self.fx.manifest),
+                             "--revision", self.fx.revision, *self.next.verify_args()])
+
+    def test_archive_holds_both_trees(self) -> None:
+        out = self.root / "a.tar.gz"
+        self.assertEqual(self.build(out), 0)
+        self.assertEqual(self.verify(out), 0)
+        p = archive.prefix(COMMIT)
+        with tarfile.open(out) as tar:
+            names = set(tar.getnames())
+            info = json.loads(tar.extractfile(f"{p}/CORRESPONDING-SOURCE.json").read())
+        self.assertIn(f"{p}/ghostty-next/build.zig.zon", names)
+        self.assertIn(f"{p}/zig-packages/{NEXT_PKG}/src.zig", names)
+        self.assertIn(f"{p}/zig-packages/{Z2D}/src/z2d.zig", names)
+        self.assertEqual(info["ghostty_next"]["path"], "ghostty-next")
+        self.assertEqual(info["ghostty_next"]["revision"], self.next.revision)
+        self.assertEqual(sorted(info["ghostty_next"]["zig_packages"]), [NEXT_PKG])
+
+    def test_verify_needs_the_second_tree(self) -> None:
+        out = self.root / "a.tar.gz"
+        self.assertEqual(self.fx.build(out), 0)
+        self.assertNotEqual(self.verify(out), 0)
+
+    def test_verify_needs_every_ghostty_next_package(self) -> None:
+        out = self.root / "a.tar.gz"
+        self.assertEqual(self.build(out), 0)
+        data = json.loads(self.next.manifest.read_text())
+        data["zig_packages"]["N-V-__8AAMissingNextPackageXXXXXXXXXXXXXXXXXXXXX"] = {"dependency": "m", "url": "https://x/m"}
+        self.next.manifest.write_text(json.dumps(data))
+        self.assertNotEqual(self.verify(out), 0)
+
+
 class GhosttySourceArchiveTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

@@ -114,6 +114,10 @@ enum DebugKey {
                 "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,
                 "palette_unhandled_key_downs": .number(Double(palette.unhandledKeyDowns)),
                 "palette_selected": palette.model.selectedItem.map { .string($0.actionID?.rawValue ?? $0.id) } ?? .null,
+                // The row id Return runs and the first rows, so a probe tells an action row from a
+                // scope or setting row with the same action.
+                "palette_selected_row": palette.model.selectedItem.map { .string($0.id) } ?? .null,
+                "palette_rows": .array(palette.model.rows.prefix(6).map { .string($0.id) }),
                 "palette_recorder": palette.model.shortcutRecorder.map { recorder in
                     .object(["action": .string(recorder.actionID.rawValue), "message": recorder.message.map(JSONValue.string) ?? .null,
                              "recorded": recorder.recorded.map { .string($0.displayString) } ?? .null,

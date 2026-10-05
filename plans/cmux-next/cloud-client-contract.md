@@ -484,3 +484,14 @@ cannot subscribe to the team's cloud stream. No idempotency key (fresh facts, ne
 
 Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` events).
 
+### Pause, start and idle pause (2026-10-05)
+
+- `cloud.machine.pause` / `cloud.machine.start`: money ops (a signed-in person, plan and quota on start,
+  per-team limit). The answer is `pausing` / `starting`; `cloud.machine.upsert` brings the outcome.
+- A paused, pausing or starting machine: `connect_info` answers `state`; `link_token` refuses with
+  `cloud.machine.paused {machine, state}`. Nothing starts a machine on connect: the client asks the
+  person ("Start machine?") and calls `cloud.machine.start`.
+- Idle pause: team policy `cloud.idlePause`, default OFF until auto-start is decided. When on, a machine
+  pauses only when its own `cloud.vm.status.report` shows no sessions and no input or agent action past
+  its idle policy; a VM that stops reporting is unknown and never paused.
+

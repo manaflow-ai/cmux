@@ -16,6 +16,10 @@ on:
       - "scripts/cmux-next/notices/ghostty_source_archive.py"
       - "scripts/cmux-next/notices/test_ghostty_source_archive.py"
       - "scripts/cmux-next/build-ghostty-source-archive.sh"
+      - "ghostty-next"
+      - "cmux-tui/crates/ghostty-vt-sys/build.rs"
+      - "scripts/cmux-next/notices/check_ghostty_vt_notices.py"
+      - "scripts/cmux-next/notices/test_check_ghostty_vt_notices.py"
       - "scripts/install-zig-ci.sh"
       - ".github/workflows/cmux-next-source-archive.yml"
   workflow_dispatch:
@@ -49,8 +53,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check out the Ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+      - name: Check out the Ghostty submodule and the libghostty-vt source
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 ghostty
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
+          [[ "${vt%% *}" == ghostty ]] || git submodule update --init --depth 1 "${vt%% *}"
 
       - name: Install Zig
         run: ./scripts/install-zig-ci.sh
@@ -59,9 +67,23 @@ jobs:
         run: |
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
+          python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
 
       - name: Build and verify the source archive (twice, byte-identical)
         run: ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive" "dryrun-${{ github.run_number }}"
+
+      # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's
+      # build.rs names (ghostty-next today). Its declared Zig packages must be in
+      # the collected license trees (Ghostty's and ghostty-next's). Blocking
+      # since dry run 37268653599 (all 35 packages covered).
+      - name: libghostty-vt Zig packages are covered by the notices
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source
+          source="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p' | awk '{print $1}')"
+          manifests=(--license-manifest "$RUNNER_TEMP/source-archive/ghostty-licenses/SOURCE-MANIFEST.json")
+          [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$RUNNER_TEMP/source-archive/$source-licenses/SOURCE-MANIFEST.json")
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}"
 
       - name: Upload the archive and the license tree (workflow artifact only)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

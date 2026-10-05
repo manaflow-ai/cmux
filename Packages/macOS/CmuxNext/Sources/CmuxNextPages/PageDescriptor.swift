@@ -148,6 +148,19 @@ public extension PageDescriptor {
         SettingsSchema.actions(in: section).map(\.rawValue)
     })
 
+    /// The changelog page (R114): signed release notes, read only. Its only native op runs a
+    /// highlight's "Try it", and only for an action in ``changelogTryItActions``: the signed
+    /// notes may name an action id, never a command or a URL.
+    static let changelog = PageDescriptor(
+        id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
+        nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions)
+
+    /// The actions a changelog "Try it" may run (compiled in, reviewed with each addition).
+    static let changelogTryItActions: Set<String> = [
+        "palette.checkForUpdates", "openSettings", "palette.searchShortcuts", "palette.newAgentChat",
+        "home.show", "appStore.show", "newBrowserWorkspace", "space.new",
+    ]
+
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],

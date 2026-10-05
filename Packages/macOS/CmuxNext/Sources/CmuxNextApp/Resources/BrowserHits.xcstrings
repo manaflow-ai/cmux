@@ -1,133 +1,264 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "browserHits.error.chromiumSave": {
+    "browserHits.download.failed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium tabs save from the page's right-click menu for now."
+            "value": "Could not download “%@”"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium タブでは、現在はページの右クリックメニューから保存します。"
+            "value": "「%@」をダウンロードできませんでした"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تحفظ علامات تبويب Chromium من قائمة النقر بزر الماوس الأيمن في الصفحة حاليًا."
+            "value": "تعذّر تنزيل “%@”"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium kartice za sada spremaju iz menija desnog klika na stranici."
+            "value": "Nije moguće preuzeti „%@”"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium-faner gemmer indtil videre fra sidens højrekliksmenu."
+            "value": "Kunne ikke hente “%@”"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium-Tabs speichern vorerst über das Rechtsklickmenü der Seite."
+            "value": "„%@“ konnte nicht geladen werden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Por ahora, las pestañas de Chromium guardan desde el menú contextual de la página."
+            "value": "No se pudo descargar «%@»"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pour l'instant, les onglets Chromium enregistrent depuis le menu contextuel de la page."
+            "value": "Impossible de télécharger « %@ »"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Per ora le schede Chromium salvano dal menu contestuale della pagina."
+            "value": "Impossibile scaricare “%@”"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំង Chromium រក្សាទុកពីម៉ឺនុយចុចស្ដាំនៃទំព័រសម្រាប់ពេលនេះ។"
+            "value": "មិនអាចទាញយក “%@” បានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium 탭은 현재 페이지의 오른쪽 클릭 메뉴에서 저장합니다."
+            "value": "“%@”을(를) 다운로드할 수 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium-faner lagrer foreløpig fra sidens høyreklikkmeny."
+            "value": "Kunne ikke laste ned «%@»"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Karty Chromium na razie zapisują z menu kontekstowego strony."
+            "value": "Nie można pobrać „%@”"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Por enquanto, abas do Chromium salvam pelo menu de clique direito da página."
+            "value": "Não foi possível baixar “%@”"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пока вкладки Chromium сохраняют через контекстное меню страницы."
+            "value": "Не удалось загрузить «%@»"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บ Chromium บันทึกจากเมนูคลิกขวาของหน้าในขณะนี้"
+            "value": "ดาวน์โหลด “%@” ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium sekmeleri şimdilik sayfanın sağ tık menüsünden kaydeder."
+            "value": "“%@” indirilemedi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Поки що вкладки Chromium зберігають через контекстне меню сторінки."
+            "value": "Не вдалося завантажити «%@»"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiện tại, tab Chromium lưu từ menu chuột phải của trang."
+            "value": "Không thể tải xuống “%@”"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "目前 Chromium 标签页需从页面的右键菜单存储。"
+            "value": "无法下载“%@”"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "目前 Chromium 分頁需從頁面的右鍵選單儲存。"
+            "value": "無法下載「%@」"
+          }
+        }
+      }
+    },
+    "browserHits.download.finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloaded “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」をダウンロードしました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم تنزيل “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzeto „%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hentede “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ geladen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se descargó «%@»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "« %@ » téléchargé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scaricato “%@”"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានទាញយក “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 다운로드 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lastet ned «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobrano „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” baixado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загружено: «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวน์โหลด “%@” แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” indirildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажено: «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tải xuống “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已下载“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已下載「%@」"
           }
         }
       }

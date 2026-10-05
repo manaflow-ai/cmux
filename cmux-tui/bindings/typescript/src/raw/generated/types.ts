@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b. */
+/* cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -119,6 +119,8 @@ export type ClientSize = {
 };
 
 export type ClientTransport = "local" | "unix" | "ws";
+
+export type CloseReason = "session_end";
 
 export type CloseTerminalResult = {
   "already_closed": boolean;

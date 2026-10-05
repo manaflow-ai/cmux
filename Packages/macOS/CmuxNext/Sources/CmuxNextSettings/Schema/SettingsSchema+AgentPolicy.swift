@@ -128,6 +128,7 @@ extension SettingsSchema {
         "labs.previewFeatures",
         "updates.notify",
         "updates.quietHours",
+        "announcements.enabled",
     ]
 
     /// Keys an agent may not set or reset, with the reason.
@@ -146,6 +147,7 @@ extension SettingsSchema {
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
+        "announcements.fetch": .network,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

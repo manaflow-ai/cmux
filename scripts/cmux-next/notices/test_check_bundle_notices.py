@@ -25,6 +25,7 @@ JAVA_CLASS = b"\xca\xfe\xba\xbe\x00\x00\x00\x41" + b"\0" * 24
 
 GHOSTTY_REVISION = "b" * 40
 TREE = "Contents/Resources/ghostty-licenses"
+NEXT_TREE = "Contents/Resources/ghostty-next-licenses"
 
 
 def write_ghostty_license_tree(root: Path, revision: str = GHOSTTY_REVISION) -> None:
@@ -139,10 +140,43 @@ class CheckBundleNoticesTest(unittest.TestCase):
 
     def test_the_map_covers_the_ghostty_license_tree(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
-        entries = [e for e in bundle_map.get("resources", []) if e["path"] == TREE]
-        self.assertEqual(len(entries), 1)
-        self.assertIn(f"ghostty-license-tree:{TREE}", entries[0]["notices"])
-        self.assertIn("section:manual-ghostty", entries[0]["notices"])
+        for tree in (TREE, NEXT_TREE):
+            entries = [e for e in bundle_map.get("resources", []) if e["path"] == tree]
+            self.assertEqual(len(entries), 1, tree)
+            self.assertIn(f"ghostty-license-tree:{tree}", entries[0]["notices"])
+            self.assertIn("section:manual-ghostty", entries[0]["notices"])
+
+    def test_each_license_tree_names_its_own_revision(self) -> None:
+        next_revision = "e" * 40
+        write_ghostty_license_tree(self.app / TREE)
+        write_ghostty_license_tree(self.app / NEXT_TREE, next_revision)
+        bundle_map = {**MAP, "resources": [
+            {"path": TREE, "notices": [f"ghostty-license-tree:{TREE}"]},
+            {"path": NEXT_TREE, "notices": [f"ghostty-license-tree:{NEXT_TREE}"]},
+        ]}
+        self.assertEqual(checker.check(self.app, bundle_map, ghostty_revision=GHOSTTY_REVISION,
+                                       tree_revisions={NEXT_TREE: next_revision}), [])
+        errors = checker.check(self.app, bundle_map, ghostty_revision=GHOSTTY_REVISION,
+                               tree_revisions={NEXT_TREE: GHOSTTY_REVISION})
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(NEXT_TREE, errors[0])
+
+    def test_bundled_ghostty_next_license_tree_needs_a_map_entry(self) -> None:
+        # bin/cmux's libghostty-vt comes from ghostty-next; its own tree ships.
+        write_ghostty_license_tree(self.app / NEXT_TREE)
+        self.assertEqual(
+            checker.check(self.app, MAP),
+            [f"{NEXT_TREE}: bundled, but no bundle-map.json resources entry covers it"],
+        )
+
+    def test_bin_cmux_needs_the_ghostty_notice(self) -> None:
+        # bin/cmux links libghostty-vt (Ghostty MIT, vendored simdutf); its
+        # Zig packages are checked by check_ghostty_vt_notices.py.
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        [entry] = [e for e in bundle_map["entries"] if e["path"] == "Contents/Resources/bin/cmux"]
+        self.assertIn("section:manual-ghostty", entry["notices"])
+        [ssh] = [e for e in bundle_map["entries"] if e["path"] == "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*"]
+        self.assertIn("section:manual-ghostty", ssh["notices"])
 
     def test_the_map_covers_bundled_ghostty_themes(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
