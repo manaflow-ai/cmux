@@ -26,7 +26,7 @@ import Foundation
 import os
 import Bonsplit
 import WebKit
-import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
