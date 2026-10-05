@@ -9,10 +9,15 @@ on:
     types: [opened,edited,reopened,synchronize,ready_for_review]
 permissions: {}
 
+concurrency:
+  group: cla-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     # Every suite must publish the stable required context, including metadata edits.
     name: CLA policy guard
+    if: "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}"
     # This control-plane workflow parses attacker-controlled YAML and shell
     # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must
     # not be able to redirect it to a persistent or contributor-controlled
@@ -72,3 +77,35 @@ jobs:
             tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
             "$RUNNER_TEMP/actionlint" "$candidate_dir/cla.yml"
           fi
+
+  metadata:
+    # A body/title edit cannot change the candidate head. Reuse only a
+    # completed successful guard check for this exact head, so cancellation
+    # never turns an unvalidated policy revision into a green required check.
+    name: CLA policy guard
+    if: "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Require GitHub-hosted runner
+        if: runner.environment != 'github-hosted'
+        run: |
+          set -euo pipefail
+          echo "::error::CLA policy requires a GitHub-hosted runner"
+          exit 1
+
+      - name: Confirm exact-head guard success
+        if: runner.environment == 'github-hosted'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api --paginate --slurp \
+            "repos/$GH_REPO/commits/$HEAD_SHA/check-runs?check_name=CLA%20policy%20guard&per_page=100" |
+            jq -e '[.[].check_runs[]? | select(.name == "CLA policy guard" && .status == "completed" && .conclusion == "success")] | length > 0' >/dev/null

@@ -93,7 +93,7 @@ def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
         except (AssertionError, KeyError, TypeError):
             return name
         return REQUIRED_CHECK
-    if path.name == "cla-policy-guard.yml" and job_id == "validate":
+    if path.name == "cla-policy-guard.yml" and job_id in {"validate", "metadata"}:
         from test_cla_guard_metadata_routing import (
             REQUIRED_CHECK as CLA_REQUIRED_CHECK,
             validate_metadata_routing as validate_cla_metadata_routing,
