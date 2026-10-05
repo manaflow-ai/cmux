@@ -151,6 +151,7 @@ impl Hub {
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let control = opts.control;
         let mut on_accepted = opts.on_accepted;
         let mut accept = |v: Value| {
             if let Some(f) = on_accepted.take() {
@@ -171,6 +172,7 @@ impl Hub {
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
         if steer_now {
+            self.web_control_check(session, control)?;
             // A running turn has a live agent.
             let child = self.child_for(session).await?;
             let agent_sid = session
@@ -228,6 +230,24 @@ impl Hub {
                 "dequeued",
                 json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
             );
+        }
+        // Checked again at dispatch, under the meta lock every mode write
+        // takes: the mode may have changed since the guard ran, or while
+        // this prompt waited in the queue. A refused prompt never reaches
+        // the harness.
+        let refused = {
+            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            self.web_control_verdict(session, &m, control).err()
+        };
+        if let Some(e) = refused {
+            self.append(
+                session,
+                "mux",
+                "prompt_refused",
+                json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data}),
+            );
+            drop(guard);
+            return Err(e);
         }
         {
             let mut m = session.meta.lock().unwrap();
@@ -606,15 +626,12 @@ impl Hub {
         match m {
             method::SESSION_SET_MODE => {
                 if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {
-                    let mut meta = session.meta.lock().unwrap();
-                    if let Some(modes) = meta.modes.as_mut() {
-                        modes["currentModeId"] = mode;
-                    }
+                    self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
                 }
             }
             method::SESSION_SET_CONFIG_OPTION => {
                 if let Some(opts) = res.get("configOptions") {
-                    session.meta.lock().unwrap().config_options = Some(opts.clone());
+                    self.write_mode_state(session, [ModeWrite::ConfigOptions(opts.clone())]);
                 }
             }
             method::SESSION_SET_MODEL => {
@@ -634,12 +651,7 @@ impl Hub {
         mode_id: &str,
     ) -> Result<Value, RpcError> {
         let r = self.forward(session, method::SESSION_SET_MODE, json!({"modeId": mode_id})).await?;
-        {
-            let mut meta = session.meta.lock().unwrap();
-            if let Some(modes) = meta.modes.as_mut() {
-                modes["currentModeId"] = Value::String(mode_id.to_owned());
-            }
-        }
+        self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
         self.append(session, "mux", "mode", json!({"modeId": mode_id}));
         self.save_meta(session);
         Ok(r)

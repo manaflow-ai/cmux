@@ -366,20 +366,6 @@ impl Default for TuiConfig {
     }
 }
 
-/// A remote acpmux daemon this daemon mirrors. Sessions there appear here as
-/// `<peer>/<name>` and every request is forwarded.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PeerConfig {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-    /// The peer daemon's peer token (`server/peer_auth.rs`), for a `ws://`
-    /// or `wss://` peer; an `ssh://` peer reads it over ssh at each connect.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub peer_token: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -991,6 +977,8 @@ pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
 };
+mod peer;
+pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
 mod preset_args;

@@ -353,6 +353,11 @@ impl Hub {
     /// `session/prompt` with `promptId` (default: the handoffId) and
     /// `resend`. A retry with the same `promptId` answers `already_started`
     /// from the record or the target's log and never sends twice.
+    /// The target session id of handoff `id`, for the remote guard.
+    pub(crate) fn handoff_target_id(&self, id: &str) -> Option<String> {
+        self.handoffs.get(id).map(|r| r.target.session_id)
+    }
+
     pub async fn handoff_start(self: &Arc<Self>, p: &Value) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
         let _id = self.handoffs.lock(format!("id:{id}")).await;
@@ -543,6 +548,8 @@ impl Hub {
                 let _ = tx.send(v);
             })),
             resend: true,
+            // A Web start is checked against the target in the remote guard.
+            control: crate::hub::Control::Local,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

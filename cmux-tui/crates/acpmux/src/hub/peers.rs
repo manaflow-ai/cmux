@@ -81,6 +81,18 @@ impl Hub {
         Ok(())
     }
 
+    /// `_acpmux/peer_add {name, url, token?, peerToken?, wait?}`.
+    pub async fn add_peer_from(&self, params: &Value) -> Result<(), RpcError> {
+        let text = |k: &str| params.get(k).and_then(Value::as_str);
+        let required =
+            |k: &str| text(k).ok_or_else(|| RpcError::invalid_params(format!("{k} is required")));
+        let (name, url) = (required("name")?, required("url")?);
+        let token = text("token").map(str::to_owned);
+        let peer_token = text("peerToken").map(str::to_owned);
+        let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+        self.add_peer(name, url, token, peer_token, wait).await
+    }
+
     /// Reconnect a configured peer now (its daemon was restarted), without
     /// waiting out the reconnect backoff; with `wait`, answer once the
     /// attempt settled.

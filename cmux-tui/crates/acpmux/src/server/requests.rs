@@ -90,6 +90,7 @@ async fn dispatch_request(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
+        super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
         if matches!(
             m,
             method::MUX_ATTACH
@@ -316,6 +317,7 @@ async fn dispatch_request(
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
                 resend,
+                control: super::remote_guard::control_of(conn.origin, &params),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -457,14 +459,7 @@ async fn dispatch_request(
             Ok(cat)
         }
         "_acpmux/peer_add" => {
-            let name = str_param(&params, "name")
-                .ok_or_else(|| RpcError::invalid_params("name is required"))?;
-            let url = str_param(&params, "url")
-                .ok_or_else(|| RpcError::invalid_params("url is required"))?;
-            let token = str_param(&params, "token").map(str::to_owned);
-            let peer_token = str_param(&params, "peerToken").map(str::to_owned);
-            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-            hub.add_peer(name, url, token, peer_token, wait).await?;
+            hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_reconnect" => {
@@ -905,7 +900,8 @@ async fn dispatch_request(
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.respond_permission_group(&s, params).await
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission_group(&s, params, control).await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -917,7 +913,8 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
-            hub.respond_permission(&s, pid, option, answers).await?;
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission(&s, pid, option, answers, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
