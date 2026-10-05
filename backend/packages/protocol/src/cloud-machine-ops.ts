@@ -42,6 +42,13 @@ export const CloudMachine = Schema.Struct({
   last_active_at: Schema.NullOr(Millis),
   idle_policy: Schema.Struct({ idle_seconds: Schema.Int }),
   error: Schema.NullOr(Schema.Struct({ code: Schema.String, message: Schema.String, at: Millis })),
+  /**
+   * Why cmux paused a machine by itself, for the app to show: idle (its reports showed it idle past its
+   * idle policy or 24 h), no_report (no report for 24 h after its last start or bind: the cost
+   * backstop), provider_stopped / provider_paused (the VM was found stopped or paused, e.g. a poweroff
+   * inside). Absent or null after a person's pause or a start.
+   */
+  pause_reason: Schema.optionalKey(Schema.NullOr(Schema.Literals(["idle", "no_report", "provider_stopped", "provider_paused"]))),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 

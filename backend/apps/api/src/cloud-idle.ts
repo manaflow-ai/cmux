@@ -25,3 +25,10 @@ export const idleFromReport = (row: MachineRow | undefined, activity: ReportedAc
   const last = Math.max(Math.min(Math.max(...times), now), row.last_power_at ?? 0)
   return now - last >= idleSeconds * 1000
 }
+
+/**
+ * The cost backstop for a silent VM (coordinator decision b, 2026-10-05): a running machine with no
+ * applied report for 24 h after its last start or bind is paused (pause_reason no_report). This acts
+ * on a missing report on purpose; the short idle pause never does.
+ */
+export const silentSince = (row: MachineRow, lastReportAt: number | null): number => Math.max(lastReportAt ?? 0, row.last_power_at ?? row.created_at)

@@ -121,6 +121,7 @@ export type CloudMachine = {
     readonly message: string
     readonly at: number
   } | null
+  readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
   readonly revision: Revision
 }
 

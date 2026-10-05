@@ -203,6 +203,15 @@ export class GuardedCloudDriver {
     return this.raw.resources(found.id)
   }
 
+  /** The real provider state of our VM under `name`; `gone` when no VM is there (a cheap read for connect_info and link_token). */
+  async stateOf(name: string, tag: VmTag): Promise<{ state: string | null; gone: boolean }> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) return { state: null, gone: true }
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    return { state: await this.raw.state(found.id), gone: false }
+  }
+
   /** Deletes the VM under `name`; no VM there is success. */
   async remove(name: string, tag: VmTag): Promise<void> {
     this.guard(name)

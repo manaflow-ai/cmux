@@ -494,6 +494,10 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
 - Freestyle never pauses, stops or deletes a machine by itself (every Freestyle timer -1 at create), so the
   machine record stays true. Our 24 h backstop pauses a machine whose own reports show no sessions and no
   input or agent action for 24 h, for every team (bounds the cost of a forgotten machine).
+  A running machine whose VM sent no report for 24 h after its last start or bind is also paused (the cost
+  backstop for a silent VM). `pause_reason` on the machine says why cmux paused it: idle, no_report,
+  provider_stopped or provider_paused (connect_info and link_token read the VM's real state and correct
+  the record, e.g. after a poweroff inside); a person's pause or a start clears it.
 - Idle pause: team policy `cloud.idlePause`, default OFF until auto-start is decided. When on, a machine
   pauses only when its own `cloud.vm.status.report` shows no sessions and no input or agent action past
   its idle policy (`cloud.machine.idle_policy.set` changes only this policy); a VM that stops reporting is

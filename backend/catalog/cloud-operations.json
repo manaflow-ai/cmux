@@ -712,6 +712,21 @@
             }
           }
         },
+        "pause_reason": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "enum",
+              "values": [
+                "idle",
+                "no_report",
+                "provider_stopped",
+                "provider_paused"
+              ]
+            }
+          }
+        },
         "revision": {
           "required": true,
           "type": {
@@ -15169,6 +15184,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -15577,6 +15608,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -15901,6 +15948,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -16454,6 +16517,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -16769,6 +16848,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -17101,6 +17196,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -17465,6 +17576,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -17788,6 +17915,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -18103,6 +18246,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"
@@ -19484,6 +19643,22 @@
                   }
                 ]
               },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -19931,6 +20106,22 @@
                       "at"
                     ],
                     "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pause_reason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "no_report",
+                      "provider_stopped",
+                      "provider_paused"
+                    ]
                   },
                   {
                     "type": "null"

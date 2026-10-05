@@ -3187,10 +3187,45 @@
       "note": "Provisioning done: the host is bound."
     },
     {
-      "name": "machine.upsert.new",
+      "name": "machine.upsert.no_report",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
       "seq": 121,
+      "data": {
+        "machine": {
+          "id": "vm_m0000000000000000001",
+          "team": "team_t0000000000000000001",
+          "creator": "user_u0000000000000000001",
+          "name": "build box",
+          "size": {
+            "cpu": 2,
+            "memory_mb": 4096,
+            "disk_mb": 16384
+          },
+          "status": "paused",
+          "image": {
+            "id": "img_i0000000000000000001",
+            "daemon_version": "0.40.0"
+          },
+          "host": "host_h0000000000000000001",
+          "classic": false,
+          "created_at": 1790000001000,
+          "last_active_at": 1790000601000,
+          "idle_policy": {
+            "idle_seconds": 1800
+          },
+          "error": null,
+          "revision": "57",
+          "pause_reason": "no_report"
+        }
+      },
+      "note": "The cost backstop paused it: no report from its VM for 24 h after its last start or bind. The app shows why; a start clears pause_reason."
+    },
+    {
+      "name": "machine.upsert.new",
+      "event": "cloud.machine.upsert",
+      "stream": "cloud:team_t0000000000000000001",
+      "seq": 122,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000008",
@@ -3223,7 +3258,7 @@
       "name": "machine.removed",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 122,
+      "seq": 123,
       "data": {
         "machine": "vm_m0000000000000000003",
         "revision": "56"
@@ -3233,7 +3268,7 @@
       "name": "machine.removed.stale",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 123,
+      "seq": 124,
       "data": {
         "machine": "vm_m0000000000000000001",
         "revision": "3"
@@ -3244,7 +3279,7 @@
       "name": "snapshot.upsert",
       "event": "cloud.snapshot.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 124,
+      "seq": 125,
       "data": {
         "snapshot": {
           "id": "snap_s0000000000000000003",
@@ -3261,7 +3296,7 @@
       "name": "snapshot.removed",
       "event": "cloud.snapshot.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 125,
+      "seq": 126,
       "data": {
         "snapshot": "snap_s0000000000000000001",
         "revision": "4"
@@ -3271,7 +3306,7 @@
       "name": "plan.changed",
       "event": "cloud.plan.changed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 126,
+      "seq": 127,
       "data": {
         "plan": {
           "plan_id": "pro",

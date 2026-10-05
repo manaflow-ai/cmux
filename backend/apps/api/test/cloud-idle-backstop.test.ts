@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createBody } from "../src/cloud-driver.ts"
-import { bindFile, cloudStub, DAEMON, installOf, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -64,12 +64,19 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     await fireAlarm(s.stub)
     const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
     expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
+    // A start clears the reason (the person decided).
+    expect((await op(s.a.session, "cloud.machine.start", { machine: s.machine }, crypto.randomUUID())).body.ok).toBe(true)
+    const after = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(after).toMatchObject({ status: "running", pause_reason: null })
   })
 
-  it("a report keeps the cost backstop away; a start clears the pause reason", async () => {
+  it("a report keeps the cost backstop away", async () => {
     const s = await vmSetup("cloud-bind-2")
     await s.stub.fakeControl({ advance_ms: 23 * H } as never)
-    await s.report({ active_sessions: 1, last_user_input_at: Date.now() + 23 * H })
+    const rep = await s.report({ active_sessions: 1, last_user_input_at: Date.now() + 23 * H })
+    expect(rep.body, JSON.stringify(rep.body)).toMatchObject({ ok: true, value: { applied: true } })
+    const dbg = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(dbg, JSON.stringify(dbg)).toMatchObject({ status: "running" })
     await s.stub.fakeControl({ advance_ms: 2 * H } as never)
     await fireAlarm(s.stub)
     expect(await s.status()).toBe("running")
@@ -86,6 +93,5 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     expect(lt.body.error?.code).toBe("cloud.machine.paused")
     const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
     expect(got).toMatchObject({ status: "paused", pause_reason: "provider_stopped" })
-    void installOf
   })
 })
