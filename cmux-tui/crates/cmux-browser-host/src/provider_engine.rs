@@ -908,3 +908,7 @@ mod tests {
 #[cfg(test)]
 #[path = "provider_engine_lease_tests.rs"]
 mod lease_tests;
+
+#[cfg(test)]
+#[path = "provider_engine_input_tests.rs"]
+mod input_tests;
