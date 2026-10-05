@@ -5,14 +5,17 @@ import CmuxNextDesign
 import CmuxNextTerminal
 
 // Resolution (plans/cmux-next/keybindings.md section 4): a key-down to its
-// binding table winner, else a routed Ghostty keybind, before the tier check.
+// binding table winner, before the tier check. The table holds the Ghostty
+// keybinds too (GHOSTTY-CONFIG order: cmux.json > the user's Ghostty keybinds
+// in a terminal > cmux defaults > Ghostty keybinds as a fallback).
 extension KeyRouter {
     /// A shortcut a key-down resolves to, before the tier check.
     nonisolated struct Candidate: Equatable, Sendable {
         enum Source: Equatable, Sendable {
             /// A binding table entry (catalog default or cmux.json).
             case registry(argument: String?)
-            /// A Ghostty keybind routed to a registry action.
+            /// A Ghostty keybind routed to a registry action (a `.ghostty` or
+            /// `.ghosttyFallback` table entry).
             case ghostty(arguments: [String: ActionValue])
         }
 
@@ -42,19 +45,29 @@ extension KeyRouter {
     }
 
     func candidate(for event: NSEvent, context: KeyContext, focus: FocusState) -> Candidate? {
-        if let winner = resolve(event, context: context) {
-            return Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
-                             arguments: winner.arguments)
+        guard let winner = resolve(event, context: context) else { return nil }
+        let tier = registry.keyTier(for: winner.command)
+        guard winner.source.isGhostty else {
+            return Candidate(id: winner.command, tier: tier, source: .registry(argument: winner.argument), arguments: winner.arguments)
         }
         let isBrowser = BrowserChordTable.isBrowserContext(focus.resolved)
-        // Page Back/Forward chords never fall back to a Ghostty keybind.
+        // Page Back/Forward chords never run a Ghostty keybind.
         if !isBrowser, BrowserChordTable.isBrowserOnlyChord(event, registry: registry) { return nil }
-        // Ghostty fallback: never for a browser chord while a page, the
-        // address bar or the find bar has the keyboard (Cmd-[ is Back there,
-        // not Ghostty's `goto_split:previous`); see BrowserChordTable.
+        // Nor does a browser chord while a page, the address bar or the find
+        // bar has the keyboard (Cmd-[ is Back there, not Ghostty's
+        // `goto_split:previous`); see BrowserChordTable.
         if isBrowser, BrowserChordTable.isChromeChord(event) { return nil }
-        guard let action = ghosttyHostAction(event), let route = TerminalHostActionRoute.route(action) else { return nil }
-        return Candidate(id: route.id, tier: registry.keyTier(for: route.id), source: .ghostty(arguments: route.arguments))
+        return Candidate(id: winner.command, tier: tier, source: .ghostty(arguments: winner.arguments))
+    }
+
+    /// The Ghostty keybind a key-down has in the table (the shortcut
+    /// recorder's note), whatever the focus: the routed action.
+    func ghosttyBinding(for event: NSEvent) -> ActionID? {
+        let entries = RegistryKeyBindings(registry).table.entries
+        for shortcut in ActionRegistry.shortcuts(for: event) {
+            if let entry = entries.last(where: { $0.source.isGhostty && $0.keys == [shortcut] }) { return entry.command }
+        }
+        return nil
     }
 
     /// A browser-only chord (page Back/Forward) outside a browser context
