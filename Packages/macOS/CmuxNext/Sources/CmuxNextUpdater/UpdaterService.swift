@@ -41,6 +41,12 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// The announcement cards to show (filtered), newest feed order.
+    public internal(set) var announcements: [Announcement] = []
+    /// `announcements.enabled` / `announcements.fetch` (set by the App).
+    public var announcementsEnabled = true { didSet { if oldValue != announcementsEnabled { refreshAnnouncements() } } }
+    public var announcementsFetch = true
+    @ObservationIgnored var announcementsLoader: (@Sendable () async -> [Announcement])?
     /// This build's notes while the what's-new card shows, else nil.
     public internal(set) var whatsNew: ReleaseNotes?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
