@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextTabs
@@ -10,18 +11,17 @@ import os
 /// action in the registry as `cmuxConfig.<name>`, and resolves buttons with
 /// live shortcut tooltips. A click runs the button's registry action
 /// targeted at the clicked pane, the same path as the palette and the CLI.
-/// Without a cmux.json list, each pane shows the default cluster for its
-/// selected tab's kind (``PaneToolbar``).
+/// Without a cmux.json list, each pane shows the default buttons for its
+/// selected tab's kind; a list longer than ``PaneToolbar/maxVisibleButtons``
+/// ends in "..." (``PaneToolbar``).
 @Observable
 final class TabBarButtonsController {
     /// The cmux.json list (empty while it sets none).
     private(set) var buttons: [TabStripButton] = []
-    /// The default cluster by kind, while cmux.json sets no list.
+    /// The default buttons by kind, while cmux.json sets no list.
     private(set) var defaultButtons: [PaneToolbar.Kind: [TabStripButton]] = [:]
     private(set) var usesDefaults = true
     @ObservationIgnored private(set) var actions: [String: ActionID] = [:]
-    /// Option-click actions, by button id.
-    @ObservationIgnored private(set) var alternates: [String: ActionID] = [:]
     @ObservationIgnored private let context: AppActionContext
     @ObservationIgnored private var specs: [TabBarButtonSpec] = SurfaceTabBarConfig.defaultButtons
     @ObservationIgnored private var registeredCommands: [ConfigCommandAction] = []
@@ -75,16 +75,33 @@ final class TabBarButtonsController {
         refresh()
     }
 
-    /// The strip buttons of a pane whose selected tab is of `kind`.
-    func buttons(for kind: PaneToolbar.Kind) -> [TabStripButton] {
+    /// Every button of a pane whose selected tab is of `kind`, before compacting.
+    func allButtons(for kind: PaneToolbar.Kind) -> [TabStripButton] {
         usesDefaults ? defaultButtons[kind] ?? [] : buttons
     }
 
-    /// Runs button `id` (its Option-click action when `alternate`) for the
-    /// pane `paneKey`. Returns whether it ran.
+    /// The strip buttons of a pane whose selected tab is of `kind`.
+    func buttons(for kind: PaneToolbar.Kind) -> [TabStripButton] {
+        PaneToolbar.visible(allButtons(for: kind))
+    }
+
+    /// "..."'s menu on pane `paneKey`: one row per button that did not fit,
+    /// running the button's action on the pane.
+    func overflowMenu(for kind: PaneToolbar.Kind, paneKey: String) -> NSMenu {
+        let menu = NSMenu()
+        let target = ActionTargetRef(kind: .pane, id: paneKey)
+        for button in PaneToolbar.overflow(allButtons(for: kind)) {
+            guard let action = actions[button.id],
+                  let item = registry.makeMenuItem(for: action, target: target, title: button.accessibilityLabel) else { continue }
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    /// Runs button `id` for the pane `paneKey`. Returns whether it ran.
     @discardableResult
-    func perform(_ id: String, paneKey: String, alternate: Bool = false) -> Bool {
-        guard let action = (alternate ? alternates[id] : nil) ?? actions[id] else { return false }
+    func perform(_ id: String, paneKey: String) -> Bool {
+        guard let action = actions[id] else { return false }
         return registry.perform(action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: paneKey)))
     }
 
@@ -94,17 +111,17 @@ final class TabBarButtonsController {
             logger.notice("tab bar button \(spec.id, privacy: .public): no action \(spec.actionID, privacy: .public)")
         }
         actions = resolved.actions
-        alternates = [:]
         if buttons != resolved.buttons { buttons = resolved.buttons }
         guard usesDefaults else {
             if !defaultButtons.isEmpty { defaultButtons = [:] }
             return
         }
-        actions.merge(PaneToolbar.actions) { current, _ in current }
-        alternates = PaneToolbar.alternates
-        let defaults = Dictionary(uniqueKeysWithValues: PaneToolbar.Kind.allCases.map {
-            ($0, PaneToolbar.buttons(for: $0, registry: registry))
-        })
+        var defaults: [PaneToolbar.Kind: [TabStripButton]] = [:]
+        for kind in PaneToolbar.Kind.allCases {
+            let resolvedDefaults = TabBarButtonResolver.resolve(PaneToolbar.defaultSpecs(for: kind), registry: registry)
+            defaults[kind] = resolvedDefaults.buttons
+            actions.merge(resolvedDefaults.actions) { current, _ in current }
+        }
         if defaultButtons != defaults { defaultButtons = defaults }
     }
 

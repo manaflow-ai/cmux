@@ -117,21 +117,12 @@ import Testing
     }
 
     static let cluster = [
-        TabStripButton(id: "cmux.split", icon: .symbol("square.split.2x1"), toolTip: "Split Right (⌘D)",
-                       accessibilityLabel: "Split Right", menu: .secondary),
-        TabStripButton(id: "cmux.more", icon: .symbol("ellipsis"), toolTip: "More", accessibilityLabel: "More", menu: .primary),
+        TabStripButton(id: "cmux.splitRight", icon: .symbol("square.split.2x1"), toolTip: "Split Right (⌘D)",
+                       accessibilityLabel: "Split Right"),
+        TabStripButton(id: "cmux.more", icon: .symbol("ellipsis"), toolTip: "More", accessibilityLabel: "More", opensMenu: true),
     ]
 
-    @Test func optionReleaseSendsTheAlternate() {
-        let h = Harness(buttons: Self.cluster)
-        h.strip.pendingTrailingPress = 0
-        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 0), modifiers: .option))
-        h.strip.pendingTrailingPress = 0
-        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 0)))
-        #expect(h.intents == [.trailingButtonAlternate("cmux.split"), .trailingButton("cmux.split")])
-    }
-
-    @Test func aPrimaryMenuButtonOpensItsMenuAndRunsNothing() throws {
+    @Test func aMenuButtonOpensItsMenuAndRunsNothing() throws {
         let h = Harness(buttons: Self.cluster)
         var asked: [TabContextTarget] = []
         // An empty menu is never shown, so the test does not block in menu tracking.
@@ -149,62 +140,15 @@ import Testing
         #expect(h.intents.isEmpty)
     }
 
-    @Test func aReleaseEndsItsHoldSoAQuickRepressGetsAFullHold() async {
+    @Test func aPlainButtonRunsOnReleaseAndOpensNoMenu() {
         let h = Harness(buttons: Self.cluster)
         var asked: [TabContextTarget] = []
         h.strip.contextMenuProvider = { asked.append($0); return NSMenu() }
-        // Each hold sleeps until its own gate opens.
-        let holds = Gates()
-        h.strip.groups.sleep = { _ in
-            let (gate, open) = AsyncStream<Void>.makeStream()
-            await holds.add(open)
-            for await _ in gate {}
-        }
-        var gates: [AsyncStream<Void>.Continuation] { holds.list }
         h.strip.trailingMenus.pressDown(0)
-        for _ in 0..<50 where gates.isEmpty { await Task.yield() }
-        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 0)))
-        h.strip.trailingMenus.pressDown(0)
-        for _ in 0..<50 where gates.count < 2 { await Task.yield() }
-        // The first press's hold ends now; it must not open the second press's menu.
-        gates.first?.finish()
-        for _ in 0..<50 { await Task.yield() }
-        #expect(asked.isEmpty)
         #expect(h.strip.pendingTrailingPress == 0)
-        #expect(h.intents == [.trailingButton("cmux.split")])
-        gates.last?.finish()
-        for _ in 0..<50 where asked.isEmpty { await Task.yield() }
-        #expect(asked == [.trailingButton("cmux.split")])
-    }
-
-    @MainActor final class Gates {
-        var list: [AsyncStream<Void>.Continuation] = []
-        func add(_ gate: AsyncStream<Void>.Continuation) { list.append(gate) }
-    }
-
-    @Test func aHoldDraggedOffTheButtonShowsNoMenu() async {
-        let h = Harness(buttons: Self.cluster)
-        var asked: [TabContextTarget] = []
-        h.strip.contextMenuProvider = { asked.append($0); return NSMenu() }
-        h.strip.groups.sleep = { _ in }
-        h.strip.trailingMenus.pressDown(0)
-        #expect(h.strip.trackTrailingButtonDrag(at: h.center(of: 1)))
-        for _ in 0..<50 { await Task.yield() }
+        #expect(h.strip.trailingMenus.showIfAny(at: 0) == nil)
+        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 0)))
         #expect(asked.isEmpty)
-        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 1)))
-        #expect(h.intents.isEmpty)
-    }
-
-    @Test func holdingASecondaryMenuButtonShowsItsMenuInsteadOfRunning() async {
-        let h = Harness(buttons: Self.cluster)
-        var asked: [TabContextTarget] = []
-        h.strip.contextMenuProvider = { asked.append($0); return NSMenu() }
-        h.strip.groups.sleep = { _ in }
-        h.strip.pendingTrailingPress = 0
-        h.strip.trailingMenus.startHold(0)
-        for _ in 0..<50 where asked.isEmpty { await Task.yield() }
-        #expect(asked == [.trailingButton("cmux.split")])
-        #expect(!h.strip.endTrailingButtonPress(at: h.center(of: 0)))
-        #expect(h.intents.isEmpty)
+        #expect(h.intents == [.trailingButton("cmux.splitRight")])
     }
 }

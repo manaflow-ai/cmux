@@ -1,67 +1,44 @@
 import AppKit
 
-/// Menus of the strip's trailing buttons (`TabStripButton.menu`): a click
-/// opens a `.primary` button's menu, press-and-hold or right-click opens a
-/// `.secondary` button's. The App builds each menu
-/// (`TabContextTarget.trailingButton`); this anchors it under the button.
+/// Menus of the strip's trailing buttons: a button that opens a menu
+/// (`TabStripButton.opensMenu`, the overflow button) shows it on click and
+/// right-click. The App builds each menu (`TabContextTarget.trailingButton`);
+/// this anchors it under the button.
 @MainActor
 final class TabStripTrailingMenus {
     private weak var strip: TabStripView?
-    /// Press-and-hold on a `.secondary` button opens its menu.
-    private var holdTask: Task<Void, Never>?
 
     init(strip: TabStripView) {
         self.strip = strip
     }
 
-    /// Mouse-down on button `index`: a `.primary` button opens its menu at
-    /// once; any other is pressed until mouse-up, and a `.secondary` one
-    /// opens its menu when held.
+    /// Mouse-down on button `index`: a menu button opens its menu at once;
+    /// any other is pressed until mouse-up.
     func pressDown(_ index: Int) {
         guard let strip, let button = strip.buttonGroup.button(at: index) else { return }
-        if button.menu == .primary { return show(at: index) }
+        if button.opensMenu { return show(at: index) }
         strip.pendingTrailingPress = index
         strip.buttonGroup.pressedIndex = index
-        if button.menu == .secondary { startHold(index) }
     }
 
-    /// Right-click on button `index`: its menu, anchored like the click or
-    /// hold menu. Always nil, so AppKit shows no second menu.
+    /// Right-click on button `index`: its menu, anchored like the click
+    /// menu. Always nil, so AppKit shows no second menu.
     func showIfAny(at index: Int) -> NSMenu? {
-        if let button = strip?.buttonGroup.button(at: index), button.menu != .none { show(at: index) }
+        if let button = strip?.buttonGroup.button(at: index), button.opensMenu { show(at: index) }
         return nil
     }
 
-    /// VoiceOver press: a `.primary` button opens its menu, any other runs.
+    /// VoiceOver press: a menu button opens its menu, any other runs.
     func press(_ id: String) {
         guard let strip, let index = strip.buttonGroup.buttons.firstIndex(where: { $0.id == id }) else { return }
-        if strip.buttonGroup.buttons[index].menu == .primary { return show(at: index) }
+        if strip.buttonGroup.buttons[index].opensMenu { return show(at: index) }
         strip.model.send(.trailingButton(id))
     }
 
-    /// Ends a press and its hold without showing a menu: a release, or the
-    /// strip leaving its window.
+    /// Ends a press without running it: a release, or the strip leaving its window.
     func endPress() {
-        holdTask?.cancel()
-        holdTask = nil
         strip?.pendingTrailingPress = nil
         strip?.buttonGroup.pressedIndex = nil
-    }
-
-    /// Holding button `index` opens its menu instead of running it. A
-    /// release cancels it (`endPress`).
-    func startHold(_ index: Int) {
-        holdTask?.cancel()
-        guard let sleep = strip?.groups.sleep else { return }
-        holdTask = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return }
-            // pressedIndex is nil while the press is dragged off the button: no menu then.
-            guard let self, !Task.isCancelled, let strip = self.strip, strip.pendingTrailingPress == index,
-                  strip.buttonGroup.pressedIndex == index else { return }
-            strip.pendingTrailingPress = nil
-            strip.buttonGroup.pressedIndex = nil
-            self.show(at: index)
-        }
     }
 
     /// Button `index`'s menu under the button, from the App's provider.

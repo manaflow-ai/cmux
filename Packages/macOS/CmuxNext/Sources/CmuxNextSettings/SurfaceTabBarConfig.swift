@@ -37,10 +37,10 @@ public struct SurfaceTabBarConfig: Sendable, Hashable {
         self.usesDefaults = usesDefaults
     }
 
-    /// No configured buttons by default: the app shows its default cluster
-    /// (split and more, by the selected tab's kind; CmuxNextApp `PaneToolbar`)
-    /// on hover. A list in cmux-next.json (`ui.surfaceTabBar.buttons`)
-    /// replaces it; an empty list shows none.
+    /// No configured buttons by default: the app shows its default buttons
+    /// (Split Right and Split Down, by the selected tab's kind; CmuxNextApp
+    /// `PaneToolbar`). A list in cmux-next.json (`ui.surfaceTabBar.buttons`)
+    /// replaces them; an empty list shows none.
     public static let defaultButtons: [TabBarButtonSpec] = []
 
     /// The built-in buttons a user can add back: new terminal tab, split

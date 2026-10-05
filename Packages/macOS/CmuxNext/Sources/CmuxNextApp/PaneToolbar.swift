@@ -1,21 +1,20 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextTabs
 import Observation
 
-/// The default trailing cluster of every pane's tab strip, used while
-/// cmux.json sets no `ui.surfaceTabBar.buttons`. At most two buttons after
-/// the strip's "+", picked by the kind of the pane's selected tab:
+/// The trailing buttons of each pane's tab strip: the cmux.json list
+/// (`ui.surfaceTabBar.buttons`) or, while it sets none, the default for the
+/// kind of the pane's selected tab:
 ///
-/// - terminal: split, more
-/// - browser: split, more
-/// - agent chat: more (its page header carries the chat's own tools)
+/// - terminal, browser: Split Right, Split Down
+/// - agent chat: none (its page header carries the chat's own tools)
 ///
-/// Split runs Split Right on click and Split Down on Option-click; its menu
-/// (right-click, press-and-hold) offers both. More opens the rest: files,
-/// folder, windows, and the tab's duplicate and move. Every entry is a
-/// registry action, so each keeps its shortcut and palette row.
+/// Every button stays visible up to `maxVisibleButtons`. Only a longer list
+/// is compacted: its first buttons stay and a "..." button lists the rest,
+/// each row running the same registry action as its button.
 enum PaneToolbar {
     enum Kind: Hashable, Sendable, CaseIterable {
         case terminal
@@ -23,79 +22,40 @@ enum PaneToolbar {
         case agent
     }
 
-    static let splitID = "cmux.split"
     static let moreID = "cmux.more"
+    /// The most buttons a strip shows; a longer list shows one fewer plus "...".
+    static let maxVisibleButtons = 4
 
-    static func buttonIDs(for kind: Kind) -> [String] {
+    private static let splitButtonIDs: Set<String> = ["cmux.splitRight", "cmux.splitDown"]
+
+    static func defaultSpecs(for kind: Kind) -> [TabBarButtonSpec] {
         switch kind {
-        case .terminal, .browser: [splitID, moreID]
-        case .agent: [moreID]
+        case .terminal, .browser: SurfaceTabBarConfig.builtInButtons.filter { splitButtonIDs.contains($0.id) }
+        case .agent: []
         }
     }
 
-    /// Action a button runs on click (none for More, whose click is its menu).
-    static let actions: [String: ActionID] = [splitID: "splitRight"]
-    /// Action a button runs on Option-click.
-    static let alternates: [String: ActionID] = [splitID: "splitDown"]
-
-    static func buttons(for kind: Kind, registry: ActionRegistry) -> [TabStripButton] {
-        buttonIDs(for: kind).map { id in
-            if id == splitID {
-                let title = registry.title(for: "splitRight") ?? id
-                let toolTip = registry.shortcutDisplay(for: "splitRight").map { Strings.tabBarButtonToolTip(title, shortcut: $0) } ?? title
-                return TabStripButton(id: id, icon: .symbol("square.split.2x1"), toolTip: toolTip, accessibilityLabel: title, menu: .secondary)
-            }
-            return TabStripButton(id: id, icon: .symbol("ellipsis"), toolTip: Strings.tabBarMore, accessibilityLabel: Strings.tabBarMore, menu: .primary)
-        }
+    /// What a strip shows for `buttons`: all of them, or past
+    /// `maxVisibleButtons` the first ones and "...".
+    static func visible(_ buttons: [TabStripButton]) -> [TabStripButton] {
+        guard buttons.count > maxVisibleButtons else { return buttons }
+        return Array(buttons.prefix(maxVisibleButtons - 1)) + [moreButton]
     }
 
-    static let splitEntries: [ContextMenuEntry] = [.action("splitRight"), .action("splitDown")]
-
-    /// More's entries on the pane: the splits when the strip shows no split button.
-    static func overflowPaneEntries(for kind: Kind) -> [ContextMenuEntry] {
-        buttonIDs(for: kind).contains(splitID) ? [] : splitEntries
+    /// The buttons "..." lists for `buttons` (none while all are visible).
+    static func overflow(_ buttons: [TabStripButton]) -> [TabStripButton] {
+        guard buttons.count > maxVisibleButtons else { return [] }
+        return Array(buttons.dropFirst(maxVisibleButtons - 1))
     }
 
-    /// More's entries on the focused window: files, folder, a new window.
-    static let overflowWindowEntries: [ContextMenuEntry] = [
-        .action("toggleRightSidebar"), .action("openFolder"), .action("newWindow"),
-    ]
-
-    /// More's entries on the selected tab.
-    static let overflowTabEntries: [ContextMenuEntry] = [.action("duplicateTab"), .action("tab.moveToNewWindow")]
-
-    /// The menu of button `id` on pane `pane`, whose selected tab is `tab`; nil for any other button.
-    static func menu(for id: String, kind: Kind, pane: String, tab: String?, registry: ActionRegistry) -> NSMenu? {
-        let paneTarget = ActionTargetRef(kind: .pane, id: pane)
-        switch id {
-        case splitID:
-            return registry.makeContextMenu(for: .pane, target: paneTarget, entries: splitEntries)
-        case moreID:
-            var sections = [
-                registry.makeContextMenu(for: .pane, target: paneTarget, entries: overflowPaneEntries(for: kind)),
-                registry.makeContextMenu(for: .pane, entries: overflowWindowEntries),
-            ]
-            if let tab {
-                sections.append(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: tab), entries: overflowTabEntries))
-            }
-            let menu = NSMenu()
-            menu.autoenablesItems = true
-            for section in sections where !section.items.isEmpty {
-                if !menu.items.isEmpty { menu.addItem(.separator()) }
-                for item in section.items {
-                    section.removeItem(item)
-                    menu.addItem(item)
-                }
-            }
-            return menu
-        default:
-            return nil
-        }
+    static var moreButton: TabStripButton {
+        TabStripButton(id: moreID, icon: .symbol("ellipsis"), toolTip: Strings.tabBarMore,
+                       accessibilityLabel: Strings.tabBarMore, opensMenu: true)
     }
 }
 
 extension PaneToolbar {
-    /// The kind of `pane`'s selected tab, which picks its buttons.
+    /// The kind of `pane`'s selected tab, which picks its default buttons.
     static func kind(of pane: PaneController) -> Kind {
         guard let id = pane.stripModel.selectedID?.rawValue else { return .terminal }
         if id.hasPrefix(LocalBrowserTab.prefix) { return .browser }
@@ -118,8 +78,10 @@ extension PaneToolbar {
         }
     }
 
-    /// The menu of button `id` on `pane`'s strip.
+    /// The menu of button `id` on `pane`'s strip: "..." lists the buttons
+    /// that did not fit; no other button has one.
     static func menu(for id: String, in pane: PaneController) -> NSMenu? {
-        menu(for: id, kind: kind(of: pane), pane: pane.paneKey, tab: pane.stripModel.selectedID?.rawValue, registry: pane.services.registry)
+        guard id == moreID else { return nil }
+        return pane.services.tabBarButtons.overflowMenu(for: kind(of: pane), paneKey: pane.paneKey)
     }
 }

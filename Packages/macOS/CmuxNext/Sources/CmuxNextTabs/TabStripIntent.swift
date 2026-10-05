@@ -42,8 +42,6 @@ public enum TabStripIntent: Equatable, Sendable {
     case moveToNewColumn(TabID)
     /// A trailing group button (`TabStripModel.trailingButtons`) was clicked.
     case trailingButton(String)
-    /// The same button Option-clicked: its alternate action (split down).
-    case trailingButtonAlternate(String)
     /// A tab was dragged out of the strip. The App's drag session takes over
     /// pointer tracking; the strip keeps the slot collapsed until the model
     /// drops the tab or the App calls `TabStripView.restoreDetachedTab`.

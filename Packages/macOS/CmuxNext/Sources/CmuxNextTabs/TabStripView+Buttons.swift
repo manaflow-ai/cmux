@@ -45,12 +45,12 @@ extension TabStripView {
     }
 
     /// Ends a button press; sends the intent when released on the same
-    /// button (Option: its alternate). Returns whether a button press was active.
-    func endTrailingButtonPress(at point: CGPoint, modifiers: NSEvent.ModifierFlags = []) -> Bool {
+    /// button. Returns whether a button press was active.
+    func endTrailingButtonPress(at point: CGPoint) -> Bool {
         guard let pressed = pendingTrailingPress else { return false }
         trailingMenus.endPress()
         if trailingButtonIndex(at: point) == pressed, let id = buttonGroup.id(at: pressed) {
-            model.send(modifiers.contains(.option) ? .trailingButtonAlternate(id) : .trailingButton(id))
+            model.send(.trailingButton(id))
         }
         updateHover(at: point, moved: false)
         return true

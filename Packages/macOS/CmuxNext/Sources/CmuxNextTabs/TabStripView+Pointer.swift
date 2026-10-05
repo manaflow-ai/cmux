@@ -185,7 +185,7 @@ extension TabStripView {
             return
         }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
-        if endTrailingButtonPress(at: point, modifiers: event.modifierFlags) { return }
+        if endTrailingButtonPress(at: point) { return }
         if drag != nil { endDrag() }
         press = nil
         if groups.drag != nil {

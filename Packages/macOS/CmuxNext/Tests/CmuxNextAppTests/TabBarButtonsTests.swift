@@ -64,57 +64,82 @@ import Testing
 
         controller.apply(TabBarButtonsController.Input(tabBar: .defaults, commands: []))
         #expect(!services.registry.isBound("cmuxConfig.start-claude"))
-        // No cmux.json list: no configured buttons, the default cluster instead.
+        // No cmux.json list: no configured buttons, the default ones instead.
         #expect(controller.buttons.isEmpty)
-        #expect(controller.buttons(for: .terminal).map(\.id) == [PaneToolbar.splitID, PaneToolbar.moreID])
+        #expect(controller.buttons(for: .terminal).map(\.id) == ["cmux.splitRight", "cmux.splitDown"])
     }
 
-    /// Without a cmux.json list each pane shows at most two buttons after
-    /// its "+", by the selected tab's kind; a list replaces them everywhere.
-    @Test func defaultClusterFollowsTheSelectedTabsKind() {
+    /// Without a cmux.json list, terminal and browser panes show Split Right
+    /// and Split Down as two plain buttons; agent chat panes show none. A
+    /// list replaces them everywhere.
+    @Test func defaultButtonsFollowTheSelectedTabsKind() {
         let services = Coverage.boundServices()
         let controller = services.tabBarButtons!
         controller.apply(TabBarButtonsController.Input(tabBar: .defaults, commands: []))
-        #expect(controller.buttons(for: .terminal).map(\.id) == ["cmux.split", "cmux.more"])
-        #expect(controller.buttons(for: .browser).map(\.id) == ["cmux.split", "cmux.more"])
-        #expect(controller.buttons(for: .agent).map(\.id) == ["cmux.more"])
-        for kind in PaneToolbar.Kind.allCases { #expect(controller.buttons(for: kind).count <= 3) }
-        let split = controller.buttons(for: .terminal)[0]
-        #expect(split.toolTip == "Split Right (⌘D)")
-        #expect(split.menu == .secondary)
-        #expect(controller.buttons(for: .terminal)[1].menu == .primary)
-        #expect(controller.actions["cmux.split"] == "splitRight")
-        #expect(controller.alternates["cmux.split"] == "splitDown")
+        for kind in [PaneToolbar.Kind.terminal, .browser] {
+            let buttons = controller.buttons(for: kind)
+            #expect(buttons.map(\.id) == ["cmux.splitRight", "cmux.splitDown"])
+            #expect(buttons.map(\.icon) == [.symbol("square.split.2x1"), .symbol("square.split.1x2")])
+            #expect(buttons.map(\.toolTip) == ["Split Right (⌘D)", "Split Down (⇧⌘D)"])
+            #expect(buttons.allSatisfy { !$0.opensMenu })
+        }
+        #expect(controller.buttons(for: .agent).isEmpty)
+        #expect(controller.actions["cmux.splitRight"] == "splitRight")
+        #expect(controller.actions["cmux.splitDown"] == "splitDown")
 
         controller.apply(TabBarButtonsController.Input(
             tabBar: SurfaceTabBarConfig(buttons: [TabBarButtonSpec(id: "cmux.splitDown", actionID: "splitDown")], usesDefaults: false),
             commands: []
         ))
         #expect(controller.buttons(for: .agent).map(\.id) == ["cmux.splitDown"])
-        #expect(controller.alternates.isEmpty)
-        #expect(controller.actions["cmux.split"] == nil)
+        #expect(controller.buttons(for: .terminal).map(\.id) == ["cmux.splitDown"])
     }
 
-    /// Split's menu offers both directions; More holds files, folder,
-    /// windows and the tab's duplicate and move, plus the splits when the
-    /// strip shows no split button (agent chat). Each row keeps its shortcut.
-    @Test func clusterMenusRunRegistryActions() throws {
-        let registry = Coverage.boundServices().registry
-        func ids(_ menu: NSMenu?) -> [String] {
-            (menu?.items ?? []).map { ActionRegistry.menuRun(of: $0)?.id.rawValue ?? ($0.isSeparatorItem ? "|" : "?") }
+    /// Up to four buttons all stay visible, as configured, with no "...".
+    @Test func fourButtonsStayVisible() {
+        let services = Coverage.boundServices()
+        let controller = services.tabBarButtons!
+        let specs = [
+            TabBarButtonSpec(id: "cmux.newTerminal", actionID: "newSurface"),
+            TabBarButtonSpec(id: "cmux.newBrowser", actionID: "openBrowser"),
+            TabBarButtonSpec(id: "cmux.splitRight", actionID: "splitRight"),
+            TabBarButtonSpec(id: "cmux.splitDown", actionID: "splitDown"),
+        ]
+        controller.apply(TabBarButtonsController.Input(tabBar: SurfaceTabBarConfig(buttons: specs, usesDefaults: false), commands: []))
+        for kind in PaneToolbar.Kind.allCases {
+            #expect(controller.buttons(for: kind).map(\.id) == specs.map(\.id))
+            #expect(controller.overflowMenu(for: kind, paneKey: "p1").items.isEmpty)
         }
-        let split = PaneToolbar.menu(for: PaneToolbar.splitID, kind: .terminal, pane: "p1", tab: "t1", registry: registry)
-        #expect(ids(split) == ["splitRight", "splitDown"])
-        let terminalMore = PaneToolbar.menu(for: PaneToolbar.moreID, kind: .terminal, pane: "p1", tab: "t1", registry: registry)
-        #expect(ids(terminalMore) == ["toggleRightSidebar", "openFolder", "newWindow", "|", "duplicateTab", "tab.moveToNewWindow"])
-        let agentMore = PaneToolbar.menu(for: PaneToolbar.moreID, kind: .agent, pane: "p1", tab: "t1", registry: registry)
-        #expect(ids(agentMore).prefix(3) == ["splitRight", "splitDown", "|"])
-        // Tab rows run on the selected tab, split rows on the pane.
-        #expect(terminalMore.flatMap { ActionRegistry.menuRun(of: $0.items.last!)?.target } == ActionTargetRef(kind: .tab, id: "t1"))
-        #expect(split.flatMap { ActionRegistry.menuRun(of: $0.items[0])?.target } == ActionTargetRef(kind: .pane, id: "p1"))
-        let down = try #require(split?.items.last)
-        #expect(down.keyEquivalent.lowercased() == "d")
-        #expect(PaneToolbar.menu(for: "cmux.splitRight", kind: .terminal, pane: "p1", tab: nil, registry: registry) == nil)
+    }
+
+    /// Past four buttons the strip keeps the first three and "..." lists the
+    /// rest; each row runs its button's action on the pane, under the
+    /// button's own label.
+    @Test func moreThanFourButtonsEndInMore() throws {
+        let services = Coverage.boundServices()
+        let controller = services.tabBarButtons!
+        let command = ConfigCommandAction(name: "start-claude", title: "Start Claude", command: "claude")
+        let specs = [
+            TabBarButtonSpec(id: "cmux.newTerminal", actionID: "newSurface"),
+            TabBarButtonSpec(id: "cmux.newBrowser", actionID: "openBrowser"),
+            TabBarButtonSpec(id: "cmux.splitRight", actionID: "splitRight"),
+            TabBarButtonSpec(id: "cmux.splitDown", actionID: "splitDown"),
+            TabBarButtonSpec(id: "start-claude", actionID: command.actionID, title: command.title),
+        ]
+        controller.apply(TabBarButtonsController.Input(tabBar: SurfaceTabBarConfig(buttons: specs, usesDefaults: false), commands: [command]))
+        let visible = controller.buttons(for: .terminal)
+        #expect(visible.count == PaneToolbar.maxVisibleButtons)
+        #expect(visible.map(\.id) == ["cmux.newTerminal", "cmux.newBrowser", "cmux.splitRight", PaneToolbar.moreID])
+        let more = try #require(visible.last)
+        #expect(more.opensMenu)
+        #expect(more.icon == .symbol("ellipsis"))
+
+        let menu = controller.overflowMenu(for: .terminal, paneKey: "p1")
+        #expect(menu.items.map(\.title) == ["Split Down", "Start Claude"])
+        let runs = menu.items.compactMap(ActionRegistry.menuRun(of:))
+        #expect(runs.map(\.id) == ["splitDown", "cmuxConfig.start-claude"])
+        #expect(runs.allSatisfy { $0.target == ActionTargetRef(kind: .pane, id: "p1") })
+        #expect(menu.items.first?.keyEquivalent.lowercased() == "d")
     }
 
     @Test func buttonsFollowCmuxJSONLive() async throws {
@@ -137,8 +162,7 @@ import Testing
         try await eventually(settings) { controller.buttons.map(\.id) == ["go", "cmux.newBrowser"] }
         #expect(controller.actions == ["go": "cmuxConfig.go", "cmux.newBrowser": "openBrowser"])
 
-        // A shortcut rebind in the file updates the tooltip. The default bar
-        // has no buttons (R120), so the file lists the one it checks.
+        // A shortcut rebind in the file updates the tooltip of a listed button.
         try Data(#"{"shortcuts": {"splitRight": "cmd+\\"}, "ui": {"surfaceTabBar": {"buttons": ["cmux.splitRight"]}}}"#.utf8)
             .write(to: url, options: .atomic)
         try await eventually(settings) { controller.buttons.first { $0.id == "cmux.splitRight" }?.toolTip == "Split Right (⌘\\)" }

@@ -15,8 +15,8 @@ public enum TabContextTarget: Hashable, Sendable {
     /// The new tab (+) button's menu (which kind of tab to open), shown on
     /// right-click and press-and-hold. A plain click opens a tab directly.
     case newTabButton
-    /// The menu of trailing button `id` (`TabStripButton.menu`): on click
-    /// for `.primary`, on right-click and press-and-hold for `.secondary`.
+    /// The menu of trailing button `id` when it opens one
+    /// (`TabStripButton.opensMenu`), on click or right-click.
     case trailingButton(String)
 }
 
