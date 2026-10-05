@@ -12,6 +12,8 @@ pub(crate) fn apply_resource_patch(
     revision: i64,
 ) -> anyhow::Result<ResourcePatch> {
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    // Moves by any path keep ephemeral content ephemeral (or are refused).
+    crate::state::ephemeral_moves::carry_ephemeral(transaction, &patch)?;
     // Closes by any path land in the closed history before their rows go.
     crate::state::closed_history_store::capture_closed(transaction, &patch)?;
     let closing = closing_browsers(transaction, &patch)?;
