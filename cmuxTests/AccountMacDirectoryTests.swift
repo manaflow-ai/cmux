@@ -612,7 +612,7 @@ struct AccountMacDiscoveryTests {
         }
     }
 
-    @Test("A stale or revoked team directory stays final for same-team Macs; a revoked local device refuses both")
+    @Test("A stale team directory is final on every path, cross-team included; a revoked local device refuses both")
     func teamFailureIsFinal() {
         var stale = F.cache(teamDevices: [staleTeamPeer])
         stale.directory = V2Directory(devices: [staleTeamPeer], inboundPeers: [], issuedAt: 1000,
@@ -624,6 +624,15 @@ struct AccountMacDiscoveryTests {
                 account: sameTeam, localIdentity: F.selfIdentity, now: F.now)
         }
         let accountIntent = IrxMacPeerAuthorization(deviceID: "peer", tag: "default", endpointID: F.peerKey)
+        // A fresh, qualifying cross-team account row does not stand in for a
+        // stale team directory: discovery and every dial path stay stale.
+        for source in [nil, DeviceDirectorySource.account] {
+            #expect(throws: IrxMacPeerAuthorization.Failure.staleDirectory) {
+                try DeviceIrxClient.resolveTarget(intent: accountIntent, source: source, cache: stale,
+                    account: F.account(), localIdentity: F.selfIdentity, now: F.now)
+            }
+        }
+        #expect(DeviceIrxClient.displayBindings(cache: stale, account: F.account(), now: F.now).isEmpty)
         #expect(throws: IrxMacPeerAuthorization.Failure.revoked) {
             try DeviceIrxClient.resolveTarget(intent: accountIntent, source: nil, cache: F.cache(revoked: true),
                 account: F.account(), localIdentity: F.selfIdentity, now: F.now)
