@@ -1,4 +1,4 @@
-import CmuxTheme
+public import CmuxTheme
 /// The axis on which a mist scrim fades the artwork into the theme surface.
 public nonisolated enum MistGradientAxis: String, Equatable, Sendable {
     case vertical
