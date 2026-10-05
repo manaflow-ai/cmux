@@ -20,6 +20,9 @@ const dom = new JSDOM(
     .join("\n")}</style><div id=root></div>`,
   { url: "http://localhost/", pretendToBeVisual: true, virtualConsole: new VirtualConsole() },
 );
+// WebKit has AnimationEvent. react-dom reads it once, when the first test file imports it, and
+// without it listens for webkitAnimationEnd in every later file (searchChats.test.tsx).
+(dom.window as unknown as Record<string, unknown>).AnimationEvent ??= dom.window.Event;
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
   [
