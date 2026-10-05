@@ -166,6 +166,8 @@ export const revokeVmInstall = async (env: Env, a: { creator: string; team: stri
   if (!a.install) return true
   const stub = env.USER_DO.get(env.USER_DO.idFromName(a.creator)) as unknown as { revokeByTeam(e: string, team: string, install: string, by: string, key: string): Promise<{ ok: boolean; code?: string }> }
   const r = await stub.revokeByTeam(a.creator, a.team, a.install, a.creator, `vm-revoke:${a.install}`).catch(() => ({ ok: false, code: "owner.unreachable" }))
+  // A user or install that no longer exists has nothing left to revoke (review P3: no endless retry).
+  if (!r.ok && r.code === "selector.not_found") return true
   if (!r.ok) console.warn(JSON.stringify({ msg: "vm install revoke failed", team: a.team, install: a.install, why: a.why, code: r.code }))
   return r.ok
 }

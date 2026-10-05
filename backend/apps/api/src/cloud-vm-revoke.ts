@@ -18,7 +18,7 @@ export class VmInstallRevokes {
   private tables() {
     if (this.ready) return
     this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_install (machine TEXT PRIMARY KEY, install TEXT NOT NULL, creator TEXT NOT NULL)`)
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_revoke (install TEXT PRIMARY KEY, creator TEXT NOT NULL, why TEXT NOT NULL, attempts INTEGER NOT NULL, due_at INTEGER NOT NULL)`)
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_revoke (install TEXT PRIMARY KEY, creator TEXT NOT NULL, why TEXT NOT NULL, attempts INTEGER NOT NULL, due_at INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0)`)
     this.ready = true
   }
   private exists() {
@@ -54,7 +54,7 @@ export class VmInstallRevokes {
   dueAt(): number | null {
     if (!this.exists()) return null
     this.tables()
-    const r = this.sql.exec<{ t: number | null }>(`SELECT min(due_at) AS t FROM cloud_vm_revoke`)[0]
+    const r = this.sql.exec<{ t: number | null }>(`SELECT min(due_at) AS t FROM cloud_vm_revoke WHERE done = 0`)[0]
     return r?.t === null || r?.t === undefined ? null : Number(r.t)
   }
 
@@ -62,16 +62,17 @@ export class VmInstallRevokes {
   async drain(now: number, revoke: Revoke): Promise<void> {
     if (!this.exists()) return
     this.tables()
-    const due = this.sql.exec<{ install: string; creator: string; why: string; attempts: number }>(`SELECT install, creator, why, attempts FROM cloud_vm_revoke WHERE due_at <= ? LIMIT 20`, now)
+    const due = this.sql.exec<{ install: string; creator: string; why: string; attempts: number }>(`SELECT install, creator, why, attempts FROM cloud_vm_revoke WHERE done = 0 AND due_at <= ? LIMIT 20`, now)
     for (const d of due) {
       const ok = await revoke({ creator: d.creator, install: d.install, why: d.why }).catch(() => false)
-      if (ok) this.sql.exec(`DELETE FROM cloud_vm_revoke WHERE install = ?`, d.install)
+      // Kept as done (not deleted): a later commit naming the machine again must not queue it twice (review P3).
+      if (ok) this.sql.exec(`UPDATE cloud_vm_revoke SET done = 1 WHERE install = ?`, d.install)
       else this.sql.exec(`UPDATE cloud_vm_revoke SET attempts = attempts + 1, due_at = ? WHERE install = ?`, now + RETRY_MS[Math.min(Number(d.attempts), RETRY_MS.length - 1)]!, d.install)
     }
   }
 
   pending(): Array<{ install: string; why: string; attempts: number }> {
     if (!this.exists()) return []
-    return this.sql.exec<{ install: string; why: string; attempts: number }>(`SELECT install, why, attempts FROM cloud_vm_revoke ORDER BY install`).map((r) => ({ ...r, attempts: Number(r.attempts) }))
+    return this.sql.exec<{ install: string; why: string; attempts: number }>(`SELECT install, why, attempts FROM cloud_vm_revoke WHERE done = 0 ORDER BY install`).map((r) => ({ ...r, attempts: Number(r.attempts) }))
   }
 }
