@@ -39,6 +39,7 @@ mod turns;
 mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
+mod web_control;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -200,6 +201,8 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// Web control ended: the mode left the asking table (`web_control.rs`).
+    pub(super) web_control_ended: AtomicBool,
 }
 
 impl Session {
@@ -282,6 +285,8 @@ pub struct Hub {
     pub(super) idle_pass: Mutex<()>,
     /// Hidden pre-created sessions for instant harness switches (`pool/`).
     pub(super) pool: Arc<pool::PoolState>,
+    /// The merged asking-mode table for Web connections (`web_control.rs`).
+    pub(super) web_modes: StdMutex<web_control::WebModeCache>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -351,7 +356,11 @@ impl Hub {
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),
+            web_modes: StdMutex::new(Default::default()),
         });
+        hub.refresh_web_modes(
+            &hub.config.try_read().map(|c| c.web_asking_modes.clone()).unwrap_or_default(),
+        );
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
@@ -520,6 +529,7 @@ impl Hub {
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
+            web_control_ended: AtomicBool::new(false),
         })
     }
 
