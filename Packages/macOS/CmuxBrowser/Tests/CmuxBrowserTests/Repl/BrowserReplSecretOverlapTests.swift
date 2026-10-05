@@ -65,4 +65,56 @@ struct BrowserReplSecretOverlapTests {
         let redacted = store.redact("t=\(encoded)!tail-secret.")
         #expect(!redacted.contains("tail-secret"), "\(redacted)")
     }
+
+    // MARK: Several stores
+
+    /// The session's own values, then those another session typed: a
+    /// prefix the session registers must not consume the start of a typed
+    /// value before the typed value is looked for.
+    private func boundary(typedValue: String) throws -> BrowserReplBoundary {
+        let typed = BrowserReplSecretStore()
+        try typed.setLiteral(key: "typed-1", maskName: "password", value: typedValue, domains: Self.domains)
+        return BrowserReplBoundary(typedSecrets: { typed })
+    }
+
+    @Test("An own prefix of a value another session typed does not unmask the rest of it")
+    func ownPrefixDoesNotDefeatTypedValue() throws {
+        let boundary = try boundary(typedValue: "hunter2-abcdef-9911")
+        try boundary.secrets.set(name: "guess", value: "hunter2", domains: ["example.com"], totp: false, title: "t")
+        let leaked = "-abcdef-9911"
+        let text = "body hunter2-abcdef-9911 end"
+        #expect(!boundary.redact(text).contains(leaked), "\(boundary.redact(text))")
+        #expect(!String(decoding: try boundary.redact(Data(text.utf8)), as: UTF8.self).contains(leaked))
+        #expect(!(try boundary.redactJSON(#"{"v":"hunter2-abcdef-9911"}"#)).contains(leaked))
+        let copy = try #require(boundary.fileCopyRedaction())
+        #expect(!String(decoding: try copy(Data(text.utf8)), as: UTF8.self).contains(leaked))
+        let file = try boundary.redactFileContents(Data(text.utf8).base64EncodedString())
+        #expect(!String(decoding: Data(base64Encoded: file) ?? Data(), as: UTF8.self).contains(leaked))
+        let response = JSONSerialization.browserReplString([
+            "url": "https://example.com/?q=hunter2-abcdef-9911",
+            "headers": [["x-token", "hunter2-abcdef-9911"]],
+            "bodyBase64": Data(text.utf8).base64EncodedString(),
+        ] as [String: Any]) ?? "{}"
+        guard case .success(let fetched) = boundary.redactFetch(.success(response)) else {
+            Issue.record("fetch redaction failed")
+            return
+        }
+        #expect(!fetched.contains(leaked), "\(fetched)")
+        let body = JSONSerialization.browserReplObject(fetched)["bodyBase64"] as? String ?? ""
+        #expect(!String(decoding: Data(base64Encoded: body) ?? Data(), as: UTF8.self).contains(leaked))
+    }
+
+    @Test("An own value overlapping the start of a typed value does not unmask its suffix")
+    func ownOverlapDoesNotDefeatTypedValue() throws {
+        let boundary = try boundary(typedValue: Self.protected)
+        try boundary.secrets.set(name: "known", value: "Xs", domains: ["example.com"], totp: false, title: "t")
+        #expect(!boundary.redact("Xs3cr3t-value-0042").contains(Self.suffix))
+    }
+
+    @Test("A value both stores hold keeps the session's own mask")
+    func sharedValueKeepsOwnMask() throws {
+        let boundary = try boundary(typedValue: "shared-value-77")
+        try boundary.secrets.set(name: "mine", value: "shared-value-77", domains: ["example.com"], totp: false, title: "t")
+        #expect(boundary.redact("x shared-value-77 y") == "x <secret:mine> y")
+    }
 }
