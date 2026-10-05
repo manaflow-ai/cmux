@@ -33,6 +33,9 @@ final class CloudMachineSession {
     /// (not `isLive`: a click connects a paused machine on purpose).
     @ObservationIgnored private var suspends = 0
     @ObservationIgnored private var linkTransition: Task<Void, Never>?
+    /// The app-link connect hop in flight: a pause or a disconnect cancels
+    /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
+    @ObservationIgnored private var connectHop: Task<Void, Never>?
     @ObservationIgnored private var disconnected = false
     /// Repairs an empty workspace on this machine (never on another).
     @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
@@ -82,6 +85,7 @@ final class CloudMachineSession {
             guard !disconnected, machine.status.isLive else { return }
             daemon.start(remote: { try await link.socketPath() })
         }
+        if appLink != nil { connectHop = linkTransition }
     }
 
     /// One app-link connect: a fresh connection on the carrier socket. The
@@ -97,11 +101,12 @@ final class CloudMachineSession {
         do {
             ticket = try await appLink.connect(origin: origin)
         } catch {
-            guard !disconnected else { return }
+            // A pause or a disconnect cancelled this connect: not a failure.
+            guard !disconnected, suspends == suspendsBefore, !Task.isCancelled else { return }
             showEnded(error)
             return
         }
-        guard !disconnected, suspends == suspendsBefore else { return }
+        guard !disconnected, suspends == suspendsBefore, !Task.isCancelled else { return }
         appTicket = ticket.id
         let localIdentity = localIdentity
         daemon.start(remote: { [weak self] in
@@ -155,6 +160,7 @@ final class CloudMachineSession {
 
     func disconnect() {
         disconnected = true
+        connectHop?.cancel()
         daemon.shutdownConnection()
         let previous = linkTransition
         let link = link, appLink = appLink
@@ -170,6 +176,7 @@ final class CloudMachineSession {
     /// provider pause/resume transition.
     func suspend() {
         suspends += 1
+        connectHop?.cancel()
         appTicket = nil
         daemon.shutdownConnection()
         let previous = linkTransition

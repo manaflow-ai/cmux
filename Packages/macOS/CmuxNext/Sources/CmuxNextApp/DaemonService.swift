@@ -181,9 +181,8 @@ final class DaemonService {
     /// An incompatible daemon (`compatibility` says so) is retried only on
     /// such an event: the machine's daemon can be updated in place behind
     /// the same link, and the next event then connects to the new build.
-    /// `admit` checks each handshake's identity before the connection is
-    /// used; when it throws, the connection closes and the service stops
-    /// connecting (the caller shows why and starts it again).
+    /// `admit` checks each handshake's identity before use; when it throws,
+    /// the connection closes, the service stops and the store shows why.
     func start(remote endpoint: @escaping @Sendable () async throws -> String,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
@@ -216,17 +215,28 @@ final class DaemonService {
                     if DaemonStartup.shared.isPermanent(error) { wake.rebaseline() }
                     await weakSelf?.noteStartupFailure(error)
                 }
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    await connected?.0.close()
+                    return
+                }
                 guard let (connection, identity) = connected else {
                     // Incompatible daemon: wait for an event only, then try again.
                     guard await wake.awaitWake(delay: nil, clock: clock) != .cancelled else { return }
                     continue
                 }
-                guard let self, !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled else {
+                    await connection.close()
+                    return
+                }
                 do {
                     try admit?(identity)
                 } catch {
                     logger.error("\(machineID, privacy: .public): refused the daemon after the handshake: \(String(describing: error), privacy: .public)")
+                    // Stop (no run, deadline or path monitor); show the refusal unless
+                    // `admit` already stopped the service with its own text.
+                    let show = !Task.isCancelled
+                    self.shutdownConnection()
+                    if show { store.markFailed(String(describing: error)) }
                     await connection.close()
                     return
                 }
