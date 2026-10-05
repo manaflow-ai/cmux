@@ -45,6 +45,15 @@ extension WebKitEngine {
         }
     }
 
+    /// The navigation action policy of a main-frame load in `tab`: a host
+    /// being rechecked has its certificate checked first, and `decide` (the
+    /// policy decision) waits for the result, so the page never commits
+    /// before it. Untrusted: the load is cancelled and the interstitial
+    /// shows.
+    func admitMainFrameLoad(_ url: URL, in tab: WebKitTab, decide: @escaping @MainActor (Bool) -> Void) {
+        decide(true)
+    }
+
     /// The user proceeded past `host`'s certificate in `profile` (the
     /// interstitial's Proceed).
     func allowCertificateException(host: String, profile: BrowserProfileID) {
