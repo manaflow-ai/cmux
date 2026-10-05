@@ -18,6 +18,12 @@ pub const CMUX_RD_INPUT_POINTER: u32 = 2;
 pub const CMUX_RD_INPUT_BUTTON: u32 = 3;
 pub const CMUX_RD_INPUT_SCROLL: u32 = 4;
 pub const CMUX_RD_INPUT_TEXT: u32 = 5;
+/// A service-defined event (rd change C2): `text`/`text_len` carry its bytes.
+pub const CMUX_RD_INPUT_SERVICE: u32 = 0x80;
+/// `service_flags` bit: repeat until acknowledged.
+pub const CMUX_RD_INPUT_MUST_DELIVER: u8 = 0x01;
+/// Largest payload of one service event (`CMUX_RD_INPUT_MAX_SERVICE`).
+pub const CMUX_RD_INPUT_MAX_SERVICE: usize = cmux_rd_proto::MAX_SERVICE_BYTES;
 /// Largest UTF-8 text of one text event (`CMUX_RD_INPUT_MAX_TEXT`).
 pub const CMUX_RD_INPUT_MAX_TEXT: usize = MAX_TEXT_BYTES;
 /// A buffer of this size holds every input packet on either carrier
@@ -48,6 +54,8 @@ pub struct CmuxRdInputEvent {
     pub down: u8,
     /// Scroll: 1 pixel-precise deltas (trackpad), 0 lines (any other value is refused).
     pub precise: u8,
+    /// Service: `CMUX_RD_INPUT_MUST_DELIVER` or 0 (other bits are refused).
+    pub service_flags: u8,
 }
 
 /// The opaque input handle (`CmuxRdInput`).
@@ -109,6 +117,14 @@ unsafe fn event_from_c(event: &CmuxRdInputEvent) -> Option<InputEvent> {
             // SAFETY: guaranteed by the caller.
             let bytes = unsafe { bytes_in(event.text, event.text_len) }?;
             InputEvent::Text(std::str::from_utf8(bytes).ok()?.to_owned())
+        }
+        CMUX_RD_INPUT_SERVICE => {
+            // SAFETY: guaranteed by the caller (text is readable for text_len bytes).
+            let bytes = unsafe { bytes_in(event.text, event.text_len) }?;
+            InputEvent::Service {
+                must_deliver: event.service_flags & CMUX_RD_INPUT_MUST_DELIVER != 0,
+                bytes: bytes.to_vec(),
+            }
         }
         _ => return None,
     })

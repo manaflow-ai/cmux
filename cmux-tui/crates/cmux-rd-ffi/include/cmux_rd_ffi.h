@@ -57,6 +57,12 @@ extern "C" {
 #define CMUX_RD_INPUT_BUTTON 3u
 #define CMUX_RD_INPUT_SCROLL 4u
 #define CMUX_RD_INPUT_TEXT 5u
+/* A service-defined event (0x80): text and text_len carry its opaque bytes,
+   1 to CMUX_RD_INPUT_MAX_SERVICE. Send only when welcome lists "input.service". */
+#define CMUX_RD_INPUT_SERVICE 128u
+/* service_flags bit: repeat until acknowledged (like a key release). */
+#define CMUX_RD_INPUT_MUST_DELIVER 1u
+#define CMUX_RD_INPUT_MAX_SERVICE 1127u
 /* Largest UTF-8 text of one text event, in bytes. */
 #define CMUX_RD_INPUT_MAX_TEXT 256u
 /* A buffer of this size holds every input packet on either carrier. */
@@ -102,11 +108,12 @@ typedef struct CmuxRdInputEvent {
     int32_t y;
     int32_t dx;              /* scroll: hundredths of a line, or of a point when precise */
     int32_t dy;
-    const uint8_t *text;     /* text: UTF-8, 1 to CMUX_RD_INPUT_MAX_TEXT bytes */
+    const uint8_t *text;     /* text: UTF-8, 1 to CMUX_RD_INPUT_MAX_TEXT bytes; service: its bytes */
     size_t text_len;
     uint8_t button;          /* button: 1 left, 2 middle, 3 right, 8 back, 9 forward */
     uint8_t down;            /* key and button: 1 pressed, 0 released (other values refused) */
     uint8_t precise;         /* scroll: 1 pixel-precise deltas, 0 lines (other values refused) */
+    uint8_t service_flags;   /* service: CMUX_RD_INPUT_MUST_DELIVER or 0 (other bits refused) */
 } CmuxRdInputEvent;
 
 uint32_t cmux_rd_ffi_abi_version(void);
