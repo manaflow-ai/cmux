@@ -40,6 +40,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
     /// This tab's downloads (`WebKitDownloads`).
     @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
+    /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
+    @ObservationIgnored private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// The site of the page that started the current main-frame navigation.
+    @ObservationIgnored var navigationSourceSite: String?
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
     @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
@@ -107,7 +111,10 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     // MARK: Navigation commands
 
-    public func load(_ url: URL) { startLoad(url) }
+    public func load(_ url: URL) {
+        automaticDownloads.userGesture()
+        startLoad(url)
+    }
     public func goBack() { startGoBack() }
     public func goForward() { startGoForward() }
     public func reload() { startReload() }
