@@ -1651,7 +1651,8 @@ function AcpmuxPane() {
           notice: (text) => client.notice(text),
           // A held pick spends its gesture now (pane-native transport); the ticket goes with the
           // pick's frame when the switch applies it. A host without the op answers with a refusal.
-          gesture: () => postNative<{ ticket?: string }>("transport.gesture").then((reply) => reply?.ticket),
+          gesture: (intent) =>
+            postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
         });
         harnessSwitch.connect(switchPort);
         acpmuxPerf.markAgent("composerReady");
