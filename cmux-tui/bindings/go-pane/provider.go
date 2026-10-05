@@ -422,22 +422,24 @@ func (c *Conn) handleSub(m *Message) {
 	c.mu.Lock()
 	c.served[s.id] = s
 	c.mu.Unlock()
-	value, _ := json.Marshal(map[string]uint64{"sub": s.id})
-	// The ok is written before the sender goroutine starts, so no event can
-	// precede it on the wire.
-	if err := c.send(NewOK(id, value)); err != nil {
-		s.stop()
-		return
-	}
-	if afterSubscribeReply != nil {
-		afterSubscribeReply()
-	}
+	// Join the provider BEFORE the ok: the ok tells the subscriber the stream
+	// is live, so an event published once it holds the ok must reach it.
+	// Events published from here on wait in s.queue; the sender goroutine
+	// starts only after the ok is written, so no event precedes it on the wire.
 	p.mu.Lock()
 	if p.subs[stream] == nil {
 		p.subs[stream] = map[*serverSub]struct{}{}
 	}
 	p.subs[stream][s] = struct{}{}
 	p.mu.Unlock()
+	value, _ := json.Marshal(map[string]uint64{"sub": s.id})
+	if err := c.send(NewOK(id, value)); err != nil {
+		s.stop() // also leaves the provider
+		return
+	}
+	if afterSubscribeReply != nil {
+		afterSubscribeReply()
+	}
 	select {
 	case <-s.quit: // the connection closed while we were adding it
 		p.mu.Lock()
