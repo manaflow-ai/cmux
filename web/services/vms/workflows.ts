@@ -2363,13 +2363,23 @@ export function forkVm(input: {
         reason: createDisabledReason,
       }));
     }
+    // A paused VM is a valid snapshot source. Only native forks require a
+    // running provider VM; waking a paused source adds avoidable startup time.
+    const sourceNetworkPolicy = restrictedNetworkPolicy(source.networkPolicy);
+    const nativeFork = sourceNetworkPolicy ? undefined : nativeForkOperation(providers, source.provider, input.modelPlane);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
       source,
       input.providerVmId,
       "fork",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.billingPlanId, modelPlane: input.modelPlane },
+      {
+        forceProviderProbe: true,
+        allowPausedSnapshot: !nativeFork,
+        maxActiveVms: input.maxActiveVms,
+        callerPlanId: input.billingPlanId,
+        modelPlane: input.modelPlane,
+      },
     );
 
     // A native fork has no way to accept the new row's edge rules. Use the
@@ -2378,8 +2388,6 @@ export function forkVm(input: {
     // A fork keeps its source's outbound policy. The native provider fork
     // copies no rules, so a restricted source always takes the create path,
     // which installs the policy before the copy boots.
-    const sourceNetworkPolicy = restrictedNetworkPolicy(source.networkPolicy);
-    const nativeFork = sourceNetworkPolicy ? undefined : nativeForkOperation(providers, source.provider, input.modelPlane);
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -3130,6 +3138,8 @@ type ResumePreflightOptions = {
    * Passive reads intentionally leave this off.
    */
   readonly forceProviderProbe?: boolean;
+  /** Snapshot-based forks can copy a paused VM directly without waking it. */
+  readonly allowPausedSnapshot?: boolean;
 };
 
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
@@ -3392,6 +3402,7 @@ function preflightResumeIfSuspended(
       return false;
     }
     if (status !== "paused") return false;
+    if (options.allowPausedSnapshot) return false;
 
     const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms, options.callerPlanId);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
