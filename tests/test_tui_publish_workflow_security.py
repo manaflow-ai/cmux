@@ -198,11 +198,10 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "pull_request_target" in triggers
     pr_trigger = triggers["pull_request_target"]
     assert pr_trigger.get("branches") == ["feat-cmux-next"]
-    assert set(pr_trigger["paths"]) == {
-        "cmux-tui/**", "ghostty", "ghostty-next",
-        ".github/workflows/cmux-tui-artifacts.yml",
-        ".github/workflows/cmux-tui-build-package.yml",
-    }
+    # The merge ref can change the effective cmux-tui tree through a Swift- or
+    # workflow-only PR, so GitHub's paths filter cannot safely decide whether
+    # this trusted preflight must run. The Linux key check is the cheap filter.
+    assert "paths" not in pr_trigger
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
     assert "paths" not in push_trigger

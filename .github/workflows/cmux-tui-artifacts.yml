@@ -54,14 +54,12 @@ on:
   # checks. This is pull_request_target so the workflow definition and publish
   # steps come from the trusted base branch; the build job receives no R2
   # credentials and only hands the publisher an opaque binary artifact.
+  # Do not use a paths filter here. A PR can change the effective cmux-tui tree
+  # through its merge ref while touching only Swift or workflow files. The
+  # Linux tree-preflight is the cheap filter: it skips macOS work when the
+  # computed tree key is already published.
   pull_request_target:
     branches: [feat-cmux-next]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - "ghostty-next"
-      - ".github/workflows/cmux-tui-artifacts.yml"
-      - ".github/workflows/cmux-tui-build-package.yml"
   workflow_dispatch:
     inputs:
       macos_runner:
