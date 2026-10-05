@@ -3,10 +3,11 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// The flat, text-first sidebar: no glass panel, no per-row icon unless
-/// the user chose one, no visible resize edge until hover.
+/// The flat sidebar: each workspace row starts with its type glyph, a custom
+/// icon replaces that glyph without changing the title column, and the resize
+/// edge stays hidden until hover.
 @MainActor @Suite struct FlatSidebarTests {
-    @Test func rowsAreTextFirstUnlessTheUserChoseAnIcon() throws {
+    @Test func rowsReserveTheTypeIconColumnAndKeepCustomIconsAligned() throws {
         var sections = fixture()
         sections[1].nodes[0] = .workspace(SidebarWorkspace(id: id("a"), title: "a", icon: .symbol("hammer")))
         let h = MinimalChromeTests.Harness(sections: sections)
@@ -14,11 +15,14 @@ import Testing
         let iconned = try #require(h.sidebar.list.rowViews[.workspace(id("a"))] as? WorkspaceRowView)
         plain.layoutSubtreeIfNeeded()
         iconned.layoutSubtreeIfNeeded()
-        #expect(plain.titleFrame.minX == SidebarStyle.horizontalInset)
-        #expect(iconned.titleFrame.minX > SidebarStyle.horizontalInset + SidebarStyle.iconBox)
+        // A row without a user icon still shows its terminal type glyph.
+        #expect(plain.titleFrame.minX > SidebarStyle.horizontalInset)
+        // Replacing the type glyph with a custom symbol does not move the
+        // title column or create a second, blank leading gap.
+        #expect(iconned.titleFrame.minX == plain.titleFrame.minX)
         let icons = plain.subviews.compactMap { $0 as? SidebarIconView }
-        let allHidden = icons.allSatisfy(\.isHidden)
-        #expect(allHidden)
+        #expect(icons.count == 1)
+        #expect(icons.allSatisfy { !$0.isHidden })
     }
 
     @Test func onlyAChosenIconTakesRoom() {

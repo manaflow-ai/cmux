@@ -12,6 +12,8 @@ enum SectionStrings {
     static var newTerminal: String { String(localized: "sidebar.builtin.newTerminal", defaultValue: "New Terminal Tab", bundle: .module) }
     static var newBrowser: String { String(localized: "sidebar.builtin.newBrowser", defaultValue: "New Browser Tab", bundle: .module) }
     static var newAgentChat: String { String(localized: "sidebar.builtin.newAgentChat", defaultValue: "New Agent Chat", bundle: .module) }
+    static var newWorkspace: String { String(localized: "sidebar.builtin.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    static var importSync: String { String(localized: "sidebar.builtin.importSync", defaultValue: "Import and Sync", bundle: .module) }
     /// The rail's button for items that do not fit.
     static var customize: String { String(localized: "sidebar.builtin.customize", defaultValue: "Customize Appearance", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.sections.collapse", defaultValue: "Collapse", bundle: .module) }
