@@ -379,3 +379,67 @@ test("account storage is created only by an account request", () => {
   store.initialize();
   expect(store.exists()).toBe(true);
 });
+
+test("a stale-cursor page that revalidated rows still reports the committed revision for broadcast", async () => {
+  const w = await world();
+  const [aKey, bKey] = await Promise.all([181, 182].map(deviceKey));
+  const a = descriptor(aKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const b = descriptor(bKey!, identity("team-x", "user-u", "mac-b"), "mac", HOST);
+  w.x.enroll(a, NOW - 100);
+  const bRecord = w.x.enroll(b, NOW - 100);
+  const broker = w.account("user-u");
+  await call(broker, aKey!, a, "account.publish.v1");
+  await call(broker, bKey!, b, "account.publish.v1");
+  const before = broker.dependencies.store.readRevision();
+  w.x.store.revokeDevice(bRecord.deviceRecordId, NOW, "user-u");
+  const request = { schemaId: "account.directory.v1", requestId: "stale-page", cursor: "0", haveRevision: before };
+  const setup = await accountSetup(aKey!, a, "stale-page", NOW, request, "C".repeat(22));
+  const { session } = await broker.authorize(setup, request, { environment: a.identity.environment, projectId: a.identity.projectId, teamId: "team-x", userId: "user-u", verifiedAt: NOW }, NOW + 3600);
+  await expect(broker.execute(session, request)).rejects.toMatchObject({ code: "resync_required", changed: before + 1 });
+  expect(broker.dependencies.store.readRevision()).toBe(before + 1);
+});
+
+test("overlapping notices: an older metadata read cannot make a later revocation's delete miss", async () => {
+  const w = await world();
+  const aKey = await deviceKey(183);
+  const a = descriptor(aKey, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const aRecord = w.x.enroll(a, NOW - 100);
+  let gate: (() => void) | null = null;
+  let mode: "normal" | "hold" | "release" = "normal";
+  const store = new AccountStore(sqliteStorage());
+  const broker = new AccountBroker({
+    store, userId: "user-u", now: w.now, relayURLs: [RELAY_URL],
+    teamRecords: async (_teamId, identities) => {
+      const records = identities.map(value => w.x.store.accountMacRecord(value));
+      if (mode === "hold") { mode = "normal"; await new Promise<void>(resolve => { gate = resolve; }); }
+      else if (mode === "release") { mode = "normal"; gate!(); await new Promise(resolve => setTimeout(resolve, 0)); }
+      return records;
+    },
+  });
+  await call(broker, aKey, a, "account.publish.v1");
+  // Notice M (an authority change) reads the still-valid record, then stalls.
+  w.x.store.observeAuthority("user-u", NOW - 5, NOW + 3595, NOW);
+  mode = "hold";
+  const metadata = broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  // The team revokes A; notice R reads the revoked record and lets M finish first.
+  w.x.store.revokeDevice(aRecord.deviceRecordId, NOW, "user-u");
+  mode = "release";
+  const revocation = broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity);
+  await Promise.all([metadata, revocation]);
+  expect(store.list()).toEqual([]);
+});
+
+test("a revocation landing while a socket's requester is checked refuses the socket", async () => {
+  const w = await world();
+  const aKey = await deviceKey(184);
+  const a = descriptor(aKey, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const aRecord = w.x.enroll(a, NOW - 100);
+  const broker = w.account("user-u");
+  const { session } = await call(broker, aKey, a, "account.publish.v1");
+  w.duringNextLookup("team-x", async () => {
+    w.x.store.revokeDevice(aRecord.deviceRecordId, NOW, "user-u");
+    await broker.teamChanged("team-x", aRecord.deviceRecordId, a.identity);
+  });
+  await expect(broker.requireRequester(session)).rejects.toMatchObject({ code: "device_revoked" });
+});

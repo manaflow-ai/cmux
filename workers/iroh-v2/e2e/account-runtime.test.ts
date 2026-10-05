@@ -23,10 +23,10 @@ let workerRoot = "";
 
 type Device = { key: DeviceKey; descriptor: DeviceDescriptor; ticket: string };
 
-async function device(seed: number, teamId: string, userId: string, deviceId: string, platform: "mac" | "ios", capabilities: string[]): Promise<Device> {
+async function device(seed: number, teamId: string, userId: string, deviceId: string, platform: "mac" | "ios", capabilities: string[], appNamespace = "com.cmux.app"): Promise<Device> {
   const key = await deviceKey(seed);
   const descriptor: DeviceDescriptor = {
-    identity: { environment, projectId, teamId, userId, deviceId, appNamespace: "com.cmux.app", buildTag: "release" },
+    identity: { environment, projectId, teamId, userId, deviceId, appNamespace, buildTag: "release" },
     endpointId: key.endpointId, identityGeneration: 1,
     metadata: { platform, displayName: `${platform} ${deviceId}`, appVersion: "1.0", pairingEnabled: true, capabilities, relayURLs: ["https://relay.test/"] },
   };
@@ -239,3 +239,15 @@ test("one user's Macs on teams X, Y and Z find each other; teammates and the iPh
   // Byte-for-byte: every frame the iPhone's team socket received, including its directory.
   expect(exercised.phoneFrames).toEqual(untouched.phoneFrames);
 }, 120_000);
+
+test("an account socket opens for the longest app namespace an identity allows", async () => {
+  const mf = await runtime();
+  try {
+    const mac = await device(210, "team-long", "user-long", "mac-long", "mac", HOST, "n".repeat(255));
+    const teams = await mf.getDurableObjectNamespace("TEAM_CONTROL");
+    await (teams.getByName(objectName(environment, projectId, "team-long")) as unknown as { seed(teamId: string, device: DeviceDescriptor): Promise<string> }).seed("team-long", mac.descriptor);
+    const opened = await openSocket(mf, "/v2/account/socket", mac, "account");
+    expect((await opened.until(frame => frame.schemaId === "account.ready.v1", "ready")).revision).toBe(0);
+    opened.socket.close();
+  } finally { await mf.dispose(); }
+}, 60_000);
