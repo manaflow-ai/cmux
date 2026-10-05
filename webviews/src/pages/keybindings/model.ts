@@ -20,7 +20,12 @@ export const SourceLabel: Record<BindingSource | "removed", string> = {
   app: "keybindings.page.source.app",
   user: "keybindings.page.source.user",
   removed: "keybindings.page.source.removed",
-};
+} as Record<BindingSource | "removed", string>;
+
+/** A row the page cannot change or remove. */
+export function isReadOnly(binding: Pick<Binding, "source" | "removed">): boolean {
+  return binding.removed === true;
+}
 
 /** A row's identity across re-lists (ids are positions and move when the table changes). */
 export function identity(binding: Pick<Binding, "source" | "command" | "key" | "when" | "removed">): string {

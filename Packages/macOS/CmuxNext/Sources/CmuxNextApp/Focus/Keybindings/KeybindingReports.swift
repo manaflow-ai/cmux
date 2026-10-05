@@ -59,6 +59,11 @@ enum KeybindingReports {
         return .object(object)
     }
 
+    /// The Keyboard Shortcuts page's list (`cmux.keybindings.list`).
+    static func pageList(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
+        list(params, registry: registry, includeGhostty: false)
+    }
+
     /// `keybinding.list`: every entry in precedence order (a later entry
     /// wins), optionally filtered by `query` (title, command id or key text,
     /// case-insensitive), `command` and `source`. Each entry has an `id`
