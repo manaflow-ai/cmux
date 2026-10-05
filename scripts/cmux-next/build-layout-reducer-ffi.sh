@@ -7,6 +7,20 @@ trap repair_on_error ERR
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 crate_dir="$repo_root/cmux-tui/crates/cmux-layout-reducer-ffi"
+crate_lock="$crate_dir/Cargo.lock"
+remove_generated_lock=0
+if [[ ! -e "$crate_lock" ]]; then
+  remove_generated_lock=1
+fi
+cleanup_generated_lock() {
+  if [[ "$remove_generated_lock" -eq 1 ]]; then
+    # This crate is an isolated workspace, so Cargo creates a local lockfile
+    # during the FFI build. Keep generated state out of the committed tree so
+    # pin-cmux-tui.sh can validate the published cmux-tui source key.
+    rm -f "$crate_lock" || true
+  fi
+}
+trap cleanup_generated_lock EXIT
 out_root="${CMUX_LAYOUT_REDUCER_FFI_OUT:-$repo_root/cmux-tui/target/cmux-layout-reducer-ffi}"
 case "$out_root" in ""|"/") echo "error: CMUX_LAYOUT_REDUCER_FFI_OUT must name a directory; repair via REPAIR.md" >&2; exit 2;; esac
 for tool in cargo rustup xcodebuild clang libtool lipo; do
