@@ -53,6 +53,15 @@ import Testing
         #expect(try admit(images) == nil)
     }
 
+    /// A known event the view cannot decode is counted (and logged), never
+    /// dropped silently.
+    @Test func anUndecodableSnapshotLineIsCounted() {
+        let before = TerminalAttachment.undecodableLines.load(ordering: .relaxed)
+        let broken = line(#"{"event":"snapshot","surface":3,"phase":"images","generation":2,"offset":9,"data":"QQ=="}"#)
+        #expect(TerminalAttachment.decodeAttachEvent(name: "snapshot", line: broken, surface: 3) == nil)
+        #expect(TerminalAttachment.undecodableLines.load(ordering: .relaxed) > before)
+    }
+
     @Test func imagesCountTowardReaderBackpressure() {
         let queue = TerminalEventQueue(highWater: 1 << 20, lowWater: 1 << 10)
         queue.push(.snapshot(TerminalSnapshotFrame(phase: .images, generation: 1, offset: 0, version: 1, data: Data(count: 500))))

@@ -1,10 +1,14 @@
 import Foundation
 import os
+import Synchronization
 
 /// Attach-connection lines to channel events (byte replay and snapshot
 /// attach).
 extension TerminalAttachment {
     private static let decodeLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
+    /// Attach lines of a known event kind that failed to decode (a wire
+    /// contract drift); diagnostics and tests.
+    static let undecodableLines = Atomic<Int>(0)
 
     private struct VTState: Decodable {
         var surface: SurfaceID?
@@ -167,6 +171,10 @@ extension TerminalAttachment {
                 return nil
             }
         } catch {
+            // Never silent: a known event the view cannot decode is a contract
+            // drift with the host. Kind and count only, no payload.
+            let count = undecodableLines.add(1, ordering: .relaxed).newValue
+            decodeLogger.error("attach line \(name, privacy: .public) failed to decode (\(count) so far)")
             return nil
         }
     }
