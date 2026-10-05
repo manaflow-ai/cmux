@@ -52,6 +52,8 @@ nonisolated final class AcpmuxStandInServer: Sendable {
     func start() async throws {
         let websocket = NWProtocolWebSocket.Options()
         websocket.autoReplyPing = true
+        // The largest page frame the relay allows (a prompt with attachments).
+        websocket.maximumMessageSize = 64 << 20
         websocket.setClientRequestHandler(queue) { [weak self] _, headers in
             let value = { (name: String) in headers.first { $0.name.lowercased() == name }?.value }
             self?.state.withLock { $0.lastHeaders = (value("authorization"), value("origin")) }

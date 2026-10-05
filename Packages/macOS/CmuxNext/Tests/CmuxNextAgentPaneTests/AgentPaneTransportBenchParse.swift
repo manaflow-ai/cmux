@@ -66,4 +66,35 @@ struct AgentPaneTransportBenchParse {
                          name, text.utf8.count, full.median, full.max, check.median, check.max))
         }
     }
+
+    /// The main thread's CPU time and the wall time of one 20 MB prompt (an image attachment) sent
+    /// through the transport, 5 rounds.
+    @Test func aTwentyMegabytePromptOnTheMainThread() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let transport = AgentPaneTransport()
+        transport.deliver = { _, done in done() }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        _ = await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        transport.sessions.add("s")
+        let data = String(repeating: "QUJD", count: 5_000_000)
+        var cpu: [Double] = []
+        var wall: [Double] = []
+        for round in 0..<5 {
+            let frame = #"{"jsonrpc":"2.0","id":\#(100 + round),"method":"session/prompt","params":{"sessionId":"s","prompt":[{"type":"image","mimeType":"image/png","data":"\#(data)"}],"_meta":{"acpmux":{"promptId":"p\#(round)"}}}}"#
+            transport.gestures.record()
+            let cpu0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+            let start = ContinuousClock.now
+            let error = await transport.send(connection: id, frames: [frame])
+            let elapsed = ContinuousClock.now - start
+            cpu.append(Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) &- cpu0) / 1e6)
+            wall.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
+            #expect(error == nil, "\(String(describing: error))")
+        }
+        cpu.sort()
+        wall.sort()
+        print(String(format: "PANE-MAIN prompt-20MB main_cpu_ms=%.3f main_cpu_max_ms=%.3f wall_ms=%.3f wall_max_ms=%.3f",
+                     cpu[2], cpu[4], wall[2], wall[4]))
+    }
 }
