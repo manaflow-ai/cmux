@@ -61,4 +61,15 @@ describe("VM install revocation on every terminal state", { timeout: 60_000 }, (
     expect(await s.revoked()).toBe(true)
     expect(((await s.stub.fakeControl({})) as any).vm_revokes).toEqual([])
   })
+
+  it("a revoked install is not queued again by a later commit (review P3)", async () => {
+    const s = await bound("cloud-bind-6")
+    expect((await post("/v1/ops", s.a.session, { op: "cloud.machine.delete", params: { machine: s.machine }, idempotency_key: crypto.randomUUID(), origin: "user" })).body.ok).toBe(true)
+    expect(await s.revoked()).toBe(true)
+    const again = await inDo(s.stub, async (i) => {
+      i.vmRevokes.reconcile(s.machine, { ...(i.boundEngine.rows.get("machine", s.machine)?.row ?? { creator: "x" }), status: "failed", vm_install: s.install }, Date.now())
+      return i.vmRevokes.pending()
+    })
+    expect(again).toEqual([])
+  })
 })
