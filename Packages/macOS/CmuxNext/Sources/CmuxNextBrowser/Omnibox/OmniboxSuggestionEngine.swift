@@ -114,8 +114,7 @@ public final class OmniboxSuggestionEngine {
         let local = self.local, providers = self.providers, maxRows = maxResults
         let remote = sources.contains(.search) && self.remote.enabled && OmniboxRemoteSuggestions.allows(text, resolver: resolver)
             ? self.remote : nil
-        // Red: pending deletes are not filtered yet.
-        let engine = resolver.searchEngine, hidden = pendingDeletes.filter { _ in false }
+        let engine = resolver.searchEngine, hidden = pendingDeletes
         let task = Task {
             guard var rows = await local.run(query) else { return continuation.finish() }
             if !hidden.isEmpty { rows.removeAll { $0.kind == .history && hidden.contains(BrowserHistoryRanker.dedupeKey(for: $0.url)) } }

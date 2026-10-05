@@ -67,8 +67,7 @@ final class OmniboxSuggestionPanel {
         }
         overlay?.dismiss()
         let handle = WindowOverlayHost.host(for: window).present(
-            // Red: the window layer, not the pane layer.
-            content, options: OverlayOptions(kind: .attached, anchor: origin, layer: .window)
+            content, options: OverlayOptions(kind: .attached, anchor: origin, layer: .pane(clip: clip))
         )
         handle.onDismiss = { [weak self, weak handle] in
             if self?.overlay === handle { self?.overlay = nil }

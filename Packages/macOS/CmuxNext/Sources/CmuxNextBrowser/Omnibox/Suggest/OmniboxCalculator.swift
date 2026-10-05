@@ -10,8 +10,7 @@ public nonisolated struct OmniboxCalculator {
     /// The value of `text`, or nil.
     public static func evaluate(_ text: String) -> Double? {
         var parser = Parser(text)
-        // Red: no arithmetic yet.
-        guard text.isEmpty, let value = parser.parse(), value.isFinite else { return nil }
+        guard let value = parser.parse(), value.isFinite else { return nil }
         return value
     }
 
