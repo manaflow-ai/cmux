@@ -36,7 +36,8 @@ pub use snapshot::{
     snapshot_version, tag as snapshot_tag,
 };
 pub use terminal::{
-    Callbacks, ClearHistoryOutcome, HistoryPage, HistoryPages, HistorySnapshot,
+    Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
+    MAX_CLIPBOARD_READ_BYTES, HistoryPage, HistoryPages, HistorySnapshot,
     KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState, MarkerError, NotifyFn, PtyWriteFn,
     Rgb, SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange,
     Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,

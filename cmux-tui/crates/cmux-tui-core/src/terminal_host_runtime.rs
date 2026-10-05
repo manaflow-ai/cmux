@@ -5120,6 +5120,7 @@ mod unix {
                 let bell = bell.clone();
                 move || bell.store(true, Ordering::Release)
             })),
+            on_clipboard_read: None,
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
         term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;

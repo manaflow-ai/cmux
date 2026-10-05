@@ -1926,6 +1926,7 @@ fn hosted_terminal_callbacks(
                 mux.emit_terminal_bell(id);
             }
         })),
+        on_clipboard_read: None,
     }
 }
 
