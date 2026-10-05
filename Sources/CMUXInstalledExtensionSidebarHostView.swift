@@ -1135,6 +1135,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(actionScope: CmuxExtensionActionScope) -> String {
         switch actionScope {
+        case .presentNativeSidebarMenu:
+            return String(localized: "sidebar.extensions.permission.presentNativeSidebarMenu.detail", defaultValue: "Show CMUX workspace and group menus. Commands run only when you choose a menu item.")
         case .bindAgentSession:
             return String(localized: "sidebar.extensions.permission.bindAgentSession.detail", defaultValue: "Bind an explicit session ID to its verified current process")
         case .analyzeWorkspaceContext:
@@ -1307,6 +1309,8 @@ private extension CmuxExtensionScope {
 private extension CmuxExtensionActionScope {
     var displayName: String {
         switch self {
+        case .presentNativeSidebarMenu:
+            return String(localized: "sidebar.extensions.actionScope.presentNativeSidebarMenu", defaultValue: "Open native sidebar menus")
         case .bindAgentSession:
             return String(localized: "sidebar.extensions.actionScope.bindAgentSession", defaultValue: "Bind agent sessions")
         case .analyzeWorkspaceContext:

@@ -644225,6 +644225,124 @@
           }
         }
       }
+    },
+    "sidebar.extensions.actionScope.presentNativeSidebarMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open native sidebar menus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح القوائم الأصلية للشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Seitenleistenmenüs öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir los menús nativos de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les menus natifs de la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブのサイドバーメニューを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 사이드바 메뉴 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开原生侧边栏菜单"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟原生側邊欄選單"
+          }
+        }
+      }
+    },
+    "sidebar.extensions.permission.presentNativeSidebarMenu.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show CMUX workspace and group menus. Commands run only when you choose a menu item."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض قوائم CMUX لمساحات العمل والمجموعات. لا تُنفّذ الأوامر إلا عند اختيار عنصر من القائمة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX-Menüs für Arbeitsbereiche und Gruppen anzeigen. Befehle werden erst ausgeführt, wenn Sie einen Menüeintrag auswählen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar los menús de espacios de trabajo y grupos de CMUX. Los comandos solo se ejecutan al elegir una opción del menú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les menus CMUX des espaces de travail et des groupes. Les commandes sont exécutées uniquement lorsque vous choisissez une entrée du menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUXのワークスペースとグループのメニューを表示します。メニュー項目を選んだ場合にのみコマンドが実行されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX 작업 공간 및 그룹 메뉴를 표시합니다. 메뉴 항목을 선택할 때만 명령이 실행됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 CMUX 工作区和分组选单。只有选择菜单项时才会执行命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 CMUX 工作區與群組選單。只有選取選單項目時才會執行指令。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
