@@ -250,4 +250,71 @@ struct BrowserReplResourceLedgerTests {
         #expect(8 * paramsBytes + admitted * resultBytes <= sessionLimit, "\(admitted) results of \(resultBytes) bytes waited beside \(8 * paramsBytes) bytes of parameters")
         #expect(outcomes.contains { $0.contains("REPL session limit: memory the session holds") && $0.contains("8 MiB") }, "\(outcomes)")
     }
+    /// A session whose JavaScript heap limit is lowered to 64 MiB.
+    private func heapSession(id: String = "heap-\(UUID().uuidString)") -> BrowserReplSession {
+        BrowserReplSession(
+            id: id,
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "heap.js", source: ledgerRuntime)], agentScripts: []),
+            driver: LedgerWorkloadDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.scriptHeapBytes, 64 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+    }
+
+    /// What agent code keeps reachable between cells is the session's
+    /// memory: each cell here keeps 16 MiB more, so by the fifth the
+    /// session's heap is past its 64 MiB and the session ends, saying why.
+    /// Garbage is not counted: a cell that makes 256 MiB and keeps none of
+    /// it runs.
+    @Test("JavaScript a session keeps between cells is bounded, and past the limit the session ends")
+    func javaScriptHeapIsBounded() async throws {
+        let session = heapSession()
+        defer { session.close() }
+
+        let garbage = await session.evaluate(code: "for (let i = 0; i < 64; i++) { const s = 'g'.repeat(4 << 20) + i; } console.log('made');")
+        #expect(garbage.error == nil, "\(garbage.error ?? "")")
+
+        var errors: [String?] = []
+        for _ in 0..<8 {
+            let kept = await browserReplWithDeadline(seconds: 60) {
+                await session.evaluate(code: "(globalThis.keep ??= []).push('k'.repeat(16 << 20) + keep.length); console.log(keep.length);")
+            }
+            errors.append(kept == nil ? "timed out" : kept?.error)
+            if kept?.error != nil { break }
+        }
+        let ended = errors.compactMap { $0 }.first ?? ""
+        #expect(ended.contains("JavaScript heap") && ended.contains("at most 64 MiB"), "\(errors)")
+        #expect(errors.count <= 5, "\(errors.count) cells kept 16 MiB each")
+        #expect(await browserReplEventually { session.isClosed })
+    }
+
+    /// Timers keep running between cells, so the heap is also measured
+    /// after their runs. The session they push past its limit ends, and
+    /// the next session of that name says why the last one did.
+    @Test("JavaScript kept by timers between cells is bounded too, and the next session of that name says why the last ended")
+    func javaScriptHeapBetweenCellsIsBounded() async throws {
+        let registry = BrowserReplSessionRegistry()
+        let key = BrowserReplSessionKey(workspaceID: UUID(), name: "heap")
+        let first = try registry.session(for: key) { heapSession(id: $0) }
+        defer { first.close() }
+
+        // 4 MiB every 50 ms after the cell ends, 256 MiB at most.
+        let started = await first.evaluate(code: """
+        globalThis.keep = [];
+        (async () => { for (let i = 0; i < 64; i++) { await sleep(50); keep.push('t'.repeat(4 << 20) + i); } })();
+        console.log('started');
+        """)
+        #expect(started.error == nil, "\(started.error ?? "")")
+        #expect(await browserReplEventually(seconds: 20) { first.isClosed }, "the session kept growing between cells")
+
+        let second = try registry.session(for: key) { heapSession(id: $0) }
+        defer { second.close() }
+        #expect(second !== first)
+        let next = await second.evaluate(code: "console.log('fresh');")
+        #expect(next.error == nil, "\(next.error ?? "")")
+        let text = next.lines.map(\.text).joined(separator: "\n")
+        #expect(text.contains("JavaScript heap") && text.contains("at most 64 MiB"), "\(text)")
+        #expect(text.contains("fresh"))
+    }
 }

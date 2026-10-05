@@ -39,6 +39,13 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     case heldEvents
     /// Timers scheduled, or fired with their callback not yet run.
     case pendingTimers
+    /// The session's JavaScript heap (JavaScriptCore's own measure of its
+    /// objects and the strings and buffers they hold), as last measured:
+    /// as each cell ends, and after other runs of the session's JavaScript
+    /// at most 5% of the thread's time. JavaScriptCore has no heap limit of
+    /// its own, so a measure past this limit, after a full garbage
+    /// collection, ends the session (``isMeasured``).
+    case scriptHeapBytes
     /// Bytes the session's fs (and its spill files and file chooser
     /// answers) wrote over its life.
     case fileBytesWritten
@@ -70,7 +77,8 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isBytes: Bool {
         switch self {
         case .waitingCellSourceBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
-             .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .fileBytesWritten, .sessionMemoryBytes:
+             .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes,
+             .fileBytesWritten, .sessionMemoryBytes:
             true
         default:
             false
@@ -82,11 +90,20 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isMemory: Bool {
         switch self {
         case .waitingCellSourceBytes, .retainedOutputBytes, .requestBytes, .driverResultBytes,
-             .fetchBodyBytes, .queuedEventBytes:
+             .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes:
             true
         default:
             false
         }
+    }
+
+    /// Whether it is measured after the fact rather than reserved before:
+    /// only its own limit refuses it, and it counts toward
+    /// ``sessionMemoryBytes`` without that limit refusing it, so a heap
+    /// that grew leaves less for the other holders, and a session whose
+    /// other holders are full does not end because its heap was measured.
+    public var isMeasured: Bool {
+        self == .scriptHeapBytes
     }
 
     /// What the limit counts, as an error names it.
@@ -108,6 +125,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .queuedEventBytes: "bytes of the page events waiting for the session's thread"
         case .heldEvents: "page events held back between cells"
         case .pendingTimers: "pending timers"
+        case .scriptHeapBytes: "the session's JavaScript heap"
         case .fileBytesWritten: "bytes the session's fs writes"
         case .fileEntryChanges: "file changes (files created, directories made, entries renamed or removed)"
         case .sessionMemoryBytes: "memory the session holds in all"
@@ -126,6 +144,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .fetchBodyBytes: "await some before starting more, or download large files in a tab (page.waitForEvent(\"download\"))"
         case .queuedEvents, .queuedEventBytes, .heldEvents: "let the session's thread take them"
         case .pendingTimers: "clear some first"
+        case .scriptHeapBytes: "keep less in variables between cells"
         case .fileBytesWritten: "reset the session (cmux browser repl reset NAME) to write more"
         case .fileEntryChanges: "reset the session (cmux browser repl reset NAME) to make more"
         case .sessionMemoryBytes: "await results and let cells finish before starting more"
@@ -188,6 +207,9 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
             .queuedEventBytes: 64 << 20,
             .heldEvents: 10_000,
             .pendingTimers: 10_000,
+            // Counted in the session's memory below too, and kept under it
+            // so results and fetch bodies still fit beside a full heap.
+            .scriptHeapBytes: 384 << 20,
             .fileBytesWritten: 2 << 30,
             .fileEntryChanges: 100_000,
             // Decided 2026-10-04 (C9): the per-holder limits above add up
@@ -354,7 +376,7 @@ public final class BrowserReplResourceLedger: @unchecked Sendable {
             return BrowserReplResourceLimitError(resource: resource, limit: limit, isPerItem: false, held: others, requested: amount)
         }
         let growth = amount - old
-        if resource.isMemory, !force, growth > 0 {
+        if resource.isMemory, !resource.isMeasured, !force, growth > 0 {
             let memory = held[.sessionMemoryBytes] ?? 0
             let total = limits[.sessionMemoryBytes]
             if growth > total - memory {
