@@ -46,6 +46,11 @@ impl VmHost for FakeHost {
         }
     }
 
+    fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        let text = String::from_utf8_lossy(bytes).replace("SECRET", "<s>");
+        text.into_bytes()
+    }
+
     fn native(&self, name: &str, args: Value) -> Result<Value, String> {
         self.natives.lock().unwrap().push((name.to_owned(), args.clone()));
         match name {
@@ -326,4 +331,19 @@ fn secrets_load_reads_the_file_natively_and_passes_the_map() {
     let (name, args) = natives.last().unwrap();
     assert_eq!(name, "secrets");
     assert_eq!(args, &json!({"op": "load", "args": {"object": {"a.test": {"k": "v-1"}}}}));
+}
+
+#[test]
+fn files_the_vm_writes_and_reads_are_masked() {
+    let (vm, _) = session(0);
+    // "x SECRET y" and "z SECRET" in base64.
+    let out = vm.eval(
+        "const n = testNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a)));\n\
+         fs('writeFile', {path: 'm.txt', base64: 'eCBTRUNSRVQgeQ=='});\n\
+         return [fs('readFile', {path: 'm.txt'}).ok];",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None, "{out:?}");
+    // "x <s> y" in base64: the value never reaches the file or the VM.
+    assert_eq!(lines(&out), vec![r#"["eCA8cz4geQ=="]"#]);
 }

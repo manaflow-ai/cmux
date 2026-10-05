@@ -39,6 +39,16 @@ pub trait Driver: Send + Sync {
     /// reset). A driver that holds per-session state (automation leases)
     /// releases it here, at once, not when the last reference drops.
     fn end_session(&self) {}
+
+    /// Sends an event the gate publishes for this session (for example
+    /// `automation.input`) down the driver's own event path for the
+    /// session, so the engine's taps see it once (the provider engine tees
+    /// inputs to the app). Returns false when the driver has no such path;
+    /// the gate then delivers the event to the session itself.
+    fn send_session_event(&self, event: DriverEvent) -> bool {
+        let _ = event;
+        false
+    }
 }
 
 /// An event sink that drops every event.

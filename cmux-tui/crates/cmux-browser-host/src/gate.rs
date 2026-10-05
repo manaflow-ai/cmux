@@ -16,6 +16,8 @@ use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod guards;
+
 /// Per-session grants decided by the session's opener (user or mux).
 #[derive(Debug, Clone, Default)]
 pub struct Grants {
@@ -35,6 +37,8 @@ pub struct Gate {
     filter_enforced: std::sync::atomic::AtomicBool,
     /// Secrets typed into tabs by any session of the host.
     tab_secrets: Arc<TabSecrets>,
+    /// `automation.input` events for this lease session, if published.
+    inputs: Option<crate::automation_input::InputEmitter>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -54,7 +58,15 @@ impl Gate {
             log: Mutex::new(Vec::new()),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
+            inputs: None,
         }
+    }
+
+    /// Publishes `automation.input` for the inputs this session dispatches,
+    /// on the session's own event sink, as lease session `session`.
+    pub fn with_input_events(mut self, session: &str, sink: crate::driver::EventSink) -> Gate {
+        self.inputs = Some(crate::automation_input::InputEmitter::new(session, sink));
+        self
     }
 
     /// Shares the host's record of secrets typed into tabs, so this session
@@ -251,10 +263,32 @@ impl Gate {
             (text, vault.typed_value(&name).map(str::to_owned))
         };
         // Every session masks it in this tab from now on, not only this one.
-        if let (Some(target), Some(value)) = (target.as_str(), typed) {
-            self.tab_secrets.record(target, &name, &value);
+        if let Some(target) = target.as_str() {
+            if let Some(value) = typed {
+                self.tab_secrets.record(target, &name, &value);
+            } else if let Some(key) = self.vault().totp_key(&name) {
+                self.tab_secrets.record_totp(target, &name, key);
+            }
         }
         params[field] = Value::String(text);
+        Ok(())
+    }
+
+    /// Main's `input.insertText { secret: name }`: the same check and typing
+    /// as a `{__secret}` handle in `text`; a secret with a text is invalid.
+    fn secret_insert(params: &mut Value) -> Result<(), DriverError> {
+        let Some(secret) = params.as_object_mut().and_then(|p| p.remove("secret")) else {
+            return Ok(());
+        };
+        let Some(name) = secret.as_str() else {
+            return Err(DriverError::invalid("input.insertText: secret must be a secret name"));
+        };
+        if params.get("text").is_some_and(|text| !text.is_null()) {
+            return Err(DriverError::invalid(
+                "input.insertText: give a secret or a text, not both",
+            ));
+        }
+        params["text"] = json!({"__secret": name});
         Ok(())
     }
 }
@@ -271,13 +305,27 @@ impl VmHost for Gate {
             ));
         }
         self.check(method, &params)?;
+        self.check_cookies(method, &params)?;
         let mut params = params;
+        if method == "input.insertText" {
+            Self::secret_insert(&mut params)?;
+        }
         if matches!(method, "input.insertText" | "input.key") {
             self.resolve_secret(&mut params, "text")?;
         }
+        // Every check passed: the app's agent cursor learns of the input
+        // right before it is dispatched (a refused input emits nothing).
+        if let Some(inputs) = &self.inputs
+            && let Some(planned) = inputs.plan(method, &params)
+        {
+            inputs.publish(planned, &|event| self.driver.send_session_event(event));
+        }
         let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
         let target = target.as_deref();
-        let result = self.driver.call(method, &params);
+        let result = match method {
+            "tab.screenshot" | "tab.pdf" => self.capture(method, &params),
+            _ => self.driver.call(method, &params).map(|value| self.filter_cookies(method, value)),
+        };
         if method == "tabs.close"
             && result.is_ok()
             && let Some(target) = target
@@ -307,6 +355,14 @@ impl VmHost for Gate {
             "policy" => self.policy_op(op, args),
             other => Err(format!("unknown host function {other}")),
         }
+    }
+
+    /// The session's secrets and every secret typed into any tab: a file
+    /// belongs to no single tab.
+    fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        let mut masker = self.masker();
+        masker.merge(&self.tab_secrets.all_masker());
+        masker.mask_bytes(bytes)
     }
 }
 
