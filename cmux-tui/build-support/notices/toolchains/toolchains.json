@@ -12,7 +12,7 @@
         "cmux-tui/rust-toolchain.toml",
         "first-party-apps/cloud/server/rust-toolchain.toml"
       ],
-      "binaries": "bin/cmux, bin/cmux-tui-ssh/*, bin/cmux-app-host (cmux-tui) and bin/cmux-cloud (first-party-apps/cloud/server)"
+      "binaries": "bin/cmux, bin/cmux-tui-ssh/*, bin/cmux-app-host, bin/cmux-browser-host (cmux-tui) and bin/cmux-cloud (first-party-apps/cloud/server)"
     },
     {
       "version": "1.91.0",

@@ -23,6 +23,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["config", "settings", "file"], category: .settings, symbol: "doc.plaintext",
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
             ),
+            // R92 diagnostics: Settings > Terminal lists the Ghostty lines cmux
+            // does not apply. The CLI prints the same list (`cmux ghostty
+            // diagnostics`, the app's `ghostty.diagnostics`).
+            ActionDescriptor(
+                id: "ghostty.showDiagnostics",
+                title: String(localized: "action.ghostty.showDiagnostics", defaultValue: "Show Ghostty Config Diagnostics", bundle: .module),
+                keywords: ["ghostty", "config", "diagnostics", "unsupported", "keybind", "problems"], category: .settings,
+                symbol: "exclamationmark.triangle", surfaces: [.palette]
+            ),
             ActionDescriptor(
                 id: "palette.makeDefaultBrowser",
                 title: String(localized: "action.palette.makeDefaultBrowser", defaultValue: "Make cmux the Default Browser", bundle: .module),

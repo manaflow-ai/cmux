@@ -61,12 +61,15 @@ public nonisolated struct OmniboxConfiguration: Hashable, Sendable {
     public var remoteSuggestions = true
     public var inlineAutocomplete = true
     public var maxRows = 8
+    /// `browser.omnibar.calculator`: arithmetic answers.
+    public var calculator = true
 
     public init(searchEngine: BrowserSearchEngine = .google, remoteSuggestions: Bool = true, inlineAutocomplete: Bool = true,
-                maxRows: Int = 8) {
+                maxRows: Int = 8, calculator: Bool = true) {
         self.searchEngine = searchEngine
         self.remoteSuggestions = remoteSuggestions
         self.inlineAutocomplete = inlineAutocomplete
         self.maxRows = maxRows
+        self.calculator = calculator
     }
 }

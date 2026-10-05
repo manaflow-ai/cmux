@@ -1,0 +1,55 @@
+name: cmux-tui artifacts retry
+
+# A transient registry or R2 failure must not strand a cmux-tui tree key. A
+# run cannot rerun itself while it is in progress (GitHub answers 403 "This
+# workflow is already running"), so this workflow reruns the failed jobs of a
+# completed, failed cmux-tui artifacts run, up to attempt 3. "Re-run failed
+# jobs" also reruns their dependents, so the publish jobs run again.
+#
+# An immutable R2 conflict is never retried: a rebuild is not byte-identical.
+# scripts/ci/cmux_tui_artifacts_retry.py reads the immutable-r2-conflict
+# annotation of the failed jobs, leaves that run red and fails here with the
+# job name.
+#
+# workflow_run runs this file from the default branch only, and it checks out
+# the default branch: no code of the failed run executes here.
+on:
+  workflow_run:
+    workflows: ["cmux-tui artifacts"]
+    types: [completed]
+
+env:
+  # The producer behind the display name above; tests/test_ci_workflow_run_sources.py
+  # fails if it is renamed without this trigger.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-tui-artifacts.yml
+
+permissions: {}
+
+concurrency:
+  group: cmux-tui-artifacts-retry-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    name: retry failed cmux-tui publish
+    if: >-
+      ${{ github.repository_owner == 'manaflow-ai' &&
+          github.event.workflow_run.conclusion == 'failure' &&
+          github.event.workflow_run.run_attempt < 3 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Rerun failed jobs unless an immutable R2 conflict failed the run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 scripts/ci/cmux_tui_artifacts_retry.py --repo "$REPOSITORY" --run-id "$RUN_ID"

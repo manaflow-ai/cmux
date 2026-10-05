@@ -5,6 +5,9 @@ name: cmux-next source archive (dry run)
 # dependency license tree, verifies both, and uploads them as workflow
 # artifacts only. It never publishes: the nightly-next workflow attaches the
 # archive to its release once vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1.
+# The iOS release workflows call it (workflow_call) with the exact commit they
+# ship, before their upload, and publish its artifact after the upload behind
+# the same variable (IOS-SOURCE-ARCHIVE-PER-RELEASE).
 on:
   # feat-cmux-next takes direct pushes; a workflow that exists only there runs
   # on push (a manual dispatch needs the file on the default branch).
@@ -35,6 +38,20 @@ on:
       - "scripts/cmux-next/notices/ghosttykit_repin.py"
       - "ios/cmux/Settings.bundle/**"
       - "Packages/Shared/CmuxGhosttyKit/Package.swift"
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact 40-character commit of the release (the commit its app is built from).
+        required: true
+        type: string
+      build:
+        description: Archive label, cmux-next-source-<build>.tar.gz (the publisher renames it).
+        required: true
+        type: string
+      artifact:
+        description: Workflow artifact name for the archive and the license trees.
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       publish:
@@ -47,8 +64,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: cmux-next-source-archive-${{ github.ref }}
-  cancel-in-progress: true
+  # Pushes supersede each other; a release's call (another event) never cancels
+  # or is cancelled by them.
+  group: cmux-next-source-archive-${{ github.event_name == 'push' && github.ref || format('{0}-{1}', github.run_id, inputs.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   archive:
@@ -64,6 +83,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Empty on push: the pushed commit. A release passes its exact commit.
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Check out the Ghostty submodule and the libghostty-vt source
@@ -94,7 +115,9 @@ jobs:
 
       - name: Build and verify the source archive (twice, byte-identical)
         id: archive
-        run: ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive" "dryrun-${{ github.run_number }}"
+        env:
+          ARCHIVE_BUILD: ${{ inputs.build || format('dryrun-{0}', github.run_number) }}
+        run: ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive" "$ARCHIVE_BUILD"
 
       # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's
       # build.rs names (ghostty-next today). Its declared Zig packages must be in
@@ -159,7 +182,7 @@ jobs:
         if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-next-source-archive-dry-run
+          name: ${{ inputs.artifact || 'cmux-next-source-archive-dry-run' }}
           path: ${{ runner.temp }}/source-archive
           if-no-files-found: error
           retention-days: 3
@@ -172,6 +195,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Empty on push: the pushed commit. A release passes its exact commit.
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Check out the libghostty-vt source

@@ -8,7 +8,7 @@
 ///     "search": "https://example.com/search?q=%s",
 ///     "suggest": "https://example.com/suggest?q=%s"   // optional, OpenSearch JSON
 ///   },
-///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8 }
+///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true }
 /// }
 /// ```
 ///
@@ -21,6 +21,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static let remoteSuggestionsPath = ["browser", "omnibar", "remoteSuggestions"]
     public static let inlineAutocompletePath = ["browser", "omnibar", "inlineAutocomplete"]
     public static let maxRowsPath = ["browser", "omnibar", "maxRows"]
+    public static let calculatorPath = ["browser", "omnibar", "calculator"]
     /// The built-in engines, then `custom`.
     public static let engines = ["google", "duckduckgo", "bing", "brave", "kagi", "custom"]
     public static let maxRowsRange: ClosedRange<Double> = 3...15
@@ -31,6 +32,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public var remoteSuggestions = true
     public var inlineAutocomplete = true
     public var maxRows = 8
+    public var calculator = true
 
     public init() {}
 
@@ -53,6 +55,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
             case remoteSuggestionsPath: setting.remoteSuggestions = value.boolValue ?? true
             case inlineAutocompletePath: setting.inlineAutocomplete = value.boolValue ?? true
             case maxRowsPath: setting.maxRows = Int(value.doubleValue ?? 8)
+            case calculatorPath: setting.calculator = value.boolValue ?? true
             default: break
             }
         }
