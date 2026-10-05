@@ -42,6 +42,8 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
   // The cost backstop (system) may also pause a machine that never bound (review P2-1).
   if (pause && m.status !== "running" && !(system && m.status === "provisioning")) return reject("cloud.machine.not_running", "only a running machine can be paused", { machine: m.id, state: m.status })
   if (!pause && m.status !== "paused") return reject("cloud.machine.not_paused", "only a paused machine can be started", { machine: m.id, state: m.status })
+  // A machine that never bound cannot bind any more (its one-time token expired): starting it would only cost (review P3).
+  if (!pause && !m.host) return reject("cloud.machine.not_bound", "this machine never finished setting up; delete it and create a new one", { machine: m.id })
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   if (!pause) {
     const plan = teamPlan(config, state.team ?? ctx.principal.team)
