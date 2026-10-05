@@ -373,7 +373,10 @@ rest. Measurements: [performance.md](performance.md).
   then `# output continues in <path>`, and at the end of the call its last
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out
-  still has it.
+  still has it. One print (a `console.log` call, a printed value) keeps
+  at most 16,000,000 characters, in the output and the file alike: a
+  longer one is cut before it is escaped or written, and ends with `#
+  this print was cut after 16,000,000 characters (N were given)`.
 - **Control characters** in printed text (page titles, text, option
   labels, URLs and error messages can hold terminal escape sequences)
   print visibly, whatever printed them (`console.log`, the auto-printed
