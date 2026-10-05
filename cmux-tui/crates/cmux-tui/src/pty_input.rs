@@ -1180,6 +1180,15 @@ fn process_event(
     } else {
         state.in_flight = None;
     }
+    // A retire_surface during the failure report above saw this operation in
+    // flight and marked its lane. Once nothing on the lane is in flight, no
+    // late quarantine can come, so the mark goes too.
+    if let Some(lane) = ordering_lane
+        && state.in_flight.is_none_or(|input| input.lane != Some(lane))
+        && !state.in_flight_surface_operations.contains_key(&lane)
+    {
+        state.retired_in_flight_lanes.remove(&lane);
+    }
     queue.changed.notify_all();
     drop(state);
     // Completion is a barrier: publish only after timeout pruning,
