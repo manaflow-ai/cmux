@@ -5,6 +5,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronDown } from "../changeIcons";
 import { SCOPE_LABEL, SCOPE_ORDER, type ChangeScope } from "./model";
+import { useT } from "../i18n";
 
 export function ScopeMenu({
   scope,
@@ -16,6 +17,7 @@ export function ScopeMenu({
   /// Shown in the pill after the scope's name: its totals.
   children?: React.ReactNode;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -61,7 +63,7 @@ export function ScopeMenu({
         ref={button}
         type="button"
         className="acpmux-diff-scope"
-        aria-label={`Changes: ${SCOPE_LABEL[scope]}`}
+        aria-label={t("changes.scopeButton", { scope: t(SCOPE_LABEL[scope]) })}
         aria-haspopup="menu"
         aria-expanded={open}
         // WebKit does not focus a clicked button, so closing from it puts focus there.
@@ -72,7 +74,7 @@ export function ScopeMenu({
           setOpen(true);
         }}
       >
-        <strong>{SCOPE_LABEL[scope]}</strong>
+        <strong>{t(SCOPE_LABEL[scope])}</strong>
         <ChevronDown className="acpmux-scope-chevron" />
         {children}
       </button>
@@ -82,7 +84,7 @@ export function ScopeMenu({
           role="menu"
           tabIndex={-1}
           className="acpmux-file-menu-list acpmux-scope-list"
-          aria-label="Changes to show"
+          aria-label={t("changes.scopeMenu")}
           onKeyDown={onKeyDown}
         >
           {SCOPE_ORDER.map((entry, index) =>
@@ -101,7 +103,7 @@ export function ScopeMenu({
                   onScope(entry);
                 }}
               >
-                <span className="acpmux-scope-label">{SCOPE_LABEL[entry]}</span>
+                <span className="acpmux-scope-label">{t(SCOPE_LABEL[entry])}</span>
                 {entry === scope && <Check />}
               </button>
             ),

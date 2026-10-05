@@ -29,6 +29,7 @@ on:
       - ".github/workflows/cmux-next-source-archive.yml"
       - "scripts/cmux-next/notices/ios_notices.py"
       - "scripts/cmux-next/notices/ios/**"
+      - "scripts/cmux-next/notices/ghosttykit-macos-link-set.json"
       - "ios/cmux/Settings.bundle/**"
       - "Packages/Shared/CmuxGhosttyKit/Package.swift"
   workflow_dispatch:
@@ -110,6 +111,12 @@ jobs:
       # (the ghostty-next gitlink = the GhosttyNextKit pin's revision).
       - name: iOS Acknowledgements pane is current
         run: python3 scripts/cmux-next/notices/ios_notices.py generate --ghostty-tree "$RUNNER_TEMP/source-archive/ghostty-next-licenses" --check
+
+      # The macOS app links GhosttyNextKit's macos slice into Contents/MacOS/cmux
+      # and bundles this tree (nightly-next): every package of the slice's DWARF
+      # (ghosttykit-macos-link-set.json, made on a Mac) needs a license text in it.
+      - name: macOS GhosttyNextKit link set is covered by the notices
+        run: python3 scripts/cmux-next/notices/ios_notices.py check-macos --ghostty-tree "$RUNNER_TEMP/source-archive/ghostty-next-licenses"
 
       - name: Upload the archive and the license tree (workflow artifact only)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

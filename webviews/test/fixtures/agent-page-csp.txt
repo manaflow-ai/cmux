@@ -1,0 +1,1 @@
+default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*

@@ -56,7 +56,7 @@ import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
-import { useT } from "./i18n";
+import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
@@ -404,7 +404,7 @@ const EditedFilesRow = memo(
               className="acpmux-review-changes"
               onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
             >
-              View changes
+              {t("edited.view")}
             </button>
           )}
         </div>
@@ -448,7 +448,7 @@ const EditedFilesRow = memo(
             aria-expanded={showAll}
             onClick={() => setShowAll(!showAll)}
           >
-            {showAll ? "Show fewer files" : `Show ${more} more ${more === 1 ? "file" : "files"}`}
+            {showAll ? t("edited.fewer") : more === 1 ? t("edited.more.one") : t("edited.more.other", { n: more })}
             <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
           </button>
         )}
@@ -538,6 +538,7 @@ function RowFrame({
   onEntered: (id: string) => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   useLayoutEffect(() => {
@@ -560,7 +561,7 @@ function RowFrame({
       ref={ref}
       data-row-id={row.id}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
-      aria-label={speaker(kind)}
+      aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
@@ -571,7 +572,8 @@ function RowFrame({
 }
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
-const speaker = (kind: string) => (kind === "user" ? "You" : kind === "assistant" ? "Agent" : undefined);
+const speaker = (kind: string, t: Translate) =>
+  kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   !isFoldedCopy(row) &&
@@ -612,6 +614,7 @@ export function VirtualTranscript({
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
 }) {
+  const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
@@ -835,7 +838,7 @@ export function VirtualTranscript({
     flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top })));
   };
   return (
-    <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}>
+    <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
         <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
@@ -1735,7 +1738,7 @@ function AcpmuxPane() {
   const sidebarShown = sidebar === "open";
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
-  const header = paneHeader(composerSnapshot);
+  const header = paneHeader(composerSnapshot, t);
   const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
   const handoffTargets = composerSnapshot.catalog.filter((entry) => {
     const family = entry.id.split(/[-_]/)[0];
@@ -1894,7 +1897,7 @@ function AcpmuxPane() {
           <button
             type="button"
             className="acpmux-sidebar-scrim"
-            aria-label="Close sessions"
+            aria-label={t("sidebar.closeOverlay")}
             tabIndex={-1}
             onClick={closeOverlay}
           />
@@ -1948,8 +1951,8 @@ function AcpmuxPane() {
                       type="button"
                       className="acpmux-sidebar-toggle"
                       ref={sidebarToggle}
-                      aria-label="Sessions"
-                      title="Sessions"
+                      aria-label={t("sidebar.sessions")}
+                      title={t("sidebar.sessions")}
                       aria-controls="acpmux-sidebar"
                       aria-expanded={sidebarShown}
                       onClick={toggleSidebar}

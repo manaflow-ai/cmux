@@ -353,9 +353,10 @@ impl Hub {
     /// `session/prompt` with `promptId` (default: the handoffId) and
     /// `resend`. A retry with the same `promptId` answers `already_started`
     /// from the record or the target's log and never sends twice.
-    /// The target session id of handoff `id`, for the remote guard.
-    pub(crate) fn handoff_target_id(&self, id: &str) -> Option<String> {
-        self.handoffs.get(id).map(|r| r.target.session_id)
+    /// The target session id of handoff `id`, and whether the handoff is
+    /// still a draft (its target never prompted), for the remote guard.
+    pub(crate) fn handoff_target(&self, id: &str) -> Option<(String, bool)> {
+        self.handoffs.get(id).map(|r| (r.target.session_id, r.state == State::Draft))
     }
 
     pub async fn handoff_start(self: &Arc<Self>, p: &Value) -> Result<Value, RpcError> {

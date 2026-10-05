@@ -42,7 +42,7 @@ public nonisolated final class RemoteRdInput {
         case let .key(usage, down):
             raw.kind = UInt32(CMUX_RD_INPUT_KEY)
             raw.usage = usage
-            raw.down = down
+            raw.down = down ? 1 : 0
             code = cmux_rd_input_push(handle, &raw, &seq)
         case let .pointer(x, y):
             raw.kind = UInt32(CMUX_RD_INPUT_POINTER)
@@ -52,13 +52,13 @@ public nonisolated final class RemoteRdInput {
         case let .button(button, down):
             raw.kind = UInt32(CMUX_RD_INPUT_BUTTON)
             raw.button = button.rawValue
-            raw.down = down
+            raw.down = down ? 1 : 0
             code = cmux_rd_input_push(handle, &raw, &seq)
         case let .scroll(dx, dy, precise):
             raw.kind = UInt32(CMUX_RD_INPUT_SCROLL)
             raw.dx = dx
             raw.dy = dy
-            raw.precise = precise
+            raw.precise = precise ? 1 : 0
             code = cmux_rd_input_push(handle, &raw, &seq)
         case let .text(text):
             raw.kind = UInt32(CMUX_RD_INPUT_TEXT)

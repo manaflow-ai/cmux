@@ -87,9 +87,7 @@ describe("BridgePageClient", () => {
   // is indeterminate, so the error is retryable and names the opid a retry must reuse.
   test("an aborted call sends cancel for its id and rejects at once with cmux.op.cancelled", async () => {
     let release: (value: unknown) => void = () => undefined;
-    const { client, posted } = host((m) =>
-      m.t === "call" ? new Promise((resolve) => (release = resolve)) : null,
-    );
+    const { client, posted } = host((m) => (m.t === "call" ? new Promise((resolve) => (release = resolve)) : null));
     const controller = new AbortController();
     const pending = client.call("cmux.cloud.files.push", { path: "/a" }, { opid: "op-1", signal: controller.signal });
     controller.abort();
@@ -117,7 +115,9 @@ describe("BridgePageClient", () => {
     const { client, posted } = host(() => ({ t: "ok", id: 1, value: {} }));
     const controller = new AbortController();
     controller.abort();
-    const error = await client.call("cmux.cloud.files.push", {}, { signal: controller.signal }).catch((e: unknown) => e);
+    const error = await client
+      .call("cmux.cloud.files.push", {}, { signal: controller.signal })
+      .catch((e: unknown) => e);
     expect(isPageError(error) && error.code).toBe("cmux.op.cancelled");
     expect(posted).toEqual([]);
   });
