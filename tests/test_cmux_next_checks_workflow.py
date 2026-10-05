@@ -303,6 +303,15 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
         self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/main",
                                             published=True)["run_macos"], "true")
 
+    def test_manual_republish_keeps_commit_artifacts_enabled(self):
+        self.assertEqual(self.run_preflight(artifacts=True, event="workflow_dispatch",
+                                            ref="refs/heads/cmux-tui-pin-repair",
+                                            published=True)["run_macos"], "true")
+
+    def test_pin_push_keeps_commit_artifacts_enabled(self):
+        self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/cmux-tui-pin-repair",
+                                            published=True)["run_macos"], "true")
+
     def test_fork_never_schedules_trusted_build(self):
         self.assertEqual(self.run_preflight(artifacts=True, event="pull_request_target",
                                             fork=True)["run_macos"], "false")
