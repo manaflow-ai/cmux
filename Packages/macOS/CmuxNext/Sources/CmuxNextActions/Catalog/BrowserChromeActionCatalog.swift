@@ -57,6 +57,15 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
             // camera, microphone) answered without the mouse: the keyboard
             // path, the palette, and `action.run` for scripts and proofs.
             // It answers the live question in the focused tab only.
+            // The blocked-download notice's Site Settings… button: the site
+            // that blocked the newest download, where its choice changes.
+            ActionDescriptor(
+                id: "browser.download.openBlockedSiteSettings",
+                title: String(localized: "action.browser.download.openBlockedSiteSettings", defaultValue: "Open Site Settings of Blocked Download", bundle: .module),
+                keywords: ["browser", "download", "blocked", "automatic downloads", "multiple files", "site settings", "permission", "allow"],
+                category: .browser, symbol: "gearshape", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "browser.prompt.allow",
                 title: String(localized: "action.browser.prompt.allow", defaultValue: "Allow Site Request", bundle: .module),

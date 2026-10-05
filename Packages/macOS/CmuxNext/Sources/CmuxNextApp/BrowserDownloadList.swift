@@ -33,6 +33,7 @@ final class BrowserDownloadList {
         if items.count > Self.limit { items.removeFirst(items.count - Self.limit) }
         logger.notice("download \(item.id, privacy: .public) started in tab \(key, privacy: .public)")
         item.onFinish { [weak self] item in
+            if case .blocked = item.status, let site = item.blockedSite { self?.latestBlocked = (site, key) }
             self?.finished(item, notice: notice)
         }
     }
