@@ -90,4 +90,27 @@ describe("snapshots", { timeout: 60_000 }, () => {
     expect(await wait((f) => f.event === "cloud.snapshot.removed" && f.data?.snapshot === id)).toBeDefined()
     ws.close()
   })
+
+  it("a failed delete keeps the status from before; snapshot rows record their creator (review P3)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).value.snapshot.id as string
+    await x.stub.fakeControl({ snapshot_delete_refuse: 1 } as never)
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.delete", { snapshot: id })))
+    const s1 = (await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", {})).value.snapshots[0]
+    expect(s1).toMatchObject({ id, status: "ready" })
+    const creator = await (await import("cloudflare:test")).runInDurableObject(x.stub as never, async (i: any) => i.boundEngine.rows.get("snapshot", id).row.creator)
+    expect(creator).toBe(x.user)
+  })
+
+  it("a restore records its snapshot on the machine, so the provider call never guesses from the image id (review P3)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).value.snapshot.id as string
+    const restored = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: id }))).value.machine.id as string
+    const rows = await (await import("cloudflare:test")).runInDurableObject(x.stub as never, async (i: any) => [i.boundEngine.rows.get("machine", restored).row.from_snapshot, i.boundEngine.rows.get("machine", machine).row.from_snapshot])
+    expect(rows).toEqual([`cmuxnp-test-cld-${id.replace(/_/g, "-")}`, undefined])
+  })
 })
