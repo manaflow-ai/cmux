@@ -255,18 +255,33 @@ public struct BrowserReplDataStoreCandidate<Store> {
 }
 
 extension BrowserReplDocumentAuthority {
-    /// How `tabs.list` shows `tab` to the session.
+    /// How `tabs.list` shows `tab` to the session: a tab it may use
+    /// (``BrowserReplTabCapability/use``) with its data store; another
+    /// running session's tab of the session's workspace by that session,
+    /// without its store; any other tab not at all. A tab of another
+    /// workspace is not listed (a person must grant one, and cmux has no
+    /// such grant yet), so neither is its profile's store.
     public func listing(of tab: BrowserReplTabFacts) -> BrowserReplTabListing {
-        if let owner = tab.creatorSessionID, owner != sessionID { return .ownedByAnotherSession(owner) }
-        return .usable
+        if verdict(BrowserReplAccess(in: tab, capability: .use)) == .allowed { return .usable }
+        if let owner = tab.creatorSessionID, owner != sessionID, isInWorkspace(tab) { return .ownedByAnotherSession(owner) }
+        return .hidden
     }
 
-    /// The store of the first candidate the session may take a store from
-    /// whose store is `id`, or nil.
+    /// The store of the first candidate whose store is `id` and whose tab
+    /// the session may use (``BrowserReplTabCapability/use``), or nil: a
+    /// store reaches a session only through a tab it may drive, never one
+    /// of another workspace or another running session.
     public func dataStore<Store>(_ id: String, among candidates: [BrowserReplDataStoreCandidate<Store>]) -> Store? {
         candidates.first { candidate in
-            candidate.storeID == id && (candidate.tab.creatorSessionID == nil || candidate.tab.creatorSessionID == sessionID)
+            candidate.storeID == id && verdict(BrowserReplAccess(in: candidate.tab, capability: .use)) == .allowed
         }?.store
+    }
+
+    /// Whether `tab` is in the session's workspace (always, when the
+    /// workspace is not known here).
+    private func isInWorkspace(_ tab: BrowserReplTabFacts) -> Bool {
+        guard let workspaceID else { return true }
+        return tab.workspaceID == workspaceID
     }
 }
 

@@ -214,13 +214,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// `panel` as the authority judges it.
     @MainActor
     private func tabFacts(_ panel: BrowserPanel) -> BrowserReplTabFacts {
+        tabFacts(panel, workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id)
+    }
+
+    /// `panel`, held by the workspace `workspaceID`, as the authority judges it.
+    @MainActor
+    private func tabFacts(_ panel: BrowserPanel, workspaceID: UUID?) -> BrowserReplTabFacts {
         let attachment = BrowserReplTabAttachments.shared.attachment(for: panel.id)
         return BrowserReplTabFacts(
             id: panel.id,
             mainFrameURL: panel.webView.url,
             creatorSessionID: attachment?.liveCreatorSessionID,
             attachedSessionIDs: Set(attachment?.sessionIDs ?? []),
-            workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id
+            workspaceID: workspaceID
         )
     }
 
@@ -764,13 +770,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         BrowserReplTabAttachments.shared.attachment(for: id)?.ownerRefusing(sessionID)
     }
 
-    /// The name of the live session other than this one that created tab
-    /// `id`, for `tabs.list` (`ownerSession`).
-    @MainActor
-    private func ownerSessionName(_ id: UUID) -> String? {
-        otherSessionOwning(id).map { BrowserReplSessionKey(instanceID: $0)?.name ?? $0 }
-    }
-
     /// Every workspace of every window, the session's own first.
     @MainActor
     private func allWorkspaces() -> [Workspace] {
@@ -1018,55 +1017,39 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return row
     }
 
+    /// `tabs.list`: the tabs of the session's workspace, in window order;
+    /// with `all`, then the tabs of other workspaces the authority lists
+    /// (``BrowserReplDocumentAuthority/listing(of:)``): only tabs the
+    /// session created that moved there. A user's tab of another workspace
+    /// is not listed, and neither is its data store: reaching it needs an
+    /// attach a person grants, which cmux does not offer yet.
     @MainActor
     private func listTabs(all: Bool = false) throws -> [[String: Any]] {
         let workspace = try workspace()
         let panels = try browserPanels()
-        if all {
-            // The session's own workspace first, then every other workspace.
-            let own = try listTabs()
-            var others: [[String: Any]] = []
-            for other in allWorkspaces() where other.id != workspace.id {
-                let deferred = Self.deferredTabRows(other)
-                for id in other.orderedPanelIds {
-                    if let row = deferred[id] {
-                        others.append(row)
-                    } else if let panel = other.panels[id] as? BrowserPanel {
-                        var row: [String: Any] = [
-                            "targetId": panel.id.uuidString,
-                            "title": Self.title(panel),
-                            "url": Self.url(panel),
-                            "active": false,
-                            "windowId": other.id.uuidString,
-                            "state": tabCondition(panel).state.rawValue,
-                        ]
-                        // Another live session's tab lists with its owner and
-                        // without its data store; this session cannot use it.
-                        if let owner = ownerSessionName(panel.id) {
-                            row["ownerSession"] = owner
-                        } else {
-                            row["dataStore"] = Self.dataStoreID(panel.webView.configuration.websiteDataStore)
-                        }
-                        others.append(row)
-                    }
-                }
-            }
-            return own + others
-        }
+        let authority = self.authority
         let active = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first { $0.id == workspace.focusedPanelId }
-        let deferred = Self.deferredTabRows(workspace)
-        guard deferred.isEmpty else {
-            // A relaunch's not-yet-loaded tabs list in their places, hibernated.
-            let live = Dictionary(uniqueKeysWithValues: listTabsLoaded(panels, workspace: workspace, active: active).map { ($0["targetId"] as? String ?? "", $0) })
-            return workspace.orderedPanelIds.compactMap { live[$0.uuidString] ?? deferred[$0] }
+        var rows = listedRows(workspace, active: active, authority: authority)
+        if all {
+            for other in allWorkspaces() where other.id != workspace.id {
+                rows += listedRows(other, active: nil, authority: authority)
+            }
         }
-        return listTabsLoaded(panels, workspace: workspace, active: active)
+        return rows
     }
 
+    /// The rows of `workspace`'s tabs the authority lists, in window order.
+    /// A relaunch's not-yet-loaded tabs list in their places, hibernated.
     @MainActor
-    private func listTabsLoaded(_ panels: [BrowserPanel], workspace: Workspace, active: BrowserPanel?) -> [[String: Any]] {
-        panels.map { panel in
+    private func listedRows(_ workspace: Workspace, active: BrowserPanel?, authority: BrowserReplDocumentAuthority) -> [[String: Any]] {
+        let deferred = Self.deferredTabRows(workspace)
+        return workspace.orderedPanelIds.compactMap { id in
+            if let row = deferred[id] {
+                // A tab a relaunch restored is the user's.
+                return authority.listing(of: BrowserReplTabFacts(id: id, workspaceID: workspace.id)) == .hidden ? nil : row
+            }
+            guard let panel = workspace.panels[id] as? BrowserPanel else { return nil }
             var entry: [String: Any] = [
                 "targetId": panel.id.uuidString,
                 "title": Self.title(panel),
@@ -1075,9 +1058,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "windowId": workspace.id.uuidString,
                 "state": tabCondition(panel).state.rawValue,
             ]
-            if let owner = ownerSessionName(panel.id) {
-                entry["ownerSession"] = owner
-            } else {
+            switch authority.listing(of: tabFacts(panel, workspaceID: workspace.id)) {
+            case .hidden:
+                return nil
+            case .ownedByAnotherSession(let owner):
+                // Listed with its owner and without its data store; this
+                // session cannot use it.
+                entry["ownerSession"] = BrowserReplSessionKey(instanceID: owner)?.name ?? owner
+            case .usable:
                 entry["dataStore"] = Self.dataStoreID(panel.webView.configuration.websiteDataStore)
             }
             if let opener = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.openerTargetID {
@@ -1163,8 +1151,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// The store and profile `tabs.open` uses: the session's proxy store
-    /// (or the default profile's) without `dataStore`, else the store a
-    /// session-reachable tab with that id uses, and that tab's profile.
+    /// (or the default profile's) without `dataStore`, else the store a tab
+    /// the authority lets this session use has with that id
+    /// (``BrowserReplDocumentAuthority/dataStore(_:among:)``), and that
+    /// tab's profile: another live session's private or proxy store stays
+    /// its own, and another workspace's private profile store stays there.
     @MainActor
     private func dataStoreForNewTab(_ raw: Any?) throws -> (WKWebsiteDataStore?, UUID?) {
         guard let raw else { return (proxyDataStore, nil) }
@@ -1172,11 +1163,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "tabs.open: dataStore must be a string from tabs.list or tabs.dataStore")
         }
         if let proxyDataStore, Self.dataStoreID(proxyDataStore) == id { return (proxyDataStore, nil) }
-        // Only a store a tab this session may drive uses: another live
-        // session's private or proxy store stays its own.
-        if let panel = allBrowserPanels().map({ $0.panel }).first(where: {
-            otherSessionOwning($0.id) == nil && Self.dataStoreID($0.webView.configuration.websiteDataStore) == id
-        }) {
+        let candidates = allBrowserPanels().map { entry in
+            BrowserReplDataStoreCandidate(
+                tab: tabFacts(entry.panel, workspaceID: entry.workspace.id),
+                storeID: Self.dataStoreID(entry.panel.webView.configuration.websiteDataStore),
+                store: entry.panel
+            )
+        }
+        if let panel = authority.dataStore(id, among: candidates) {
             return (panel.webView.configuration.websiteDataStore, panel.profileID)
         }
         let defaultStore = try cookieTab([:]).store
