@@ -1,11 +1,13 @@
 // Site state for Page Info through CEF's own API (ABI 3): content settings of
 // the browser's request context (Chromium's HostContentSettingsMap, the
 // store Chromium's Page Info edits), the context's cookie manager, and the
-// visible navigation entry's SSL status.
+// visible navigation entry's SSL status, and clearing the context's
+// certificate error decisions (Page Info "Turn on warnings").
 
 #include <cstdlib>
 #include <cstring>
 
+#include "include/cef_callback.h"
 #include "include/cef_cookie.h"
 #include "include/cef_parser.h"
 #include "include/cef_ssl_status.h"
@@ -135,6 +137,31 @@ class DeleteReply : public CefDeleteCookiesCallback {
   IMPLEMENT_REFCOUNTING(DeleteReply);
 };
 
+// Clears the certificate decisions, then closes the connections (CEF asks
+// for both: a kept connection would skip the next verification), then
+// replies. One callback object per step; `context_` is set for the first.
+class ClearCertificatesReply : public CefCompletionCallback {
+ public:
+  ClearCertificatesReply(CefRefPtr<CefRequestContext> context, int browser_id, int reply)
+      : context_(context), browser_id_(browser_id), reply_(reply) {}
+
+  void OnComplete() override {
+    if (context_) {
+      CefRefPtr<CefRequestContext> context = context_;
+      context_ = nullptr;
+      context->CloseAllConnections(new ClearCertificatesReply(nullptr, browser_id_, reply_));
+      return;
+    }
+    EmitOnUI(browser_id_, reply_, 1, "[]");
+  }
+
+ private:
+  CefRefPtr<CefRequestContext> context_;
+  int browser_id_;
+  int reply_;
+  IMPLEMENT_REFCOUNTING(ClearCertificatesReply);
+};
+
 std::string Base64(CefRefPtr<CefBinaryValue> der) {
   if (!der || der->GetSize() == 0) {
     return std::string();
@@ -184,6 +211,15 @@ int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const c
     return 0;
   }
   return manager->DeleteCookies(url, name ? name : "", new DeleteReply(browser_id, reply)) ? 1 : 0;
+}
+
+int cmux_shim_clear_certificate_exceptions(int browser_id, int reply) {
+  CefRefPtr<CefRequestContext> context = ContextOf(browser_id);
+  if (!context) {
+    return 0;
+  }
+  context->ClearCertificateExceptions(new ClearCertificatesReply(context, browser_id, reply));
+  return 1;
 }
 
 char* cmux_shim_ssl_status(int browser_id) {

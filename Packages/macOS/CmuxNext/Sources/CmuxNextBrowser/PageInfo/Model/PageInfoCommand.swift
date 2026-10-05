@@ -51,7 +51,7 @@ public nonisolated enum PageInfoCommand: Hashable, Sendable {
         case .show(.main): (PageInfoCommand.showActionID, [:])
         case .show(.security): (PageInfoCommand.connectionActionID, [:])
         case .show(.cookies): (PageInfoCommand.cookiesActionID, [:])
-        case .show(.permission), .reload, .close, .reenableCertificateWarnings: nil
+        case .show(.permission), .reload, .close: nil
         case .showCertificate: (PageInfoCommand.certificateActionID, [:])
         case .setPermission(let kind, let setting): (PageInfoCommand.setPermissionActionID, ["permission": kind.rawValue, "setting": setting.rawValue])
         case .resetPermissions: (PageInfoCommand.resetPermissionsActionID, [:])
@@ -59,6 +59,7 @@ public nonisolated enum PageInfoCommand: Hashable, Sendable {
         case .manageSiteData: (PageInfoCommand.manageSiteDataActionID, [:])
         case .deleteSiteData(let domain): (PageInfoCommand.deleteSiteDataActionID, domain.map { ["domain": $0] } ?? [:])
         case .aboutThisPage: (PageInfoCommand.aboutThisPageActionID, [:])
+        case .reenableCertificateWarnings: (PageInfoCommand.reenableCertificateWarningsActionID, [:])
         }
     }
 }

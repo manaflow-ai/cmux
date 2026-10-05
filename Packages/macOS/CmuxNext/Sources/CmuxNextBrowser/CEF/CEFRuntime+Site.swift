@@ -49,6 +49,17 @@ extension CEFRuntime {
         return CEFSSLStatus.parse(json)
     }
 
+    /// Forgets every certificate error the user proceeded past in the tab's
+    /// profile (CEF has no per-host call) and closes the profile's
+    /// connections, so the next load verifies the server again. False when
+    /// the shim could not do it.
+    func clearCertificateExceptions(_ browser: Int32) async -> Bool {
+        let reply = try? await siteCall(browser, what: "certificate exceptions clear") { shim, id in
+            shim.clearCertificateExceptions(browser, id)
+        }
+        return reply?.value == 1
+    }
+
     private func siteCall(_ browser: Int32, what: String,
                           start: (CEFShimLibrary, Int32) -> Int32) async throws -> CEFSiteReply {
         guard let shim else { throw BrowserTabError.closed }

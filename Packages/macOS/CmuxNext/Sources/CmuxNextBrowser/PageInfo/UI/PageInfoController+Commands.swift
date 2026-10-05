@@ -50,7 +50,11 @@ extension PageInfoController {
             guard let url = model.aboutThisPageURL ?? PageInfoModel.aboutURL(for: site) else { return }
             close()
             tab.delegate?.browserTab(tab, didRequest: .openURL(url, .foregroundTab))
-        case .show, .close, .reload, .reenableCertificateWarnings:
+        case .reenableCertificateWarnings:
+            guard let revoking = tab as? any BrowserCertificateWarningRevoking else { return }
+            close()
+            Task { _ = await revoking.turnOnCertificateWarnings() }
+        case .show, .close, .reload:
             break
         }
     }
@@ -110,6 +114,11 @@ extension PageInfoController {
         )
         model.supported = provider.supportedSitePermissions
         model.certificateFailure = activity.failedCertificateReason
+        let warningsOff = (tab as? any BrowserCertificateWarningRevoking)?.certificateWarningsTurnedOff ?? false
+        if warningsOff != model.certificateWarningsOff {
+            model.certificateWarningsOff = warningsOff
+            if isShown, model.page == .security { render() }
+        }
         if rows != model.permissions {
             model.permissions = rows
             if isShown { render() }

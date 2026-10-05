@@ -33,6 +33,7 @@ extension PageInfoCommand {
         case PageInfoCommand.siteSettingsActionID: return .siteSettings
         case PageInfoCommand.manageSiteDataActionID: return .manageSiteData
         case PageInfoCommand.aboutThisPageActionID: return .aboutThisPage
+        case PageInfoCommand.reenableCertificateWarningsActionID: return .reenableCertificateWarnings
         case PageInfoCommand.deleteSiteDataActionID:
             let domain = arguments["domain"]?.trimmingCharacters(in: .whitespaces)
             return .deleteSiteData(domain: domain?.isEmpty == false ? domain : nil)
@@ -55,7 +56,7 @@ extension PageInfoCommand {
     public static let actionIDs = [
         PageInfoCommand.showActionID, PageInfoCommand.connectionActionID, PageInfoCommand.cookiesActionID, PageInfoCommand.certificateActionID, PageInfoCommand.setPermissionActionID,
         PageInfoCommand.resetPermissionsActionID, PageInfoCommand.siteSettingsActionID, PageInfoCommand.manageSiteDataActionID, PageInfoCommand.deleteSiteDataActionID,
-        PageInfoCommand.aboutThisPageActionID,
+        PageInfoCommand.aboutThisPageActionID, PageInfoCommand.reenableCertificateWarningsActionID,
     ]
 
     /// Commands that need a web page (not only a bubble).
@@ -75,6 +76,10 @@ extension PageInfoController {
         let site = PageInfoSite(state: tab.state)
         if site.kind == .empty { throw .noSiteInformation }
         if command.needsWebPage, !site.isWeb { throw .notAWebPage }
+        if command == .reenableCertificateWarnings,
+           (tab as? any BrowserCertificateWarningRevoking)?.certificateWarningsTurnedOff != true {
+            throw .certificateWarningsAlreadyOn
+        }
         perform(command)
     }
 }

@@ -510,6 +510,13 @@ CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* profile_cache_path, co
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.
 CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id);
+// Turns certificate warnings on again (Page Info "Turn on warnings"): clears
+// every certificate error decision the user made in the browser's request
+// context (CefRequestContext::ClearCertificateExceptions; CEF has no
+// per-host call), then closes the context's connections (CloseAllConnections,
+// as Chrome does) so the next load verifies the server again. REPLY with
+// `reply` follows once both finished, a = 1. Returns 0 when not started.
+CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int browser_id, int reply);
 CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 
 // Renderer processes of a tab (resource hover cards). Writes at most
