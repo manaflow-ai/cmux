@@ -2,7 +2,8 @@
 /// same way: Return presses the default button, Escape (or Command-period)
 /// the cancel button, Command plus a button's `key` that button, Tab and
 /// Shift-Tab move focus inside the dialog only (the focus trap).
-public nonisolated enum CmuxDialogKeys {
+public nonisolated struct CmuxDialogKeys {
+    public nonisolated init() {}
     public enum Key: Equatable, Sendable {
         case `return`
         case escape

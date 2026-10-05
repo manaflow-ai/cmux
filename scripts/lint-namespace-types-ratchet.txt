@@ -114,7 +114,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SidebarSectionsSetting.swift:Si
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/StripScrollbarSetting.swift:StripScrollbarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/TerminalCommandHistorySetting.swift:TerminalCommandHistorySetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowBackgroundSetting.swift:WindowBackgroundSetting
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowTitlebarSetting.swift:WindowTitlebarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/DropResolver.swift:DropResolver
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/KeyboardReorder.swift:KeyboardReorder
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/KeyboardReorder.swift:SidebarFilter
@@ -130,3 +129,4 @@ Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift:TasksPal
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksTunables.swift:TasksTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift:AppcastParser
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastSelector.swift:AppcastSelector
+Packages/Shared/CmuxAgentCursor/Sources/CmuxAgentCursor/CursorAnimation.swift:CursorAnimation
