@@ -19,6 +19,6 @@ public struct CloudMachineRenamePresentation: Sendable {
             return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard !trimmedDisplayName.isEmpty, hasHumanName else { return fallbackName }
-        return displayName
+        return trimmedDisplayName
     }
 }
