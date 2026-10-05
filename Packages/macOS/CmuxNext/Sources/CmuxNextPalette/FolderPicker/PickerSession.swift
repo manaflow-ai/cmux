@@ -8,6 +8,9 @@ public struct PickerEnvironment {
     /// Recently chosen folders and files, newest first (absolute paths; a
     /// folder ends in `/`).
     public var recents: [String]
+    /// Recents read when a listing loads (a store that answers async, such
+    /// as the diff host's); wins over `recents`.
+    public var loadRecents: (() async -> [String])?
     /// The start folder's Locations after Recent (``PickerLocation/ordered(workspace:standard:pinned:)``).
     public var locations: [PickerLocation]
     /// Nil: no explainer (tests that do not cover it).
@@ -22,6 +25,7 @@ public struct PickerEnvironment {
     public init(
         home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
         recents: [String] = [],
+        loadRecents: (() async -> [String])? = nil,
         locations: [PickerLocation] = [],
         explainer: (any PickerExplainerMemory)? = nil,
         overwrite: any PickerOverwriteConfirming = PalettePageOverwriteConfirmation(),
@@ -34,6 +38,7 @@ public struct PickerEnvironment {
     ) {
         self.home = home
         self.recents = recents
+        self.loadRecents = loadRecents
         self.locations = locations
         self.explainer = explainer
         self.overwrite = overwrite
@@ -55,6 +60,9 @@ public final class PickerSession {
     public let prompt: String?
     /// Marked items of a multiple choice, in the order marked.
     public private(set) var marked: [URL] = []
+    /// The recents in use: the environment's, refreshed by `loadRecents`
+    /// when a listing loads.
+    public private(set) var recents: [String]
     private var onFinish: ((_ urls: [URL]?) -> Void)?
 
     public init(environment: PickerEnvironment, title: String? = nil, prompt: String? = nil,
@@ -63,6 +71,7 @@ public final class PickerSession {
         self.title = title
         self.prompt = prompt
         self.onFinish = onFinish
+        self.recents = environment.recents
     }
 
     public var isFinished: Bool { onFinish == nil }
@@ -104,8 +113,9 @@ public final class PickerSession {
         // The pages hold the session (strongly): it lives while the palette
         // shows one of them, and the session holds no page back.
         let provider = AsyncPaletteProvider(id: "picker.listing") {
+            if let load = environment.loadRecents { self.recents = await load() }
             let listing = await environment.list(state.directory, state.mode, state.limit)
-            let made = FolderPickerRows.make(state: state, listing: listing, recents: environment.recents)
+            let made = FolderPickerRows.make(state: state, listing: listing, recents: self.recents)
             rows.byID = Dictionary(made.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             return self.locationItems(state, rows: rows) + self.items(for: made, state: state)
         }

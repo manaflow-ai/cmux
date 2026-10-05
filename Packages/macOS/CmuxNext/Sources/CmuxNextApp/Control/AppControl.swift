@@ -299,6 +299,12 @@ final class AppControl {
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },
+            // The file pages: tabs, recovery drafts, toasts, and the notice's Open.
+            .async("debug.filepages") { [weak services] call in
+                let services = await MainActor.run { services }
+                guard let services else { return .null }
+                return await DebugFilePages.run(call.params, services)
+            },
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)

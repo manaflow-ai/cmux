@@ -52,8 +52,12 @@ protocol InternalPageProvider: AnyObject {
     func makeView(for key: String, in window: WindowController?) -> NSView
     /// The tab `key` closed: its view is gone.
     func tabClosed(_ key: String)
+    /// The title of tab `key`, for a page whose tabs show different things
+    /// (a diff tab names its folder). Default: ``title``.
+    func title(for key: String) -> String
 }
 
 extension InternalPageProvider {
     func tabClosed(_ key: String) {}
+    func title(for key: String) -> String { title }
 }

@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
 import os
@@ -54,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start()
+        // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
+        PageDescriptor.registerDiffRoot()
+        PageDescriptor.registerFilePageRoots()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         self.services = services
@@ -266,6 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        services?.viewers.diffPages.terminate()
+        services?.viewers.markdownPages.terminate()
+        services?.viewers.editorPages.terminate()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }

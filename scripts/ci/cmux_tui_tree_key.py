@@ -11,19 +11,29 @@ from pathlib import Path
 REPAIR = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 ROOT = Path(__file__).resolve().parents[2]
 INPUTS = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+# Key versions (plans: CMUX-TUI-TREE-KEY-V2). v1 hashed every input line; v2
+# leaves out the classic `ghostty` gitlink, which no cmux-tui binary builds
+# from since 0c9d74bc3ea. Fetch reads v2 then v1; publication writes both
+# until the v1 write stops (B2); v1 is deleted with the submodule (B3).
+KEY_VERSIONS = ("v1", "v2")
+V1_ONLY_INPUTS = frozenset({("gitlink", "ghostty")})
 
 
 def git(*args: str) -> str:
     return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True).strip()
 
 
-def tree_key(revision: str) -> str:
+def tree_key(revision: str, version: str = "v2") -> str:
+    if version not in KEY_VERSIONS:
+        raise RuntimeError(f"unknown cmux-tui tree key version {version!r}")
     entries: dict[tuple[str, ...], tuple[str, str, str]] = {}
     for raw in INPUTS.read_text(encoding="utf-8").splitlines():
         raw = raw.strip()
         if not raw or raw.startswith("#"):
             continue
         kind, path = raw.split(maxsplit=1)
+        if version != "v1" and (kind, path) in V1_ONLY_INPUTS:
+            continue
         parts = tuple(path.split("/"))
         try:
             object_id = git("rev-parse", f"{revision}:{path}")
@@ -68,12 +78,19 @@ def tree_key(revision: str) -> str:
 
 
 def main() -> int:
-    revision = sys.argv[1] if len(sys.argv) > 1 else "HEAD"
-    if len(sys.argv) > 2:
-        print(f"error: usage: {Path(sys.argv[0]).name} [REV]; see {REPAIR}", file=sys.stderr)
+    args = sys.argv[1:]
+    version = "v2"
+    if args[:1] == ["--version"]:
+        if len(args) < 2 or args[1] not in KEY_VERSIONS:
+            print(f"error: --version takes one of {', '.join(KEY_VERSIONS)}; see {REPAIR}", file=sys.stderr)
+            return 2
+        version, args = args[1], args[2:]
+    if len(args) > 1:
+        print(f"error: usage: {Path(sys.argv[0]).name} [--version v1|v2] [REV]; see {REPAIR}", file=sys.stderr)
         return 2
+    revision = args[0] if args else "HEAD"
     try:
-        print(tree_key(revision))
+        print(tree_key(revision, version))
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"error: could not compute cmux-tui tree key: {error}; see {REPAIR}", file=sys.stderr)
         return 1

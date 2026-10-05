@@ -3,9 +3,9 @@ import Foundation
 import Synchronization
 
 /// A scripted v1 daemon that keeps a workspace tree and changes it like
-/// cmux-tui for the creating commands App tests run (`new-tab`, `split`,
+/// cmux-tui for the commands App tests run (`new-tab`, `split`,
 /// `create-workspace`, `create-terminal`, `move-tab-to-new-workspace`,
-/// `rename-workspace`).
+/// `rename-workspace`, `close-surface`).
 /// `list-workspaces` reports the current tree, so `DaemonService.reconcile`
 /// mirrors what a command made; a command that changes the tree also sends
 /// `tree-changed`, as cmux-tui does. It starts with one workspace whose one pane
@@ -176,6 +176,15 @@ nonisolated final class TopologyDaemon: Sendable {
                 }
                 guard let created else { return [#"{"id":\#(id),"ok":false,"error":"no such workspace"}"#] }
                 return ok(#"{"surface":\#(created.surface),"terminal_id":"\#(UUID().uuidString.lowercased())","pane":\#(created.pane),"screen":\#(created.screen),"workspace":\#(created.workspace),"key":"\#(key)","lifecycle":"running","replayed":false}"#)
+            case "close-surface":
+                let surface = int("surface")
+                let closed = state.tree.withLock { tree -> Bool in
+                    guard let (w, s, p) = tree.locate(surface: surface) else { return false }
+                    tree.workspaces[w].screens[s].panes[p].tabs.removeAll { $0 == surface }
+                    tree.revision += 1
+                    return true
+                }
+                return closed ? ok("{}") : [#"{"id":\#(id),"ok":false,"error":"no such tab"}"#]
             case "move-tab-to-new-workspace":
                 let surface = int("surface")
                 let key = UUID().uuidString.lowercased()

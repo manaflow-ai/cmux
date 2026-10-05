@@ -104,7 +104,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -254,7 +254,7 @@ jobs:
         run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       # libghostty-vt for cmux-tui comes only from ghostty-next. Fail here,
       # loudly, when that checkout is missing or empty instead of later in
@@ -392,7 +392,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install valgrind
         run: |
@@ -601,7 +601,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -715,7 +715,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -921,7 +921,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -1076,7 +1076,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |
