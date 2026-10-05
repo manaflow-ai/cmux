@@ -33,10 +33,10 @@ struct CloudTreeAvailabilityTests {
             #expect(placeholder.style == .error)
             #expect(placeholder.text == "timed out")
         } else { Issue.record("Unexpected node kind") }
-        // A machine the catalog has not registered yet still gets its final
-        // Resources section while the surface connection is connecting.
+        // A machine the catalog has not registered yet is connecting, so it
+        // shows only Connecting…, not Resources.
         let unregistered = CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "new")], snapshot: .empty, localWorkspaces: [])
-        #expect(CloudTreeNodeBuilder.flattened(unregistered[0].children).map(\.id) == ["machine:new/placeholder", "machine:new/resources", "machine:new/resources/cpu", "machine:new/resources/memory", "machine:new/resources/disk", "machine:new/resources/usage"])
+        #expect(CloudTreeNodeBuilder.flattened(unregistered[0].children).map(\.id) == ["machine:new/placeholder"])
         if case .placeholder(_, let placeholder) = unregistered[0].children[0].kind { #expect(placeholder.style == .connecting) } else { Issue.record("Unexpected node kind") }
         // A machine only the catalog knows still gets a row.
         let catalogOnly = CloudTreeNodeBuilder.nodes(
@@ -79,6 +79,20 @@ struct CloudTreeAvailabilityTests {
         } else {
             Issue.record("Expected a display placeholder")
         }
+    }
+
+    @Test
+    func testConnectingMachineShowsOnlyConnectingUntilTheLinkIsUp() {
+        let machine = SurfaceMachineID.cloud("tiny-cobalt-eagle")
+        // A desktop machine with a known terminal and fleet telemetry: every
+        // tab has something to show, and none of it shows while connecting.
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machine.rawValue)],
+            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(machine, linkState: .connecting)], resources: [terminal(machine, "term_1")], projections: []),
+            localWorkspaces: []
+        )
+        #expect(CloudTreeNodeBuilder.flattened(nodes[0].children).map(\.id) == ["machine:tiny-cobalt-eagle/placeholder"])
+        if case .placeholder(_, let placeholder) = nodes[0].children[0].kind { #expect(placeholder.style == .connecting) } else { Issue.record("Unexpected node kind") }
     }
 
     @Test
