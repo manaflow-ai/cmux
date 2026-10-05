@@ -859,6 +859,22 @@ when present.
   a tab's `WKUserContentController` (document start, all frames) when a
   session first touches the tab; frames that loaded earlier get the scripts on
   the first `frame.evaluate`.
+- One world serves every session that drives the tab, and `frame.evaluate`
+  runs any `source` there, so one session's code shares it with another's
+  agent. The agent seals what it can against that code: the agent object
+  and `__cmuxPageAgent` are frozen and their globals permanent, the
+  `labels` and `shadowRoot` getters it installs cannot be replaced, the
+  ref and handle tables are closures read through the built-ins captured
+  at install (a later `Map.prototype.get` or `WeakRef.prototype.deref`
+  does not reach them), the `aria-ref` engine cannot be swapped, and
+  Playwright's injected script is not exported. This is narrowing, not
+  isolation: code there can still patch the DOM and the built-ins the
+  rest of the agent and the injected script call (a patched
+  `getBoundingClientRect` or `Array.prototype.filter` can still mislead
+  another session's read, locator or click point). Closing it needs a
+  world per session (`cmux-agent-<session>`, the agent installed in each)
+  and a private world for the driver's own guards, which no session's
+  `source` reaches.
 - `frame.evaluate` sends `source` as `(<source>)(...args)` through
   `callAsyncJavaScript`, so `awaitPromise` is always true on WebKit.
 - `frameId` values are opaque strings. `null`/omitted means the main frame.
