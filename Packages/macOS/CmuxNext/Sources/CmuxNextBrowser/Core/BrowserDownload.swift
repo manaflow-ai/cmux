@@ -48,6 +48,16 @@ public final class BrowserDownload: Identifiable {
         self.filename = filename
     }
 
+    /// A download refused before it started, listed blocked: `reason`
+    /// says why, `site` is the site whose setting blocked it. Both engines
+    /// list their refused automatic downloads through this.
+    static func blocked(sourceURL: URL?, suggestedName: String, site: String?, reason: String) -> BrowserDownload {
+        let item = BrowserDownload(sourceURL: sourceURL, filename: DownloadDestination.sanitizedFilename(suggestedName))
+        item.blockedSite = site
+        item.complete(.blocked(reason))
+        return item
+    }
+
     public var canPause: Bool { pauseHandler != nil && status == .inProgress }
 
     public func cancel() {

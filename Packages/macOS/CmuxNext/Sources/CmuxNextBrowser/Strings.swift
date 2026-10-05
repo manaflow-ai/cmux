@@ -81,6 +81,10 @@ nonisolated enum Strings {
     static var downloadBlockedUnanswered: String {
         String(localized: "browser.download.blockedUnanswered", defaultValue: "Blocked: cmux could not ask whether this site may download multiple files.", bundle: .module)
     }
+    /// Why a download was listed blocked: the site's remembered setting.
+    static var downloadBlockedBySite: String {
+        String(localized: "browser.download.blockedBySite", defaultValue: "Blocked: this site may not download multiple files. Change it in Site settings.", bundle: .module)
+    }
     /// Why a download was listed blocked: the person answered Block.
     static var downloadBlockedDeclined: String {
         String(localized: "browser.download.blockedDeclined", defaultValue: "Blocked: you chose to block multiple downloads from this site.", bundle: .module)

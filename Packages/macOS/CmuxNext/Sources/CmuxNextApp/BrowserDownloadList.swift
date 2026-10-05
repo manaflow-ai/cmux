@@ -43,7 +43,7 @@ final class BrowserDownloadList {
         switch item.status {
         case .finished: BrowserDownloadNotice(text: BrowserHitStrings.downloadFinished(item.filename))
         case .failed: BrowserDownloadNotice(text: BrowserHitStrings.downloadFailed(item.filename))
-        case .blocked: BrowserDownloadNotice(text: BrowserHitStrings.downloadBlocked(item.filename))
+        case .blocked: BrowserDownloadNotice(text: BrowserHitStrings.downloadBlocked(item.filename), siteSettingsOrigin: item.blockedSite)
         case .cancelled, .inProgress: nil
         }
     }

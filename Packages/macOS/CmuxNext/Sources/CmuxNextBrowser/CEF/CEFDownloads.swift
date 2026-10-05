@@ -148,17 +148,15 @@ final class CEFDownloads {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
         }
         admitting.insert(id)
-        admit(browser) { [weak self] outcome, _ in
+        admit(browser) { [weak self] outcome, site in
             guard let self, admitting.remove(id) != nil else { return }
             guard outcome == .allowed else {
                 shim()?.answer(id, "")
                 logger.notice("download \(id) refused for tab \(browser): automatic downloads")
-                // Declined or unanswered (fail closed): listed blocked,
-                // with the reason; a remembered Block stays silent.
+                // Listed blocked, with the reason and the site whose
+                // setting blocked it: no refusal is silent.
                 if let reason = AutomaticDownloadGate.blockedReason(outcome) {
-                    let item = BrowserDownload(sourceURL: URL(string: url), filename: DownloadDestination.sanitizedFilename(suggestedName))
-                    deliver(browser, item)
-                    item.complete(.blocked(reason))
+                    deliver(browser, .blocked(sourceURL: URL(string: url), suggestedName: suggestedName, site: site, reason: reason))
                 }
                 return
             }
