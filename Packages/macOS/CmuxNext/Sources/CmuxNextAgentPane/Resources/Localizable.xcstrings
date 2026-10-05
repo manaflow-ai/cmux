@@ -12969,7 +12969,138 @@
         }
       }
     }
-  }
+  },
+    "agentPane.confirmOption.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد تغيير %1$@ إلى %2$@؟ يمكن للأجهزة المقترنة عندها تنفيذ إجراءات دون أن تسأل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijeniti %1$@ u %2$@? Upareni uređaji bi tada mogli izvršavati radnje bez pitanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift %1$@ til %2$@? Parrede enheder kan så udføre handlinger uden at spørge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ zu %2$@ ändern? Gekoppelte Geräte könnten dann Aktionen ohne Nachfrage ausführen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change %1$@ to %2$@? Paired devices could then run actions without asking."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Cambiar %1$@ a %2$@? Los dispositivos vinculados podrían ejecutar acciones sin preguntar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Changer %1$@ en %2$@ ? Les appareils associés pourraient alors exécuter des actions sans demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiare %1$@ in %2$@? I dispositivi associati potrebbero eseguire azioni senza chiedere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を %2$@ に変更しますか？ ペアリングされたデバイスが、確認なしで操作を実行できるようになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរ %1$@ ទៅ %2$@? ឧបករណ៍ដែលបានផ្គូផ្គងអាចដំណើរការសកម្មភាពដោយមិនសួរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@을(를) %2$@(으)로 변경할까요? 그러면 페어링된 기기가 묻지 않고 작업을 실행할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endre %1$@ til %2$@? Sammenkoblede enheter kan da utføre handlinger uten å spørre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmienić %1$@ na %2$@? Sparowane urządzenia mogłyby wtedy wykonywać działania bez pytania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mudar %1$@ para %2$@? Dispositivos pareados poderiam então executar ações sem perguntar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменить %1$@ на %2$@? Тогда связанные устройства смогут выполнять действия без запроса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยน %1$@ เป็น %2$@ หรือไม่ อุปกรณ์ที่จับคู่ไว้จะสามารถดำเนินการโดยไม่ถามได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ değeri %2$@ olarak değiştirilsin mi? Eşlenen cihazlar bu durumda sormadan işlem yapabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінити %1$@ на %2$@? Тоді спарені пристрої зможуть виконувати дії без запиту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đổi %1$@ thành %2$@? Khi đó thiết bị đã ghép nối có thể thực hiện thao tác mà không hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要将 %1$@ 更改为 %2$@ 吗？配对的设备之后可能不经询问就执行操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要將 %1$@ 變更為 %2$@ 嗎？配對的裝置之後可能不經詢問就執行操作。"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

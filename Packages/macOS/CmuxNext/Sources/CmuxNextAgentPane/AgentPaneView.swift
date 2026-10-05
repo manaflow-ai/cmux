@@ -166,10 +166,9 @@ public final class AgentPaneView: NSView {
             _ = CmuxDialogCenter.shared.present(spec, in: .window(window)) { reply in answer(reply.button == "add") }
         }
         // A mode that does not ask before it acts: the user confirms it natively.
-        model.onConfirmMode = { [weak self] mode, answer in
+        model.onConfirmMode = { [weak self] asked, answer in
             guard let self, self.window != nil else { return answer(false) }
-            let spec = CmuxDialogSpec(title: Self.confirmModeTitle, lines: [String(format: Self.confirmModeMessage, mode)],
-                                      buttons: [.cancel(), CmuxDialogButton(id: "switch", title: Self.confirmModeButton, role: .destructive)])
+            let spec = Self.confirmationSpec(asked)
             // Pane scope: a closed pane ends the sheet as Cancel, so the app-wide gate never stays shut.
             _ = CmuxDialogCenter.shared.present(spec, in: .tab(self)) { reply in answer(reply.button == "switch") }
         }
@@ -417,5 +416,17 @@ public final class AgentPaneView: NSView {
         } else {
             for script in scripts() { evaluateScript(script) }
         }
+    }
+}
+
+extension AgentPaneView {
+    /// The native sheet for `asked`: the mode text for a mode, the option text for another option.
+    static func confirmationSpec(_ asked: AgentPaneModeConfirmation) -> CmuxDialogSpec {
+        let line = switch asked {
+        case .mode(let mode): String(format: confirmModeMessage, mode)
+        case .option(let id, let value): String(format: confirmModeMessage, "\(id) = \(value)")
+        }
+        return CmuxDialogSpec(title: confirmModeTitle, lines: [line],
+                              buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])
     }
 }

@@ -53,6 +53,12 @@ extension AgentPaneView {
         String(localized: "agentPane.confirmMode.message", defaultValue: "This chat would switch to %@, a mode in which the agent does not ask before it acts.", bundle: .module)
     }
 
+    /// The sheet for a config option that is not a mode. `%1$@` is the option's id, `%2$@` its value.
+    static var confirmOptionMessage: String {
+        String(localized: "agentPane.confirmOption.message",
+               defaultValue: "Change %1$@ to %2$@? Paired devices could then run actions without asking.", bundle: .module)
+    }
+
     static var confirmModeButton: String {
         String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .module)
     }

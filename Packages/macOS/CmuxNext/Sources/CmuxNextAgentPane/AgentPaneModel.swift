@@ -103,14 +103,14 @@ public final class AgentPaneModel {
             onRequestRoot(folder, answer)
         }
         if let sessionId { transport.sessions.add(sessionId) }
-        transport.requestModeConfirmation = { [weak self] mode, answer in
+        transport.requestModeConfirmation = { [weak self] asked, answer in
             guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
-            onConfirmMode(mode, answer)
+            onConfirmMode(asked, answer)
         }
     }
 
     /// Asks the user to confirm a mode that does not ask before it acts (the view's native sheet).
-    @ObservationIgnored public var onConfirmMode: (@MainActor (_ mode: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+    @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Asks the user to add a folder the page named outside every root (the view's native sheet).
     @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?

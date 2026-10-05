@@ -178,7 +178,7 @@ public extension AgentPaneTransportPacer {
     /// which applies the fail-closed rule (``AcpmuxPaneMethods/knownParams``).
     public private(set) var modeFields: Set<String>?
     /// Shows the native sheet that confirms a mode which does not ask; Cancel answers false.
-    public var requestModeConfirmation: (@MainActor (_ mode: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+    public var requestModeConfirmation: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
     private var socketPath: String?
@@ -372,10 +372,10 @@ public extension AgentPaneTransportPacer {
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             let asks = answer?.freeConfigIds.contains(requested.configId) == true || answer?.asks == true
             if !asks {
-                let shown = requested.configId == "mode"
-                    ? requested.value ?? ""
-                    : "\(requested.configId) = \(requested.value ?? Self.configValueText(frame.object))"
-                let confirmed = await confirm(mode: shown)
+                let asked: AgentPaneModeConfirmation = requested.configId == "mode"
+                    ? .mode(requested.value ?? Self.configValueText(frame.object))
+                    : .option(id: requested.configId, value: requested.value ?? Self.configValueText(frame.object))
+                let confirmed = await confirm(asked)
                 guard id == current, self.socket === socket else { return .stop(.staleConnection) }
                 if !confirmed { decision = .refuse(.modeNotConfirmed, method: frame.method, requestID: frame.id) }
             }
@@ -394,13 +394,13 @@ public extension AgentPaneTransportPacer {
     }
 
     /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.
-    private func confirm(mode: String) async -> Bool {
+    private func confirm(_ asked: AgentPaneModeConfirmation) async -> Bool {
         guard let requestModeConfirmation else { return false }
         let gate = confirmationGate
         guard gate.open() else { return false }
         defer { gate.close() }
         return await withCheckedContinuation { continuation in
-            requestModeConfirmation(mode) { continuation.resume(returning: $0) }
+            requestModeConfirmation(asked) { continuation.resume(returning: $0) }
         }
     }
 

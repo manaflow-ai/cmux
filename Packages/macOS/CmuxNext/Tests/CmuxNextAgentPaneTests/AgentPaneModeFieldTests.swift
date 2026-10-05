@@ -100,7 +100,7 @@ import Testing
         let sheets = Sheets(on: rig.transport, reply: true)
         #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "fast", "value": true],
                                ticket: await rig.ticket(fast)) == nil)
-        #expect(sheets.asked == ["fast = true"])
+        #expect(sheets.requests == [.option(id: "fast", value: "true")])
         // A free option needs no sheet.
         let effort: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "effort", "value": "high"]]
         #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"],
@@ -118,5 +118,16 @@ import Testing
         #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"],
                                ticket: await rig.ticket(effort)) == .modeNotConfirmed)
         #expect(sheets.asked == ["effort = high"])
+    }
+
+    /// A non-mode option shows the option text; a mode keeps the mode text.
+    @Test func aNonModeOptionShowsTheOptionText() {
+        let option = AgentPaneView.confirmationSpec(.option(id: "fast", value: "true"))
+        let mode = AgentPaneView.confirmationSpec(.mode("bypassPermissions"))
+        #expect(option.lines == [String(format: AgentPaneView.confirmOptionMessage, "fast", "true")])
+        #expect(mode.lines == [String(format: AgentPaneView.confirmModeMessage, "bypassPermissions")])
+        #expect(option.lines != mode.lines)
+        #expect(option.lines.first?.contains("fast") == true && option.lines.first?.contains("true") == true)
+        #expect(option.lines.first?.contains("bypassPermissions") == false)
     }
 }

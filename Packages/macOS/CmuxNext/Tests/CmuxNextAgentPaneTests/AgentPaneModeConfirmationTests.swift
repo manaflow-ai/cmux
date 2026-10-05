@@ -13,6 +13,7 @@ import Testing
     /// A fake native sheet: records each ask, and answers at once or when the test says.
     final class Sheets {
         var asked: [String] = []
+        var requests: [AgentPaneModeConfirmation] = []
         var open = 0
         var maxOpen = 0
         var held: [@MainActor (Bool) -> Void] = []
@@ -22,7 +23,8 @@ import Testing
         init(on transport: AgentPaneTransport, reply: Bool?) {
             self.reply = reply
             transport.requestModeConfirmation = { [self] mode, answer in
-                asked.append(mode)
+                asked.append(mode.description)
+                requests.append(mode)
                 open += 1
                 maxOpen = max(maxOpen, open)
                 let done: @MainActor (Bool) -> Void = { [self] ok in open -= 1; answer(ok) }
