@@ -67,7 +67,7 @@ export function createState() {
   // post composer loads, while the page's twid cookie still names the
   // drafted user; xAccountUnknown: X's account endpoint fails;
   // googlePageAccount: see pageAccountRow.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -543,6 +543,9 @@ function slackApp(req, url, body, state) {
   if (url.pathname === "/robots.txt") return { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" };
   // The web client writes its workspace config when it boots (/client), not
   // on the landing page; a fresh profile has none until then.
+  // slackClientRedirect: the web client sends the tab to another site
+  // (sign-in, SSO) before it writes any workspace config.
+  if ((url.pathname === "/client" || url.pathname.startsWith("/client/")) && state.slackClientRedirect) return { html: html(`<script>location.replace(${JSON.stringify(state.slackClientRedirect)})</script>`, "Slack") };
   if (url.pathname === "/client" || url.pathname.startsWith("/client/")) return { html: html(`<div id="app">loading</div><script>setTimeout(() => localStorage.setItem("localConfig_v2", ${JSON.stringify(JSON.stringify(SLACK_SEED))}), 300);</script>`, "Slack") };
   return { status: 404, text: "" };
 }
@@ -825,6 +828,9 @@ function assets(req, url) {
     };
   // A page that embeds an image from another site that holds a session cookie (github.com).
   if (url.pathname === "/xpage") return { html: html(`<img src="/img/logo.png" alt="own"><img src="https://github.com/acme/avatar.png" alt="other">`, "Cross-origin assets") };
+  // Another site that a Slack tab can be sent to: it keeps a Slack-shaped
+  // workspace config of its own in its localStorage.
+  if (url.pathname === "/slack-sso") return { html: html(`<script>localStorage.setItem("localConfig_v2", ${JSON.stringify(JSON.stringify({ teams: { T01ACME: { id: "T01ACME", name: "Acme", domain: "acme", url: "https://acme.slack.com/", token: "xoxc-foreign-page", user_id: "U01ADA" } }, lastActiveTeamId: "T01ACME" }))});</script><p>Sign in</p>`, "Sign in") };
   // An asset on the page's origin that redirects to another site.
   if (url.pathname === "/img/redirect-out.png") return { redirect: "https://github.com/acme/avatar.png" };
   if (url.pathname.endsWith(".png") || url.pathname.endsWith(".ico")) return { status: url.pathname.includes("@2x") ? 404 : 200, headers: { "content-type": "image/png" }, body: PNG };

@@ -5,6 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
+import { SLACK_SEED } from "./mock-sites.mjs";
 
 const env = await createSitesEnv();
 test.after(() => env.close());
@@ -82,4 +83,25 @@ test("webmcp.call: a reloaded page that copies the listed document's page-world 
   const cart = (env.state.cart || []).length;
   assert.match(await s.error("sites.webmcp.call(wmF.id, { confirm: true })"), /page_changed|new document/);
   assert.equal((env.state.cart || []).length, cart, "the reloaded page's tool did not run");
+});
+
+// Slack's workspace token lives in app.slack.com's localStorage and every
+// Web API call is made from a document on exactly that origin: a Slack tab
+// the web client sent to another site gets no call (and no token or
+// message) from the helper.
+test("slack: no call runs in a document another site's page put in the Slack tab", async () => {
+  const slackStorage = (seed) => `const t = await tabs.open("https://app.slack.com/robots.txt", { background: true });
+    await t.evaluate((c) => (c ? localStorage.setItem("localConfig_v2", c) : localStorage.removeItem("localConfig_v2")), ${JSON.stringify(seed ? JSON.stringify(seed) : null)});
+    await t.close();`;
+  await s.run(slackStorage(null));
+  env.state.slackClientRedirect = "https://assets.example/slack-sso";
+  try {
+    const before = env.state.requests.length;
+    assert.ok(await s.error('sites.slack.channels("T01ACME")'), "the call failed");
+    const foreign = env.state.requests.slice(before).filter((r) => r.url.startsWith("https://assets.example/") && r.url !== "https://assets.example/slack-sso");
+    assert.deepEqual(foreign.map((r) => r.url), [], "a Slack API call went to assets.example");
+  } finally {
+    env.state.slackClientRedirect = null;
+    await s.run(slackStorage(SLACK_SEED));
+  }
 });
