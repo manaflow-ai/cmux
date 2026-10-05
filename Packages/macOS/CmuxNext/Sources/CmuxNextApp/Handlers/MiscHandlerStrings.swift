@@ -60,6 +60,12 @@ enum MiscHandlerStrings {
     static func invalidPlace(_ place: String) -> String {
         String(format: String(localized: "handlers.misc.failed.invalidPlace", defaultValue: "%@ is not a place to open a file. Use tab or editor.", table: "MiscHandlers", bundle: .module), place)
     }
+    /// A cmux picker asked for by a run that may not change the view (an agent, the CLI without
+    /// focus): it would open over the person's window.
+    static var pickerNeedsFocus: String {
+        String(localized: "handlers.misc.refusal.pickerNeedsFocus", defaultValue: "The picker opens only when focus is requested.",
+               table: "MiscHandlers", bundle: .module)
+    }
     static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module) }
     static func appNotFound(_ app: String) -> String {
         String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module), app)

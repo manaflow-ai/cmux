@@ -5502,6 +5502,137 @@
           }
         }
       }
+    },
+    "handlers.misc.refusal.pickerNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The picker opens only when focus is requested."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピッカーはフォーカスが要求されたときにのみ開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يفتح المنتقي إلا عند طلب التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Birač se otvara samo kada se zatraži fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælgeren åbner kun, når der anmodes om fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Auswahl öffnet sich nur, wenn der Fokus angefordert wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El selector solo se abre cuando se solicita el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le sélecteur ne s’ouvre que si le focus est demandé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il selettore si apre solo quando viene richiesto il focus."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីជ្រើសរើសបើកតែនៅពេលស្នើសុំការផ្ដោតប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택기는 포커스를 요청할 때만 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velgeren åpnes bare når fokus er bedt om."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selektor otwiera się tylko wtedy, gdy zażądano fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O seletor só abre quando o foco é solicitado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Средство выбора открывается, только если запрошен фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวเลือกจะเปิดเมื่อมีการขอโฟกัสเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seçici yalnızca odak istendiğinde açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Засіб вибору відкривається, лише коли запитано фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ chọn chỉ mở khi yêu cầu tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅在请求焦点时才会打开选择器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅在要求焦點時才會開啟選擇器。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
