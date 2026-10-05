@@ -1335,6 +1335,7 @@ private final class CMUXSidebarExtensionHostXPC {
             onSnapshotRead: { [weak self] sequence in
                 guard let self, self.connectionGeneration == generation,
                       self.currentEffectiveGrant?.needsAdditionalApproval == false,
+                      self.currentManifest?.supportsSnapshotAcknowledgement == true,
                       self.acknowledgements.accepts(sequence, generation: generation, grantRevision: self.grantRevision),
                       !self.didReadSnapshot else { return }
                 self.didReadSnapshot = true
@@ -1392,12 +1393,13 @@ private final class CMUXSidebarExtensionHostXPC {
     func sendSnapshotDidChange(_ snapshot: CmuxSidebarSnapshot) {
         guard let extensionProxy else { return }
         do {
-            acknowledgements.sent(snapshot.sequence)
-            extensionProxy.sidebarSnapshotDidChange(
-                try CmuxSidebarXPCCodec.encodeSnapshot(
-                    snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
-                )
+            let payload = try CmuxSidebarXPCCodec.encodeSnapshot(
+                snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
             )
+            if currentEffectiveGrant?.needsAdditionalApproval == false {
+                acknowledgements.sent(snapshot.sequence)
+            }
+            extensionProxy.sidebarSnapshotDidChange(payload)
         } catch {
 #if DEBUG
             cmuxDebugLog("extension.sidebar.xpc.snapshot.encode.failed error=\(error.localizedDescription)")
@@ -1430,6 +1432,9 @@ private final class CMUXSidebarExtensionHostXPC {
         allowedActionScopes = Self.untrustedActionScopes
         bundleIdentifier = nil
         currentManifest = nil
+        grantRevision &+= 1
+        acknowledgements.reset(generation: connectionGeneration, grantRevision: grantRevision)
+        didReadSnapshot = false
         onGrantChanged?(nil)
         onGrantChanged = nil
         onManifestBlocked?(nil)
@@ -1518,6 +1523,9 @@ private final class CMUXSidebarExtensionHostXPC {
     private func applyManifest(_ manifest: CmuxExtensionManifest) {
         cancelManifestRequestTimeout()
         currentManifest = manifest
+        grantRevision &+= 1
+        acknowledgements.reset(generation: connectionGeneration, grantRevision: grantRevision)
+        didReadSnapshot = false
         guard let bundleIdentifier else {
             allowedScopes = Self.untrustedScopes
             allowedActionScopes = Self.untrustedActionScopes
@@ -1566,6 +1574,9 @@ private final class CMUXSidebarExtensionHostXPC {
         allowedScopes = Self.untrustedScopes
         allowedActionScopes = Self.untrustedActionScopes
         currentManifest = nil
+        grantRevision &+= 1
+        acknowledgements.reset(generation: connectionGeneration, grantRevision: grantRevision)
+        didReadSnapshot = false
         onGrantChanged?(nil)
         onManifestBlocked?(reason)
 #if DEBUG

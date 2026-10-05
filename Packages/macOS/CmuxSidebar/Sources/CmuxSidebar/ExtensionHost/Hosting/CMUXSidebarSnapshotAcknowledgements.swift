@@ -2,7 +2,7 @@
 @_spi(CmuxHostTransport) public struct CMUXSidebarSnapshotAcknowledgements {
     private var generation: UInt64 = 0
     private var grantRevision: UInt64 = 0
-    private var lastSentSequence: UInt64?
+    private var sentSequences: [UInt64] = []
 
     /// Creates an empty acknowledgement tracker.
     public init() {}
@@ -14,13 +14,14 @@
     public mutating func reset(generation: UInt64, grantRevision: UInt64) {
         self.generation = generation
         self.grantRevision = grantRevision
-        lastSentSequence = nil
+        sentSequences.removeAll(keepingCapacity: true)
     }
 
     /// Records a successfully encoded snapshot pushed under the current grant.
     /// - Parameter sequence: Pushed snapshot sequence.
     public mutating func sent(_ sequence: UInt64) {
-        lastSentSequence = sequence
+        if sentSequences.last != sequence { sentSequences.append(sequence) }
+        if sentSequences.count > 64 { sentSequences.removeFirst(sentSequences.count - 64) }
     }
 
     /// Checks whether an acknowledgement belongs to a pushed snapshot.
@@ -30,6 +31,6 @@
     ///   - grantRevision: Permission revision when the acknowledgement arrived.
     /// - Returns: Whether this grant and transport pushed that snapshot.
     public func accepts(_ sequence: UInt64, generation: UInt64, grantRevision: UInt64) -> Bool {
-        self.generation == generation && self.grantRevision == grantRevision && lastSentSequence == sequence
+        self.generation == generation && self.grantRevision == grantRevision && sentSequences.contains(sequence)
     }
 }
