@@ -52,9 +52,8 @@ extension DeviceIrxClient {
     }
 
     /// Projects authorized Macs from the team and account directories into one
-    /// list, deduplicated by (device, build tag). The account row wins: it is
-    /// returned only while fresh, and it names the endpoint the peer uses now,
-    /// while a team row can still carry a key from when that Mac selected this team.
+    /// list, deduplicated by (device, build tag). A valid team row always wins;
+    /// account rows add only Macs the team directory cannot reach.
     static func displayBindings(cache: V2CachedState, account: AccountMacDirectorySnapshot?, now: Date) -> [DeviceDiscoveredMac] {
         let team = displayBindings(cache: cache, now: now)
         guard let account else { return team }
@@ -76,30 +75,15 @@ extension DeviceIrxClient {
                 controlPlaneSupportsMacPeers: account.directory.supportsAccountPeers)
         }
         guard !accountRows.isEmpty else { return team }
+        // A Mac the current team directory validly lists keeps its team row.
+        // An account row only adds a Mac the team cannot reach (a key the team
+        // does not list, or no valid team row), so a stale account row can
+        // never hide a live team endpoint. Ambiguous account rows were already
+        // refused by IrxAccountMacPeerAuthorization.
         func key(_ mac: DeviceDiscoveredMac) -> String { mac.deviceID + "\u{0}" + mac.tag }
-        // One installation has one account row (the service keys rows by
-        // device, namespace and build). Two rows for one key are ambiguous,
-        // so neither is used rather than whichever the server sent first.
-        var counts: [String: Int] = [:]
-        for row in accountRows { counts[key(row), default: 0] += 1 }
-        var byKey: [String: DeviceDiscoveredMac] = [:]
-        for row in accountRows where counts[key(row)] == 1 { byKey[key(row)] = row }
-        var merged: [DeviceDiscoveredMac] = []
-        var emitted = Set<String>()
-        for row in team {
-            let rowKey = key(row)
-            guard emitted.insert(rowKey).inserted else { continue }
-            // An account row exists only for a Mac whose latest publish came
-            // from another team, so it names the endpoint that Mac uses now;
-            // the team row for it is the key it held while in this team. When
-            // both name the same endpoint the team row is kept unchanged.
-            if let replacement = byKey[rowKey], replacement.endpointID != row.endpointID {
-                merged.append(replacement)
-            } else {
-                merged.append(row)
-            }
-        }
-        for row in accountRows where byKey[key(row)] != nil && emitted.insert(key(row)).inserted {
+        var emitted = Set(team.map(key))
+        var merged = team
+        for row in accountRows where emitted.insert(key(row)).inserted {
             merged.append(row)
         }
         return merged

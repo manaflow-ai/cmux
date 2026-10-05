@@ -50,6 +50,13 @@ struct IrxAccountMacPeerAuthorization: Sendable {
         let matches = account.directory.macs.filter { $0.descriptor.endpointID == endpointID }
         guard !matches.isEmpty else { throw IrxMacPeerAuthorization.Failure.unavailable }
         guard matches.count == 1, let peer = matches.first else { throw IrxMacPeerAuthorization.Failure.identityMismatch }
+        // One installation has one account row. Two rows naming the same
+        // device and build are ambiguous, and neither is authority.
+        let sameInstallation = account.directory.macs.filter {
+            $0.descriptor.identity.deviceID.lowercased() == peer.descriptor.identity.deviceID.lowercased()
+                && $0.descriptor.identity.buildTag == peer.descriptor.identity.buildTag
+        }
+        guard sameInstallation.count == 1 else { throw IrxMacPeerAuthorization.Failure.identityMismatch }
         guard !peer.revoked else { throw IrxMacPeerAuthorization.Failure.revoked }
         let device = peer.descriptor
         let identity = device.identity

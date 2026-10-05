@@ -106,6 +106,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     /// Live sessions admitted through the account authority, by endpoint.
     private let accountSessions = AccountAdmittedSessions()
     private var accountDirectoryEnabled = false
+    /// Flag-off withdrawals in flight; no account client starts meanwhile, so
+    /// a quick off-on flip cannot publish a row the withdrawal then deletes.
+    private var accountWithdrawalsInFlight = 0
     private var featureFlagTask: Task<Void, Never>?
     /// Compatibility publication for older iOS dialects. It shares the v2
     /// signing key but has its own filtered authority and broker lifecycle.
@@ -239,6 +242,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     func applyManagedNetworkingPolicy() async {
         wantsHost = true
         await reconcile()
+        // Managed Cloud policy and the Cloud flag gate Devices availability,
+        // which the account directory also depends on.
+        await accountDirectoryFlagChanged()
     }
 
     func prepareForStop() {
@@ -706,7 +712,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token), let factory = accountClientFactory else { return }
         if !enabled, let old = accountDirectoryClient {
             installAccountClient(factory(), token: token)
+            accountWithdrawalsInFlight += 1
             await old.withdraw()
+            accountWithdrawalsInFlight -= 1
             guard isCurrent(token) else { return }
         }
         if let cache = cachedState { await refreshAccountDirectory(cache, token: token) }
@@ -721,7 +729,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func refreshAccountDirectory(_ cache: V2CachedState, token: UUID) async {
         guard isCurrent(token), let client = accountDirectoryClient else { return }
         await client.update(AccountMacAdmissionPolicy.credentials(cache,
-            enabled: AccountMacDirectoryFeature.isEnabled(), now: Date()))
+            enabled: AccountMacAdmissionPolicy.directoryActive(flag: AccountMacDirectoryFeature.isEnabled(),
+                observed: accountDirectoryEnabled, withdrawalsInFlight: accountWithdrawalsInFlight),
+            now: Date()))
         guard isCurrent(token) else { return }
         await installAccountDirectory(token: token)
     }
@@ -895,7 +905,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token), let admission, let registry else { return }
         let legacyCurrent = legacyService?.listCurrent
         let accountAdmission = AccountMacDirectoryFeature.isEnabled() ? accountAdmission : nil
-        let accountSessions = accountSessions
+        let accountSessions = self.accountSessions
         let macEndpoints = Set(cachedState?.directory?.inboundPeers?.filter {
             $0.device.descriptor.metadata.platform == .mac
         }.map { $0.device.descriptor.endpointID } ?? [])
@@ -1094,6 +1104,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             }
             return admission.recheck(peer)(endpoint)
         }
+        // Recorded before registry admission: enforcement can run at any await
+        // below and must already apply the account rule to this session.
+        let accountSessions = self.accountSessions
+        let sessionEndpoint = peer.endpointIDHex
+        if accountAdmitted { accountSessions.insert(endpoint: sessionEndpoint, session: sessionID) }
+        defer { if accountAdmitted { accountSessions.remove(endpoint: sessionEndpoint, session: sessionID) } }
         let registered = await registry.admit(
             deviceID: peer.bindingID,
             sessionID: sessionID,
@@ -1127,7 +1143,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             return
         }
 
-        if accountAdmitted { accountSessions.insert(endpoint: peer.endpointIDHex, session: sessionID) }
         let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
         let controlTransport = IrxControlByteTransport(
@@ -1191,7 +1206,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         await eventWriter.close()
         await irx.close(code: .hostShutdown, origin: .local)
         await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
-        if accountAdmitted { accountSessions.remove(endpoint: peer.endpointIDHex, session: sessionID) }
     }
 
     /// Post-admission lane dispatch: keepalive echo, terminal streams over

@@ -53,6 +53,13 @@ enum AccountMacAdmissionPolicy {
         allowsIncomingAccess && enabled && recheck()
     }
 
+    /// Whether the account directory may run: the remote flag (and Devices
+    /// availability) is on, the runtime has observed it on, and no flag-off
+    /// withdrawal is still in flight.
+    static func directoryActive(flag: Bool, observed: Bool, withdrawalsInFlight: Int) -> Bool {
+        flag && observed && withdrawalsInFlight == 0
+    }
+
     /// Credentials the account directory may borrow from a team snapshot:
     /// this generation's unrevoked Mac record, an unexpired ticket, and a Mac
     /// device capability the account service requires before publishing.

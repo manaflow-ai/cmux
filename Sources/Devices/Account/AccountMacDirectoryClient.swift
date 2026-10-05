@@ -457,10 +457,14 @@ actor AccountMacDirectoryClient {
         exchange.resyncAttempts += 1
         guard exchange.resyncAttempts <= Self.maximumResyncAttempts else { throw failure }
         let delay = max(retryAfter ?? 0, 0.25 * pow(2, Double(exchange.resyncAttempts - 1)))
+        // The server asked for this wait; the read timeout must not end the
+        // socket during it. It is re-armed for whatever read is outstanding.
+        exchange.readTimeoutTask?.cancel()
         try await dependencies.sleep(delay)
         guard exchange.socket != nil else { throw V2ControlFailure.unavailable }
         if publish {
             try await sendPublish()
+            if let outstanding = exchange.directoryID { armReadTimeout(outstanding) }
         } else {
             exchange.directoryID = nil
             try await beginDirectoryRead()
