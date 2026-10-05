@@ -29,7 +29,7 @@ def image_data(path: pathlib.Path) -> str:
 
 
 def main() -> int:
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 6:
         raise SystemExit("usage: compare-scenes.py BASE.json HEAD.json OUT.html BASE_REF HEAD_REF")
     base_path, head_path, out_path, base_ref, head_ref = map(pathlib.Path, sys.argv[1:])
     # The refs are passed as path-like values only for this compact CLI; CI
