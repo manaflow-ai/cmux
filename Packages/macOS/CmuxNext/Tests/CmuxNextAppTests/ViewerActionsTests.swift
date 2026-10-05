@@ -53,16 +53,13 @@ import Testing
         #expect(page.hierarchy != nil)
     }
 
-    /// The diff host (S4) is the app's diff seam; a ViewerService made
-    /// without the app's handlers refuses, and records nothing.
-    @Test func theDiffSeamIsTheDiffHost() throws {
-        let defaults = try #require(UserDefaults(suiteName: "viewer-recents-\(UUID().uuidString)"))
+    /// One path for the open actions: R89's handlers, which open the diff
+    /// through S4's DiffPageService, and the empty state's folder chooser is
+    /// the cmux picker, not the system panel.
+    @Test func theDiffOpensThroughTheDiffHostAndItsChooserIsThePicker() {
         let services = ActionBindingCoverageTests.boundServices()
-        #expect(services.viewers.diffViewer is DiffPageService)
-        let viewers = ViewerService(services: services, recents: ViewerRecents(defaults: defaults))
-        #expect(viewers.diffViewer is UnavailableDiffViewer)
-        #expect(ViewerStrings.noDiffViewer == "cmux-next has no diff viewer yet.")
-        #expect(viewers.recents.paths(.diff).isEmpty)
+        #expect(services.viewers.diffViewer === services.viewers.diffPages)
+        #expect(services.viewers.diffPages.chooser is PickerDiffFolderChooser)
     }
 
     // MARK: Recents

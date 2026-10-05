@@ -79,13 +79,9 @@ struct DiffPageTabTests {
         #expect(!service.openKeys.contains(key))
     }
 
-    /// No repository: one empty diff tab per window, titled Diff; every
-    /// repository open is recorded as a recent.
-    @Test func theEmptyTabIsOnePerWindowAndOpensAreRecorded() async throws {
-        let (services, service, pane) = try await world()
-        let empty = service.openEmpty(in: pane, focus: true)
-        #expect(service.openEmpty(in: pane, focus: true) == empty)
-        #expect(services.pages.stripItem(empty).title == DiffPageStrings.tabTitle)
+    /// Every repository open is recorded as a recent.
+    @Test func repositoryOpensAreRecorded() async throws {
+        let (_, service, pane) = try await world()
         _ = try await service.open(folder: URL(fileURLWithPath: "/tmp/project"), in: pane, focus: false)
         // The record is one queued hop after the open.
         var newest: String?
@@ -94,6 +90,16 @@ struct DiffPageTabTests {
             newest = await service.recents.list().first?.path
         }
         #expect(newest == "/tmp/project")
+    }
+
+    /// R89 wins (React UIs lead P2-2): the viewer seam rethrows a folder in no repository, so the
+    /// open actions show the picker; no empty diff tab opens.
+    @Test func theViewerSeamRethrowsAFolderInNoRepository() async throws {
+        let (services, service, pane) = try await world()
+        await #expect(throws: ActionFailure.self) {
+            try await service.openDiff(directory: "/tmp/elsewhere", in: pane, focus: true)
+        }
+        #expect(services.pages.tabIDs(in: pane.paneKey).isEmpty)
     }
 
     @Test func aFolderInNoRepositoryOpensNothing() async throws {

@@ -14,6 +14,17 @@ struct ActionBindingCoverageTests {
     static let savedGroupActions: Set<ActionID> = ["tabGroup.reopenSaved", "tabGroup.deleteSaved"]
 
     /// Services with every handler bound; no daemon, no windows.
+    /// Every catalog action has one owner: the app binds no id twice (diff-host S4 and R89 had both
+    /// bound openDiffViewer and palette.openDirectoryDiffViewer).
+    @Test func noActionIsBoundTwice() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.registry.assertsOnDuplicateBinding = false
+        AppActions.bind(services)
+        services.palette.bindRegistryActions()
+        #expect(services.registry.duplicateBindings.isEmpty, "\(services.registry.duplicateBindings)")
+    }
+
     static func boundServices() -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

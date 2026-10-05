@@ -14,6 +14,21 @@ import Testing
         #expect(!registry.perform("missing"))
     }
 
+    /// A catalog action bound twice is two owners for one id: the registry reports it (and asserts
+    /// in DEBUG), so a second binding can never silently replace the first.
+    @Test func aSecondBindOfOneCatalogIDIsReported() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
+        registry.assertsOnDuplicateBinding = false
+        #expect(registry.bind("openDiffViewer") {})
+        #expect(registry.duplicateBindings.isEmpty)
+        registry.bind("openDiffViewer") {}
+        #expect(registry.duplicateBindings == ["openDiffViewer"])
+        // An unbind first is a deliberate rebind, not a duplicate.
+        registry.unbind("openDiffViewer")
+        registry.bind("openDiffViewer") {}
+        #expect(registry.duplicateBindings == ["openDiffViewer"])
+    }
+
     @Test func disabledActionDoesNotRun() {
         let registry = ActionRegistry()
         var ran = false
