@@ -70,6 +70,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [FeedAttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var pendingAttentionTargetsBySurfaceID: [UUID: Set<FeedAttentionTarget>] = [:]
     /// Codex owns its TUI approval prompt, so its zero-wait PermissionRequest
     /// telemetry has no Feed waiter to clear the needs-input overlay. Keep one
     /// transient target per agent session and retire it on the next event.
@@ -842,10 +843,20 @@ extension FeedCoordinator {
                 .dock(id: owner.id, statusKey: statusKey)
             }
         }
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(owner: owner)
+        let attentionState: AttentionOverlayState
+        if let existing = pendingAttentionStates[target] {
+            attentionState = existing
+            existing.fallbackOwner = owner
+            existing.surfaceID = resolved.surfaceId ?? existing.surfaceID
+        } else {
+            attentionState = AttentionOverlayState(owner: owner, surfaceID: resolved.surfaceId)
+        }
         attentionState.fallbackOwner = owner
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
+        if let surfaceID = attentionState.surfaceID {
+            pendingAttentionTargetsBySurfaceID[surfaceID, default: []].insert(target)
+        }
 
         // Needs-input lifecycle drives the sidebar badge + hibernation state.
         owner.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
@@ -865,7 +876,8 @@ extension FeedCoordinator {
     /// will replace or remove this transient running state on the next event.
     @MainActor
     func noteExplicitInput(surfaceID: UUID, at: Date = Date()) {
-        for (target, attentionState) in pendingAttentionStates {
+        for target in pendingAttentionTargetsBySurfaceID[surfaceID] ?? [] {
+            guard let attentionState = pendingAttentionStates[target] else { continue }
             let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
             let ownsSurface: Bool
             switch owner {
@@ -951,6 +963,12 @@ extension FeedCoordinator {
             return
         }
         pendingAttentionStates.removeValue(forKey: target)
+        if let surfaceID = attentionState.surfaceID {
+            pendingAttentionTargetsBySurfaceID[surfaceID]?.remove(target)
+            if pendingAttentionTargetsBySurfaceID[surfaceID]?.isEmpty == true {
+                pendingAttentionTargetsBySurfaceID.removeValue(forKey: surfaceID)
+            }
+        }
         let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
 
         // Lifecycle is per-panel, so clearing this Feed-owned slot is safe even
@@ -1136,10 +1154,12 @@ extension FeedCoordinator {
 private final class AttentionOverlayState {
     var count: Int
     var fallbackOwner: ControlSidebarPanelOwner
+    var surfaceID: UUID?
 
-    init(owner: ControlSidebarPanelOwner) {
+    init(owner: ControlSidebarPanelOwner, surfaceID: UUID?) {
         self.count = 0
         self.fallbackOwner = owner
+        self.surfaceID = surfaceID
     }
 }
 

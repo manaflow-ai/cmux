@@ -351,7 +351,7 @@ final class AgentChatSessionRegistry {
             .map(\.sessionID)
         for sessionID in sessionIDs {
             update(sessionID: sessionID) { record in
-                record.state = .working(since: at)
+                record.state = record.state.afterExplicitInput(at: at)
                 record.lastActivityAt = at
             }
         }
