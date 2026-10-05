@@ -234,6 +234,15 @@ Hard gates before ANY link token format goes live (the daemon refuses to start w
   and `start_link_entry` logs one `cmux link: token verifier mode ...` line. A `cmux` client
   strips the variable too, so an owner started by `cmux server ensure` runs `deny_all`; only a
   daemon its supervisor execs directly with the variable can ask for `control_plane`.
+- How a deployment selects `control_plane` (decision ad349, 2026-10-05): ONLY the Cloud host's
+  boot supervisor (the image-owned service that starts, owns and re-keys the daemon,
+  `cmux-devbox-boot` or its systemd unit) selects it, by exec'ing the daemon binary directly with
+  `CMUX_LINK_TOKEN_VERIFIER=control_plane`. There is no `cmux server ensure` flag and no
+  user-writable config file for it: the verifier mode belongs to the host image, not to the
+  session user or a client, and a client or a user process must not be able to flip it. A daemon
+  started any other way (a Mac, `cmux server ensure`, a user shell) runs `deny_all`. The link
+  child gets the mode from the daemon that supervises it (passed explicitly at spawn from the
+  daemon's OnceLock), never from the inherited environment, which closes limit (4) below.
 - Keyset (VM side, lane 10, 2026-10-05): `cmux_link::keyset` reads `GET /v1/cloud/keyset` and
   the bind answer's `keyset` (schemas/link-token/keyset-vectors.json) and schedules refreshes:
   one daily deadline at a per-host jittered time, at most one unknown-kid fetch per 60 s, a 429
