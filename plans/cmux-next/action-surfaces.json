@@ -6113,9 +6113,9 @@
     {
       "cli" : "offered",
       "cli_name" : "file open",
-      "context_menu" : "offered",
+      "context_menu" : "noTargetSurface",
       "context_menus" : [
-        "newTab"
+
       ],
       "default_aliases" : [
 

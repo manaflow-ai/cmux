@@ -118,8 +118,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notificationToggleRead": [p(.notification, .identity, 0)],
         "notificationDismiss": [p(.notification, .close, 0)],
         "notifications.toggleWorkspaceMute": [p(.workspaceRow, .identity, 113, folder: .options)],
-        // First in the + menu: Agent Chat, Terminal, Browser, File.
-        "palette.newAgentChat": [p(.newTab, .create, -1)],
+        "palette.newAgentChat": [p(.newTab, .create, 4)],
         "newTab.page": [p(.newTab, .create, 5)],
         "palette.forkAgentConversationRight": [p(.terminalSelection, .create, 200, folder: .agent)],
         "palette.forkAgentConversationLeft": [p(.terminalSelection, .create, 202, folder: .agent)],
