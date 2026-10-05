@@ -66,6 +66,8 @@ const accessoryWeight = 50;
 const maximumBoost = 60;
 /** A row whose whole title is the query comes first (above any frecency boost or keyword match). */
 const wholeTitleBonus = 500;
+/** A row with a keyword that is the whole query (a scope row by its keyword) comes next. */
+const wholeKeywordBonus = 250;
 const defaultHalfLife = 3 * 24 * 60 * 60;
 
 let cachedVersion: number | undefined;
@@ -491,6 +493,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     if (!match) return;
     let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
     if (titleIsQuery(entry.title, query.raw)) score += wholeTitleBonus;
+    else if (entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw))) score += wholeKeywordBonus;
     if (entry.isEnabled === false) score -= disabledPenalty;
     scored.push({ index, score, highlights: match.highlights });
   });
@@ -532,7 +535,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   return order.map((sectionIndex) => ({ sectionIndex, rows: rowsBySection.get(sectionIndex) ?? [] }));
 }
 
-/** Whether `title` is the whole query, ignoring case, surrounding space and a trailing ellipsis. */
+/** Whether `title` (or a keyword) is the whole query, ignoring case, surrounding space and a trailing ellipsis. */
 function titleIsQuery(title: string, raw: string): boolean {
   const normalize = (text: string) =>
     text

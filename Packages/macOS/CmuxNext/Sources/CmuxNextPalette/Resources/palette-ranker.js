@@ -51,6 +51,7 @@
   var accessoryWeight = 50;
   var maximumBoost = 60;
   var wholeTitleBonus = 500;
+  var wholeKeywordBonus = 250;
   var defaultHalfLife = 3 * 24 * 60 * 60;
   var cachedVersion;
   var cachedFields = [];
@@ -428,6 +429,8 @@
       let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
       if (titleIsQuery(entry.title, query.raw))
         score += wholeTitleBonus;
+      else if (entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw)))
+        score += wholeKeywordBonus;
       if (entry.isEnabled === false)
         score -= disabledPenalty;
       scored.push({ index, score, highlights: match.highlights });
