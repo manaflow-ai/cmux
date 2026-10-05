@@ -75,4 +75,16 @@ describe("pause and start", { timeout: 60_000 }, () => {
     reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.start", { machine })))
     expect(await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).toMatchObject({ value: { status: "failed" } })
   })
+
+  it("a delete settles a pause or start still retrying, so it never waits behind it (review P3)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    await x.stub.fakeControl({ fail_next: 2 } as never)
+    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
+    const del = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))
+    expect(del, JSON.stringify(del)).toMatchObject({ t: "result", value: { deleted: true } })
+    expect((await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).ok).toBe(false)
+    expect(((await x.stub.fakeControl({})) as unknown as { pending: number }).pending).toBe(0)
+  })
 })
