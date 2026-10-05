@@ -149,6 +149,21 @@ import Testing
         #expect(h.intents.isEmpty)
     }
 
+    @Test func releasingBeforeTheHoldRunsTheButtonAndShowsNoMenu() async {
+        let h = Harness(buttons: Self.cluster)
+        var asked: [TabContextTarget] = []
+        h.strip.contextMenuProvider = { asked.append($0); return NSMenu() }
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        h.strip.groups.sleep = { _ in for await _ in gate {} }
+        h.strip.trailingMenus.pressDown(0)
+        #expect(h.strip.pendingTrailingPress == 0)
+        #expect(h.strip.endTrailingButtonPress(at: h.center(of: 0)))
+        open.finish()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(asked.isEmpty)
+        #expect(h.intents == [.trailingButton("cmux.split")])
+    }
+
     @Test func holdingASecondaryMenuButtonShowsItsMenuInsteadOfRunning() async {
         let h = Harness(buttons: Self.cluster)
         var asked: [TabContextTarget] = []

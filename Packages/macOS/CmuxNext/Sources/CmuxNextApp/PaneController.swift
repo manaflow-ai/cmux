@@ -344,6 +344,5 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     var selectedTab: TabModel? { stripModel.selectedID.flatMap(tab) }
 
-
     var orderedIDs: [StripTabID] { stripModel.orderedTabs.map(\.id) }
 }

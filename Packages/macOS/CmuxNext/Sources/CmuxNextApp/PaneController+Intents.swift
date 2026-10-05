@@ -24,7 +24,8 @@ extension PaneController {
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
         case .newTab(_, let opensWorkspace):
-            StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace) { _ = services.registry.perform($0, invocation: $1) }
+            StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace,
+                                hostsChat: services.agentTabs.canHost(on: daemon)) { _ = services.registry.perform($0, invocation: $1) }
         case .pin(let id), .unpin(let id):
             setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
         case .rename(let id):

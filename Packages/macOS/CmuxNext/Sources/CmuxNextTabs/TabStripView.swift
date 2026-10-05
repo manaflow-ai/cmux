@@ -236,6 +236,7 @@ public final class TabStripView: NSView {
             animationClient.deactivate()
             groupEditor.hide()
             groups.holdTask?.cancel()
+            trailingMenus.endPress()
             removeEscapeMonitor()
             endMenuTracking()
             buttonReveal.pointerInStrip = false

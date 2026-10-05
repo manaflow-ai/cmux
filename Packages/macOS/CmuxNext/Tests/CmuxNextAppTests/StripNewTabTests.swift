@@ -12,6 +12,14 @@ import Testing
         #expect(runs.first?.1.target == ActionTargetRef(kind: .pane, id: "pane_a"))
     }
 
+    @Test func plusOnAPaneThatCannotHoldAChatRunsCmdTsKind() {
+        var runs: [(ActionID, ActionInvocation)] = []
+        StripNewTab.request(pane: "pane_a", hostsChat: false) { runs.append(($0, $1)) }
+        #expect(runs.map(\.0) == ["newTab.sameKind"])
+        #expect(runs.first?.1.target == ActionTargetRef(kind: .pane, id: "pane_a"))
+        #expect(runs.first?.1["toggleWorkspace"] == nil)
+    }
+
     @Test func optionPlusRunsCmdTsKindWithTheOneShotWorkspaceOverride() {
         var runs: [(ActionID, ActionInvocation)] = []
         StripNewTab.request(pane: "pane_a", opensWorkspace: true) { runs.append(($0, $1)) }

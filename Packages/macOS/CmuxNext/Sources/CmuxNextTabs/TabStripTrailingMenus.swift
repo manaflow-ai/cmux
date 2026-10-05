@@ -39,8 +39,17 @@ final class TabStripTrailingMenus {
         strip.model.send(.trailingButton(id))
     }
 
+    /// Ends a press and its hold without showing a menu: a release, or the
+    /// strip leaving its window.
+    func endPress() {
+        holdTask?.cancel()
+        holdTask = nil
+        strip?.pendingTrailingPress = nil
+        strip?.buttonGroup.pressedIndex = nil
+    }
+
     /// Holding button `index` opens its menu instead of running it. A
-    /// release first clears the press, so the task then does nothing.
+    /// release cancels it (`endPress`).
     func startHold(_ index: Int) {
         holdTask?.cancel()
         guard let sleep = strip?.groups.sleep else { return }
@@ -55,7 +64,7 @@ final class TabStripTrailingMenus {
 
     /// Button `index`'s menu under the button, from the App's provider.
     func show(at index: Int) {
-        guard let strip, let id = strip.buttonGroup.id(at: index),
+        guard let strip, strip.window != nil, let id = strip.buttonGroup.id(at: index),
               let menu = strip.contextMenuProvider?(.trailingButton(id)), !menu.items.isEmpty else { return }
         strip.hoverCards.dismiss(.action)
         let frame = strip.convert(strip.buttonGroup.buttonFrames()[index], from: strip.buttonGroup)
