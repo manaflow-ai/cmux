@@ -206,11 +206,9 @@ struct SSHTuiMigrationTests {
         // `cmux ssh` always sends the shell's SSH_AUTH_SOCK, and the master's
         // path is keyed by that agent. A restore that loses the agent dials a
         // different master, which batch mode cannot log in on a password-only host.
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let agent = directory.appendingPathComponent("agent.sock").path
-        #expect(FileManager.default.createFile(atPath: agent, contents: nil))
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
+        let agent = listener.path
         let opened = WorkspaceRemoteConfiguration(
             terminalProfile: .shell, destination: "alice@example.invalid", port: 2222, identityFile: nil,
             sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
@@ -244,11 +242,9 @@ struct SSHTuiMigrationTests {
 
     @Test("A restored Mosh workspace keeps the agent its snapshot saved")
     func restoredMoshWorkspaceKeepsSavedAgent() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let saved = directory.appendingPathComponent("saved.sock").path
-        #expect(FileManager.default.createFile(atPath: saved, contents: nil))
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
+        let saved = listener.path
         let snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, terminalTransport: .mosh,
             destination: "alice@example.invalid", agentSocketPath: saved)
         let restored = try #require(snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
@@ -256,25 +252,37 @@ struct SSHTuiMigrationTests {
         #expect(restored.agentSocketPath == saved)
     }
 
-    @Test("A restore uses the saved agent, then the app's agent once the saved socket is gone")
-    func restoredAgentFallsBackToTheAppsAgent() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let saved = directory.appendingPathComponent("saved.sock").path
-        let current = directory.appendingPathComponent("current.sock").path
-        #expect(FileManager.default.createFile(atPath: current, contents: nil))
+    @Test("A restore uses the saved agent while it serves, then the app's agent")
+    func restoredAgentFallsBackToTheAppsAgent() {
+        let saved = "/tmp/cmux-test-saved-agent.sock"
+        let current = "/tmp/cmux-test-current-agent.sock"
+        var live: Set<String> = [current]
         var snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "alice@example.invalid", agentSocketPath: saved)
         let environment = ["SSH_AUTH_SOCK": current]
 
         // A reboot moved the agent: the app's agent matches what a new `cmux ssh` sends.
-        #expect(snapshot.restorableAgentSocketPath(environment: environment) == current)
-        #expect(FileManager.default.createFile(atPath: saved, contents: nil))
-        #expect(snapshot.restorableAgentSocketPath(environment: environment) == saved)
+        #expect(snapshot.restorableAgentSocketPath(environment: environment, isLiveAgent: live.contains) == current)
+        live.insert(saved)
+        #expect(snapshot.restorableAgentSocketPath(environment: environment, isLiveAgent: live.contains) == saved)
         // Snapshots written before the agent was saved still find the app's agent.
         snapshot.agentSocketPath = nil
-        #expect(snapshot.restorableAgentSocketPath(environment: environment) == current)
-        #expect(snapshot.restorableAgentSocketPath(environment: [:]) == nil)
+        #expect(snapshot.restorableAgentSocketPath(environment: environment, isLiveAgent: live.contains) == current)
+        #expect(snapshot.restorableAgentSocketPath(environment: [:], isLiveAgent: live.contains) == nil)
+    }
+
+    @Test("A saved agent path that no longer serves never beats a live agent")
+    func staleAgentPathLosesToALiveAgent() throws {
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
+        // A leftover regular file where the saved agent used to listen.
+        let stale = listener.directory + "/stale.sock"
+        #expect(FileManager.default.createFile(atPath: stale, contents: nil))
+        defer { unlink(stale) }
+        let snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "alice@example.invalid", agentSocketPath: stale)
+
+        #expect(!SessionRemoteWorkspaceSnapshot.acceptsAgentConnections(atPath: stale))
+        #expect(SessionRemoteWorkspaceSnapshot.acceptsAgentConnections(atPath: listener.path))
+        #expect(snapshot.restorableAgentSocketPath(environment: ["SSH_AUTH_SOCK": listener.path]) == listener.path)
     }
 
     /// The control settings OpenSSH resolves for the carrier's own ssh arguments.
@@ -740,5 +748,43 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection.agentHookProviders(defaults: defaults) == ["codex"])
         defaults.set(false, forKey: "codexHooksEnabled")
         #expect(SSHTuiConnection.agentHookProviders(defaults: defaults).isEmpty)
+    }
+}
+
+/// A listening Unix socket standing in for an SSH agent. Its path stays under
+/// the 104-byte `sun_path` limit, which a per-user temporary directory can exceed.
+private struct AgentSocketListener {
+    let directory: String
+    let path: String
+    private let fd: Int32
+
+    init() throws {
+        var template = Array("/tmp/cmux-agent-XXXXXX".utf8CString)
+        let created = template.withUnsafeMutableBufferPointer { buffer in
+            mkdtemp(buffer.baseAddress).map { String(cString: $0) }
+        }
+        directory = try #require(created)
+        path = directory + "/a.sock"
+        fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(fd >= 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let socketPath = path
+        _ = withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            socketPath.utf8CString.withUnsafeBytes { buffer.copyMemory(from: $0) }
+        }
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        try #require(bound == 0)
+        try #require(listen(fd, 4) == 0)
+    }
+
+    func remove() {
+        close(fd)
+        unlink(path)
+        rmdir(directory)
     }
 }

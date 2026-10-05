@@ -590,17 +590,26 @@ extension SessionRemoteWorkspaceSnapshot {
     /// The agent a restored carrier authenticates with. cmux keys its shared
     /// SSH master by agent, and `cmux ssh` sends its shell's `SSH_AUTH_SOCK`,
     /// so a restore that dropped the agent would dial a master no login opened.
-    /// The saved agent wins while its socket exists; after a reboot moves it,
+    /// The saved agent wins while it still serves; after a reboot moves it,
     /// the app's own agent matches what a new `cmux ssh` sends, as the CLI
-    /// falls back to the same environment.
+    /// falls back to the same environment. A path that exists but no longer
+    /// accepts connections never beats a live agent.
     func restorableAgentSocketPath(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        isLiveAgent: (String) -> Bool = Self.acceptsAgentConnections(atPath:)
     ) -> String? {
         let resolver = SSHAgentSocketResolver(environment: [:])
         return [agentSocketPath, environment["SSH_AUTH_SOCK"]]
             .lazy
             .compactMap { resolver.normalizedAgentSocketPath($0) }
-            .first { fileManager.fileExists(atPath: $0) }
+            .first(where: isLiveAgent)
+    }
+
+    /// Whether an agent socket has a live listener run by this user or by
+    /// launchd, which owns the macOS `SSH_AUTH_SOCK` and starts the agent on
+    /// demand. Another user's listener is refused.
+    static func acceptsAgentConnections(atPath path: String) -> Bool {
+        UnixSocketConnectProbe().acceptsConnections(atPath: path)
+            || UnixSocketConnectProbe(peerCheck: UnixSocketPeerCheck(expectedUserID: 0)).acceptsConnections(atPath: path)
     }
 }
