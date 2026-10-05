@@ -5,9 +5,12 @@ extension SurfaceCatalog {
     /// Guest display discovery for a machine whose Displays are on screen. The
     /// guest helper starts a standby display on this request, so the first
     /// New Display hands over a running desktop.
-    func discoverDisplays(on machine: SurfaceMachineID) async {
-        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else { return }
-        await provider.refreshDisplays()
+    /// Returns false, starting nothing, when the machine is asleep or has no desktop.
+    func beginDisplayDiscovery(on machine: SurfaceMachineID) -> Bool {
+        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider,
+              provider.supportsDisplayCreation else { return false }
+        Task { await provider.refreshDisplays() }
+        return true
     }
 
     /// Creates a guest display and publishes it in the machine pool. Projection

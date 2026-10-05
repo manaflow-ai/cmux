@@ -15,9 +15,6 @@ extension CloudTreeOutlineView.Coordinator {
         if opened == .ports {
             portsDemand.schedule(coordinator: self)
         }
-        if opened == .displays {
-            displaysDemand.request(machine, actions: nodeActions)
-        }
     }
 }
 
@@ -37,14 +34,11 @@ final class CloudDisplaysDiscoveryDemand {
         }
         // A machine that leaves the tree, or whose tab closes, asks again next time.
         requested.formIntersection(shown)
-        for machine in shown where !requested.contains(machine) {
-            request(machine, actions: actions)
+        // A machine that cannot answer yet (asleep, still connecting) is not
+        // marked, so a later tree update after it wakes asks again.
+        for machine in shown where !requested.contains(machine) && actions.discoverDisplays(machine) {
+            requested.insert(machine)
         }
-    }
-
-    func request(_ machine: SurfaceMachineID, actions: CloudTreeNodeActions) {
-        requested.insert(machine)
-        actions.discoverDisplays(machine)
     }
 }
 

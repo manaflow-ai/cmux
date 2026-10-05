@@ -159,16 +159,18 @@ class DisplayCatalog:
         with self.lock:
             return sorted(record["number"] for record in self.records)
 
-    def free_number(self):
-        """The lowest number neither recorded nor in use on the guest."""
+    def free_number(self, reserved=()):
+        """The lowest number neither recorded, reserved nor in use on the guest."""
         with self.lock:
-            used = set(self.numbers())
+            used = set(self.numbers()) | set(reserved)
             return next((n for n in range(2, MAX_DISPLAYS + 1)
                          if n not in used and not self.occupied(n)), None)
 
-    def allocate(self, request, preferred=None):
+    def allocate(self, request, preferred=None, reserved=()):
         """Records `request`. `preferred` is the warm standby display, which is
-        already running (so `occupied`) but not yet owned by any request."""
+        already running (so `occupied`) but not yet owned by any request.
+        `reserved` numbers are never chosen otherwise: a standby that is still
+        launching has no X socket yet, so `occupied` cannot see it."""
         if not isinstance(request, str) or str(uuid.UUID(request)) != request:
             raise ValueError("invalid request identity")
         with self.lock:
@@ -180,7 +182,7 @@ class DisplayCatalog:
                 number = preferred
             else:
                 number = next((n for n in range(2, MAX_DISPLAYS + 1)
-                               if n not in used and not self.occupied(n)), None)
+                               if n not in used and n not in reserved and not self.occupied(n)), None)
             if number is None:
                 raise ValueError("display capacity exhausted")
             records = self.records + [{"number": number, "request": request}]
@@ -238,6 +240,7 @@ class DisplayService:
         # over a live desktop instead of starting Xvnc and a session (about
         # 0.7s on the guest) while the user waits.
         self.standby = None
+        self.stops = {}
 
     def start(self, number):
         with self.lock:
@@ -245,6 +248,7 @@ class DisplayService:
                 return self.jobs[number]
             finished = threading.Event()
             self.jobs[number] = finished
+            self.stops[number] = threading.Event()
             self.states[number] = "launching"
             threading.Thread(target=self.supervise, args=(number, finished), daemon=True).start()
             return finished
@@ -521,7 +525,7 @@ class DisplayService:
         for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
                     "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
             environment.pop(key, None)
-        while not self.shutdown.is_set():
+        while not self.shutdown.is_set() and not self.stops.get(number, threading.Event()).is_set():
             try:
                 # The supervisor is a health check, not a timer-driven restart.
                 # Preserve an active RFB/noVNC session until its owned endpoints fail.
@@ -537,19 +541,45 @@ class DisplayService:
             with self.lock:
                 self.states[number] = state
             finished.set()
-            self.shutdown.wait(30)
+            stop = self.stops.get(number)
+            if stop is None or stop.wait(30):
+                break
         self.terminate(number)
+        with self.lock:
+            # A retired standby releases its number for later displays.
+            stop = self.stops.get(number)
+            if stop is not None and stop.is_set():
+                self.jobs.pop(number, None)
+                self.states.pop(number, None)
+                self.stops.pop(number, None)
+
+    def retire_standby_locked(self):
+        """Stops a standby whose start failed instead of retrying it forever
+        or handing it to a request. Caller holds self.lock."""
+        number = self.standby
+        if number is None or self.states.get(number) != "unavailable":
+            return
+        self.standby = None
+        stop = self.stops.get(number)
+        if stop is not None:
+            stop.set()
 
     def ensure_standby(self):
         """Starts the standby display when none is running and a slot remains
         for it beyond the recorded displays. Returns without waiting."""
         with self.lock:
+            self.retire_standby_locked()
             if self.standby is not None or self.shutdown.is_set():
                 return
             if len(self.catalog.numbers()) >= MAX_DISPLAYS - 1:
                 return
-            number = self.catalog.free_number()
-            if number is None:
+            busy = set(self.jobs)
+        # Probing free numbers connects to ports; keep that outside the lock.
+        number = self.catalog.free_number(reserved=busy)
+        if number is None:
+            return
+        with self.lock:
+            if self.standby is not None or number in self.jobs:
                 return
             self.standby = number
         self.start(number)
@@ -586,10 +616,13 @@ class DisplayService:
         if request.get("action") != "create":
             raise ValueError("unsupported display action")
         with self.lock:
+            # One lock from reading the standby to releasing it, so concurrent
+            # creates cannot both take it or record its number as a new display.
+            self.retire_standby_locked()
             standby = self.standby
-        number = self.catalog.allocate(request.get("request"), preferred=standby)
-        if number == standby:
-            with self.lock:
+            number = self.catalog.allocate(request.get("request"), preferred=standby,
+                                           reserved=set(self.jobs) - {standby})
+            if number == standby:
                 self.standby = None
         self.start(number).wait(55)
         result = self.snapshot()
