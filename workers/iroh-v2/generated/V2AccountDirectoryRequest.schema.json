@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2AccountDirectoryRequest.json",
+  "type": "object",
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "const": "account.directory.v1"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "schemaId",
+    "requestId"
+  ],
+  "additionalProperties": false
+}

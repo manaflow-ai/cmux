@@ -343,5 +343,79 @@ export interface V2TicketResponse {
 
 export type V2TicketResponseSchemaID = "ticket.result.v1";
 
+export interface V2AccountChangedResponse {
+    revision: number;
+    schemaId: V2AccountChangedResponseSchemaID;
+    userId:   string;
+}
+
+export type V2AccountChangedResponseSchemaID = "account.changed.v1";
+
+export interface V2AccountDirectoryRequest {
+    requestId: string;
+    schemaId:  V2AccountDirectoryRequestSchemaID;
+}
+
+export type V2AccountDirectoryRequestSchemaID = "account.directory.v1";
+
+export interface V2AccountDirectoryResponse {
+    directory: V2AccountDirectory;
+    requestId: string;
+    schemaId:  V2AccountDirectoryResponseSchemaID;
+}
+
+export interface V2AccountDirectory {
+    inboundMacs:         V2InboundPeerPermission[];
+    issuedAt:            number;
+    macs:                V2DeviceRecord[];
+    permissionExpiresAt: number;
+    relayURLs:           string[];
+    revision:            number;
+    rules:               string[];
+    userId:              string;
+}
+
+export type V2AccountDirectoryResponseSchemaID = "account.directory.result.v1";
+
+export interface V2AccountPublishRequest {
+    requestId: string;
+    schemaId:  V2AccountPublishRequestSchemaID;
+}
+
+export type V2AccountPublishRequestSchemaID = "account.publish.v1";
+
+export interface V2AccountPublishedResponse {
+    device:    V2DeviceRecord;
+    requestId: string;
+    revision:  number;
+    schemaId:  V2AccountPublishedResponseSchemaID;
+}
+
+export type V2AccountPublishedResponseSchemaID = "account.published.v1";
+
+export interface V2AccountReadyResponse {
+    requestId: string;
+    revision:  number;
+    schemaId:  V2AccountReadyResponseSchemaID;
+    sessionId: string;
+}
+
+export type V2AccountReadyResponseSchemaID = "account.ready.v1";
+
+export interface V2AccountWithdrawRequest {
+    requestId: string;
+    schemaId:  V2AccountWithdrawRequestSchemaID;
+}
+
+export type V2AccountWithdrawRequestSchemaID = "account.withdraw.v1";
+
+export interface V2AccountWithdrawnResponse {
+    requestId: string;
+    revision:  number;
+    schemaId:  V2AccountWithdrawnResponseSchemaID;
+}
+
+export type V2AccountWithdrawnResponseSchemaID = "account.withdrawn.v1";
+
 export type V2Request = V2AcknowledgementRequest | V2ChallengeRequest | V2DirectoryRequest | V2GoodbyeRequest | V2MetadataRequest | V2PermissionRequest | V2PreferencesRequest | V2RegisterRequest | V2RelayRequest | V2RevokeRequest | V2TicketRequest;
 export type V2Response = V2ChallengeResponse | V2ChangedResponse | V2CompletedResponse | V2DashboardConnectedResponse | V2DashboardDirectoryResponse | V2DashboardReadyResponse | V2DirectoryResponse | V2ErrorResponse | V2ReadyResponse | V2RegisteredResponse | V2RelayResponse | V2RevokedResponse | V2TicketResponse;
