@@ -12,6 +12,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
     let queryPrefix: String?
     let hidesWhenTyping: Bool
     let sectionIndex: Int
+    let entersScope: Bool
 
     init(_ entry: PaletteSearchEntry) {
         title = entry.title
@@ -25,6 +26,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
         queryPrefix = entry.queryPrefix
         hidesWhenTyping = entry.hidesWhenTyping
         sectionIndex = entry.sectionIndex
+        entersScope = entry.entersScope
     }
 }
 
