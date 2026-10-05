@@ -68,7 +68,10 @@ final class CEFOrphanTabs {
     /// when a modified click was mapped to the current tab or a download:
     /// the new browser closes and its opener loads or downloads the link.
     private func linkDisposition(browser: Int32, created: CEFCreatedBy) -> BrowserNewTabDisposition? {
-        let url = created.opener != 0 ? runtime.windowRequests.linkClicks.takePopupURL(opener: created.opener, disposition: created.disposition) : nil
+        // The shim matched the popup's target URL, disposition and gesture
+        // as one record (OnBeforePopup), so a URL never pairs with another
+        // popup's disposition.
+        let url = created.url
         let links = runtime.windowRequests.linkClicks.context()
         switch links.placement(for: created.disposition, source: created.opener, userGesture: created.userGesture) {
         case .tab(let disposition):

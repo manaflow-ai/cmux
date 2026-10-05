@@ -6,24 +6,37 @@ public import Foundation
 /// - a file goes only to the Downloads folder, under the page's suggested
 ///   name made safe and unique, or to the exact file the person chose in a
 ///   save panel; never to a path a page supplies;
+/// - it is written to a temporary sibling and moves into place only when
+///   it completes (`place`, `BrowserDownloadPlacement`): two downloads never
+///   share a name, an existing file or symlink is never written through,
+///   and a failed Save As keeps the old file;
 /// - every finished file carries the macOS quarantine attribute, with the
 ///   address it came from;
 /// - no finished file is ever opened.
-public nonisolated enum BrowserDownloadPolicy {
+public nonisolated struct BrowserDownloadPolicy: Sendable {
+    public init() {}
+
     /// Where a download goes: `chosen` (a save panel's file), else a new
     /// file in `directory` named after `suggestedFilename`
     /// (`DownloadDestination.sanitizedFilename`, then ` (1)`, ` (2)`, ... on
-    /// a collision).
+    /// a collision); nil after `DownloadDestination.collisionLimit` taken
+    /// names.
     public static func destination(chosen: URL?, suggestedFilename: String, directory: URL,
-                                   exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }) -> URL? {
+                                   exists: (URL) -> Bool = DownloadDestination.entryExists) -> URL? {
         chosen ?? DownloadDestination.uniqueURL(in: directory, suggestedFilename: suggestedFilename, exists: exists)
     }
 
-    /// Red stub: no temporary file, no reservation.
+    /// Where a download of either engine is written and lands
+    /// (`BrowserDownloadPlacement`): `destination`, skipping names that
+    /// other running downloads hold, written to a temporary sibling until
+    /// it completes. Nil when no name is free (the download fails).
     @MainActor
     public static func place(chosen: URL?, suggestedFilename: String, directory: URL,
                              reservations: BrowserDownloadReservations = .shared) -> BrowserDownloadPlacement? {
-        destination(chosen: chosen, suggestedFilename: suggestedFilename, directory: directory).map(BrowserDownloadPlacement.init(finalURL:))
+        let target = destination(chosen: chosen, suggestedFilename: suggestedFilename, directory: directory) {
+            DownloadDestination.entryExists($0) || reservations.contains($0)
+        }
+        return target.map { BrowserDownloadPlacement(finalURL: $0, chosen: chosen, reservations: reservations) }
     }
 
     /// What happens to a finished file.

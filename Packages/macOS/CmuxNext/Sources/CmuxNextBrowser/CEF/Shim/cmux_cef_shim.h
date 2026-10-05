@@ -34,7 +34,10 @@ typedef enum {
   // tab is in no window yet: a popup before Chromium places it);
   // b = opener browser id << 32 | 1 << 16 when the opener's request had a
   // user gesture | the cef_window_open_disposition_t the opener asked for
-  // (0 = unknown); s1 = "x,y,width,height" window features of a popup, or "".
+  // (0 = unknown); s1 = "x,y,width,height" window features of a popup, or "";
+  // s2 = the popup's target URL (OnBeforePopup), or "". The opener's pending
+  // popup is matched by the new tab's URL; a popup Chromium aborted, or one
+  // older than about 1 s, never matches.
   CMUX_SHIM_AFTER_CREATED = 2,
   CMUX_SHIM_BEFORE_CLOSE = 3,
   CMUX_SHIM_ADDRESS = 4,          // s1 = url (main frame)
@@ -114,9 +117,10 @@ typedef enum {
   // Downloads (CefDownloadHandler). Every download Chromium starts (a page's
   // download, Option-click, cmux_shim_download_url) waits for the host's
   // path: the host answers DOWNLOAD_STARTED with cmux_shim_download_continue
-  // (during the event or later). request = the download id, browser_id = the
-  // tab, or 0. STARTED: a = total bytes (-1 unknown), s1 = the original
-  // url, s2 = Chromium's suggested file name.
+  // (during the event or later). request = the shim's download token (one
+  // per download, never reused; Chromium's own ids repeat across profiles),
+  // browser_id = the tab, or 0. STARTED: a = total bytes (-1 unknown),
+  // s1 = the original url, s2 = Chromium's suggested file name.
   CMUX_SHIM_DOWNLOAD_STARTED = 34,
   // a = received bytes, b = total bytes (-1 unknown), s1 = bytes per second
   // (decimal), s2 = "paused" or "".
@@ -407,13 +411,17 @@ CMUX_SHIM_EXPORT int cmux_shim_foreign_browser_count(void);
 
 // Downloads (CefBrowserHost::StartDownload, CefDownloadHandler). Starts a
 // download of url with browser_id's request context; DOWNLOAD_STARTED
-// follows. Returns 0 when the browser is gone.
+// follows. Only http, https, data and blob URLs (never file:). Returns 0 when
+// the browser is gone or the scheme is refused.
 CMUX_SHIM_EXPORT int cmux_shim_download_url(int browser_id, const char* url);
-// Answers DOWNLOAD_STARTED: the download goes to path (no Chromium dialog);
-// NULL or "" cancels it. Returns 0 when the download is not waiting.
+// Answers DOWNLOAD_STARTED (download_id = its token): the download goes to
+// path (no Chromium dialog); NULL or "" cancels it. Returns 0 when the
+// download is not waiting.
 CMUX_SHIM_EXPORT int cmux_shim_download_continue(int download_id, const char* path);
-// command: 0 cancel, 1 pause, 2 resume (CefDownloadItemCallback). Returns 0
-// when the download sent no update yet or has finished.
+// command: 0 cancel, 1 pause, 2 resume (CefDownloadItemCallback). A cancel
+// before the download's first update is held and applied then. Returns 0
+// when the download is unknown or has finished, or for pause/resume before
+// its first update.
 CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
 
 // Shutdown ordering (fork API v2).
