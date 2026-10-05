@@ -39,7 +39,7 @@ nonisolated enum BrowserAppSettingsSchema {
                 ["layout", "stripMargin"], section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.stripMargin", "Strip Margin"),
                 help: SettingsText.keyed("settings.layout.stripMargin.help", "Space between the window edge and the columns."),
-                kind: .number(SettingNumber(0...40, step: 1, unit: .points)), default: .number(8),
+                kind: .number(SettingNumber(0...40, step: 1, unit: .points)), default: .number(0),
                 keywords: ["margin", "inset", "columns", "strip"]
             ),
             SettingDescriptor(
