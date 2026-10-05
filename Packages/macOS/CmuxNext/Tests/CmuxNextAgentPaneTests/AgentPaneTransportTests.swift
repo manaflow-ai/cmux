@@ -171,15 +171,19 @@ private actor FileTokenHost: AgentPaneHostProviding {
         transport.deliver = { event, done in frames += event.frames; done() }
         let id = try await transport.open(connection(server))
         let socket = try #require(transport.socket)
+        // Flushes the transport itself: the socket's wake reaches the pacer through a main-actor hop,
+        // which may not have run yet when the enqueue event below has.
+        func drain() { while transport.flush().more {} }
         // Waits on the socket's own enqueue events, not on a clock: deterministic under load.
         await Self.queued(1, on: socket) { _ = await transport.send(connection: id, frames: [Self.initialize]) }
-        pacer.drain()
+        drain()
+        #expect(transport.queuedFrames == 0)
         let before = transport.flushes
         await Self.queued(2000, on: socket) {
             for seq in 0..<2000 { server.push(#"{"jsonrpc":"2.0","method":"session/update","params":{"s":\#(seq)}}"#, to: 0) }
         }
         #expect(transport.queuedFrames == 2000)
-        pacer.drain()
+        drain()
         #expect(frames.count == 2001)
         let seqs = frames.dropFirst().compactMap { text -> Int? in
             guard let range = text.range(of: #""s":"#) else { return nil }
