@@ -79,6 +79,45 @@ struct BrowserReplFrameGateTests {
         #expect(ran as? Bool == false, "the script ran in the blocked document")
     }
 
+    /// The gate's document check reads `location`. A script that declares
+    /// its own `location` (a hoisted function) must not replace the one the
+    /// check reads: the blocked page answers for such a function through
+    /// `Function.prototype`, which it owns in its world, with the allowed
+    /// document's origin and place.
+    @Test func aScriptCannotShadowTheDocumentCheck() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let child = try #require(page.frame(path: "/child"))
+        _ = try await gate.callAsyncJavaScript("return 1", arguments: [:], in: page.webView, frame: child, contentWorld: .page)
+        let origin = try #require(try await page.run("return location.origin", in: child) as? String)
+        _ = try await page.run("document.getElementById('a').src = 'cmux-test://blocked.test/moved'; return true", in: page.main)
+        _ = try await FramePage.settle(page.webView) { frames in
+            frames.contains { $0.url == "cmux-test://blocked.test/moved" }
+        }
+        // The blocked page's own script.
+        _ = try await page.webView.callAsyncJavaScript(
+            """
+            for (const [name, value] of [["origin", origin], ["protocol", "cmux-test:"], ["host", "allowed.test"]]) {
+              Object.defineProperty(Function.prototype, name, { get: () => value, configurable: true });
+            }
+            return true
+            """,
+            arguments: ["origin": origin], in: child.info, contentWorld: .page
+        )
+        let error = await Self.error {
+            try await gate.callAsyncJavaScript(
+                "function location() {}\nwindow.__ranByGate = true; return document.body.innerText",
+                arguments: [:],
+                in: page.webView,
+                frame: child,
+                contentWorld: .page
+            )
+        }
+        #expect(error?.code == "blocked", "the blocked frame was read past a shadowed check: \(String(describing: error))")
+        let ran = try await page.run("return window.__ranByGate === true", in: child)
+        #expect(ran as? Bool == false, "the script ran in the blocked document")
+    }
+
     /// Mouse input at a point over a blocked frame would reach it; points
     /// elsewhere on the page are fine.
     @Test func pointerInputOverAFrameThatShowsABlockedPageIsRefused() async throws {
