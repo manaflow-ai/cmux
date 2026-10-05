@@ -388,7 +388,7 @@ struct CloudTreeMachineMenuTests {
         func render() {
             coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
                 machines: model.sidebarMachines, snapshot: model.catalog, localWorkspaces: [], includeLocalMachine: false
-            ))
+            ).withoutCoderouterSection)
         }
         render()
         let outline = try #require(coordinator.outlineView)
@@ -490,7 +490,7 @@ struct CloudTreeMachineMenuTests {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: model.catalog, localWorkspaces: [], source: .cloudWithDevicesSection
         )
-        #expect(nodes.last?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
+        #expect(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID }?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
     }
 
     private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {

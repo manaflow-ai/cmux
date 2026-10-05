@@ -604,6 +604,11 @@ struct CloudTreeNodeActions {
             _ = runKeyed(key, label, { catalog in
                 guard let current = try catalog.currentCloudWorkspace(group),
                       catalog.provider(for: machine) === provider else {
+                    // Cancellation is silent by design; log it so a row that
+                    // resolves to nothing is diagnosable from the debug log.
+#if DEBUG
+                    cmuxDebugLog("cloudTree.openWorkspace unresolved machine=\(machine.rawValue) workspace=\(workspace.id)")
+#endif
                     throw CancellationError()
                 }
                 let currentWorkspace = SurfaceRemoteWorkspace(

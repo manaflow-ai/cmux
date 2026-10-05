@@ -1125,7 +1125,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     @Test func emptyDecisionMatchesWhatTheTreeRenders() {
         let localOnly = SurfaceCatalogSnapshot(machines: [info(.local)], resources: [terminal(.local, "AAA")], projections: [])
         #expect(
-            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).isEmpty,
+            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).withoutCoderouterSection.isEmpty,
             "precondition: the cloud-only tree renders nothing for a local-only catalog"
         )
         #expect(
