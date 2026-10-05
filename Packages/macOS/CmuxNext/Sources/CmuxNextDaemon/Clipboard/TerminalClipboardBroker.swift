@@ -187,7 +187,7 @@ public final class TerminalClipboardBroker {
             return
         }
         let shown = shownHost(read.host)
-        switch ClipboardReadPolicy.decide(environment.setting(), host: shown.kind) {
+        switch environment.setting().decision(host: shown.kind) {
         case .allow:
             logger.info("clipboard read \(id, privacy: .public) allowed by clipboard-read")
             send(id, text: environment.pasteboardText(read.location))

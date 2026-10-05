@@ -21,13 +21,13 @@ public enum ClipboardReadDecision: Sendable, Hashable {
     case ask
 }
 
-/// Decision CLIPBOARD-READ-BROKER: Ghostty's `allow` applies to terminals on
-/// this Mac only; a remote or Cloud terminal is always asked about, so this
-/// Mac's clipboard never leaves it without the user's answer. `deny` refuses
-/// everywhere.
-public enum ClipboardReadPolicy {
-    public static func decide(_ setting: ClipboardReadSetting, host: ClipboardReadHostKind) -> ClipboardReadDecision {
-        switch setting {
+extension ClipboardReadSetting {
+    /// Decision CLIPBOARD-READ-BROKER: Ghostty's `allow` applies to terminals
+    /// on this Mac only; a remote or Cloud terminal is always asked about, so
+    /// this Mac's clipboard never leaves it without the user's answer. `deny`
+    /// refuses everywhere.
+    public func decision(host: ClipboardReadHostKind) -> ClipboardReadDecision {
+        switch self {
         case .deny: .deny
         case .ask: .ask
         case .allow: host == .local ? .allow : .ask

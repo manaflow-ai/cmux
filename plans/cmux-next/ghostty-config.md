@@ -153,7 +153,7 @@ only); logs never contain clipboard content. Needs the full window, after agent-
    explicit setting (default off) allows; the sheet names the terminal and its host.
    Done (2026-10-05, branch nx-r92-clipboard-mac): `TerminalClipboardBroker` (CmuxNextDaemon) keeps
    `terminal-clipboard-subscribe` equal to the local store's terminal tabs (store observation, resent after each
-   reconnect) and answers from `ClipboardReadPolicy` (`allow` only for local hosts; `ask` is Ghostty's default);
+   reconnect) and answers from `ClipboardReadSetting.decision(host:)` (`allow` only for local hosts; `ask` is Ghostty's default);
    `TerminalClipboardReadService` (App) runs it on the local daemon connection only (S3) and asks with a cmux
    dialog in the terminal's tab naming the tab title and "this Mac". Allow has no Return key; `debug.dialog`
    cannot press, type into or set fields of that dialog. No explicit remote allow setting exists yet (nothing

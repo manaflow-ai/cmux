@@ -9,8 +9,8 @@ import Testing
     init() { _ = GhosttyRuntime.shared }
 
     @Test func clipboardReadFollowsTheConfigAndDefaultsToAsk() {
-        #expect(GhosttyClipboardRead.value(configText: "") == "ask")
-        #expect(GhosttyClipboardRead.value(configText: "clipboard-read = allow\n") == "allow")
-        #expect(GhosttyClipboardRead.value(configText: "clipboard-read = deny\n") == "deny")
+        #expect(GhosttyRuntime.clipboardReadValue(configText: "") == "ask")
+        #expect(GhosttyRuntime.clipboardReadValue(configText: "clipboard-read = allow\n") == "allow")
+        #expect(GhosttyRuntime.clipboardReadValue(configText: "clipboard-read = deny\n") == "deny")
     }
 }

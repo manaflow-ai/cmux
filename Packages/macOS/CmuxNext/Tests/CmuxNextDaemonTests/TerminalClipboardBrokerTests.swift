@@ -71,12 +71,12 @@ import Testing
     // MARK: Policy
 
     @Test func policyAllowsOnlyLocalTerminalsAndDenyAlwaysDenies() {
-        #expect(ClipboardReadPolicy.decide(.allow, host: .local) == .allow)
-        #expect(ClipboardReadPolicy.decide(.allow, host: .remote) == .ask)
-        #expect(ClipboardReadPolicy.decide(.allow, host: .cloud) == .ask)
+        #expect(ClipboardReadSetting.allow.decision(host: .local) == .allow)
+        #expect(ClipboardReadSetting.allow.decision(host: .remote) == .ask)
+        #expect(ClipboardReadSetting.allow.decision(host: .cloud) == .ask)
         for host in [ClipboardReadHostKind.local, .remote, .cloud] {
-            #expect(ClipboardReadPolicy.decide(.deny, host: host) == .deny)
-            #expect(ClipboardReadPolicy.decide(.ask, host: host) == .ask)
+            #expect(ClipboardReadSetting.deny.decision(host: host) == .deny)
+            #expect(ClipboardReadSetting.ask.decision(host: host) == .ask)
         }
     }
 
