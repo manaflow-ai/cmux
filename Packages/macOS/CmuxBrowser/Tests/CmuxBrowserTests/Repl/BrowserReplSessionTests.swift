@@ -123,6 +123,21 @@ struct BrowserReplSessionTests {
         #expect(session.cwd == browserReplTestWorkingDirectory)
     }
 
+    /// A running cell holds the session's JavaScript thread until it ends
+    /// or times out, so a caller's timeout is capped at 10 minutes: a
+    /// larger one is refused before the cell runs, with an error that says so.
+    @Test("A timeout past 10 minutes is refused before the cell runs")
+    func timeoutIsCapped() async {
+        let driver = RecordingReplDriver()
+        let session = makeSession(driver: driver)
+        defer { session.close() }
+        let refused = await session.evaluate(code: #"await call("tabs.list");"#, timeout: .milliseconds(600_001))
+        #expect(refused.error?.contains("600000 ms") == true, "\(refused.error ?? "")")
+        #expect(driver.calls.isEmpty)
+        let accepted = await session.evaluate(code: "1", timeout: .milliseconds(600_000))
+        #expect(accepted.error == nil, "\(accepted.error ?? "")")
+    }
+
     @Test("An output cap reaches the runtime as its options argument")
     func maxOutputOption() async {
         let session = makeSession(driver: RecordingReplDriver())
