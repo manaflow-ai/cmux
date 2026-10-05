@@ -59,9 +59,32 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// Whether a frame is the pick: the same method, and its params minus `sessionId` and `_meta`
     /// equal these params (the same keys, no extra keys, typed JSON equality).
     public func matches(method frameMethod: String?, params frameParams: [String: Any]) -> Bool {
-        guard frameMethod == method else { return false }
-        let rest = frameParams.filter { $0.key != "sessionId" && $0.key != "_meta" }
-        guard Set(rest.keys) == Set(params.keys) else { return false }
-        return rest.allSatisfy { AgentPaneJSONScalar($0.value) == params[$0.key] }
+        matches(AgentPaneGesturePick(method: frameMethod, params: frameParams))
+    }
+
+    /// Whether a frame's pick (taken off the main thread) is this intent's exact pick.
+    public func matches(_ pick: AgentPaneGesturePick?) -> Bool {
+        guard let pick, pick.method == method else { return false }
+        return pick.params == params
+    }
+}
+
+/// What a frame picks, as small values for the main actor: its method and its params other than
+/// `sessionId` and `_meta`, each a JSON scalar; nil params when one is not a scalar (no match).
+public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
+    public var method: String?
+    public var params: [String: AgentPaneJSONScalar]?
+
+    public init(method: String?, params: [String: Any]) {
+        self.method = method
+        var scalars: [String: AgentPaneJSONScalar] = [:]
+        for (key, value) in params where key != "sessionId" && key != "_meta" {
+            guard let scalar = AgentPaneJSONScalar(value) else {
+                self.params = nil
+                return
+            }
+            scalars[key] = scalar
+        }
+        self.params = scalars
     }
 }

@@ -93,42 +93,65 @@ public nonisolated enum AcpmuxPaneMethods {
 
     /// The decision for `text`, the page's `isFirst` frame or a later one.
     public static func decide(_ text: String, isFirst: Bool, localAppToken: String?) -> Decision {
-        guard text.utf8.count <= maximumFrameBytes else { return .refuse(.frameTooLarge, method: nil, requestID: nil) }
-        // Before any parse: Foundation would keep one of two duplicate keys, the daemon the other.
-        switch AcpmuxJSONKeys.verdict(text) {
-        case .clean: break
-        case .malformed: return .refuse(.invalidFrame, method: nil, requestID: nil)
-        case .duplicate:
-            let (method, id) = identity(text)
-            return .refuse(.duplicateKey, method: method, requestID: id)
-        }
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              object["jsonrpc"] as? String == "2.0" else {
-            return .refuse(.invalidFrame, method: nil, requestID: nil)
-        }
-        let id = object["id"].flatMap(rawID)
-        guard let method = object["method"] as? String else { return .refuse(.methodRefused, method: nil, requestID: nil) }
-        // C1: no page frame may make the harness spawn a command.
-        if let params = object["params"], carriesServers(params) {
-            return .refuse(.mcpServersRefused, method: method, requestID: id)
-        }
-        if isFirst {
-            guard method == initialize, id != nil else { return .refuse(.firstFrameNotInitialize, method: method, requestID: id) }
-            guard let localAppToken else { return .send(text) }
-            var params = object["params"] as? [String: Any] ?? [:]
-            var meta = params["_meta"] as? [String: Any] ?? [:]
-            var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
-            acpmux["localAppToken"] = localAppToken
-            meta["acpmux"] = acpmux
-            params["_meta"] = meta
-            object["params"] = params
+        switch decideFrame(text, isFirst: isFirst) {
+        case .failure(let refusal): return refusal.decision
+        case .success(let page):
+            guard isFirst, let localAppToken else { return .send(text) }
+            let object = withLocalAppToken(page, localAppToken)
             guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
-                return .refuse(.invalidFrame, method: method, requestID: id)
+                return .refuse(.invalidFrame, method: object["method"] as? String, requestID: object["id"].flatMap(rawID))
             }
             return .send(String(decoding: data, as: UTF8.self))
         }
+    }
+
+    /// A refused page frame, as an error value.
+    public nonisolated struct Refusal: Error, Sendable {
+        public var decision: Decision
+    }
+
+    /// The one parse of a page frame that every rule reads (ad349): the duplicate check before it,
+    /// then the allowlist and C1. The rules read the page's own frame; the LocalApp token goes into
+    /// the first frame after them (``withLocalAppToken(_:_:)``).
+    static func decideFrame(_ text: String, isFirst: Bool) -> Result<[String: Any], Refusal> {
+        func refuse(_ error: AgentPaneTransportError, _ method: String?, _ id: String?) -> Result<[String: Any], Refusal> {
+            .failure(Refusal(decision: .refuse(error, method: method, requestID: id)))
+        }
+        guard text.utf8.count <= maximumFrameBytes else { return refuse(.frameTooLarge, nil, nil) }
+        // Before any parse: Foundation would keep one of two duplicate keys, the daemon the other.
+        switch AcpmuxJSONKeys.verdict(text) {
+        case .clean: break
+        case .malformed: return refuse(.invalidFrame, nil, nil)
+        case .duplicate:
+            let (method, id) = identity(text)
+            return refuse(.duplicateKey, method, id)
+        }
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              object["jsonrpc"] as? String == "2.0" else { return refuse(.invalidFrame, nil, nil) }
+        let id = object["id"].flatMap(rawID)
+        guard let method = object["method"] as? String else { return refuse(.methodRefused, nil, nil) }
+        // C1: no page frame may make the harness spawn a command.
+        if let params = object["params"], carriesServers(params) { return refuse(.mcpServersRefused, method, id) }
+        if isFirst {
+            guard method == initialize, id != nil else { return refuse(.firstFrameNotInitialize, method, id) }
+            return .success(object)
+        }
         let allowed = id == nil ? notifications.contains(method) : requests.contains(method)
-        return allowed ? .send(text) : .refuse(.methodRefused, method: method, requestID: id)
+        return allowed ? .success(object) : refuse(.methodRefused, method, id)
+    }
+
+    /// The first frame with the LocalApp token in `_meta.acpmux` (the host's own key; the page
+    /// never sees it).
+    static func withLocalAppToken(_ object: [String: Any], _ token: String) -> [String: Any] {
+        var object = object
+        var params = object["params"] as? [String: Any] ?? [:]
+        var meta = params["_meta"] as? [String: Any] ?? [:]
+        var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
+        acpmux["localAppToken"] = token
+        meta["acpmux"] = acpmux
+        params["_meta"] = meta
+        object["params"] = params
+        return object
     }
 
     /// The methods allowed only for a session this pane started or shows (``AcpmuxPaneSessions``).
@@ -172,8 +195,11 @@ public nonisolated enum AcpmuxPaneMethods {
     /// Whether `text` (a page frame the allowlist passed) grants and needs a gesture.
     /// Parsed every time: a substring test would miss an escaped method name.
     public static func needsGesture(_ text: String, options: AcpmuxPermissionOptions) -> Bool {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              let method = object["method"] as? String, let rule = gestureRules[method] else { return false }
+        needsGesture((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any], options: options)
+    }
+
+    static func needsGesture(_ object: [String: Any]?, options: AcpmuxPermissionOptions) -> Bool {
+        guard let object, let method = object["method"] as? String, let rule = gestureRules[method] else { return false }
         let params = object["params"] as? [String: Any] ?? [:]
         switch rule {
         case .always:
@@ -195,17 +221,23 @@ public nonisolated enum AcpmuxPaneMethods {
     /// The frame's gesture ticket, the frame without it (the daemon never sees it), and whether
     /// its `_meta` held anything besides the ticket (R1: a redeeming frame may carry nothing else).
     static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?, otherMeta: Bool) {
-        // Parsed every time: an escaped key must still be stripped before the daemon.
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              var params = object["params"] as? [String: Any], var meta = params["_meta"] as? [String: Any],
-              let value = meta.removeValue(forKey: gestureTicketKey) else { return (text, nil, false) }
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (text, nil, false) }
+        let (stripped, ticket, otherMeta) = takeGestureTicket(object)
+        guard ticket != nil, let data = try? JSONSerialization.data(withJSONObject: stripped, options: [.withoutEscapingSlashes]) else {
+            return (text, ticket, otherMeta)
+        }
+        return (String(decoding: data, as: UTF8.self), ticket, otherMeta)
+    }
+
+    /// The same on the parsed frame (the relay's one parse; an escaped key was decoded by it).
+    static func takeGestureTicket(_ object: [String: Any]) -> (object: [String: Any], ticket: String?, otherMeta: Bool) {
+        guard var params = object["params"] as? [String: Any], var meta = params["_meta"] as? [String: Any],
+              let value = meta.removeValue(forKey: gestureTicketKey) else { return (object, nil, false) }
         let otherMeta = !meta.isEmpty
         if meta.isEmpty { params.removeValue(forKey: "_meta") } else { params["_meta"] = meta }
+        var object = object
         object["params"] = params
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
-            return (text, nil, otherMeta)
-        }
-        return (String(decoding: data, as: UTF8.self), value as? String ?? "", otherMeta)
+        return (object, value as? String ?? "", otherMeta)
     }
 
     /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's

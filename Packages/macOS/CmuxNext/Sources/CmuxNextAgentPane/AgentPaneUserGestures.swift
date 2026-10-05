@@ -56,9 +56,13 @@ import Synchronization
     /// Spends `ticket` (even when it does not match) and says whether it allows this frame: the
     /// same connection, within its lifetime, and the frame is its pick.
     public func redeem(_ ticket: String, connection: Int, method: String?, params: [String: Any]) -> Bool {
+        redeem(ticket, connection: connection, pick: AgentPaneGesturePick(method: method, params: params))
+    }
+
+    /// Spends `ticket`; true when it was this connection's, still fresh, and for exactly `pick`.
+    public func redeem(_ ticket: String, connection: Int, pick: AgentPaneGesturePick?) -> Bool {
         guard let held = tickets.removeValue(forKey: ticket) else { return false }
-        return held.connection == connection && now() - held.at <= Self.ticketLifetime
-            && held.intent.matches(method: method, params: params)
+        return held.connection == connection && now() - held.at <= Self.ticketLifetime && held.intent.matches(pick)
     }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
