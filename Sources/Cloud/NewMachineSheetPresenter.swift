@@ -300,6 +300,10 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     /// Loads the authoritative fleet page for one open sheet and ignores stale results.
     private func beginPlanLoad(model: NewMachineModel, selectionID: UUID) {
         planLoadTask?.cancel()
+        if let cached = dataCache?.currentData, cached.hasPlan {
+            Self.apply(cached, to: model, includingPlan: true)
+            if dataCache?.readyData != nil { return }
+        }
         if model.plan == nil { model.setPlanLoading() }
         planLoadTask = Task { @MainActor [weak self, weak model] in
             guard let self, let model else { return }

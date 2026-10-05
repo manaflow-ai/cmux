@@ -452,7 +452,7 @@ final class NewMachineModel {
     }
 
     /// Base is sized by the backend; only `vm new` takes `--size`.
-    var supportsSize: Bool { mode == .newMachine && !availableMemoryOptionsMb.isEmpty }
+    var supportsSize: Bool { mode == .newMachine && (planIsLoading || !availableMemoryOptionsMb.isEmpty) }
     var supportsBaseImage: Bool { mode == .newMachine }
     var isFork: Bool {
         if case .machine = baseImage { return true }

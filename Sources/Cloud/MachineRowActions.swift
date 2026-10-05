@@ -36,7 +36,9 @@ struct MachineRowActions {
 
     static func bound(
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
-        onDidMutate: @escaping @MainActor () -> Void
+        onDidMutate: @escaping @MainActor () -> Void,
+        onRename: @escaping @MainActor (MachineSnapshot, String?) -> Void = { _, _ in },
+        onRenameDidComplete: @escaping @MainActor () -> Void = {}
     ) -> MachineRowActions {
         MachineRowActions(
             openShell: { id in
@@ -67,7 +69,7 @@ struct MachineRowActions {
                 presentDeleteConfirmation(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptRename: { machine in
-                presentRenamePrompt(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+                presentRenamePrompt(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate, onRename: onRename, onRenameDidComplete: onRenameDidComplete)
             },
             resizeDisk: { id, gib in
                 onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
@@ -212,7 +214,9 @@ struct MachineRowActions {
     private static func presentRenamePrompt(
         machine: MachineSnapshot,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
-        onDidMutate: @escaping @MainActor () -> Void
+        onDidMutate: @escaping @MainActor () -> Void,
+        onRename: @escaping @MainActor (MachineSnapshot, String?) -> Void = { _, _ in },
+        onRenameDidComplete: @escaping @MainActor () -> Void = {}
     ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
@@ -241,8 +245,14 @@ struct MachineRowActions {
             } else {
                 arguments.append(label)
             }
+            onRename(machine, label.isEmpty ? nil : label)
             onWillMutate(operationLabel(verb: ["rename"], id: machine.id))
-            if !launch(arguments: arguments, onDidMutate: onDidMutate) {
+            let completeRename: @MainActor () -> Void = {
+                onRenameDidComplete()
+                onDidMutate()
+            }
+            if !launch(arguments: arguments, onDidMutate: completeRename) {
+                onRenameDidComplete()
                 onDidMutate()
             }
         }
