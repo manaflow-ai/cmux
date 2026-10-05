@@ -790,6 +790,160 @@ struct BrowserReplSessionResourceTests {
         #expect(result?.error == nil, "\(String(describing: result?.error))")
         #expect(result?.lines.first?.text.contains("hold more than 128 MiB") == true, "\(String(describing: result?.lines))")
     }
+    /// A page value a driver call returns (`frame.evaluate`, a capture) is
+    /// built by the page; past what one call may return it fails before
+    /// the session masks or queues it.
+    @Test("A driver result past 64 MiB fails with an error that says why")
+    func oversizedDriverResultFails() async throws {
+        let driver = LargeResultDriver(resultCharacters: 65 << 20)
+        driver.releaseAll()
+        let session = makeSession(driver)
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            console.log(await driverOnce("big").then((r) => "returned " + r.length, (e) => e.message));
+            """, timeout: .seconds(100))
+        }
+        let text = result?.lines.first?.text ?? ""
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(text.contains("64 MiB") && !text.hasPrefix("returned"), "\(text.prefix(300))")
+    }
+
+    /// Results a busy JavaScript thread has not taken yet stay with the
+    /// session; together they hold at most 512 MiB, and one past it fails
+    /// instead of waiting. Each result is reserved before it is masked, and
+    /// the driver counts the maskings, so every reservation is made before
+    /// the thread runs again.
+    @Test("Driver results waiting for a busy session are bounded together")
+    func waitingDriverResultsAreBounded() async throws {
+        let driver = LargeResultDriver(resultCharacters: 60 << 20)
+        let runtime = resourceRuntime + #"""
+        globalThis.settled = null;
+        """#
+        let session = BrowserReplSession(
+            id: "results-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "results.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            driver.releaseAll()
+            session.close()
+        }
+        // Nine results of 60 MiB: eight fit in 512 MiB, the ninth does not.
+        let started = await session.evaluate(code: """
+        globalThis.settled = Promise.all(Array.from({ length: 9 }, () =>
+          driverOnce("big").then((r) => "ok " + r.length, (e) => e.message)));
+        """)
+        #expect(started.error == nil, "\(started.error ?? "")")
+        #expect(await browserReplWithDeadline(seconds: 30) { await driver.waitForEntries(9) } != nil)
+
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        driver.countRedactions()
+        driver.releaseAll()
+        let masked = await browserReplWithDeadline(seconds: 60) { await driver.waitForRedactions(9) }
+        busy.signal()
+        #expect(masked != nil)
+
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: "console.log(JSON.stringify(await globalThis.settled));", timeout: .seconds(100))
+        }
+        let outcomes = (try? JSONSerialization.jsonObject(with: Data((result?.lines.first?.text ?? "[]").utf8))) as? [String] ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(outcomes.count == 9, "\(outcomes.map { $0.prefix(200) })")
+        #expect(outcomes.filter { $0 == "ok \(60 << 20)" }.count == 8, "\(outcomes.map { $0.prefix(200) })")
+        #expect(outcomes.filter { $0.contains("512 MiB") }.count == 1, "\(outcomes.map { $0.prefix(200) })")
+    }
+}
+
+/// Answers `big` with a JSON string of `resultCharacters` characters once
+/// `releaseAll()` ran (one shared string, so the test holds one copy), and
+/// counts the maskings the session asks it for after `countRedactions()`.
+final class LargeResultDriver: BrowserReplDriver, @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: String
+    private var released = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var entries = 0
+    private var entryWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var counting = false
+    private var redactions = 0
+    private var redactionWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    init(resultCharacters: Int) {
+        result = "\"" + String(repeating: "r", count: resultCharacters) + "\""
+    }
+
+    var capabilities: [String] { [] }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        guard method == "big" else { return .success("null") }
+        let ready: [CheckedContinuation<Void, Never>] = lock.withLock {
+            entries += 1
+            let satisfied = entryWaiters.filter { $0.count <= entries }.map(\.continuation)
+            entryWaiters.removeAll { $0.count <= entries }
+            return satisfied
+        }
+        for waiter in ready { waiter.resume() }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now: Bool = lock.withLock {
+                if released { return true }
+                held.append(continuation)
+                return false
+            }
+            if now { continuation.resume() }
+        }
+        return .success(result)
+    }
+
+    func waitForEntries(_ count: Int) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now: Bool = lock.withLock {
+                if entries >= count { return true }
+                entryWaiters.append((count, continuation))
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func releaseAll() {
+        let pending: [CheckedContinuation<Void, Never>] = lock.withLock {
+            released = true
+            defer { held.removeAll() }
+            return held
+        }
+        for continuation in pending { continuation.resume() }
+    }
+
+    func countRedactions() { lock.withLock { counting = true } }
+
+    func waitForRedactions(_ count: Int) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now: Bool = lock.withLock {
+                if redactions >= count { return true }
+                redactionWaiters.append((count, continuation))
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func typedSecretRedaction() -> BrowserReplSecretStore? {
+        let ready: [CheckedContinuation<Void, Never>] = lock.withLock {
+            guard counting else { return [] }
+            redactions += 1
+            let satisfied = redactionWaiters.filter { $0.count <= redactions }.map(\.continuation)
+            redactionWaiters.removeAll { $0.count <= redactions }
+            return satisfied
+        }
+        for waiter in ready { waiter.resume() }
+        return nil
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
 }
 
 /// Answers every request with its headers and the first part of a body,

@@ -84,9 +84,18 @@ extension TerminalController {
         )
     }
 
+    /// The longest `timeout_ms`, ``BrowserReplSession/maximumTimeout``.
+    private nonisolated static var browserReplMaximumTimeoutMilliseconds: Int64 {
+        BrowserReplSession.maximumTimeout.components.seconds * 1000
+    }
+
     /// The caller's owner token for a session only it may use, or nil.
     private nonisolated static func browserReplOwner(_ params: [String: Any]) -> String? {
         (params["session_owner"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private nonisolated static var browserReplInvalidOwnerMessage: String {
+        String(localized: "cli.browser.repl.error.sessionOwner", defaultValue: "A REPL session owner token is 1 to 128 bytes")
     }
 
     private nonisolated static var browserReplInvalidSessionNameMessage: String {
@@ -183,7 +192,35 @@ extension TerminalController {
         // Without a cwd a new session gets a temporary directory of its own;
         // the session refuses `/` and the home directory as roots.
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
-        let timeoutMilliseconds = (params["timeout_ms"] as? NSNumber)?.intValue ?? 120_000
+        // The cwd and owner token are kept for the session's life, so they
+        // are bounded before a session is made or attached.
+        if let cwd, BrowserReplSession.workingDirectoryLengthRefusal(cwd) != nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.browser.repl.error.cwdTooLong",
+                    defaultValue: "The working directory path is longer than 1024 bytes; cd to a shorter path and run the command again"
+                ),
+                data: nil
+            )
+        }
+        guard BrowserReplSessionRegistry.isValidOwner(Self.browserReplOwner(params)) else {
+            return .err(code: "invalid_params", message: Self.browserReplInvalidOwnerMessage, data: nil)
+        }
+        // A running cell holds the session's thread until it ends or times
+        // out, so the timeout is capped (BrowserReplSession.maximumTimeout).
+        let requestedTimeout = params["timeout_ms"] as? NSNumber
+        guard (requestedTimeout?.doubleValue ?? 0) <= Double(Self.browserReplMaximumTimeoutMilliseconds) else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.browser.repl.error.timeoutTooLong",
+                    defaultValue: "A REPL call's timeout is at most 600000 milliseconds (10 minutes)"
+                ),
+                data: nil
+            )
+        }
+        let timeoutMilliseconds = requestedTimeout?.intValue ?? 120_000
         let named = (params["session"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if let named, !BrowserReplSessionRegistry.isValidName(named) {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
@@ -231,6 +268,8 @@ extension TerminalController {
             return .err(code: "unavailable", message: "\(prefix) (\(limit))", data: nil)
         } catch BrowserReplSessionRegistry.Refusal.ownedByAnotherClient {
             return .err(code: "invalid_params", message: Self.browserReplOwnedSessionMessage, data: nil)
+        } catch BrowserReplSessionRegistry.Refusal.invalidOwner {
+            return .err(code: "invalid_params", message: Self.browserReplInvalidOwnerMessage, data: nil)
         } catch {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }

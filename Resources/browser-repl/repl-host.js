@@ -116,8 +116,20 @@
   // (it masks a value's JSON-escaped form too).
   const CONTROLS = /\r\n|[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
   const SHORT_ESCAPES = { "\r": "\\r", "\b": "\\b", "\f": "\\f" };
+  // The most characters one print keeps, in the output and its spill
+  // file: it is cut before it is escaped, encoded or written, so one huge
+  // string cannot make those copies.
+  const MAX_PRINT_CHARS = 16000000;
+
   function printable(text) {
-    return String(text).replace(CONTROLS, (c) => (c === "\r\n" ? "\n" : SHORT_ESCAPES[c] || "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")));
+    let s = String(text);
+    const given = s.length;
+    if (given > MAX_PRINT_CHARS) s = s.slice(0, MAX_PRINT_CHARS);
+    s = s.replace(CONTROLS, (c) => (c === "\r\n" ? "\n" : SHORT_ESCAPES[c] || "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")));
+    // Escapes can make it longer again.
+    if (given <= MAX_PRINT_CHARS && s.length <= MAX_PRINT_CHARS) return s;
+    const count = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return `${s.slice(0, MAX_PRINT_CHARS)}…\n# this print was cut after ${count(MAX_PRINT_CHARS)} characters (${count(given)} were given)`;
   }
 
   function formatError(e) {

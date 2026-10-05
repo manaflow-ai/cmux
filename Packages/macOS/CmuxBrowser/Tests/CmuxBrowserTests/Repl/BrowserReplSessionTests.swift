@@ -105,6 +105,39 @@ struct BrowserReplSessionTests {
         #expect(driver.calls == ["tabs.list", "tab.info"])
     }
 
+    /// A working directory comes from the caller and is kept for the
+    /// session's life; one longer than a path can be (PATH_MAX, 1024 bytes)
+    /// is refused with an error that says so, at creation and per cell.
+    @Test("A working directory past 1024 bytes is refused")
+    func workingDirectoryLengthIsBounded() async {
+        let long = "/" + String(repeating: "d", count: 2000)
+        let created = makeSession(driver: RecordingReplDriver(), cwd: long)
+        defer { created.close() }
+        let first = await created.evaluate(code: "1")
+        #expect(first.error?.contains("1024 bytes") == true, "\(first.error ?? "")")
+
+        let session = makeSession(driver: RecordingReplDriver())
+        defer { session.close() }
+        let moved = await session.evaluate(code: "1", cwd: long)
+        #expect(moved.error?.contains("1024 bytes") == true, "\(moved.error ?? "")")
+        #expect(session.cwd == browserReplTestWorkingDirectory)
+    }
+
+    /// A running cell holds the session's JavaScript thread until it ends
+    /// or times out, so a caller's timeout is capped at 10 minutes: a
+    /// larger one is refused before the cell runs, with an error that says so.
+    @Test("A timeout past 10 minutes is refused before the cell runs")
+    func timeoutIsCapped() async {
+        let driver = RecordingReplDriver()
+        let session = makeSession(driver: driver)
+        defer { session.close() }
+        let refused = await session.evaluate(code: #"await call("tabs.list");"#, timeout: .milliseconds(600_001))
+        #expect(refused.error?.contains("600000 ms") == true, "\(refused.error ?? "")")
+        #expect(driver.calls.isEmpty)
+        let accepted = await session.evaluate(code: "1", timeout: .milliseconds(600_000))
+        #expect(accepted.error == nil, "\(accepted.error ?? "")")
+    }
+
     @Test("An output cap reaches the runtime as its options argument")
     func maxOutputOption() async {
         let session = makeSession(driver: RecordingReplDriver())

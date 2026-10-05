@@ -109,6 +109,26 @@ struct BrowserReplSessionRegistryTests {
         c.close()
     }
 
+    /// The owner token comes from the socket and is kept with the session
+    /// for its life, so it is bounded like the name: one past 128 bytes
+    /// makes no session.
+    @Test("An owner token past 128 bytes makes no session")
+    func ownerTokensAreBounded() throws {
+        let registry = BrowserReplSessionRegistry()
+        let key = BrowserReplSessionKey(workspaceID: first, name: "cli-1-a")
+        var made = 0
+        #expect(throws: BrowserReplSessionRegistry.Refusal.self) {
+            try registry.session(for: key, owner: String(repeating: "t", count: 129)) { _ in
+                made += 1
+                return makeSession(key.name)
+            }
+        }
+        #expect(made == 0)
+        #expect(registry.list(workspaceID: nil, owner: String(repeating: "t", count: 129)).isEmpty)
+        let session = try registry.session(for: key, owner: String(repeating: "t", count: 128)) { _ in makeSession(key.name) }
+        session.close()
+    }
+
     @Test("Session names are short and of a plain character set")
     func sessionNames() throws {
         let registry = BrowserReplSessionRegistry()

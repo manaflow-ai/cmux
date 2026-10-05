@@ -378,7 +378,10 @@ rest. Measurements: [performance.md](performance.md).
   then `# output continues in <path>`, and at the end of the call its last
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out
-  still has it.
+  still has it. One print (a `console.log` call, a printed value) keeps
+  at most 16,000,000 characters, in the output and the file alike: a
+  longer one is cut before it is escaped or written, and ends with `#
+  this print was cut after 16,000,000 characters (N were given)`.
 - **Control characters** in printed text (page titles, text, option
   labels, URLs and error messages can hold terminal escape sequences)
   print visibly, whatever printed them (`console.log`, the auto-printed
@@ -401,6 +404,9 @@ rest. Measurements: [performance.md](performance.md).
   server process gets its own session (`mcp-<pid>-<random>`), reset when
   the server exits, so two MCP clients never share variables or tabs; give
   them the same `--session` to share one.
+- A cell times out after 120 s by default; `--timeout <ms>` (the socket's
+  `timeout_ms`) asks for at most 600000 (10 minutes), and a longer one is
+  refused before the cell runs, since a running cell holds the session.
 - A session runs one cell at a time; cells sent meanwhile (callers that
   share a named session) wait in order. At most 64 wait, holding at most
   64 MiB of source together; one more fails at once with an error that
@@ -411,7 +417,9 @@ rest. Measurements: [performance.md](performance.md).
   other client sees it in `cmux browser repl list`, attaches to it or
   resets it, also when it knows the name or the client was killed before
   its session ended (it then idles out after 30 minutes). Named sessions
-  are shared by name.
+  are shared by name. An owner token is at most 128 bytes and a working
+  directory at most 1024 bytes (`PATH_MAX`); a longer one is refused
+  before a session is made.
 - A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
   to the focused workspace when the caller is outside cmux or the id is unknown
   to this instance. A named session belongs to that workspace: the same

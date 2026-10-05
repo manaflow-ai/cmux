@@ -177,6 +177,30 @@ test("repl output: no limit (0) still spills past a hard ceiling instead of prin
   removeTestDir(workDir);
 });
 
+test("repl output: one print longer than 16,000,000 characters is cut before it is escaped, written or printed", () => {
+  const workDir = makeTestDir("cap-");
+  const notes = [];
+  const host = createNodeHost({
+    workDir,
+    sessionId: `line-${process.pid}`,
+    print: (level, t) => {
+      if (t.startsWith("# output")) notes.push(t);
+    },
+  });
+  const gate = ns.replHost.createOutputGate(host, { maxOutput: 0 });
+  gate.print("log", "v".repeat(17_000_000));
+  gate.finish();
+  const full = /full output: (\S+)$/.exec(notes.at(-1) || "");
+  assert.ok(full, notes.join(" | "));
+  const written = fs.readFileSync(full[1], "utf8");
+  assert.ok(written.length <= 16_000_000 + 200, `the spill file holds ${written.length} characters of one print`);
+  assert.match(written, /cut after 16,000,000 characters/);
+  // Escaping cannot grow a print past the cap either.
+  const escaped = ns.replHost.printable("\u001b".repeat(5_000_000));
+  assert.ok(escaped.length <= 16_000_000 + 200, `escaped to ${escaped.length} characters`);
+  removeTestDir(workDir);
+});
+
 test("repl output: the runtime's own error reports go through the call's output gate", async () => {
   const workDir = makeTestDir("cap-");
   let printedChars = 0;

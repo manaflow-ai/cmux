@@ -179,6 +179,14 @@ extension CMUXCLI {
                     defaultValue: "--timeout must be a positive number of milliseconds"
                 ))
             }
+            // The app refuses a longer one: a running cell holds the
+            // session's JavaScript thread until it ends or times out.
+            guard value <= 600_000 else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.timeoutRange",
+                    defaultValue: "--timeout must be 1 to 600000 milliseconds (10 minutes)"
+                ))
+            }
             timeoutMilliseconds = value
         }
 
@@ -484,7 +492,8 @@ extension CMUXCLI {
     ## Environment
 
     - ES2023+ JavaScript with top-level await.
-    - 120 second timeout per call (`--timeout <ms>` to change it).
+    - 120 second timeout per call (`--timeout <ms>` to change it, at most
+      600000, 10 minutes).
     - A call prints at most 25,000 characters (`--max-output <chars>`, 0 for
       no limit); the rest of its output goes to a file whose path prints.
       A printed snapshot is at most 20,000 characters; `.tree` is complete.
