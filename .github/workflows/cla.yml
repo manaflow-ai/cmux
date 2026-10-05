@@ -56,8 +56,10 @@ jobs:
             . as $ledger |
             ($ledger.signedContributors | type == "array") and
             ([ $author ] + [ $commits[].[]? | .author.id ] | all(.[]; type == "number")) and
-            ([ $author ] + [ $commits[].[]? | .author.id ] | unique) as $ids |
-            all($ids[]; . as $id | any($ledger.signedContributors[]?; .id == $id or ($id == 54008264 or $id == 38676809 or $id == 67667005)))
+            (([ $author ] + [ $commits[].[]? | .author.id ] | unique) as $ids |
+              all($ids[]; . as $id |
+                ($id == 54008264 or $id == 38676809 or $id == 67667005 or
+                 any($ledger.signedContributors[]?; .id == $id))))
           ' "$ledger" >/dev/null
 
   writer:
