@@ -57,11 +57,14 @@ class FakePort implements SwitchPort {
   setModel = async (model: string) => {
     this.calls.push(`model ${model}`);
   };
-  setMode = async (mode: string) => {
+  tickets: (string | undefined)[] = [];
+  setMode = async (mode: string, ticket?: string) => {
     this.calls.push(`mode ${mode}`);
+    this.tickets.push(ticket);
   };
-  setConfig = async (id: string, value: string) => {
+  setConfig = async (id: string, value: string, ticket?: string) => {
     this.calls.push(`config ${id}=${value}`);
+    this.tickets.push(ticket);
   };
   discard = (sessionId: string) => {
     this.calls.push(`discard ${sessionId}`);
@@ -220,6 +223,43 @@ describe("harness switch: a prompt sent before the session is ready", () => {
       "config reasoning_effort=high",
       "send go",
     ]);
+  });
+
+  /// The pane-native transport spends a gesture per held pick (transport.gesture): the ticket is
+  /// taken in the pick's own handler and goes with the pick's frame when the switch applies it.
+  test("a held mode or effort pick takes a gesture ticket at once and sends it with the pick", async () => {
+    const { store, port } = setup();
+    const asked: string[] = [];
+    let next = 0;
+    store.setHandlers({ gesture: () => (asked.push("gesture"), Promise.resolve(`ticket-${(next += 1)}`)) });
+    void store.switchTo("codex");
+    expect(store.pickMode("read-only")).toBe(true);
+    expect(store.pickConfig("reasoning_effort", "high")).toBe(true);
+    // Asked in the pick, before acpmux started anything.
+    expect(asked).toEqual(["gesture", "gesture"]);
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(port.calls.slice(2)).toEqual(["open codex-1", "mode read-only", "config reasoning_effort=high"]);
+    expect(port.tickets).toEqual(["ticket-1", "ticket-2"]);
+  });
+
+  test("a pick without a gesture (the host refused) still applies, without a ticket", async () => {
+    const { store, port } = setup();
+    store.setHandlers({ gesture: () => Promise.reject(new Error("transport.gesture_required")) });
+    void store.switchTo("codex");
+    expect(store.pickMode("plan")).toBe(true);
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(port.calls).toContain("mode plan");
+    expect(port.tickets).toEqual([undefined]);
+  });
+
+  test("a pick in a live session (not held) asks for no gesture", () => {
+    const { store } = setup();
+    let asked = 0;
+    store.setHandlers({ gesture: () => ((asked += 1), Promise.resolve("t")) });
+    expect(store.pickMode("plan")).toBe(false);
+    expect(asked).toBe(0);
   });
 
   test("with no prompt the switch opens the session and ends; Send then goes as usual", async () => {

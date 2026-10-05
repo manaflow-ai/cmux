@@ -1349,6 +1349,20 @@ describe("direct client session state", () => {
     expect(texts()).toEqual(["a five", "a six", "did not send", "a later prompt"]);
   });
 
+  test("a gesture ticket rides on set_mode and set_config_option as _meta.cmuxGesture", async () => {
+    const client = await connect();
+    await settle();
+    await client.setMode("plan", "ticket-1");
+    await client.setConfig("reasoning_effort", "high", "ticket-2");
+    await client.setMode("auto");
+    const sent = ScriptedSocket.current.sent.filter((request) => request.method.startsWith("session/set_"));
+    expect(sent.map((request) => request.params._meta)).toEqual([
+      { cmuxGesture: "ticket-1" },
+      { cmuxGesture: "ticket-2" },
+      undefined,
+    ]);
+  });
+
   /// ACP wraps a tool call's output as `{ type: "content", content: { type: "text" } }`.
   test("a tool call's wrapped text content becomes its output", async () => {
     const update: EventRecord = {
