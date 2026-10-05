@@ -167,8 +167,16 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         }
 #endif
         let controller = NSHostingController(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
-        controller.sizingOptions = [.preferredContentSize]
+        // Do not let SwiftUI feed preferred-size changes back into the sheet
+        // while AppKit is animating `beginSheet`. A cache update or safe-area
+        // invalidation during that display cycle otherwise asks AppKit to
+        // resize the window from inside its constraint pass and aborts.
+        controller.sizingOptions = []
         let window = NSWindow(contentViewController: controller)
+        let initialContentSize = controller.view.fittingSize
+        if initialContentSize.width > 0, initialContentSize.height > 0 {
+            window.setContentSize(initialContentSize)
+        }
         window.identifier = NSUserInterfaceItemIdentifier("cmux.newMachine")
         window.styleMask = [.titled]
         window.title = model.isBaseSetup
