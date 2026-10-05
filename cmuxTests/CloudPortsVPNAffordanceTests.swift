@@ -256,7 +256,7 @@ struct CloudPortsVPNAffordanceTests {
         }
     }
 
-    @Test("Opening the Ports tab requests discovery once; closed Ports and collapsed machines do not scan")
+    @Test("Every visible machine row requests port discovery once, open Ports tab or not")
     func openedPortsDemand() throws {
         let suite = "ports-demand-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -282,7 +282,10 @@ struct CloudPortsVPNAffordanceTests {
         coordinator.apply(nodes: [opened, closed, collapsed])
         coordinator.portsDemand.reconcile(coordinator: coordinator)
         coordinator.portsDemand.reconcile(coordinator: coordinator)
-        #expect(requested == [.cloud("opened")])
+        // The machine row is the visibility boundary (#17074): a cached scan per
+        // visible machine keeps port counts current before Ports is opened. A
+        // second reconcile must not scan again.
+        #expect(requested == [.cloud("opened"), .cloud("closed"), .cloud("collapsed")])
     }
 
     @Test("Ports Wake shares the expired-machine gate and rejects removed machines")
