@@ -84,11 +84,6 @@ interface Field {
   weight: number
 }
 
-interface EntryCorpus {
-  fields: Field[]
-  mask: bigint
-}
-
 interface Query {
   raw: string
   tokens: string[][]

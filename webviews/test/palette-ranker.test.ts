@@ -107,7 +107,8 @@ describe("shared palette ranker", () => {
 
   test("the checked-in JavaScriptCore bridge exposes the same ranker", async () => {
     const bundle = await Bun.file("../Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js").text()
-    new Function(bundle)()
+    expect(bundle.length).toBeGreaterThan(0)
+    await import("../../Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js")
     const bridge = (globalThis as typeof globalThis & { __cmuxPaletteRank?: (request: string) => string }).__cmuxPaletteRank
     expect(typeof bridge).toBe("function")
     const sections = JSON.parse(bridge!(JSON.stringify({
