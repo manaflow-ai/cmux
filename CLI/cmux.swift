@@ -10440,6 +10440,13 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "reorder-workspace",
+            valueOptions: Self.reorderWorkspaceValueOptions,
+            flags: ["--dry-run"],
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+        )
         let workspaceRaw = optionValue(commandArgs, name: "--workspace")
             ?? firstPositionalArgument(commandArgs, valueOptions: Self.reorderWorkspaceValueOptions)
         guard let workspaceRaw else {
@@ -10486,6 +10493,13 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "reorder-workspaces",
+            valueOptions: ["--order", "--window"],
+            flags: ["--dry-run"],
+            maxPositionals: 0
+        )
         guard let orderRaw = optionValue(commandArgs, name: "--order") else {
             throw CLIError(message: String(
                 localized: "cli.reorderWorkspaces.error.missingOrder",
@@ -11101,6 +11115,14 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            flags: ["--force"],
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
+        )
         let target: String?
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
@@ -11110,7 +11132,7 @@ struct CMUXCLI {
         } else {
             let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspaceArg ?? firstPositionalArgument(rem1, valueOptions: [])
         }
 
         var params: [String: Any] = [:]
@@ -11136,6 +11158,13 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
+        )
         let target: String?
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
@@ -11145,7 +11174,7 @@ struct CMUXCLI {
         } else {
             let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspaceArg ?? firstPositionalArgument(rem1, valueOptions: [])
         }
 
         var params: [String: Any] = [:]
@@ -11179,6 +11208,13 @@ struct CMUXCLI {
 
         switch mode {
         case .legacy:
+            // Every remaining word is the title; `--` lets a title start with a dash.
+            try rejectUnexpectedArguments(
+                commandArgs,
+                commandName: commandName,
+                valueOptions: ["--workspace", "--window"],
+                maxPositionals: .max
+            )
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (windowOpt, rem1) = parseOption(rem0, name: "--window")
             let windowRaw = windowOpt ?? windowOverride
@@ -11192,10 +11228,16 @@ struct CMUXCLI {
             wsId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: winId)
 
         case .namespace:
+            try rejectUnexpectedArguments(
+                commandArgs,
+                commandName: commandName,
+                valueOptions: ["--title", "--workspace", "--window"],
+                maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+            )
             let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
             let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
             let (_, rem2) = parseOption(rem1, name: "--window")
-            let positional = rem2.first(where: { !$0.hasPrefix("--") })
+            let positional = firstPositionalArgument(rem2, valueOptions: [])
             let target = workspaceArg ?? positional
             guard let titleOpt else {
                 throw CLIError(message: "\(commandName) requires --title <new>")
@@ -11624,9 +11666,15 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+        )
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let positional = firstPositionalArgument(rem1, valueOptions: [])
         let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         // With an explicit --window and no workspace argument, target that
         // window's selected workspace on the server instead of the caller's
@@ -21301,6 +21349,73 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
+    }
+
+    /// Rejects arguments a command doesn't accept, before it contacts the app,
+    /// so a typo can't fall through to a different request. A value option
+    /// needs a value that isn't another `--` flag (`--name=value` works too);
+    /// everything after `--` counts as a positional.
+    func rejectUnexpectedArguments(
+        _ args: [String],
+        commandName: String,
+        valueOptions: Set<String>,
+        flags: Set<String> = [],
+        maxPositionals: Int
+    ) throws {
+        var positionals = 0
+        var pastTerminator = false
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if !pastTerminator {
+                if arg == "--" {
+                    pastTerminator = true
+                    continue
+                }
+                if arg.hasPrefix("--"), let equals = arg.firstIndex(of: "="),
+                   valueOptions.contains(String(arg[..<equals])) {
+                    if arg.index(after: equals) == arg.endIndex {
+                        throw missingOptionValueError(String(arg[..<equals]), commandName: commandName)
+                    }
+                    continue
+                }
+                if valueOptions.contains(arg) {
+                    guard index < args.count, !args[index].hasPrefix("--") else {
+                        throw missingOptionValueError(arg, commandName: commandName)
+                    }
+                    index += 1
+                    continue
+                }
+                if flags.contains(arg) {
+                    continue
+                }
+                if arg.hasPrefix("-"), arg.count > 1 {
+                    let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.arguments.error.unknownOption", defaultValue: "%1$@: unknown option %2$@"),
+                        commandName,
+                        name
+                    ))
+                }
+            }
+            positionals += 1
+            if positionals > maxPositionals {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.arguments.error.unexpectedArgument", defaultValue: "%1$@: unexpected argument %2$@"),
+                    commandName,
+                    arg
+                ))
+            }
+        }
+    }
+
+    func missingOptionValueError(_ option: String, commandName: String) -> CLIError {
+        CLIError(message: String.localizedStringWithFormat(
+            String(localized: "cli.arguments.error.missingValue", defaultValue: "%1$@: %2$@ requires a value"),
+            commandName,
+            option
+        ))
     }
 
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {

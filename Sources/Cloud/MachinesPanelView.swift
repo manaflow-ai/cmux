@@ -4,6 +4,7 @@ import AppKit
 import CmuxCloudMachines
 import CmuxSettings
 import CmuxSurfaceCatalogModel
+import Combine
 import SwiftUI
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
@@ -24,6 +25,9 @@ struct MachinesPanelView: View {
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
     @State private var bannerDismissals: CloudBannerDismissalStore
+    /// The owning window's selection stream lets the Cloud tree update before
+    /// the next machine/catalog refresh arrives.
+    @State private var selectedWorkspacePublisher: AnyPublisher<UUID?, Never>
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -45,6 +49,10 @@ struct MachinesPanelView: View {
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
         self.activationCoordinator = activationCoordinator
+        _selectedWorkspacePublisher = State(initialValue:
+            tabManager?.selectedTabIdPublisher.eraseToAnyPublisher()
+                ?? Just(nil).eraseToAnyPublisher()
+        )
         _bannerDismissals = State(
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
@@ -121,6 +129,9 @@ struct MachinesPanelView: View {
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
+        }
+        .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
+            viewModel.refreshLocalWorkspaces(selectedWorkspaceID: selectedWorkspaceID)
         }
         .onDisappear {
             viewModel.stopPolling()

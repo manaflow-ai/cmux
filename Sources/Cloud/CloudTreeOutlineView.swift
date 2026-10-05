@@ -87,6 +87,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let portsDemand = CloudPortsDiscoveryDemand()
+        let displaysDemand = CloudDisplaysDiscoveryDemand()
         let expansionStore: CloudTreeExpansionStore
         let nodeCache: CloudTreeNodeCache
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -99,6 +100,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         /// The selected row's stable node id, restored across in-place reloads.
         var selectedNodeID: String?
+        /// The last focused local Cloud workspace/remote row pair reconciled
+        /// into the native outline selection. A stable pair lets user clicks
+        /// on other rows survive unrelated catalog refreshes.
+        var lastFocusedCloudWorkspace: CloudTreeFocusedWorkspaceSelection?
         /// Workspaces the catalog has admitted for deletion but not confirmed.
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         var pendingMachineDeletions: Set<String> = []
@@ -285,6 +290,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
         }
+        /// Applies a tree snapshot immediately or retains it until a native drag ends.
         private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
             if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
@@ -324,6 +330,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             contentSignature = nextContent
             if structureUnchanged, !self.nodes.isEmpty {
                 portsDemand.update(nodes: self.nodes)
+                displaysDemand.update(nodes: self.nodes, actions: nodeActions)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
@@ -335,6 +342,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             self.nodes = nodes
             portsDemand.update(nodes: nodes)
+            displaysDemand.update(nodes: nodes, actions: nodeActions)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -344,6 +352,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         /// Ends a native drag and drains the latest deferred snapshot exactly once.
+        /// Tracks native drag state and drains the latest deferred snapshot on completion.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
             isDragging = dragging
@@ -361,6 +370,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     outlineView?.indentationPerLevel = style.indentPerLevel
                 }
                 apply(nodes: deferred)
+                if let selectedNodeID {
+                    selectFocusedCloudWorkspaceRow(selectedNodeID)
+                }
             } else if shouldReload, let outlineView {
                 outlineView.treeStyle = style
                 outlineView.indentationPerLevel = style.indentPerLevel
@@ -779,13 +791,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     remoteView: row.remoteView
                 ) + renameRemoteViewMenuItems(resource: row.resource, remoteView: row.remoteView)
             case .display(let resource, let openIn, let remoteView):
-                return resourceMenuItems(
+                var items = resourceMenuItems(
                     resource,
                     isLocal: false,
                     openInLocalWorkspace: openIn,
                     openAction: { [weak self] in self?.open(node) },
                     remoteView: remoteView
-                ) + renameRemoteViewMenuItems(resource: resource, remoteView: remoteView)
+                )
+                // A display's name belongs to the display, not to one view of it.
+                items += [.separator(), item(String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")) { [nodeActions] in
+                    nodeActions.renameDisplay(resource)
+                }]
+                if let remoteView, remoteView.isCloudDisplayMembershipView {
+                    items.append(item(String(localized: "cloudTree.menu.removeDisplayFromWorkspace", defaultValue: "Remove from Workspace")) { [nodeActions] in
+                        nodeActions.removeDisplayFromWorkspace(resource, remoteView)
+                    })
+                }
+                return items
             case .port(let resource, let url, let openIn):
                 return resourceMenuItems(
                     resource,

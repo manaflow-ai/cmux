@@ -51,6 +51,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private(set) var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
     var refreshGeneration: UInt64 = 0
+    /// Member-display discovery in flight, and attempts made in the current
+    /// lifecycle generation (a launch-time refresh can cancel an attempt).
+    var memberDisplayDiscovery: Task<Void, Never>?
+    /// Display names last applied to display rows and pane titles.
+    var appliedDisplayNames: [String: String]?
+    /// Display renames from pane tabs, in the order they were typed.
+    var displayRenameLane: Task<Void, Never>?
+    var memberDisplayDiscoveryAttempts: (generation: UInt64, count: Int) = (0, 0)
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     let terminalMutationQueue = CloudTerminalMutationQueue()
     /// The only installed daemon graph for this machine. The catalog receives the
@@ -831,6 +839,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
         closePanesForVanishedRemoteTerminals(observation: observation)
+        discoverMemberDisplaysIfNeeded(state)
+        applyDisplayNamesIfChanged(state)
     }
     func publishDelta(
         _ state: CloudVMState,
@@ -879,6 +889,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
         closePanesForVanishedRemoteTerminals(observation: .current)
+        // Membership and name rows arrive as projection deltas, not full rebuilds.
+        discoverMemberDisplaysIfNeeded(state)
+        applyDisplayNamesIfChanged(state)
     }
     /// Closes the panes of terminals the resolver reported as exited. The
     /// graph-driven sweep covers the usual case; this covers a daemon that

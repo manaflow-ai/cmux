@@ -2,7 +2,6 @@ import CmuxFoundation
 import SwiftUI
 
 struct NotificationPopoverRow: View, Equatable {
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
         lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
@@ -97,7 +96,7 @@ struct NotificationPopoverRow: View, Equatable {
     private var rowContent: some View {
         HStack(spacing: 0) {
             Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccent.color)
+                .fill(notification.isRead ? Color.clear : cmuxAccentColor())
                 .frame(width: 2.5)
                 .padding(.vertical, 6)
 

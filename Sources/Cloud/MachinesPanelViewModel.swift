@@ -362,6 +362,21 @@ final class MachinesPanelViewModel: ObservableObject {
         // state, so a catalog read also refreshes it. Cheap: a dictionary read.
         readUnreadTerminalIDs()
     }
+
+    /// Refreshes the local workspace projection with the selection that was just committed.
+    /// The selection publisher fires from `willSet`, so reading the tab manager here can still
+    /// return the previous workspace and leave the Cloud tree highlight one selection behind.
+    func refreshLocalWorkspaces(selectedWorkspaceID: UUID?) {
+        let updated = localWorkspacesProvider().map { workspace in
+            CloudTreeLocalWorkspace(
+                id: workspace.id,
+                title: workspace.title,
+                isSelected: workspace.id == selectedWorkspaceID
+            )
+        }
+        guard updated != localWorkspaces else { return }
+        localWorkspaces = updated
+    }
     private func readUnreadTerminalIDs() {
         let unread = CloudNotificationSyncHub.shared.unreadTerminalIDs
         guard unread != unreadTerminalIDs else { return }

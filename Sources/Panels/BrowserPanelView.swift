@@ -7701,6 +7701,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView: webView,
                 reason: "portalHostBind.didMoveToWindow"
             )
+            browserPanel.focusPendingContentAfterAttachment()
             schedulePortalLifecycleVisibilityUpdate(
                 coordinator: coordinator, host: host, generation: generation,
                 visibleInUI: true, reason: "portal.didMoveToWindow.visible"

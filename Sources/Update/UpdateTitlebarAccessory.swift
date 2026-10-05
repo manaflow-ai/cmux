@@ -295,12 +295,6 @@ final class NotificationsAnchorRegistry {
             .min { $0.distance < $1.distance }?
             .view
     }
-
-    func visibleAnchor(in window: NSWindow) -> NSView? {
-        anchors.allObjects.first { view in
-            view.window === window && notificationsPopoverAnchorIsVisible(view)
-        }
-    }
 }
 
 @MainActor
@@ -992,7 +986,6 @@ private struct TitlebarNotificationBadge: View {
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-    @Environment(\.cmuxAccentColor) private var badgeAccent
 
     var body: some View {
         let unreadCount = unreadModel.totalUnreadCount
@@ -1005,7 +998,7 @@ private struct TitlebarNotificationBadge: View {
                 )
                 .foregroundColor(.white)
                 .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(badgeAccent.color))
+                .background(Circle().fill(cmuxAccentColor()))
                 .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
         }
     }
@@ -1959,7 +1952,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
-    private var observedWindowIdentifier: ObjectIdentifier?
+    private weak var observedWindow: NSWindow?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
@@ -2018,18 +2011,13 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView
-                    .environment(\.settingsRuntime, settingsRuntime)
-                    .cmuxAccentColorEnvironment()
+                rootView.environment(\.settingsRuntime, settingsRuntime)
             )
         )
 
         super.init(nibName: nil, bundle: nil)
 
         view = containerView
-        containerView.onWindowChange = { [weak self] window in
-            self?.setObservedWindow(window)
-        }
         containerView.translatesAutoresizingMaskIntoConstraints = true
         // The shortcut-hint pills (and button backgrounds) sit below the button
         // row and overflow the accessory's titlebar-height content frame on
@@ -2120,15 +2108,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
-        setObservedWindow(view.window)
-    }
-
-    @discardableResult
-    private func setObservedWindow(_ currentWindow: NSWindow?) -> Bool {
-        let currentWindowIdentifier = currentWindow.map(ObjectIdentifier.init)
-        guard currentWindowIdentifier != observedWindowIdentifier else { return false }
+        let currentWindow = view.window
+        guard currentWindow !== observedWindow else { return false }
         removeWindowGeometryObservers()
-        observedWindowIdentifier = currentWindowIdentifier
+        observedWindow = currentWindow
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
         windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
@@ -2259,7 +2242,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
               let contentView = window.contentView else {
             return
         }
-        let windowIdentifier = ObjectIdentifier(window)
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
@@ -2267,12 +2249,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak notificationsPopover] in
+                onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
                     notificationsPopover?.performClose(nil)
-                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
+                    openPhoneForwardingSettings(in: window)
                 }
             )
-            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -2372,7 +2353,6 @@ private func openPhoneForwardingSettings(in window: NSWindow?) {
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let onDismiss: () -> Void
     let onOpenPhoneForwarding: () -> Void
 
@@ -2381,7 +2361,8 @@ private struct NotificationsPopoverView: View {
     @AppStorage("cmux.notifications.popover.height")
     private var savedHeight: Double = Double(NotificationsPopoverMetrics.defaultHeight)
 
-    // Avoid writing through @AppStorage while dragging because each write hits UserDefaults and posts
+    // Live size while the user drags the resize handle. We avoid writing through @AppStorage
+    // on every mouseDragged event because each write hits UserDefaults and posts
     // UserDefaults.didChangeNotification, which wakes up every observer in the app.
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
@@ -2450,7 +2431,8 @@ private struct NotificationsPopoverView: View {
         return min(upper, max(NotificationsPopoverMetrics.minHeight, raw))
     }
 
-    // AppKit resize tracking avoids SwiftUI's moving coordinate space. SwiftUI's `DragGesture` reports
+    // Invisible bottom-right corner resize region. NSPopover has no native resize chrome and
+    // there's no first-class SwiftUI resize API for it. SwiftUI's `DragGesture` reports
     // translations in a local coordinate space that is literally being resized under the
     // cursor as the user drags, which produces dimension oscillation. We use an AppKit
     // representable that tracks `NSEvent.mouseLocation` in stable global screen coordinates.
@@ -2496,7 +2478,7 @@ private struct NotificationsPopoverView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(cmuxAccent.color))
+                    .background(Capsule().fill(cmuxAccentColor()))
             }
             Spacer()
             Button(action: jumpToLatestUnread) {
@@ -2855,10 +2837,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            let windowIdentifier = ObjectIdentifier(window)
-            Task { @MainActor [weak self] in
-                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
-                self.attachIfNeeded(to: window)
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
+                self?.attachIfNeeded(to: window)
             }
         })
 
@@ -2868,10 +2849,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            let windowIdentifier = ObjectIdentifier(window)
-            Task { @MainActor [weak self] in
-                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
-                self.attachIfNeeded(to: window)
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
+                self?.attachIfNeeded(to: window)
             }
         })
 
@@ -2888,6 +2868,7 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func reattachIfPresentationModeChanged() {
+
         let currentMode = WorkspacePresentationModeSettings.mode()
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
@@ -2904,10 +2885,6 @@ final class UpdateTitlebarAccessoryController {
         for window in NSApp.windows {
             attachIfNeeded(to: window)
         }
-    }
-
-    private func liveWindow(withIdentifier identifier: ObjectIdentifier) -> NSWindow? {
-        NSApp.windows.first { ObjectIdentifier($0) == identifier }
     }
 
     private func scheduleStartupWindowScans() {
@@ -2949,9 +2926,9 @@ final class UpdateTitlebarAccessoryController {
             let attempts = pendingAttachRetries[key, default: 0]
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    Task { @MainActor [weak self] in
-                        guard let self, let window = self.liveWindow(withIdentifier: key) else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
+                    Task { @MainActor [weak self, weak window] in
+                        guard let self, let window else { return }
                         self.attachIfNeeded(to: window)
                     }
                 }
@@ -3032,10 +3009,8 @@ final class UpdateTitlebarAccessoryController {
 
         attachedWindows.remove(window)
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-        let windowIdentifier = ObjectIdentifier(window)
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
             window.contentView?.needsLayout = true
             window.contentView?.superview?.needsLayout = true
             window.contentView?.layoutSubtreeIfNeeded()
@@ -3126,7 +3101,6 @@ final class UpdateTitlebarAccessoryController {
               let contentView = window.contentView else {
             return
         }
-        let windowIdentifier = ObjectIdentifier(window)
 
         let popover = NSPopover()
         let delegate = DetachedNotificationsPopoverDelegate { [weak self, weak popover] in
@@ -3149,18 +3123,18 @@ final class UpdateTitlebarAccessoryController {
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak popover] in
+                onOpenPhoneForwarding: { [weak popover, weak window] in
                     popover?.performClose(nil)
-                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
+                    openPhoneForwardingSettings(in: window)
                 }
             )
-            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()
         anchorView.superview?.layoutSubtreeIfNeeded()
         let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
         guard !anchorRect.isEmpty else { return }
+
         detachedNotificationsPopover = popover
         detachedNotificationsPopoverDelegate = delegate
         popover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
@@ -3170,10 +3144,12 @@ final class UpdateTitlebarAccessoryController {
             windowNumber: window.windowNumber
         )
     }
+
     func isNotificationsPopoverShown() -> Bool {
         detachedNotificationsPopover?.isShown == true ||
             controlsControllers.allObjects.contains(where: { $0.popoverIsShownForTesting })
     }
+
     @discardableResult
     func dismissNotificationsPopoverIfShown() -> Bool {
         let controllers = controlsControllers.allObjects
@@ -3188,9 +3164,11 @@ final class UpdateTitlebarAccessoryController {
         }
         return dismissed
     }
+
     func showNotificationsPopover(animated: Bool = true) {
         let controllers = controlsControllers.allObjects
         guard !controllers.isEmpty else { return }
+
         let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
         for controller in controllers {
             if controller !== target {

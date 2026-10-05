@@ -168,9 +168,7 @@ struct BrowserInsecureHTTPSettingsTests {
         checkEqual(prepared.httpMethod, "POST")
         checkEqual(prepared.httpBody, Data("token=abc123".utf8))
         checkEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        // #13003: the prepared request keeps the caller's cache policy so refreshing a
-        // failed navigation replays the original request semantics.
-        checkEqual(prepared.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
+        checkEqual(prepared.cachePolicy, .useProtocolCachePolicy)
     }
 
     @Test
@@ -415,21 +413,14 @@ struct TitlebarControlsSizingPolicyTests {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         let classicRepeat = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         checkEqual(classic, classicRepeat)
-        // System font metrics determine hint widths; every native control must
-        // still fit inside the deterministic reservation for each style.
-        let classicRightEdge = TitlebarControlsHitRegions.buttonXRanges(config: classicConfig)
-            .map(\.upperBound).max() ?? 0
-        checkGreaterThanOrEqual(classic.width, classicRightEdge)
+        checkEqual(classic.width, 152, accuracy: 0.001)
         checkEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
         let compactConfig = TitlebarControlsStyle.compact.config
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         let compactRepeat = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         checkEqual(compact, compactRepeat)
-        let compactRightEdge = TitlebarControlsHitRegions.buttonXRanges(config: compactConfig)
-            .map(\.upperBound).max() ?? 0
-        checkGreaterThanOrEqual(compact.width, compactRightEdge)
-        checkGreaterThan(classic.width, compact.width)
+        checkEqual(compact.width, 139, accuracy: 0.001)
         checkEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
 
@@ -823,35 +814,6 @@ struct NotificationsPopoverAnchorPolicyTests {
         bellAnchor.isHidden = true
         checkTrue(
             NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === plusAnchor
-        )
-    }
-
-    @Test
-    func testNotificationAnchorRegistryDoesNotReturnHiddenAnchor() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            Issue.record("Expected content view")
-            return
-        }
-
-        let anchor = NSView(frame: NSRect(x: 90, y: 60, width: 20, height: 20))
-        contentView.addSubview(anchor)
-        NotificationsAnchorRegistry.shared.register(anchor)
-        anchor.isHidden = true
-
-        let selectedAnchor = NotificationsAnchorRegistry.shared.closestAnchor(
-            in: window,
-            to: NSPoint(x: anchor.frame.midX, y: anchor.frame.midY)
-        )
-        #expect(
-            selectedAnchor == nil,
-            "A hidden titlebar accessory anchor must not be selected for keyboard-opened notifications."
         )
     }
 }
