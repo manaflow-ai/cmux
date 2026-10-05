@@ -283,7 +283,8 @@ final class CommandExecution: @unchecked Sendable {
                     reason: state.endReason,
                     stdout: stdout,
                     stderr: stderr,
-                    exitStatus: state.exitStatus
+                    exitStatus: state.exitStatus,
+                    boundedCapture: maximumCaptureBytes != nil
                 ),
                 deadlineTimer: deadlineTimer,
                 killTimer: killTimer
@@ -315,13 +316,16 @@ final class CommandExecution: @unchecked Sendable {
         reason: EndReason?,
         stdout: Data,
         stderr: Data,
-        exitStatus: Int32?
+        exitStatus: Int32?,
+        boundedCapture: Bool
     ) -> CommandResult {
         switch reason {
         case nil:
             return CommandResult(
-                stdout: String(data: stdout, encoding: .utf8),
-                stderr: String(data: stderr, encoding: .utf8),
+                // A byte cap can split UTF8. Preserve the bounded sentinel
+                // with replacement characters instead of losing the stream.
+                stdout: boundedCapture ? String(decoding: stdout, as: UTF8.self) : String(data: stdout, encoding: .utf8),
+                stderr: boundedCapture ? String(decoding: stderr, as: UTF8.self) : String(data: stderr, encoding: .utf8),
                 exitStatus: exitStatus,
                 timedOut: false,
                 executionError: nil

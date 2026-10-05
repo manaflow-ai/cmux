@@ -15,6 +15,7 @@ enum CmuxExtensionSidebarSelection {
     // @AppStorage key when an unrelated key changed (#13930).
     static let defaultsKey = "cmuxExtensionSidebarProviderId"
     static let legacyDefaultsKey = "cmuxExtensionSidebar.providerId"
+    static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
     static let defaultProviderId = CmuxSidebarProviderDescriptor.defaultWorkspacesID
     static let conversationSidebarProviderId = "cmux.sidebar.conversations"

@@ -18,9 +18,13 @@ struct SidebarOrganizationContextReader: Sendable {
             includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { return nil }
         var candidates: [URL] = []
         var scanned = 0
-        while let url = enumeration.nextObject() as? URL, scanned < 10_000 {
+        while let url = enumeration.nextObject() as? URL {
             scanned += 1
-            if enumeration.level > 5 { enumeration.skipDescendants(); continue }
+            guard scanned <= 10_000 else { return nil }
+            if enumeration.level > 5 { return nil }
+            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true {
+                enumeration.skipDescendants(); continue
+            }
             guard url.pathExtension == "jsonl",
                   url.deletingPathExtension().lastPathComponent == session.sessionId
                     || (tool == "codex" && url.lastPathComponent.hasSuffix("-" + session.sessionId + ".jsonl")),

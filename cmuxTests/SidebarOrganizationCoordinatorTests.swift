@@ -53,6 +53,21 @@ struct SidebarOrganizationCoordinatorTests {
         #expect(workspace.workspaceContext.context.analyzedProposal == nil)
     }
 
+    @Test func importCannotSilentlyWidenAnExplicitWorkspaceSelection() async throws {
+        let service = ImmediateAnalysis()
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false, organizationService: service)
+        let first = Workspace(), second = Workspace(); manager.tabs = [first, second]
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let exported = try decoder.decode(SidebarOrganizationInput.self,
+            from: await manager.sidebarOrganizationCoordinator.export(tabManager: manager))
+        let result = await manager.sidebarOrganizationCoordinator.analyze(tabManager: manager,
+            workspaceIDs: [first.id], exportID: exported.id, review: Data())
+        #expect(!result.accepted)
+        #expect(await service.ids.isEmpty)
+        #expect(first.workspaceContext.context.analyzedProposal == nil)
+        #expect(second.workspaceContext.context.analyzedProposal == nil)
+    }
+
     @Test func expiredExportCannotApplyReview() async throws {
         let service = ImmediateAnalysis()
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false, organizationService: service)

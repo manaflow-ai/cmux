@@ -11,7 +11,13 @@ extension TerminalController {
             return v2Error(id: id, code: "not_found", message: String(localized: "sidebar.extensions.context.invalidPayload", defaultValue: "The context request is invalid or exceeds its limits."))
         }
         let workspaceIDs: [UUID]?
-        if let values = params["workspace_ids"] {
+        if let value = params["workspace_id"] {
+            guard params["workspace_ids"] == nil, let text = value as? String,
+                  let uuid = UUID(uuidString: text), manager.tabs.contains(where: { $0.id == uuid }) else {
+                return v2Error(id: id, code: "invalid_params", message: String(localized: "sidebar.extensions.context.invalidPayload", defaultValue: "The context request is invalid or exceeds its limits."))
+            }
+            workspaceIDs = [uuid]
+        } else if let values = params["workspace_ids"] {
             guard let strings = values as? [String], !strings.isEmpty, strings.count <= 256 else {
                 return v2Error(id: id, code: "invalid_params", message: String(localized: "sidebar.extensions.context.invalidPayload", defaultValue: "The context request is invalid or exceeds its limits."))
             }
@@ -33,7 +39,7 @@ extension TerminalController {
               let data = try? JSONSerialization.data(withJSONObject: review), data.count <= 2 * 1024 * 1024 else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "sidebar.extensions.context.invalidPayload", defaultValue: "The context request is invalid or exceeds its limits."))
         }
-        let result = await manager.sidebarOrganizationCoordinator.analyze(tabManager: manager, exportID: exportID, review: data)
+        let result = await manager.sidebarOrganizationCoordinator.analyze(tabManager: manager, workspaceIDs: workspaceIDs, exportID: exportID, review: data)
         return result.accepted ? v2Ok(id: id, result: ["accepted": true, "proposals_retained": true])
             : v2Error(id: id, code: result.rejectionReason?.rawValue ?? "rejected", message: result.message ?? String(localized: "sidebar.extensions.context.invalidPayload", defaultValue: "The context request is invalid or exceeds its limits."))
     }
