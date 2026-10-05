@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentJournal
+import CmuxFoundation
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import Darwin
 import Foundation
