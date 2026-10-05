@@ -422,7 +422,18 @@
       "conversation-typing",
       "conversation-bind",
       "conversation-agent-token",
-      "browser-host-provider"
+      "browser-host-provider",
+      "cloud-session-set",
+      "cloud-session-clear",
+      "cloud-session-status",
+      "cloud-inbox-list",
+      "cloud-conversation-snapshot",
+      "cloud-conversation-history",
+      "cloud-conversation-op",
+      "cloud-inbox-subscribe",
+      "cloud-inbox-unsubscribe",
+      "cloud-conversation-subscribe",
+      "cloud-conversation-unsubscribe"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -802,6 +813,42 @@
       "name": "workspace-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "cloud-conversation-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-resynced",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-reset",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-subscription-state",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-session-needed",
+      "streams": [
+        "subscribe"
       ]
     }
   ],
