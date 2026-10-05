@@ -67,11 +67,13 @@ import argparse
 import dataclasses
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 from typing import Iterable
 
+import license_match
 from cargo_inputs import Manifest, Sources, parse_cargo_tree, read_lock, read_manifest, target_info
 from notice_model import (
     CRATES_IO,
@@ -251,6 +253,21 @@ def collect(args: argparse.Namespace) -> list[Crate]:
             if concluded not in or_alternatives(declared):
                 errors.append(f"{key.name} {key.version}: election concludes {concluded!r}, which is not one of the alternatives of {declared!r}")
                 continue
+        if not first_party:
+            # The shipped texts must satisfy the concluded expression (license_match.py).
+            try:
+                texts = [lf.data.decode("utf-8") for lf in files]
+            except UnicodeDecodeError:
+                texts = None  # rendering reports the file that is not UTF-8
+            problem = None if texts is None else license_match.expression_problem(concluded, texts)
+            if problem is not None:
+                message = f"{key.name} {key.version}: shipped license texts {[lf.name for lf in files]} do not satisfy {concluded!r}: {problem}"
+                if os.environ.get("CMUX_NOTICES_MATCH_REPORT"):
+                    with open(os.environ["CMUX_NOTICES_MATCH_REPORT"], "a", encoding="utf-8") as report:
+                        report.write(message + "\n")
+                else:
+                    errors.append(message)
+                    continue
         crates.append(Crate(key, first_party, declared, concluded, download, lock[key].checksum, files, closure_label, sorted(reached[key])))
     if errors:
         raise NoticeError("\n".join(errors))

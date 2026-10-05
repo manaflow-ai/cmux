@@ -69,7 +69,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 1: self = .contextInitialized
         case 2:
             self = .afterCreated(browser: browser, request: request, window: Int32(truncatingIfNeeded: a),
-                                 created: CEFCreatedBy(packed: b, features: s1))
+                                 created: CEFCreatedBy(packed: b, features: s1, url: s2))
         case 3: self = .beforeClose(browser: browser)
         case 4: self = .address(browser: browser, url: s1)
         case 5: self = .title(browser: browser, title: s1)
@@ -153,6 +153,8 @@ nonisolated struct CEFCreatedBy: Equatable, Sendable {
     var userGesture = false
     /// Popup window features (screen DIPs), when the page gave a size.
     var features: CGRect?
+    /// The popup's target URL (OnBeforePopup), when the shim matched one.
+    var url: String?
 
     static let none = CEFCreatedBy(opener: 0, disposition: .unknown, features: nil)
 
@@ -163,7 +165,8 @@ nonisolated struct CEFCreatedBy: Equatable, Sendable {
         self.features = features
     }
 
-    init(packed: Int64, features: String) {
+    init(packed: Int64, features: String, url: String = "") {
+        self.url = url.isEmpty ? nil : url
         opener = Int32(truncatingIfNeeded: packed >> 32)
         disposition = CEFDisposition(raw: Int(packed & 0xffff))
         userGesture = (packed >> 16) & 1 != 0

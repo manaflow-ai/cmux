@@ -15,7 +15,7 @@ use crate::server::*;
 const WAIT: Duration = Duration::from_secs(5);
 
 /// One connection served by the line loop on a private socket.
-struct Client {
+pub(super) struct Client {
     writer: Box<dyn transport::Stream>,
     reader: BufReader<Box<dyn transport::Stream>>,
     events: VecDeque<Value>,
@@ -25,11 +25,11 @@ struct Client {
 }
 
 impl Client {
-    fn connect(mux: &Arc<Mux>, label: &str) -> Self {
+    pub(super) fn connect(mux: &Arc<Mux>, label: &str) -> Self {
         Self::connect_with(mux, label, ClientTransport::Unix)
     }
 
-    fn connect_with(mux: &Arc<Mux>, label: &str, kind: ClientTransport) -> Self {
+    pub(super) fn connect_with(mux: &Arc<Mux>, label: &str, kind: ClientTransport) -> Self {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let directory = std::env::temp_dir().join(format!(
             "cmux-hello-{label}-{}-{}",
@@ -86,7 +86,7 @@ impl Client {
     }
 
     /// Sends `value` with a fresh numeric id and returns its reply.
-    fn request(&mut self, mut value: Value) -> Value {
+    pub(super) fn request(&mut self, mut value: Value) -> Value {
         let id = self.next_id;
         self.next_id += 1;
         // cmux.protocol/2 ids are strings; raw command ids are numbers.
@@ -105,7 +105,7 @@ impl Client {
         }
     }
 
-    fn hello(&mut self, params: Value) -> Value {
+    pub(super) fn hello(&mut self, params: Value) -> Value {
         let mut request = json!({"cmd": "client-hello"});
         for (key, value) in params.as_object().unwrap() {
             request[key] = value.clone();
@@ -113,7 +113,7 @@ impl Client {
         self.request(request)
     }
 
-    fn identify(&mut self) -> Value {
+    pub(super) fn identify(&mut self) -> Value {
         let reply = self.request(json!({"cmd": "identify"}));
         assert_eq!(reply["ok"], true, "{reply}");
         reply
@@ -298,12 +298,16 @@ fn origin_claim_capability_is_advertised() {
     assert!(capabilities.iter().any(|value| value == "origin-claim-v1"), "{identify}");
 }
 
+/// A page relay is served `cmux.protocol/2` without a subscribe; its legacy
+/// lines (`subscribe` and `ping` included) are refused
+/// (server/untrusted_mint_tests.rs covers the default deny).
 #[test]
 fn page_relay_without_subscribe_is_served_and_subscribe_is_refused() {
     let mux = mux("relay-subscribe");
     let mut client = Client::connect(&mux, "relay-subscribe");
     assert_ok_connection_id(&client.hello(json!({"role": "page_relay"})), &mux);
-    assert_eq!(client.request(json!({"cmd": "ping"}))["ok"], true);
+    let legacy_ping = client.request(json!({"cmd": "ping"}));
+    assert_eq!(legacy_ping["error_code"], "origin.forbidden", "{legacy_ping}");
     let ping = client.request(json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
