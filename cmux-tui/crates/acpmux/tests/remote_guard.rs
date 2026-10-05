@@ -23,6 +23,8 @@ fn hub() -> Arc<Hub> {
         "presets": {"p": {"harness": "fake"}},
         // The tests' folders live under the temp dir: a Web root for them.
         "webRoots": [std::env::temp_dir()],
+        // The fake harness is not in the reviewed table: its two modes ask.
+        "webAskingModes": {"fake": ["normal", "strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -265,7 +267,7 @@ async fn a_policy_that_skips_asking_comes_from_the_local_app_or_the_unix_socket_
     for (m, p) in [
         ("session/new", new_session(&cwd, json!({"policy": "ask"}))),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "deny-all"})),
-        ("session/set_mode", json!({"sessionId": id, "modeId": "plan"})),
+        ("session/set_mode", json!({"sessionId": id, "modeId": "strict"})),
     ] {
         let r = web.call(m, p.clone()).await;
         assert!(!err(&r).contains(WEB_ONLY), "Web {m} {p}: {r}");
@@ -357,10 +359,10 @@ async fn web_modes_policies_and_rules_are_allow_lists() {
         }
     }
     for (m, p) in [
-        ("session/set_mode", json!({"sessionId": id, "modeId": "default"})),
+        ("session/set_mode", json!({"sessionId": id, "modeId": "normal"})),
         (
             "session/set_config_option",
-            json!({"sessionId": id, "configId": "mode", "value": "plan"}),
+            json!({"sessionId": id, "configId": "mode", "value": "strict"}),
         ),
         ("session/set_config_option", json!({"sessionId": id, "configId": "model", "value": "m2"})),
         (

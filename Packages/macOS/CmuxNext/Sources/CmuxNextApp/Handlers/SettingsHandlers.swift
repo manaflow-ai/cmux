@@ -28,7 +28,8 @@ enum SettingsHandlers {
         registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
-        UpdateHandlers.bind(into: registry, updater: context.services.updater)
+        UpdateHandlers.bind(into: registry, updater: context.services.updater,
+                            openChangelog: { [weak services = context.services] in services.map { ChangelogPageTab.open($0) } ?? false })
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)

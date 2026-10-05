@@ -20,9 +20,22 @@ use std::time::{Duration, Instant};
 pub trait VmHost: Send + Sync {
     /// One driver protocol call, policy-checked. Blocks; runs on a worker thread.
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError>;
+    /// [`VmHost::driver_call`] with the result as JSON text where the engine
+    /// kept it (a page script's value, in the page's key order).
+    fn driver_call_reply(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<crate::driver::Reply, DriverError> {
+        self.driver_call(method, params).map(crate::driver::Reply::Value)
+    }
     /// A synchronous host function (`secretSet`, `secretList`, `secretDelete`,
     /// `policyNarrow`, `policyGet`). Errors become JS exceptions.
     fn native(&self, name: &str, args: Value) -> Result<Value, String>;
+    /// Cell `cell` timed out: the fetches it started stop now (queued ones
+    /// fail, running ones are cancelled in the engine), as classic's
+    /// `cancelFetches(ofEval:)`. The default does nothing.
+    fn cancel_fetches(&self, _cell: u64) {}
     /// Masks bytes that cross the VM's file boundary (files the VM writes
     /// and reads), so a secret value never lands in or comes back from a
     /// file. The default masks nothing.
@@ -63,7 +76,7 @@ const TIMERS_PER_PASS: usize = 64;
 enum Input {
     Eval { code: String, options: String, timeout: Duration, reply: mpsc::Sender<EvalOutcome> },
     Stop,
-    Result { call_id: f64, outcome: Result<Value, DriverError> },
+    Result { call_id: f64, outcome: Result<crate::driver::Reply, DriverError> },
     Event { name: String, payload: Value },
 }
 
@@ -149,6 +162,11 @@ struct Shared {
     /// The runtime's entry points, kept by the host after it removed the
     /// globals (install).
     entry_points: HashMap<&'static str, Persistent<Function<'static>>>,
+    /// The running cell's id (0: none, a callback outside a cell), and the
+    /// last id given. A fetch carries its cell, so the cell's timeout can
+    /// cancel it (classic `cancelFetches(ofEval:)`).
+    cell: u64,
+    last_cell: u64,
 }
 
 impl Shared {
@@ -193,6 +211,7 @@ impl Shared {
 }
 
 struct Running {
+    cell: u64,
     promise: Persistent<Promise<'static>>,
     reply: mpsc::Sender<EvalOutcome>,
     deadline: Instant,
@@ -250,7 +269,13 @@ fn run(
                 let _ = reply.send(EvalOutcome { output: Vec::new(), error: Some(error.clone()) });
                 continue;
             }
-            shared.borrow_mut().output.clear();
+            let cell = {
+                let mut shared = shared.borrow_mut();
+                shared.output.clear();
+                shared.last_cell += 1;
+                shared.cell = shared.last_cell;
+                shared.cell
+            };
             let now = Instant::now();
             let deadline =
                 now.checked_add(timeout.min(Duration::from_secs(24 * 60 * 60))).unwrap_or(now);
@@ -263,8 +288,9 @@ fn run(
                 Ok(Persistent::save(&ctx, promise))
             });
             match started {
-                Ok(promise) => running = Some(Running { promise, reply, deadline }),
+                Ok(promise) => running = Some(Running { cell, promise, reply, deadline }),
                 Err(error) => {
+                    shared.borrow_mut().cell = 0;
                     interrupt_at.store(u64::MAX, Ordering::Relaxed);
                     let output = std::mem::take(&mut shared.borrow_mut().output);
                     let _ = reply.send(EvalOutcome { output, error: Some(error) });
@@ -312,6 +338,7 @@ fn run(
                 }
             });
             let timed_out = Instant::now() >= current.deadline;
+            let cell = current.cell;
             match settled {
                 Some(error) => finish(&shared, &interrupt_at, current.reply, error),
                 None if timed_out => finish(
@@ -321,6 +348,17 @@ fn run(
                     Some("Error: evaluation timed out".into()),
                 ),
                 None => running = Some(current),
+            }
+            if running.is_none() {
+                shared.borrow_mut().cell = 0;
+                // A cell that timed out stops the fetches it started; the
+                // engine calls run off the VM thread.
+                if timed_out {
+                    let host = host.clone();
+                    let _ = std::thread::Builder::new()
+                        .name("cmux-browser-host-fetch-cancel".into())
+                        .spawn(move || host.cancel_fetches(cell));
+                }
             }
             if running.is_none() && !queued.is_empty() {
                 continue;
@@ -359,7 +397,9 @@ fn run(
                     callback_deadline(&interrupt_at);
                 }
                 let (error, result) = match outcome {
-                    Ok(value) => (None, Some(value.to_string())),
+                    // A script's value is spliced in as the engine's JSON
+                    // text (a9 raw_value: the page's key order).
+                    Ok(reply) => (None, Some(reply.json_text())),
                     Err(error) => (Some(error.to_json().to_string()), None),
                 };
                 // The runtime checks `=== null`, so absent values are null, not undefined.
@@ -499,6 +539,7 @@ fn install(
     // redirect hop, masking), run by the engine in the tab's context.
     let fetch_host = host.clone();
     let fetch_results = tx.clone();
+    let fetch_shared = shared.clone();
     native
         .set(
             "fetch",
@@ -506,11 +547,16 @@ fn install(
                 let host = fetch_host.clone();
                 let results = fetch_results.clone();
                 let sender = results.clone();
-                let request: Value = serde_json::from_str(&request).unwrap_or(json!({}));
+                let mut request: Value = serde_json::from_str(&request).unwrap_or(json!({}));
+                // The VM names the cell; agent code cannot.
+                if let Some(object) = request.as_object_mut() {
+                    object.insert("cell".into(), json!(fetch_shared.borrow().cell));
+                }
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-fetch".into())
                     .spawn(move || {
-                        let outcome = host.driver_call("net.fetch", request);
+                        let outcome =
+                            host.driver_call("net.fetch", request).map(crate::driver::Reply::Value);
                         let _ = sender.send(Input::Result { call_id, outcome });
                     });
                 if spawned.is_err() {
@@ -571,7 +617,7 @@ fn install(
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-driver-call".into())
                     .spawn(move || {
-                        let outcome = host.driver_call(&method, params);
+                        let outcome = host.driver_call_reply(&method, params);
                         let _ = sender.send(Input::Result { call_id, outcome });
                     });
                 if spawned.is_err() {

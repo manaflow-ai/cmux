@@ -59,28 +59,28 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "resizePaneLeft",
                 title: String(localized: "action.resizePaneLeft", defaultValue: "Resize Pane Left", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("h", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("h", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.left.to.line", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-left", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneRight",
                 title: String(localized: "action.resizePaneRight", defaultValue: "Resize Pane Right", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("l", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("l", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.right.to.line", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-right", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneUp",
                 title: String(localized: "action.resizePaneUp", defaultValue: "Resize Pane Up", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("k", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("k", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.up.to.line.compact", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-up", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneDown",
                 title: String(localized: "action.resizePaneDown", defaultValue: "Resize Pane Down", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("j", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("j", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.down.to.line.compact", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-down", mainMenu: .view
             ),

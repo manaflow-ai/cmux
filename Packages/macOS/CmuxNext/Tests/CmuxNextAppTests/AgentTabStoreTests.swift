@@ -47,12 +47,15 @@ struct AgentTabStoreTests {
         let key = try await fixture.open(session: "s-1")
         let view = try #require(fixture.tabs.view(for: key))
         _ = await view.model.respond(to: .persistSession("s-2"))
+        await ReopenClosedTabTests.settle { fixture.binds.count == 1 }
         #expect(fixture.binds.last?.session == "s-2" && fixture.bindExpectations.last == "s-1")
-        #expect(fixture.tabs.sentSessions[key] == "s-2", "kept until the store's record shows it")
+        await ReopenClosedTabTests.settle { !fixture.daemon.hasPendingIntents }
+        #expect(fixture.daemon.tab(id: key)?.agentSession?.session == "s-2", "the store took it")
         fixture.bindAnswer = .conflict
         _ = await view.model.respond(to: .persistSession("s-3"))
+        await ReopenClosedTabTests.settle { fixture.binds.count == 2 && !fixture.daemon.hasPendingIntents }
         #expect(fixture.bindExpectations.last == "s-2", "the next change expects the session the store took")
-        #expect(fixture.tabs.sentSessions[key] == nil, "a refused change leaves nothing in flight")
+        #expect(fixture.daemon.tab(id: key)?.agentSession?.session == "s-2", "a refused change goes away")
     }
 
     /// A creation the store refuses rolls back visibly: the tab shown at once goes away and its
@@ -115,6 +118,7 @@ struct AgentTabStoreTests {
         let view = try #require(fixture.tabs.view(for: key))
         _ = await view.model.respond(to: .persistSession("s-2"))
         _ = await view.model.respond(to: .persistSession("s-2"))
+        await ReopenClosedTabTests.settle { !fixture.binds.isEmpty && !fixture.daemon.hasPendingIntents }
         #expect(fixture.binds.map(\.key) == [key] && fixture.binds.map(\.session) == ["s-2"])
         #expect(fixture.tabs.session(of: key) == "s-2")
     }

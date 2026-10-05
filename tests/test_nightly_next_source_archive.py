@@ -67,6 +67,42 @@ def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
     assert field(inject, "if") == NEXT_FULL_BUILD, field(inject, "if")
 
 
+def test_the_ghostty_next_license_tree_ships_too() -> None:
+    # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's build.rs
+    # names; its license tree ships beside Ghostty's, resolved from the tree.
+    inject = step("Inject the Ghostty dependency licenses (cmux-next)")
+    assert "ghostty-next-licenses" in inject
+    assert "check_ghostty_vt_notices.py --print-source" in inject
+
+
+def test_libghostty_vt_check_blocks() -> None:
+    # Every Zig package of the libghostty-vt in bin/cmux must be covered by a
+    # shipped license tree; a gap stops nightly-next and the dry run.
+    check = step("libghostty-vt Zig packages are covered by the notices")
+    assert field(check, "continue-on-error") is None, "the libghostty-vt check must be blocking"
+    assert field(check, "if") == NEXT_FULL_BUILD, field(check, "if")
+    assert "check_ghostty_vt_notices.py" in check
+    assert "--ghostty-revision" not in check, "cmux-next follows the gitlink"
+    dry_run = (ROOT / ".github" / "workflows" / "cmux-next-source-archive.yml").read_text(encoding="utf-8")
+    block = dry_run[dry_run.index("- name: libghostty-vt Zig packages are covered by the notices"):]
+    block = block[: block.index("\n      - name:", 1)]
+    assert "continue-on-error" not in block, "the dry-run libghostty-vt check must be blocking"
+
+
+def test_the_link_graph_blocks() -> None:
+    # The linked set (vt-link-graph.json) is checked with the declared set, in
+    # nightly-next and in the dry run, with no continue-on-error.
+    check = step("libghostty-vt Zig packages are covered by the notices")
+    assert "--link-graph scripts/cmux-next/notices/vt-link-graph.json" in check
+    dry_run = (ROOT / ".github" / "workflows" / "cmux-next-source-archive.yml").read_text(encoding="utf-8")
+    block = dry_run[dry_run.index("- name: libghostty-vt Zig packages are covered by the notices"):]
+    block = block[: block.index("\n      - name:", 1)]
+    assert "--link-graph scripts/cmux-next/notices/vt-link-graph.json" in block
+    assert "continue-on-error" not in dry_run, "no dry-run notices step may be soft"
+    notices = (ROOT / ".github" / "workflows" / "cmux-next-notices.yml").read_text(encoding="utf-8")
+    assert "--check-link-graph scripts/cmux-next/notices/vt-link-graph.json" in notices
+
+
 def test_no_other_step_reads_the_soft_outcome() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "steps.source_archive.outcome" not in text
@@ -76,6 +112,9 @@ def test_no_other_step_reads_the_soft_outcome() -> None:
 def main() -> int:
     test_source_archive_step_blocks()
     test_upload_and_inject_do_not_depend_on_a_soft_outcome()
+    test_the_ghostty_next_license_tree_ships_too()
+    test_libghostty_vt_check_blocks()
+    test_the_link_graph_blocks()
     test_no_other_step_reads_the_soft_outcome()
     print("nightly-next source archive workflow tests passed")
     return 0

@@ -118,6 +118,11 @@ export const PAGES = {
     out: "webviews/src/pages/cloud/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
   },
+  // The changelog page (cmux-page://cmux.changelog/, R114); its table lives next to it.
+  changelog: {
+    out: "webviews/src/pages/changelog/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/changelog/Localizable.xcstrings" }],
+  },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",

@@ -32,9 +32,12 @@ typedef enum {
   // browser_id created; request = token passed to create_window (0 when
   // Chromium created the tab itself); a = Chromium window id (0 while the
   // tab is in no window yet: a popup before Chromium places it);
-  // b = opener browser id << 32 | the cef_window_open_disposition_t the
-  // opener asked for (0 = unknown); s1 = "x,y,width,height" window features
-  // of a popup, or "".
+  // b = opener browser id << 32 | 1 << 16 when the opener's request had a
+  // user gesture | the cef_window_open_disposition_t the opener asked for
+  // (0 = unknown); s1 = "x,y,width,height" window features of a popup, or "";
+  // s2 = the popup's target URL (OnBeforePopup), or "". The opener's pending
+  // popup is matched by the new tab's URL; a popup Chromium aborted, or one
+  // older than about 1 s, never matches.
   CMUX_SHIM_AFTER_CREATED = 2,
   CMUX_SHIM_BEFORE_CLOSE = 3,
   CMUX_SHIM_ADDRESS = 4,          // s1 = url (main frame)
@@ -50,7 +53,7 @@ typedef enum {
   CMUX_SHIM_FIND_RESULT = 14,     // request = find id, a = count, b = active | final << 32
   CMUX_SHIM_CLOSE_REQUESTED = 15, // the page asked to close (window.close)
   CMUX_SHIM_TAB_EVENT = 16,       // request = cmux_tab_event_t, a = window id, b = value
-  CMUX_SHIM_POPUP = 17,           // s1 = url, a = WindowOpenDisposition
+  CMUX_SHIM_POPUP = 17,           // s1 = url, a = WindowOpenDisposition, b = 1 with a user gesture
   // Reply to an async site call (ABI 3): request = the caller's reply id,
   // a = result (1 success, or the deleted cookie count), s1 = JSON.
   CMUX_SHIM_REPLY = 18,
@@ -111,6 +114,20 @@ typedef enum {
   // A watched preference changed (cmux_shim_pref_watch). browser_id = 0,
   // s1 = the preference name, s2 = the profile cache path.
   CMUX_SHIM_PREF_CHANGED = 33,
+  // Downloads (CefDownloadHandler). Every download Chromium starts (a page's
+  // download, Option-click, cmux_shim_download_url) waits for the host's
+  // path: the host answers DOWNLOAD_STARTED with cmux_shim_download_continue
+  // (during the event or later). request = the shim's download token (one
+  // per download, never reused; Chromium's own ids repeat across profiles),
+  // browser_id = the tab, or 0. STARTED: a = total bytes (-1 unknown),
+  // s1 = the original url, s2 = Chromium's suggested file name.
+  CMUX_SHIM_DOWNLOAD_STARTED = 34,
+  // a = received bytes, b = total bytes (-1 unknown), s1 = bytes per second
+  // (decimal), s2 = "paused" or "".
+  CMUX_SHIM_DOWNLOAD_PROGRESS = 35,
+  // Once per download: a = 1 complete, 2 cancelled, 3 interrupted;
+  // b = cef_download_interrupt_reason_t; s1 = the full path ("" if none).
+  CMUX_SHIM_DOWNLOAD_DONE = 36,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -144,7 +161,8 @@ typedef int (*cmux_shim_key_fn)(void* ctx, int browser_id, void* ns_event);
 // kind = cmux_window_request_kind_t of the fork (0 tab, 1 window, 2 popup,
 // 3 incognito, 4 app); disposition = the requested
 // cef_window_open_disposition_t; source_browser_id = the tab that asked, or
-// 0; x/y/width/height are valid when has_bounds (screen DIPs); profile_path
+// 0; x/y/width/height are valid when has_bounds (screen DIPs); user_gesture
+// = 1 when a user gesture caused the request (a click, not a script); profile_path
 // = the Chromium profile directory. Return the browser id of a tab whose
 // window gets the new tab, or 0 to open nothing in Chromium. Must not
 // create or close browsers.
@@ -157,6 +175,7 @@ typedef int (*cmux_shim_window_request_fn)(void* ctx,
                                            int y,
                                            int width,
                                            int height,
+                                           int user_gesture,
                                            const char* url,
                                            const char* profile_path);
 // Main thread, when Chromium asks to focus a page (CefFocusHandler::
@@ -389,6 +408,21 @@ CMUX_SHIM_EXPORT void cmux_shim_set_window_request_handler(cmux_shim_window_requ
 // Browsers (windows) Chromium created outside cmux and never showed since
 // start (fork API 8); -1 on older forks.
 CMUX_SHIM_EXPORT int cmux_shim_foreign_browser_count(void);
+
+// Downloads (CefBrowserHost::StartDownload, CefDownloadHandler). Starts a
+// download of url with browser_id's request context; DOWNLOAD_STARTED
+// follows. Only http, https, data and blob URLs (never file:). Returns 0 when
+// the browser is gone or the scheme is refused.
+CMUX_SHIM_EXPORT int cmux_shim_download_url(int browser_id, const char* url);
+// Answers DOWNLOAD_STARTED (download_id = its token): the download goes to
+// path (no Chromium dialog); NULL or "" cancels it. Returns 0 when the
+// download is not waiting.
+CMUX_SHIM_EXPORT int cmux_shim_download_continue(int download_id, const char* path);
+// command: 0 cancel, 1 pause, 2 resume (CefDownloadItemCallback). A cancel
+// before the download's first update is held and applied then. Returns 0
+// when the download is unknown or has finished, or for pause/resume before
+// its first update.
+CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);

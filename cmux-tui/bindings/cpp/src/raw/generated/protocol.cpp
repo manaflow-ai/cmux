@@ -981,6 +981,18 @@ Result<ClientTransport> Codec<ClientTransport>::decode(const Json& value) {
     return make_error(ErrorCode::decode, "unknown ClientTransport value");
 }
 
+Result<Json> Codec<CloseReason>::encode(const CloseReason& value) {
+    switch (value) {
+        case CloseReason::session_end: return Json(std::string("session_end"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<CloseReason> Codec<CloseReason>::decode(const Json& value) {
+    if (value == Json(std::string("session_end"))) return CloseReason::session_end;
+    return make_error(ErrorCode::decode, "unknown CloseReason value");
+}
+
 Result<Json> Codec<CloseTerminalResult>::encode(const CloseTerminalResult& value) {
     (void)value;
     Json::Object object;
@@ -12309,11 +12321,11 @@ Result<CloseTabsRequest> Codec<CloseTabsRequest>::decode(const Json& value) {
     const Json* field_reason = value.find("reason");
     if (field_reason) {
         if (field_reason->is_null()) {
-            result.reason = Field<std::string>::null();
+            result.reason = Field<CloseReason>::null();
         } else {
-            auto decoded = decode_value<std::string>(*field_reason);
+            auto decoded = decode_value<CloseReason>(*field_reason);
             if (!decoded) return std::move(decoded).error();
-            result.reason = Field<std::string>(std::move(decoded).value());
+            result.reason = Field<CloseReason>(std::move(decoded).value());
         }
     }
     const Json* field_surfaces = value.find("surfaces");

@@ -13,7 +13,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newCloudMachine",
                 title: String(localized: "action.newCloudMachine", defaultValue: "New Cloud Machine…", bundle: .module),
-                keywords: ["vm", "remote", "create"], defaultShortcut: Shortcut("y", modifiers: [.command]),
+                keywords: ["vm", "remote", "create"],
                 category: .cloud, symbol: "server.rack", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 cliName: "cloud new-machine", mainMenu: .file
             ),

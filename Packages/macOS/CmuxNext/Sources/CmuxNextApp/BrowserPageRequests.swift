@@ -22,10 +22,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
         }
     }
-    /// Chromium's page menu while it is open, for rows that hand a command
-    /// back to it (Save Link As, ``runEngineCommand(_:for:)``).
-    private weak var openEngineMenu: BrowserContextMenuRequest?
-    private weak var openEngineMenuPage: (any BrowserTab)?
+    /// Every download of both engines, with a notice when one ends.
+    let downloads = BrowserDownloadList()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
@@ -83,7 +81,6 @@ final class BrowserPageRequests: BrowserTabDelegate {
             let leading = hitItems(for: request.target, tab: key)
             // WebKit shows its own menu: the rows go into it.
             if let insert = request.insertLeading { return insert(leading) }
-            (openEngineMenu, openEngineMenuPage) = (request, page)
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
                                                          entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
@@ -94,8 +91,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
-        case .download:
-            break
+        case .download(let item):
+            downloads.add(item, tab: key) { [weak services] text in services?.cache.existingBrowser(key)?.chrome.showNotice(text) }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
         case .openPopup(let child, let request):
@@ -115,13 +112,6 @@ final class BrowserPageRequests: BrowserTabDelegate {
         guard let services else { return [] }
         return BrowserHitMenu.items(for: target, tab: ActionTargetRef(kind: .tab, id: key), registry: services.registry,
                                     searchEngine: services.cache.suggestionEngine.resolver.searchEngine.name)
-    }
-
-    /// Completes `page`'s open Chromium menu with Chromium's own `command`;
-    /// false when no such menu is open.
-    func runEngineCommand(_ command: BrowserEngineMenuCommand, for page: any BrowserTab) -> Bool {
-        guard let request = openEngineMenu, openEngineMenuPage === page else { return false }
-        return request.runEngineCommand(command)
     }
 
     /// Routes `chrome`'s modified omnibar commits to ``openFromOmnibar``.

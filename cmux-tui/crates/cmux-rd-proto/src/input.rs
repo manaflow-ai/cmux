@@ -46,6 +46,17 @@ const TAG_SCROLL: u8 = 4;
 const TAG_TEXT: u8 = 5;
 
 impl InputEvent {
+    /// Bytes this event takes in an [`InputPacket`] payload.
+    pub fn encoded_len(&self) -> usize {
+        match self {
+            Self::Key { .. } => 6,
+            Self::Pointer { .. } => 9,
+            Self::Button { .. } => 3,
+            Self::Scroll { .. } => 10,
+            Self::Text(text) => 3 + truncate_utf8(text, MAX_TEXT_BYTES).len(),
+        }
+    }
+
     fn encode_into(&self, out: &mut Vec<u8>) {
         match self {
             Self::Key { usage, down } => {
@@ -117,6 +128,9 @@ fn truncate_utf8(text: &str, max: usize) -> &[u8] {
     }
     &text.as_bytes()[..end]
 }
+
+/// Size of the [`InputPacket`] payload prefix: `u32 first_seq`, `u8 n`.
+pub const INPUT_PACKET_PREFIX_LEN: usize = 5;
 
 impl InputPacket {
     /// Serializes the packet payload: `u32 first_seq`, `u8 n`, then `n` events.

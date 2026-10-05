@@ -43,21 +43,16 @@ pub(crate) struct BatchCloseRequest<'a> {
     pub record_closed: bool,
 }
 
-/// Why a client closes tabs (`close-reason-v1`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
+/// An unknown value fails the request's deserialization (`bad request`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum CloseReason {
     /// A browser session ended and closes the tabs it opened for itself.
     SessionEnd,
 }
 
 impl CloseReason {
-    pub(crate) fn parse(reason: &str) -> anyhow::Result<Self> {
-        match reason {
-            "session_end" => Ok(Self::SessionEnd),
-            other => anyhow::bail!("bad request: unknown close reason {other:?}"),
-        }
-    }
-
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::SessionEnd => "session_end",

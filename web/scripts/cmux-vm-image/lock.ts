@@ -29,7 +29,41 @@ export const KNOWN_PROGRAMS = [
   "gh",
   "juicefs",
 ] as const;
-export type ProgramName = (typeof KNOWN_PROGRAMS)[number];
+/**
+ * Programs the lock may carry but does not require yet: their release does not
+ * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
+ */
+export const OPTIONAL_PROGRAMS = ["cmux-cua"] as const;
+export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
+
+/** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
+export const KNOWN_ROLES = [
+  "interactive",
+  "automation",
+  "team",
+  "desktop",
+  "browser",
+  "remote-browser",
+  "cua",
+  "display",
+  "display-wm",
+  "cua-video",
+  "fonts",
+  "ssh",
+] as const;
+export type RoleName = (typeof KNOWN_ROLES)[number];
+
+/**
+ * A role in the lock: `default` says whether `cmux host` starts it without a
+ * request; `firstUse` packages are not baked and are installed from the dated
+ * snapshot the first time the role starts.
+ */
+export type LockedRole = {
+  readonly default: "on" | "off";
+  readonly firstUse?: boolean;
+  /** Top-level apt package names; each is in apt.ubuntu.packages, or in apt.ubuntu.firstUse.<role> for a first-use role. */
+  readonly apt: readonly string[];
+};
 
 export const PROGRAM_FORMATS = ["raw", "tar.gz", "npm"] as const;
 export type ProgramFormat = (typeof PROGRAM_FORMATS)[number];
@@ -55,6 +89,7 @@ export type LockedProgram = Artifact & {
   readonly checksumsUrl?: string;
   readonly checksumsName?: string;
   readonly source?: string;
+  readonly roles?: readonly RoleName[];
 };
 
 export type AptRepo = {
@@ -79,10 +114,17 @@ export type InputsLock = {
     readonly npmGlobals: { readonly keep: Readonly<Record<string, string>>; readonly strip: readonly string[] };
   };
   readonly apt: {
-    readonly ubuntu: AptRepo & { readonly snapshot: string; readonly suites: readonly string[]; readonly signedBy: string };
+    readonly ubuntu: AptRepo & {
+      readonly snapshot: string;
+      readonly suites: readonly string[];
+      readonly signedBy: string;
+      /** Role -> exact closure installed on first use (relative to the baked set); never baked. */
+      readonly firstUse: Readonly<Record<string, Readonly<Record<string, string>>>>;
+    };
     readonly pgdg: AptRepo & { readonly suite: string; readonly keyUrl: string; readonly keySha256: string; readonly keyFingerprint: string };
   };
   readonly programs: readonly LockedProgram[];
+  readonly roles: Readonly<Record<string, LockedRole>>;
   readonly tools: { readonly syft: Artifact };
 };
 
@@ -151,8 +193,8 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
   const name = str(raw.name);
   if (!name) {
     problems.push(`${where}.name: missing`);
-  } else if (!(KNOWN_PROGRAMS as readonly string[]).includes(name)) {
-    problems.push(`${where}.name: unknown program ${JSON.stringify(name)} (known: ${KNOWN_PROGRAMS.join(", ")})`);
+  } else if (![...KNOWN_PROGRAMS, ...OPTIONAL_PROGRAMS].includes(name as ProgramName)) {
+    problems.push(`${where}.name: unknown program ${JSON.stringify(name)} (known: ${[...KNOWN_PROGRAMS, ...OPTIONAL_PROGRAMS].join(", ")})`);
   } else if (seen.has(name)) {
     problems.push(`${where}.name: duplicate ${name}`);
   } else {
@@ -176,6 +218,18 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
   if (raw.expect !== undefined && !str(raw.expect)) problems.push(`${where}.expect: must be a non-empty string when present`);
   if (raw.checksumsUrl !== undefined && (!str(raw.checksumsUrl)?.startsWith("https://") || !str(raw.checksumsName))) {
     problems.push(`${where}.checksumsUrl: needs an https URL and checksumsName`);
+  }
+  checkProgramRoles(where, raw.roles, problems);
+}
+
+function checkProgramRoles(where: string, roles: unknown, problems: string[]): void {
+  if (roles === undefined) return;
+  if (!Array.isArray(roles)) {
+    problems.push(`${where}.roles: must be an array of role names`);
+    return;
+  }
+  for (const role of roles) {
+    if (!(KNOWN_ROLES as readonly unknown[]).includes(role)) problems.push(`${where}.roles: unknown role ${JSON.stringify(role)}`);
   }
 }
 
@@ -236,11 +290,57 @@ function checkApt(raw: unknown, problems: string[]): void {
   }
   if (!Array.isArray(ubuntu.suites) || ubuntu.suites.length === 0) problems.push("apt.ubuntu.suites: missing");
   checkDebianPackages("apt.ubuntu.packages", ubuntu.packages, problems);
+  checkFirstUse(ubuntu.firstUse, isRec(ubuntu.packages) ? ubuntu.packages : {}, problems);
   const pgdg = raw.pgdg;
   if (!str(pgdg.uri)?.startsWith("https://")) problems.push("apt.pgdg.uri: must be https");
   if (typeof pgdg.keySha256 !== "string" || !SHA256.test(pgdg.keySha256)) problems.push("apt.pgdg.keySha256: missing or not 64 lowercase hex");
   if (typeof pgdg.keyFingerprint !== "string" || !/^[0-9A-F]{40}$/.test(pgdg.keyFingerprint)) problems.push("apt.pgdg.keyFingerprint: missing");
   checkDebianPackages("apt.pgdg.packages", pgdg.packages, problems);
+}
+
+function checkFirstUse(raw: unknown, baked: Rec, problems: string[]): void {
+  if (!isRec(raw)) {
+    problems.push("apt.ubuntu.firstUse: needs role -> package closure");
+    return;
+  }
+  for (const [role, closure] of Object.entries(raw)) {
+    const where = `apt.ubuntu.firstUse.${role}`;
+    checkDebianPackages(where, closure, problems);
+    if (!isRec(closure)) continue;
+    for (const name of Object.keys(closure)) if (name in baked) problems.push(`${where}: ${name} is also baked in apt.ubuntu.packages`);
+  }
+}
+
+function checkRole(name: string, raw: unknown, apt: Rec, problems: string[]): void {
+  const where = `roles.${name}`;
+  if (!(KNOWN_ROLES as readonly string[]).includes(name)) problems.push(`${where}: unknown role`);
+  if (!isRec(raw)) {
+    problems.push(`${where}: not an object`);
+    return;
+  }
+  if (raw.default !== "on" && raw.default !== "off") problems.push(`${where}.default: must be "on" or "off"`);
+  if (raw.firstUse !== undefined && typeof raw.firstUse !== "boolean") problems.push(`${where}.firstUse: must be a boolean`);
+  const firstUse = isRec(apt.firstUse) ? apt.firstUse[name] : undefined;
+  if (raw.firstUse === true && !isRec(firstUse)) {
+    problems.push(`${where}: firstUse needs apt.ubuntu.firstUse.${name}`);
+    return;
+  }
+  const source = raw.firstUse === true ? (firstUse as Rec) : isRec(apt.packages) ? apt.packages : {};
+  const sourceName = raw.firstUse === true ? `apt.ubuntu.firstUse.${name}` : "apt.ubuntu.packages";
+  if (!Array.isArray(raw.apt) || raw.apt.length === 0) {
+    problems.push(`${where}.apt: needs at least one package`);
+    return;
+  }
+  for (const pkg of raw.apt) if (typeof pkg !== "string" || !(pkg in source)) problems.push(`${where}.apt: ${JSON.stringify(pkg)} is not in ${sourceName}`);
+}
+
+function checkRoles(raw: unknown, apt: unknown, problems: string[]): void {
+  if (!isRec(raw)) {
+    problems.push("roles: missing");
+    return;
+  }
+  const ubuntu = isRec(apt) && isRec(apt.ubuntu) ? apt.ubuntu : {};
+  for (const [name, role] of Object.entries(raw)) checkRole(name, role, ubuntu, problems);
 }
 
 /** Validates a parsed lock. Throws LockError listing every problem; returns the typed lock. */
@@ -257,6 +357,7 @@ export function validateInputsLock(raw: unknown): InputsLock {
   for (const name of KNOWN_PROGRAMS) {
     if (Array.isArray(raw.programs) && !seen.has(name)) problems.push(`programs: ${name} is missing`);
   }
+  checkRoles(raw.roles, raw.apt, problems);
   if (!isRec(raw.tools)) problems.push("tools: missing");
   else checkArtifact("tools.syft", raw.tools.syft, problems);
   if (problems.length > 0) throw new LockError(problems);
@@ -275,6 +376,45 @@ export function parseInputsLock(text: string): InputsLock {
 
 export function readInputsLock(file = DEFAULT_LOCK_PATH): InputsLock {
   return parseInputsLock(readFileSync(file, "utf8"));
+}
+
+export const ROLES_MANIFEST_PATH = "/etc/cmux/roles.json";
+
+export type RolesManifest = {
+  readonly schema: 1;
+  /** The dated snapshot every first-use install reads (apt sources point at the live archive after the bake). */
+  readonly aptSnapshot: string;
+  readonly roles: Readonly<Record<string, { default: "on" | "off"; firstUse: boolean; apt: readonly string[] }>>;
+  readonly firstUse: Readonly<Record<string, Readonly<Record<string, string>>>>;
+};
+
+/** The roles file the bake writes for `cmux host` (which starts roles and installs first-use closures). */
+export function rolesManifest(lock: InputsLock): RolesManifest {
+  const roles: Record<string, { default: "on" | "off"; firstUse: boolean; apt: readonly string[] }> = {};
+  for (const [name, role] of Object.entries(lock.roles)) roles[name] = { default: role.default, firstUse: role.firstUse === true, apt: role.apt };
+  return { schema: 1, aptSnapshot: lock.apt.ubuntu.uri, roles, firstUse: lock.apt.ubuntu.firstUse };
+}
+
+export type CuaArch = "x86_64" | "arm64";
+
+/**
+ * The lock entry shape for a cmux-cua Linux release (contract from the CI
+ * lead: cmux-cua-<V>-linux-<arch>.tar.gz holds cmux-cua-<V>-linux-<arch>/ with
+ * the binary and LICENSE). sha256 and size are added only from the published
+ * release; this shape never invents them.
+ */
+export function cmuxCuaReleaseShape(version: string, arch: CuaArch) {
+  const dir = `cmux-cua-${version}-linux-${arch}`;
+  return {
+    name: "cmux-cua" as const,
+    version,
+    url: `https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v${version}/${dir}.tar.gz`,
+    format: "tar.gz" as const,
+    bin: { "cmux-cua": `${dir}/cmux-cua` },
+    versionArgs: ["--version"],
+    expect: version,
+    roles: ["cua" as const],
+  };
 }
 
 /** POSIX single-quote a value for a shell command. */

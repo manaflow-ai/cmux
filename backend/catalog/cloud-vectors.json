@@ -1208,6 +1208,50 @@
       ]
     },
     {
+      "name": "machine.resize.grow_only",
+      "op": "cloud.machine.resize",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "size": {
+          "cpu": 1
+        }
+      },
+      "idempotency_key": "key-resize-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.resize",
+            "error": {
+              "code": "cloud.size.grow_only",
+              "message": "a machine can only grow (vCPU, memory and disk)",
+              "retryable": false,
+              "details": {
+                "size": {
+                  "cpu": 2,
+                  "memory_mb": 4096,
+                  "disk_mb": 16384
+                }
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-resize-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ]
+    },
+    {
       "name": "machine.resize.size_locked",
       "op": "cloud.machine.resize",
       "class": "mutation",
@@ -3255,6 +3299,41 @@
           }
         }
       }
+    },
+    {
+      "name": "machine.upsert.no_report",
+      "event": "cloud.machine.upsert",
+      "stream": "cloud:team_t0000000000000000001",
+      "seq": 127,
+      "data": {
+        "machine": {
+          "id": "vm_m0000000000000000001",
+          "team": "team_t0000000000000000001",
+          "creator": "user_u0000000000000000001",
+          "name": "build box",
+          "size": {
+            "cpu": 2,
+            "memory_mb": 4096,
+            "disk_mb": 16384
+          },
+          "status": "paused",
+          "image": {
+            "id": "img_i0000000000000000001",
+            "daemon_version": "0.40.0"
+          },
+          "host": "host_h0000000000000000001",
+          "classic": false,
+          "created_at": 1790000001000,
+          "last_active_at": 1790000601000,
+          "idle_policy": {
+            "idle_seconds": 1800
+          },
+          "error": null,
+          "revision": "57",
+          "pause_reason": "no_report"
+        }
+      },
+      "note": "The cost backstop paused it: no report from its VM for 24 h after its last start or bind. The app shows why; a start clears pause_reason."
     },
     {
       "name": "machine.event.agent.started",

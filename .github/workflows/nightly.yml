@@ -980,6 +980,20 @@ jobs:
             exit 1
           fi
 
+      # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's
+      # build.rs selects, at this commit's gitlink (no product override). Every
+      # Zig package it declares must be in a shipped license tree; a gap stops
+      # nightly-next. tests/test_nightly_next_source_archive.py holds this.
+      - name: libghostty-vt Zig packages are covered by the notices
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/source-archive"
+          source="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p' | awk '{print $1}')"
+          manifests=(--license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json")
+          [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$out/$source-licenses/SOURCE-MANIFEST.json")
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}" --link-graph scripts/cmux-next/notices/vt-link-graph.json
+
       - name: Upload the cmux-next source archive
         if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1642,6 +1656,19 @@ jobs:
             --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
           rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
           cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
+          # bin/cmux's libghostty-vt: the submodule ghostty-vt-sys's build.rs
+          # selects, at this commit's gitlink (the resolved cmux-tui client
+          # commit has the same cmux-tui tree and gitlinks: pin-cmux-tui.sh key).
+          # Today: Contents/Resources/ghostty-next-licenses.
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
+          vt_name="${vt%% *}" vt_revision="${vt##* }"
+          if [[ "$vt_name" != ghostty ]]; then
+            next_tree="nightly-inputs/source-archive/$vt_name-licenses"
+            python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
+              --root "$next_tree" --revision "$vt_revision"
+            rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
+            cp -R "$next_tree" "$APP_DIR/Contents/Resources/$vt_name-licenses"
+          fi
 
       # Every variant installs the one commit resolve-nightly-cmux-tui-client
       # chose, from its attested immutable manifest, before thinning.
@@ -2208,9 +2235,15 @@ jobs:
           short="${HEAD_SHA:0:11}"
           src=(source-archive/cmux-next-source-*.tar.gz)
           [[ ${#src[@]} -eq 1 && -f "${src[0]}" ]] || { echo "expected one source archive, found: ${src[*]}" >&2; exit 1; }
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --rev "$HEAD_SHA" --print-source | sed -n 's/^libghostty-vt source: //p')"
+          next=()
+          if [[ "${vt%% *}" != ghostty ]]; then
+            next=(--next-name "${vt%% *}" --next-revision "${vt##* }"
+              --next-license-manifest "source-archive/${vt%% *}-licenses/SOURCE-MANIFEST.json")
+          fi
           python3 scripts/cmux-next/notices/ghostty_source_archive.py verify --archive "${src[0]}" \
             --license-manifest source-archive/ghostty-licenses/SOURCE-MANIFEST.json \
-            --revision "$(git rev-parse "$HEAD_SHA:ghostty")"
+            --revision "$(git rev-parse "$HEAD_SHA:ghostty")" ${next[@]+"${next[@]}"}
           mkdir -p source-out
           cp "${src[0]}" "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
           if existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/cmux-next-src-$short" --jq .object.sha 2>/dev/null)"; then
@@ -2437,11 +2470,18 @@ jobs:
           python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
             ${previous:+--previous "$previous"} --out notes/index.json
           rm -f notes/previous-index.json notes/previous-index.json.sig
+          # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
+          signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
+          if [ -f release-notes/next/announcements.json ]; then
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
+            cp release-notes/next/announcements.json notes/announcements.json
+            signed+=(notes/announcements.json)
+          fi
           key="$(mktemp)"
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$CONTENT_SIGNING_ED25519_PEM" > "$key"
-          python3 scripts/cmux-next/release-notes.py sign --key "$key" "notes/$NIGHTLY_BUILD.json" notes/index.json
-          for f in "notes/$NIGHTLY_BUILD.json" notes/index.json; do
+          python3 scripts/cmux-next/release-notes.py sign --key "$key" "${signed[@]}"
+          for f in "${signed[@]}"; do
             python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$f"
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2479,7 +2519,7 @@ jobs:
             name="$(basename "$file")"
             key="${NIGHTLY_NEXT_R2_PREFIX}notes/$name"
             python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            case "$name" in index.json|index.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=31536000, immutable" ;; esac
+            case "$name" in index.json|index.json.sig|announcements.json|announcements.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=31536000, immutable" ;; esac
             case "$name" in *.json) type="application/json" ;; *) type="text/plain" ;; esac
             python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"

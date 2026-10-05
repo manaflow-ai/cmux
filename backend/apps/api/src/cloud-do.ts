@@ -3,10 +3,13 @@ import type { ReadResult } from "./owner-do.ts"
 import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
-import { connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
+import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
-import { CloudCore } from "./cloud-do-core.ts"
+import { CloudCore, statusApplied } from "./cloud-do-core.ts"
+
+/** How often connect_info and link_token may read a machine's real state from the provider. */
+const STATE_CHECK_EVERY_MS = 30_000
 
 /**
  * CloudDO, one per team (plans/cmux-next/state-placement.md 5): the machine registry, the
@@ -23,6 +26,7 @@ export class CloudDO extends CloudCore {
     if (op === "cloud.machine.connect_info") {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
       if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+      await this.checkRealState(entity, (params ?? {}) as { machine?: string; host?: string })
       const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), () => this.audit)
       return r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r
     }
@@ -77,12 +81,40 @@ export class CloudDO extends CloudCore {
     return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset, install: { id: vm.id, user: m.creator, grant: vm.grant } } }
   }
 
+  /**
+   * Coordinator decision (2026-10-05): before connect_info and link_token answer for a running record,
+   * read the VM's real state (one cheap GET). A VM powered off or paused by itself is recorded paused,
+   * a VM that is gone failed; a failed read keeps the record.
+   */
+  private readonly stateChecks = new Map<string, number>()
+  private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
+    const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
+    const driver = row?.status === "running" ? cloudDriver(this.env, this.sqlStore) : null
+    if (!row || !driver) return
+    // At most one provider read per machine per 30 s (review P2-3: the API key is shared by every team).
+    const now = Date.now() + this.skewMs
+    const last = this.stateChecks.get(row.id)
+    if (last !== undefined && now - last < STATE_CHECK_EVERY_MS) return
+    this.stateChecks.set(row.id, now)
+    const r = await driver.stateOf(row.provider_name, { team: entity, machine: row.id }).catch(() => undefined)
+    // Only a VM known gone, or explicitly paused or stopped, changes the record (review P2-2): any other or missing value is no change.
+    if (!r || (!r.gone && r.state !== "paused" && r.state !== "stopped")) return
+    this.submitSystem("cloud.machine.provider_state", { machine: row.id, state: r.gone ? null : r.state }, `provider-state:${row.id}:${this.boundEngine?.currentSeq ?? 0}`)
+  }
+
   /** RPC from the Worker for cloud.machine.link_token: outside the op stream (no event, no ledger replay). */
   /** RPC from the Worker for cloud.vm.status.report and cloud.vm.event.emit (VM installs, own machine only; cloud-vm.ts). */
   async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
     const now = Date.now() + this.skewMs
-    if (op === "cloud.vm.status.report") return vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`), now)
+    if (op === "cloud.vm.status.report") {
+      let applied: { machine: string; report: unknown } | undefined
+      const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {
+        if (statusApplied(this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`).frames)) applied = { machine, report }
+      }, now)
+      if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
+      return r
+    }
     return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
   }
   private readonly vmEvents = new VmEventBuckets()
@@ -93,6 +125,8 @@ export class CloudDO extends CloudCore {
     // Review P3-6: a bound limit per install (the limiter keeps no storage in this object).
     const limit = this.env.CLOUD_MUTATION_LIMIT
     if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
+    // After the limiter (review P2-3).
+    if (rows && principal.kind === "install") await this.checkRealState(entity, { host: (params as { host?: string } | null)?.host })
     const keys = parseSigningKeys(this.testLinkKeys ?? this.env.CLOUD_LINK_SIGNING_KEYS)
     // Review P3-b: never sign an iss this deployment cannot name.
     const environment = this.envTag()
@@ -102,8 +136,7 @@ export class CloudDO extends CloudCore {
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
   private teamConnectServices(entity: string): Promise<ReadonlyArray<string>> {
-    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudConnectServices(e: string): Promise<ReadonlyArray<string>> }
-    return stub.cloudConnectServices(entity)
+    return this.teamCloudPolicy(entity).then((p) => p.connect_services)
   }
 
   /**
@@ -129,12 +162,19 @@ export class CloudDO extends CloudCore {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
     if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
+    if (cmd.snapshot_delete_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET snapshot_delete_refuse = ? WHERE id = 1`, cmd.snapshot_delete_refuse)
+    if (cmd.power_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET power_refuse = ? WHERE id = 1`, cmd.power_refuse)
+    if (cmd.vm_state) this.stateChecks.clear()
+    if (cmd.vm_state) this.sqlStore.exec(`UPDATE cloud_fake_vm SET state = ? WHERE name = ?`, cmd.vm_state.state, cmd.vm_state.name)
+    if (cmd.image_size) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET image_cpu = ?, image_memory = ?, image_storage = ? WHERE id = 1`, cmd.image_size.cpu, cmd.image_size.memory, cmd.image_size.storage)
+    if (cmd.resize_partial !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET resize_partial = ? WHERE id = 1`, cmd.resize_partial)
+    if (cmd.resize_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET resize_refuse = ? WHERE id = 1`, cmd.resize_refuse)
     if (cmd.power_then_fail !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET power_then_fail = ? WHERE id = 1`, cmd.power_then_fail)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.drop_results !== undefined) this.dropResults = cmd.drop_results
@@ -145,9 +185,10 @@ export class CloudDO extends CloudCore {
       const t = { cmux_next_team: cmd.add_vm.team, cmux_next_machine: cmd.add_vm.machine }
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
-    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number }>(`SELECT creates, deletes, pauses, starts FROM cloud_fake_ctl WHERE id = 1`)[0]!
-    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
+    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls FROM cloud_fake_ctl WHERE id = 1`)[0]!
+    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number; snapshot: string | null }>(`SELECT name, id, idle, cpu, memory, snapshot FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
+    const snapshots = this.sqlStore.exec<{ slug: string; source: string }>(`SELECT slug, source FROM cloud_fake_snapshot ORDER BY slug`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
   }
 }

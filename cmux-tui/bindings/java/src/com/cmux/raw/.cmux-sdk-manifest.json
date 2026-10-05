@@ -316,6 +316,11 @@
       "size": 3659
     },
     {
+      "path": "CloseReason.java",
+      "sha256": "b5305fb8612979a5f111807fcc80fee0b91e30f2743b291bc984f8430c9a7255",
+      "size": 867
+    },
+    {
       "path": "CloseScreenGroupRequest.java",
       "sha256": "f50f4a9eebd3e0603351ad05d7304b3b845599b07bdb882d9489bd2d30f161b1",
       "size": 2761
@@ -337,8 +342,8 @@
     },
     {
       "path": "CloseTabsRequest.java",
-      "sha256": "ad05374325d70c7e458d68b39ae7f0642098096c60bffd7f6843bb668c2661d8",
-      "size": 7327
+      "sha256": "76467642dc87913221cef88522b848f9fe0aa29df7efa338b25c8cbd838be0bd",
+      "size": 7325
     },
     {
       "path": "CloseTerminalRequest.java",
@@ -1382,7 +1387,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "48edb7ee10185c724ecc88415ddc54055a52dbd080ec0a68f27c15b0ea2ab683",
+      "sha256": "54eaa64a9de19045b96b3cfdc8939eae7bd6a1b1686397e8f2a08fd75f15f868",
       "size": 4943
     },
     {
@@ -2457,7 +2462,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b",
+  "ir_sha256": "1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

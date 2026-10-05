@@ -25,6 +25,7 @@ JAVA_CLASS = b"\xca\xfe\xba\xbe\x00\x00\x00\x41" + b"\0" * 24
 
 GHOSTTY_REVISION = "b" * 40
 TREE = "Contents/Resources/ghostty-licenses"
+NEXT_TREE = "Contents/Resources/ghostty-next-licenses"
 
 
 def write_ghostty_license_tree(root: Path, revision: str = GHOSTTY_REVISION) -> None:
@@ -139,10 +140,43 @@ class CheckBundleNoticesTest(unittest.TestCase):
 
     def test_the_map_covers_the_ghostty_license_tree(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
-        entries = [e for e in bundle_map.get("resources", []) if e["path"] == TREE]
-        self.assertEqual(len(entries), 1)
-        self.assertIn(f"ghostty-license-tree:{TREE}", entries[0]["notices"])
-        self.assertIn("section:manual-ghostty", entries[0]["notices"])
+        for tree in (TREE, NEXT_TREE):
+            entries = [e for e in bundle_map.get("resources", []) if e["path"] == tree]
+            self.assertEqual(len(entries), 1, tree)
+            self.assertIn(f"ghostty-license-tree:{tree}", entries[0]["notices"])
+            self.assertIn("section:manual-ghostty", entries[0]["notices"])
+
+    def test_each_license_tree_names_its_own_revision(self) -> None:
+        next_revision = "e" * 40
+        write_ghostty_license_tree(self.app / TREE)
+        write_ghostty_license_tree(self.app / NEXT_TREE, next_revision)
+        bundle_map = {**MAP, "resources": [
+            {"path": TREE, "notices": [f"ghostty-license-tree:{TREE}"]},
+            {"path": NEXT_TREE, "notices": [f"ghostty-license-tree:{NEXT_TREE}"]},
+        ]}
+        self.assertEqual(checker.check(self.app, bundle_map, ghostty_revision=GHOSTTY_REVISION,
+                                       tree_revisions={NEXT_TREE: next_revision}), [])
+        errors = checker.check(self.app, bundle_map, ghostty_revision=GHOSTTY_REVISION,
+                               tree_revisions={NEXT_TREE: GHOSTTY_REVISION})
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(NEXT_TREE, errors[0])
+
+    def test_bundled_ghostty_next_license_tree_needs_a_map_entry(self) -> None:
+        # bin/cmux's libghostty-vt comes from ghostty-next; its own tree ships.
+        write_ghostty_license_tree(self.app / NEXT_TREE)
+        self.assertEqual(
+            checker.check(self.app, MAP),
+            [f"{NEXT_TREE}: bundled, but no bundle-map.json resources entry covers it"],
+        )
+
+    def test_bin_cmux_needs_the_ghostty_notice(self) -> None:
+        # bin/cmux links libghostty-vt (Ghostty MIT, vendored simdutf); its
+        # Zig packages are checked by check_ghostty_vt_notices.py.
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        [entry] = [e for e in bundle_map["entries"] if e["path"] == "Contents/Resources/bin/cmux"]
+        self.assertIn("section:manual-ghostty", entry["notices"])
+        [ssh] = [e for e in bundle_map["entries"] if e["path"] == "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*"]
+        self.assertIn("section:manual-ghostty", ssh["notices"])
 
     def test_the_map_covers_bundled_ghostty_themes(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
@@ -155,12 +189,85 @@ class CheckBundleNoticesTest(unittest.TestCase):
         present = set(checker.MARKER.findall((ROOT / "THIRD_PARTY_LICENSES.md").read_text()))
         self.assertEqual(sorted(needed - present), [])
 
+    # Rust and Zig standard libraries ------------------------------------------
+
+    RUST_BINARIES = (
+        "Contents/Resources/bin/cmux",
+        "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
+        "Contents/Resources/bin/cmux-app-host",
+        "Contents/Resources/bin/cmux-cloud",
+        "Contents/Resources/bin/cmux-diff-sidecar",
+        # Release merges Iroh.framework's Rust code (rustc 1.91.0) into the
+        # app binary; Iroh.framework/Iroh is then a stub without Rust code.
+        "Contents/MacOS/cmux",
+    )
+    ZIG_BINARIES = (
+        "Contents/MacOS/cmux",  # GhosttyNextKit (static)
+        "Contents/Resources/bin/cmux",  # libghostty-vt
+        "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
+        "Contents/Resources/bin/ghostty",
+    )
+    STD_SECTION = "section:manual-rust-and-zig-standard-libraries"
+
+    def test_every_binary_that_links_a_standard_library_needs_its_notice(self) -> None:
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        notices = {e["path"]: e["notices"] for e in bundle_map["entries"]}
+        for path in self.RUST_BINARIES:
+            self.assertIn("rust-std", notices[path], path)
+            self.assertIn(self.STD_SECTION, notices[path], path)
+        for path in self.ZIG_BINARIES:
+            self.assertIn("zig-std", notices[path], path)
+            self.assertIn(self.STD_SECTION, notices[path], path)
+
+    def std_app(self, rustc_commit: str) -> dict:
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        manifest = toolchain_notices.load()
+        toolchain_notices.install(manifest, self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").write_bytes(THIN + b"/rustc/" + rustc_commit.encode() + b"/library/std/src/lib.rs")
+        return {"entries": [{"path": "Contents/MacOS/app", "notices": ["rust-std", "zig-std"]}]}
+
+    def test_rust_std_requirement_reads_the_rustc_commit_of_the_binary(self) -> None:
+        bundle_map = self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")  # 1.95.0
+        self.assertEqual(checker.check(self.app, bundle_map), [])
+        bundle_map = self.std_app("c" * 40)
+        errors = checker.check(self.app, bundle_map)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("Contents/MacOS/app: missing notice rust-std", errors[0])
+        self.assertIn("c" * 40, errors[0])
+
+    def test_a_binary_with_rust_code_needs_rust_std_in_its_entry(self) -> None:
+        self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")
+        self.assertEqual(
+            checker.check(self.app, MAP),
+            ["Contents/MacOS/app: links the Rust standard library of rustc 59807616e1fa2540724bfbac14d7976d7e4a3860, "
+             "but no bundle-map entry for it requires rust-std"],
+        )
+
+    def test_zig_std_requirement_needs_the_bundled_zig_license(self) -> None:
+        bundle_map = self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")
+        (self.app / "Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE").unlink()
+        errors = checker.check(self.app, bundle_map)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("Contents/MacOS/app: missing notice zig-std", errors[0])
+
+    def test_the_std_section_names_every_bundled_toolchain_text(self) -> None:
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        manifest = toolchain_notices.load()
+        text = (HERE / "hand-written.md").read_text()
+        section = text.split("## Rust and Zig Standard Libraries\n", 1)[1].split("\n## ", 1)[0]
+        for entry in manifest.texts():
+            self.assertIn(f"`{manifest.bundle_dir}/{entry.file}`", section)
+        for zig in manifest.zig:
+            self.assertIn((toolchain_notices.TEXTS / zig.file).read_text(), section.replace("\n\n---\n", "\n"))
+
     def test_map_requirements_are_well_formed(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for entry in bundle_map["entries"] + bundle_map.get("resources", []):
             self.assertTrue(entry["notices"], entry["path"])
             for need in entry["notices"]:
-                self.assertRegex(need, r"^(first-party|section:[A-Za-z0-9._-]+|(file|ghostty-license-tree):Contents/.+)$")
+                self.assertRegex(need, r"^(first-party|rust-std|zig-std|section:[A-Za-z0-9._-]+|(file|ghostty-license-tree):Contents/.+)$")
             self.assertFalse(re.search(r"/Versions/[A-Z]/", entry["path"]), "match Versions with *, not a fixed letter")
 
 

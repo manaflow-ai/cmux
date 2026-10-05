@@ -11,6 +11,12 @@
 # make_latest=false, and the run fails if the repository's latest release
 # ever points at a layout-reducer tag. scripts/cmux-next/check-layout-reducer-pin.sh
 # fails CI when the reducer sources change without a new pin.
+#
+# UNPROVEN (2026-10-05): GITHUB_TOKEN got HTTP 403 creating the first tag
+# (run 37272232472). The publish job therefore skips when workflow files
+# changed since the last FFI tag, and a person publishes from the artifact.
+# Whether the token can create the tag after a reducer-only change has not
+# been seen yet; the first real reducer change proves or disproves it.
 name: layout-reducer FFI release
 
 on:
@@ -41,10 +47,35 @@ jobs:
     outputs:
       tag: ${{ steps.assemble.outputs.tag }}
       checksum: ${{ steps.assemble.outputs.checksum }}
+      workflow_changed: ${{ steps.workflow-delta.outputs.changed }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # GITHUB_TOKEN may not create a tag whose commit range carries
+      # workflow-file changes (run 37272232472: HTTP 403 with contents:write).
+      # Measure the range from the last published FFI tag; the publish job
+      # skips with a notice when it touches .github/workflows.
+      - name: Workflow files changed since the last FFI release
+        id: workflow-delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --tags origin 'refs/tags/layout-reducer-ffi-*:refs/tags/layout-reducer-ffi-*' || true
+          last="$(git tag --list 'layout-reducer-ffi-*' --merged HEAD --sort=-creatordate | head -n 1)"
+          if [[ -z "$last" ]]; then
+            echo "no earlier FFI tag on this history; treating workflow files as changed"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$last" HEAD -- .github/workflows; then
+            echo "no workflow-file change since $last"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflow files changed since $last:"
+            git diff --stat "$last" HEAD -- .github/workflows
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -83,10 +114,26 @@ jobs:
           for arch in arm64 x86_64; do
             [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
           done
-          # Every C entry point in the header is exported from the archive.
-          for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
-            nm -g "$lib" 2>/dev/null | grep -q " T _$symbol\$" || { echo "::error::$lib does not export $symbol" >&2; exit 1; }
+          # Prove each slice links with Apple's toolchain and exports every C
+          # entry point: a C program takes the address of each header function
+          # and links against the archive (Apple's nm cannot read objects that
+          # carry a newer rustc's embedded bitcode, so symbol listing is not
+          # the check; the link is what the app needs). The arm64 program runs.
+          header_dir="$xcf/macos-arm64_x86_64/Headers/CCmuxLayoutReducerFFI"
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          {
+            printf '%s\n' '#include <cmux_layout_reducer_ffi.h>' '#include <stdio.h>' 'int main(void) {'
+            for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
+              printf '  printf("%%p %s\\n", (void *)&%s);\n' "$symbol" "$symbol"
+            done
+            printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
+          } > "$smoke/smoke.c"
+          cat "$smoke/smoke.c"
+          for arch in arm64 x86_64; do
+            xcrun clang -target "$arch-apple-macos26.0" -I "$header_dir" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
           done
+          "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"
           rm -rf "$dist"; mkdir -p "$dist"
           # Stable zip bytes for a rerun of the same build.
@@ -123,7 +170,17 @@ jobs:
           name: CCmuxLayoutReducerFFI.xcframework
           path: assets
 
+      - name: A person publishes this one
+        if: needs.build.outputs.workflow_changed == 'true'
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          echo "::notice title=Publish by hand::Workflow files changed since the last FFI release, and GITHUB_TOKEN cannot create tag $TAG over them. A maintainer creates the prerelease (not latest) from this run's CCmuxLayoutReducerFFI.xcframework artifact: tag $TAG at $GITHUB_SHA, checksum $CHECKSUM."
+
       - name: Create the release (never overwrite)
+        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -154,6 +211,7 @@ jobs:
           echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
 
       - name: The latest release is not a layout-reducer tag
+        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -168,6 +226,7 @@ jobs:
           fi
 
       - name: Anonymous download matches the checksum
+        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}

@@ -121,6 +121,7 @@ export type CloudMachine = {
     readonly message: string
     readonly at: number
   } | null
+  readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
   readonly revision: Revision
 }
 
@@ -683,7 +684,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -906,6 +907,10 @@ export type TeamPolicyValues = {
   }
   readonly "cloud.connectServices"?: {
     readonly value: CloudConnectServices
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.idlePause"?: {
+    readonly value: boolean
     readonly mode: PolicyMode
   }
   readonly "telemetry.level"?: {
@@ -1327,7 +1332,7 @@ export interface CloudOps {
     }
     readonly result: CloudMachine
   }
-  /** Set when an idle machine pauses; 0 = never. */
+  /** Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h. */
   readonly "cloud.machine.idle_policy.set": {
     readonly params: {
       readonly machine: MachineId
@@ -1382,7 +1387,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Change a machine's size. A larger size may cost money. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.resize": {
     readonly params: {
       readonly machine: MachineId
@@ -1392,7 +1397,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Start (resume) a paused machine: answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.start": {
     readonly params: {
       readonly machine: MachineId
@@ -1442,7 +1447,7 @@ export interface CloudOps {
       readonly stream: string
     }
   }
-  /** Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.create": {
     readonly params: {
       readonly machine: MachineId
@@ -1452,7 +1457,7 @@ export interface CloudOps {
       readonly snapshot: CloudSnapshot
     }
   }
-  /** Delete a snapshot. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.delete": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -1470,7 +1475,7 @@ export interface CloudOps {
       readonly snapshots: ReadonlyArray<CloudSnapshot>
     }
   }
-  /** Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.restore": {
     readonly params: {
       readonly snapshot: SnapshotId
