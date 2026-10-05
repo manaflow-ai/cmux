@@ -159,6 +159,8 @@ final class KeyRouter: BrowserKeyRouting {
         // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
         if let keyRecorder, keyRecorder(event, window) {
             cancelChord()
+            lastInterception = nil
+            trace?("recorder: the Keyboard Shortcuts recorder took the key")
             return true
         }
         if closesPopup(event, in: window) {

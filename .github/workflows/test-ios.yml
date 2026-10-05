@@ -399,6 +399,18 @@ jobs:
       - name: Lint iOS package conventions
         run: |
           python3 scripts/tests/test_ios_package_conventions.py
+          # Run the mechanical namespace repair first. The clean checkout
+          # assertion turns any safe rewrite into an actionable failure while
+          # leaving the check below as the non-mutating backstop.
+          if ! ./scripts/lint-ios-package-conventions.sh --namespace-fix; then
+            echo "::error::Namespace/convention lint failed. Run ./scripts/lint-ios-package-conventions.sh --namespace-fix locally, review the edits, then commit them."
+            exit 1
+          fi
+          if ! git diff --quiet -- ios Packages; then
+            echo "::error::Namespace lint found safe rewrites. Run ./scripts/lint-ios-package-conventions.sh --namespace-fix locally, review the edits, then commit them."
+            git diff --stat -- ios Packages
+            exit 1
+          fi
           # Mechanical enforcement of the modular-refactor conventions over the
           # iOS line (no singletons / Combine / locks / timer hacks / KVO /
           # namespace-enums) plus the repo-wide namespace-type rule (no

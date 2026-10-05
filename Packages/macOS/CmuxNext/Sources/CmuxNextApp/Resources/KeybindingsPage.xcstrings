@@ -3930,6 +3930,137 @@
           }
         }
       }
+    },
+    "keybindings.page.recordRowHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press keys, then Return to save. Escape cancels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを押してから Return で保存します。Escape でキャンセルします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اضغط المفاتيح، ثم Return للحفظ. Escape للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pritisnite tipke, zatim Return za spremanje. Escape otkazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tryk på tasterne, og tryk derefter på Return for at gemme. Escape annullerer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasten drücken, dann Return zum Sichern. Escape bricht ab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsa las teclas y luego Return para guardar. Escape cancela."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appuyez sur les touches, puis sur Retour pour enregistrer. Échap annule."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premi i tasti, poi Return per salvare. Esc annulla."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចុចគ្រាប់ចុច រួចចុច Return ដើម្បីរក្សាទុក។ Escape ដើម្បីបោះបង់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키를 누른 다음 Return을 눌러 저장합니다. Escape를 누르면 취소됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trykk tastene, og trykk deretter Retur for å arkivere. Escape avbryter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naciśnij klawisze, a potem Return, aby zapisać. Escape anuluje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pressione as teclas e depois Return para salvar. Escape cancela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нажмите клавиши, затем Return, чтобы сохранить. Escape — отмена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กดปุ่ม แล้วกด Return เพื่อบันทึก กด Escape เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tuşlara basın, kaydetmek için Return'e basın. Escape iptal eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Натисніть клавіші, потім Return, щоб зберегти. Escape — скасувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhấn phím, rồi nhấn Return để lưu. Escape để hủy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按下按键，然后按 Return 保存。按 Escape 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按下按鍵，然後按 Return 儲存。按 Escape 取消。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
