@@ -54,6 +54,16 @@ import Testing
         #expect(split.menuBehavior == .secondary)
     }
 
+    @Test func remoteTmuxMirrorShowsBothSplitsWithoutMenus() {
+        let buttons = Cluster.bonsplitButtons(for: .standard, availability: everything)
+            .filter { $0.action == .splitRight || $0.action == .splitDown }
+            .flatMap(BonsplitConfiguration.remoteTmuxEmbeddedSplitButtons)
+        #expect(buttons.map(\.action) == [.splitRight, .splitDown])
+        #expect(buttons.map(\.icon) == [.systemImage("square.split.2x1"), .systemImage("square.split.1x2")])
+        #expect(buttons.allSatisfy { $0.menuBehavior == .none && $0.alternateAction == nil })
+        #expect(Set(buttons.map(\.id)).count == 2)
+    }
+
     @Test func moreButtonOpensMenuOnClick() throws {
         let buttons = Cluster.bonsplitButtons(for: .standard, availability: everything)
         let more = try #require(buttons.first { $0.id == Cluster.moreButtonID })

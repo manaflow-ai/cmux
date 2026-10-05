@@ -128,7 +128,7 @@ extension Workspace {
         let presentingWindow = NSApp.keyWindow ?? NSApp.mainWindow
         switch item {
         case .agentChat:
-            performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
+            openAgentChatTab(inPane: pane, presentingWindow: presentingWindow)
         case .terminal:
             // Same path as the tab bar's built-in new-terminal button.
             bonsplitController.requestNewTab(kind: "terminal", inPane: pane)

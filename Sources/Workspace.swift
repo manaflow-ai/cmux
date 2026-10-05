@@ -14860,6 +14860,11 @@ extension Workspace: BonsplitDelegate {
         // Same transaction as the tree update: no commit may show the split
         // pane's terminal over the new pane (#13387).
         applyProvisionalSplitPaneGeometry(originalPane: originalPane, newPane: newPane)
+        // A drag split moves a tab without a selection event; both panes may change kind.
+        if surfaceTabBarUsesCompactCluster {
+            refreshCompactSurfaceTabBarButtons(inPane: originalPane)
+            refreshCompactSurfaceTabBarButtons(inPane: newPane)
+        }
 #if DEBUG
         let originalSelectedKind = controller.selectedTab(inPane: originalPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"
         let newSelectedKind = controller.selectedTab(inPane: newPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"

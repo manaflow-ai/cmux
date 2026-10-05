@@ -10,6 +10,29 @@ extension Workspace {
         )
     }
 
+    /// Opens an agent chat as a tab in `pane`: the pane tab bar's "+" and its
+    /// Agent Chat row. The Agent Chat command and its shortcut keep opening
+    /// a new workspace.
+    func openAgentChatTab(inPane pane: PaneID, presentingWindow: NSWindow?) {
+        guard let owningTabManager, let appDelegate = AppDelegate.shared else {
+            NSSound.beep()
+            return
+        }
+        Task { @MainActor [weak self, weak owningTabManager] in
+            guard let owningTabManager,
+                  let url = await appDelegate.agentChatBrowserBaseURL(
+                      tabManager: owningTabManager,
+                      preferredWindow: presentingWindow
+                  ),
+                  let self,
+                  self.bonsplitController.allPaneIds.contains(pane),
+                  self.newBrowserSurface(inPane: pane, url: url, focus: true) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+    }
+
     /// Opens a read-only chat view of the agent running in a terminal panel.
     /// The agent-chat sidecar renders the agent's own transcript, so the
     /// terminal process stays the only agent.
