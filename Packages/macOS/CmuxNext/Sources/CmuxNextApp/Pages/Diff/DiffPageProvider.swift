@@ -102,9 +102,9 @@ final class DiffPageProvider: PageProvider {
     var eventSubscriberCount: Int { events.count }
 
     private func config() async throws -> JSONValue {
-        guard let ready else { return withStores(["pick": true]) }
+        guard let ready else { return await withStores(["pick": true]) }
         do {
-            return withStores(try await ready.value.config)
+            return await withStores(try await ready.value.config)
         } catch let failure as DiffTabFailure {
             return DiffPageConfig.failure(title: failure.title, message: failure.message)
         }

@@ -17,7 +17,11 @@ nonisolated enum DiffPrefKey {
     static let collapsedFiles = "collapsedFiles"
     static let maximumCollapsedFiles = 500
 
-    static var all: [String] { (booleans.sorted() + choices.keys.sorted() + [collapsedFiles]) }
+    /// The display keys: `diff.<key>` schema rows (DiffViewerSettingsSchema), kept in cmux.json.
+    static var displayKeys: [String] { booleans.sorted() + choices.keys.sorted() }
+    /// Every pref the page reads and writes; `collapsedFiles` lives in the host's store
+    /// (``DiffCollapsedFiles``), not in the settings.
+    static var all: [String] { displayKeys + [collapsedFiles] }
 
     static func path(_ key: String) -> [String] { [section, key] }
 
@@ -33,10 +37,11 @@ nonisolated enum DiffPrefKey {
         }
     }
 
-    /// The valid `diff.*` values of a settings object (others are dropped).
+    /// The valid `diff.*` display values of a settings object (others, `collapsedFiles` too, are
+    /// dropped).
     static func sanitized(_ section: JSONValue?) -> [String: JSONValue] {
         guard let members = section?.objectValue else { return [:] }
-        return members.filter { key, value in value != .null && accepts(key, value) }
+        return members.filter { key, value in value != .null && displayKeys.contains(key) && accepts(key, value) }
     }
 }
 
@@ -48,10 +53,8 @@ protocol DiffPrefsStoring: AnyObject {
     func setPref(_ key: String, to value: JSONValue) async throws
 }
 
-/// The prefs in the settings store (cmux.json `diff.*`). A key the schema
-/// lists is written through the schema setter; until the Settings lead adds
-/// them, the raw file write the control socket uses for unlisted keys.
-/// Writes are visible to `prefs()` at once, before the file watcher reloads.
+/// The display prefs in the settings store (cmux.json `diff.*`, schema rows), written through the
+/// schema setter only. Writes are visible to `prefs()` at once, before the file watcher reloads.
 final class SettingsDiffPrefs: DiffPrefsStoring {
     private let settings: () -> SettingsController?
     private var pending: [String: JSONValue] = [:]
@@ -70,23 +73,21 @@ final class SettingsDiffPrefs: DiffPrefsStoring {
     }
 
     func setPref(_ key: String, to value: JSONValue) async throws {
-        guard let settings = settings() else { throw Unavailable() }
         let path = DiffPrefKey.path(key)
+        guard DiffPrefKey.displayKeys.contains(key), SettingsSchema.descriptor(for: path) != nil else { throw NotASetting(key: key) }
+        guard let settings = settings() else { throw Unavailable() }
         pending[key] = value
-        if SettingsSchema.descriptor(for: path) != nil {
-            let written: JSONValue? = value == .null ? .none : .some(value)
-            try await settings.setSetting(at: path, to: written, by: .caller("page"))
-        } else {
-            try await Self.write(value, at: path, in: settings.file)
-        }
+        let written: JSONValue? = value == .null ? .none : .some(value)
+        try await settings.setSetting(at: path, to: written, by: .caller("page"))
     }
 
     nonisolated struct Unavailable: Error, CustomStringConvertible {
         var description: String { "settings are not available" }
     }
 
-    /// The config file is an actor: its blocking file IO runs off the main actor.
-    private static func write(_ value: JSONValue, at path: [String], in file: CmuxConfigFile) async throws {
-        if value == .null { try await file.remove(path) } else { try await file.set(value, at: path) }
+    /// A key with no schema row (`collapsedFiles` lives in ``DiffCollapsedFiles``).
+    nonisolated struct NotASetting: Error, CustomStringConvertible {
+        let key: String
+        var description: String { "diff.\(key) is not a setting" }
     }
 }
