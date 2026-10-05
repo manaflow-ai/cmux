@@ -289,7 +289,10 @@ describe("acpmux composer pickers", () => {
     });
     await key(doc.querySelector(".acpmux-effort-range")!, "Escape");
     await render(
-      long({ model: "astra", configOptions: [{ ...effort, currentValue: "low", options: [low, ...effort.options] }] }),
+      long({
+        model: "astra",
+        configOptions: [{ ...effort, currentValue: "low", options: [low, ...effort.options] }],
+      }),
     );
     expect(calls).toEqual(["model astra", "effort reasoning_effort low"]);
     // A combo for the current model drops one still waiting for another model.
@@ -467,7 +470,10 @@ describe("acpmux composer pickers", () => {
   });
 
   test("Plan is a toggle apart from the permission chip, and leaving it restores the permission mode", async () => {
-    const withPlan = { ...modes, availableModes: [...modes.availableModes, { id: "plan", name: "Plan" }] };
+    const withPlan = {
+      ...modes,
+      availableModes: [...modes.availableModes, { id: "plan", name: "Plan" }],
+    };
     await render(snapshot({ modes: withPlan }));
     const plan = () => doc.querySelector<HTMLButtonElement>(".acpmux-plan")!;
     expect(plan().textContent).toBe("Build");
@@ -534,7 +540,12 @@ describe("acpmux composer send button", () => {
   const key = async (name: string, init: KeyboardEventInit = {}) =>
     act(async () => {
       textarea().dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true, ...init }),
+        new dom.window.KeyboardEvent("keydown", {
+          key: name,
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
       );
     });
 
@@ -602,13 +613,16 @@ describe("acpmux composer send button", () => {
 });
 
 describe("acpmux composer context", () => {
-  test("the tray names the project, the machine and the branch, and the worktree switch shows whether the session has one", async () => {
+  test("the context row uses plain location labels and locks after a turn", async () => {
     const root = createRoot(doc.getElementById("root")!);
-    const render = async (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>) => {
+    const render = async (
+      summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>,
+      rows: AcpmuxSnapshot["rows"] = [],
+    ) => {
       await act(async () =>
         root.render(
           createElement(Composer, {
-            snapshot: snapshot(summary),
+            snapshot: { ...snapshot(summary), rows },
             chips: () => null,
             onSend: () => {},
             onStop: () => {},
@@ -617,37 +631,18 @@ describe("acpmux composer context", () => {
       );
       await ready();
     };
-    const chips = () =>
-      [...doc.querySelectorAll(".acpmux-context-chip")].map(
-        (chip) => `${chip.textContent}|${chip.getAttribute("title") ?? ""}`,
-      );
     try {
-      await render({});
-      expect(doc.querySelector(".acpmux-composer-context")).toBeNull();
-      await render({
-        cwd: "/Users/me/code/cmux",
-        host: "hearty-beige-elk",
-        hostKind: "cloud",
-        branch: "feat-retry-backoff",
-        worktree: "/Users/me/code/cmux-retry",
-      });
-      expect(chips()).toEqual([
-        "cmux|Project: /Users/me/code/cmux",
-        "hearty-beige-elk|",
-        "feat-retry-backoff|Branch: feat-retry-backoff",
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" });
+      expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
+      expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((node) => node.textContent)).toEqual([
+        "hearty-beige-elk",
+        "cmux",
       ]);
-      const worktree = () => doc.querySelector(".acpmux-context-worktree")!;
-      expect(worktree().classList.contains("acpmux-on")).toBe(true);
-      expect(worktree().getAttribute("title")).toBe("Worktree: /Users/me/code/cmux-retry");
-      expect(worktree().querySelector(".acpmux-switch")!.getAttribute("aria-label")).toBe("On");
-      expect(
-        doc.querySelector(".acpmux-composer-context")!.nextElementSibling!.classList.contains("acpmux-composer-box"),
-      ).toBe(true);
-      // The home folder is no project; a plain branch is titled as one.
-      await render({ cwd: "/Users/me", host: "This Mac", hostKind: "local", branch: "main" });
-      expect(chips()).toEqual(["This Mac|", "main|Branch: main"]);
-      expect(worktree().classList.contains("acpmux-on")).toBe(false);
-      expect(worktree().querySelector(".acpmux-switch")!.getAttribute("aria-label")).toBe("Off");
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" }, [
+        { id: "u", version: 1, at: 0, kind: "user", text: "hello" },
+      ]);
+      expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
+      expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
     }
@@ -681,7 +676,7 @@ describe("acpmux composer queue", () => {
         "first",
         "second\nline",
       ]);
-      expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      expect(list.nextElementSibling!.classList.contains("acpmux-composer-context")).toBe(true);
       // The slash menu anchors to the field, so the queue never pushes it up.
       await act(async () => typeInto(promptField(doc), "/"));
       expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();

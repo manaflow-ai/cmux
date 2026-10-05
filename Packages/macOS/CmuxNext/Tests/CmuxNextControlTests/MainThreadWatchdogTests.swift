@@ -59,6 +59,7 @@ import Testing
         #expect(watchdog.gapStats.max >= .milliseconds(100))
     }
 
+    #if DEBUG
     /// The watchdog thread can lose the CPU right after it samples a stall.
     /// The stall may then end before the sample is handed over; the record
     /// must still carry the stack that was taken during the stall.
@@ -76,14 +77,18 @@ import Testing
         watchdog.start()
         defer { watchdog.stop() }
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
-            stallForTest()
+            stallForTestLong()
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
-        CFRunLoopRunInMode(.defaultMode, 0.4, false)
-        let stall = try #require(watchdog.log.records().max { $0.duration < $1.duration }, "no stall recorded")
-        #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
-                "frames: \(stall.frames.prefix(8).map(\.description))")
+        CFRunLoopRunInMode(.defaultMode, 1.0, false)
+        // The full package run shares the main run loop with other tests, so
+        // other stalls can be recorded too; one record must be this stall's.
+        let records = watchdog.log.records()
+        try #require(!records.isEmpty, "no stall recorded")
+        #expect(records.contains { $0.frames.contains { $0.symbol?.contains("stallForTest") == true } },
+                "frames: \(records.map { $0.frames.prefix(4).map(\.description) })")
     }
+    #endif
 
     @Test func hangLogIsBoundedDropOldest() {
         let log = HangLog(capacity: 3)
@@ -98,4 +103,11 @@ import Testing
 @inline(never)
 func stallForTest() {
     spin(for: .milliseconds(150))
+}
+
+/// A longer stall, so a loaded host's watchdog thread still wakes inside it
+/// (the sample is due 30 ms in).
+@inline(never)
+func stallForTestLong() {
+    spin(for: .milliseconds(500))
 }

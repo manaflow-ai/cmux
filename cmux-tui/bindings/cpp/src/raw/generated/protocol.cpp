@@ -12237,6 +12237,11 @@ Result<Json> Codec<CloseTabsRequest>::encode(const CloseTabsRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (!value.reason.is_absent()) {
+        auto encoded = encode_value(value.reason);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("reason", std::move(encoded).value());
+    }
     auto encoded_surfaces = encode_value(value.surfaces);
     if (!encoded_surfaces) return std::move(encoded_surfaces).error();
     object.emplace("surfaces", std::move(encoded_surfaces).value());
@@ -12299,6 +12304,16 @@ Result<CloseTabsRequest> Codec<CloseTabsRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_origin);
             if (!decoded) return std::move(decoded).error();
             result.origin = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_reason = value.find("reason");
+    if (field_reason) {
+        if (field_reason->is_null()) {
+            result.reason = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_reason);
+            if (!decoded) return std::move(decoded).error();
+            result.reason = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_surfaces = value.find("surfaces");
@@ -29930,6 +29945,9 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand24FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand27FieldRequirements{{
     {"end_terminals", 12U, "batch-close-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand28FieldRequirements{{
+    {"reason", 0U, "close-reason-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 6> kCommand30FieldRequirements{{
     {"end_terminals", 12U, "batch-close-v1"},
     {"expected_generation", 7U, ""},
@@ -30103,7 +30121,7 @@ constexpr std::array<CommandMetadata, 214> kCommands{{
     {"close-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand27FieldRequirements)},
-    {"close-tabs", "control", 12U, "batch-close-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"close-tabs", "control", 12U, "batch-close-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand28FieldRequirements)},
     {"close-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand30FieldRequirements)},
     {"conversation-agent-token", "local-admin", 12U, "local-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

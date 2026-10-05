@@ -37,8 +37,9 @@ extension AgentTabStore {
             throw AgentTabRefusal(message: reason)
         }
         let record = AgentSessionRef(host: localHost, hostName: localHostName, session: session, harness: adopt?.harness)
-        let key = ProvisionalTab.id()
-        var snapshot = TabSnapshot(surface: ProvisionalTab.surface(), tabResourceID: ResourceID(rawValue: key),
+        let provisional = ProvisionalTab()
+        let key = provisional.id
+        var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: key),
                                    kind: .conversation, title: "about:blank", browserRenderer: "frontend")
         snapshot.conversation = ConversationTabRef(agentSession: record)
         let store = daemon.store
