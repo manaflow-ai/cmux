@@ -107,6 +107,28 @@ struct CloudDisplayMembershipProjectionTests {
         #expect(coordinator.closedDisplayViews[machine] == nil)
     }
 
+    @Test("A workspace display with its own local pane is one sidebar row")
+    func memberDisplayWithLocalPaneIsListedOnce() throws {
+        let state = try state()
+        let catalog = SurfaceCatalog()
+        catalog.replaceCloudState(state, resources: resources(state), info: info(state))
+        // New Display: one pane in the workspace and the one membership token it wrote.
+        catalog.record(SurfaceProjection(
+            resource: SurfaceResourceID(machine: machine, kind: .display, key: displayID),
+            workspaceID: UUID(), panelID: UUID(), remoteWorkspaceID: workspaceID
+        ))
+        let tree = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [MachineSnapshot(id: machine.rawValue, provider: "test", image: "test", isDesktop: true, activity: .ready, createdAt: nil, label: "Display VM")],
+            snapshot: catalog.snapshot, localWorkspaces: [], includeLocalMachine: false
+        ))
+        let workspace = try #require(tree.first { $0.id == CloudTreeNodeBuilder.nodeID(workspace: workspaceID, machine: machine) })
+        let displayRows = workspace.children.filter { node in
+            if case .display(let resource, _, _) = node.kind { return resource.id.key == displayID }
+            return false
+        }
+        #expect(displayRows.count == 1)
+    }
+
     @Test("A frontend projection gives every client the same workspace display row")
     func sameAcceptedSnapshotProjectsOnTwoClients() throws {
         let state = try state()
