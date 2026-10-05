@@ -2,7 +2,7 @@ import AppKit
 import CoreImage
 
 /// The texture treatment applied once to a backdrop image when it is loaded.
-public nonisolated struct BackdropTexture: Equatable, Sendable {
+public nonisolated struct BackdropTexture: Hashable, Sendable {
     /// The selected texture algorithm.
     public let filter: BackdropTextureFilter
     /// The filter strength, from none to full effect.
@@ -26,7 +26,7 @@ public nonisolated struct BackdropTexture: Equatable, Sendable {
 }
 
 /// A texture algorithm supported by the backdrop renderer.
-public nonisolated enum BackdropTextureFilter: String, CaseIterable, Equatable, Sendable {
+public nonisolated enum BackdropTextureFilter: String, CaseIterable, Hashable, Sendable {
     /// Leave the image unchanged.
     case none
     /// Use a 4 by 4 ordered Bayer threshold matrix.
