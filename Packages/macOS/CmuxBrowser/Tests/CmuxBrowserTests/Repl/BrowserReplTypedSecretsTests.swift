@@ -92,6 +92,25 @@ struct BrowserReplTypedSecretsTests {
         #expect(typed.captureMasks(forReader: "reader").count == 2)
     }
 
+    /// A session that types a secret name into a tab again (a new value)
+    /// leaves the earlier value wherever the page kept it (another field,
+    /// its history, a hidden copy) until the tab closes, so both values stay
+    /// masked for other sessions, also after the typing session ends.
+    @Test func aNameTypedAgainKeepsItsEarlierValueMasked() throws {
+        let typed = BrowserReplTypedSecrets()
+        try typed.record(tab: "tab1", name: "password", value: "first-typed-value", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "second-typed-value", domains: Self.domains, typist: "typist")
+        let reader = try #require(typed.redaction(forReader: "reader"))
+        #expect(reader.redact("first-typed-value second-typed-value") == "<secret:password> <secret:password>")
+        typed.sessionLeft("typist")
+        let later = try #require(typed.redaction(forReader: "later"))
+        #expect(later.redact("first-typed-value second-typed-value") == "<secret:password> <secret:password>")
+        #expect(Set(typed.captureMasks(forReader: "later").compactMap { $0["value"] as? String }) == ["first-typed-value", "second-typed-value"])
+        // Typing the same value again is still one record.
+        try typed.record(tab: "tab1", name: "password", value: "second-typed-value", domains: Self.domains, typist: "next")
+        #expect(typed.captureMasks(forReader: "reader").count == 2)
+    }
+
     /// One session types a secret of one name into two tabs: both values
     /// stay masked.
     @Test func sameNamedSecretsInTwoTabsAreBothMasked() throws {
