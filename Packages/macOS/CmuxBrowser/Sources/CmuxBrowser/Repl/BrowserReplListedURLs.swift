@@ -1,4 +1,5 @@
-/// The URLs one session reads in `tabs.list` and `history.search` rows.
+/// The URLs one session reads in `tabs.list`, `frames.list` and
+/// `history.search` rows.
 ///
 /// A tab's URL can carry a credential (a sign-in link's `code`, a signed
 /// download's `X-Amz-Signature`, a `user:password@`). The session that
@@ -21,6 +22,19 @@ public struct BrowserReplListedURLs: Sendable {
     ///   `nil` for a user's tab.
     public func tabRow(_ row: [String: Any], creator: String?) -> [String: Any] {
         creator == reader ? row : Self.redactingURL(row)
+    }
+
+    /// A `frames.list` row as the reader gets it.
+    /// - Parameters:
+    ///   - creator: The live session that created the tab, or `nil` for a
+    ///     user's tab.
+    ///   - blocked: Whether the reader's domain policy blocks the frame.
+    ///
+    /// A frame's URL is redacted as its tab's is, and also in a tab the
+    /// reader created when its policy blocks the frame: the page, not the
+    /// reader, put that URL there, and the reader may not read the frame.
+    public func frameRow(_ row: [String: Any], creator: String?, blocked: Bool) -> [String: Any] {
+        creator == reader && !blocked ? row : Self.redactingURL(row)
     }
 
     /// A `history.search` row as the reader gets it.

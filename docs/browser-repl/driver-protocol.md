@@ -198,14 +198,15 @@ ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<t
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order |
+| `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order. In a tab the session did not create, and for a frame its domain policy blocks, `url` has its userinfo and credential-named query and fragment parameters reading `redacted`, as in `tabs.list`; a blocked frame's `name` is the tree's, not read from the page |
 | `frame.evaluate` | `{ targetId, frameId, world: "agent"\|"page", source, args, awaitPromise, timeoutMs }` | JSON-serializable return value |
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
 
 `world: "agent"` runs in an isolated content world where the driver has
 already installed the page agent (`Resources/browser-repl/page-agent.js`) and
 Playwright's injected script. Cross-origin frames are reachable. `source` is a
-function expression called with `args`. The agent world survives until the
+function expression called with `args`; text that is not one expression on
+its own fails with `invalid` before anything runs (see "Guards"). The agent world survives until the
 frame navigates; after navigation the driver reinstalls it before the next call.
 
 Input to an element in a child frame goes to the tab at the element's point
@@ -273,6 +274,14 @@ until its `up`; another session's input on the tab never carries it.
 | --- | --- | --- |
 | `tab.screenshot` | `{ targetId, clip?, fullPage?, format: "png"\|"jpeg"\|"webp", quality? }` (the session adds `secretMasks`) | `{ base64, width, height }` |
 | `tab.pdf` | `{ targetId, format?, width?, height?, landscape?, printBackground?, margin? }` | `{ base64 }` |
+
+Each screenshot edge is at most 16,384 CSS pixels, and a screenshot has at
+most 2^25 pixels (a full page 2,048 wide and 16,384 tall), counted also
+after the page's zoom, since WebKit snapshots the zoomed view; a larger
+one, or a clip that is not finite, fails with `invalid`. A PDF's paper
+edges must be above 0 and at most 14,400 points (200 inches, the largest
+page a PDF describes without a user unit), its margins 0 or more and
+leaving room on the paper, else `invalid` before anything is printed.
 
 ## Files, dialogs, popups, downloads
 
@@ -516,9 +525,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   nothing in another: a frame keeps its id when it navigates, so a frame
   looked up from an earlier tree read is judged again. Two opaque documents
   have the same origin and place, so an opaque document is judged by its
-  frame's makers as recorded at each call (and again after the script, whose
-  result is refused when a maker recorded meanwhile is blocked), never by an
-  earlier verdict. A frame that shows a
+  frame's makers as recorded at each call, never by an earlier verdict, and
+  the script runs only in the opaque document whose URL (without its
+  fragment) the driver approved: one the frame shows when the script
+  arrives, whose maker WebKit reported after the check, runs nothing and is
+  judged again. A `data:` URL holds its document's content and a `blob:` URL
+  is unique, but an `about:srcdoc` or sandboxed `about:blank` URL tells
+  nothing: for those the makers are judged again after the script, whose
+  result is refused when a maker recorded meanwhile is blocked, and the
+  script may already have run there (residual). The driver's own text in
+  that script runs in a scope of its own after the check, and the agent's
+  `source` must be one expression on its own (else `invalid`, before
+  anything runs), so nothing in it can replace the `location` the check
+  reads or run before the check. A frame that shows a
   blocked page fails with `blocked` (`snapshot()` marks its iframe
   `[not read: blocked by the domain policy]`). A tree read can lack frames
   (WebKit gives no tree, or cannot describe a child): while the policy is

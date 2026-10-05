@@ -460,7 +460,8 @@ rest. Measurements: [performance.md](performance.md).
   userinfo, and each query or fragment parameter named by that rule or by
   a short name URLs use for one (`code`, `sig`, `key`, `otp` and the like)
   reads `redacted`. The same values read `redacted` in the URLs
-  `tabs.list()` gives for tabs the session did not create, and in every
+  `tabs.list()` gives for tabs the session did not create, in the frame
+  URLs of such tabs and of frames its domain policy blocks, and in every
   `tabs.history()` entry (history does not say who visited it).
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
