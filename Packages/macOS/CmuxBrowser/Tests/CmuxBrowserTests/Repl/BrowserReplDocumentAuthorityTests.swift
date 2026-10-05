@@ -132,6 +132,41 @@ struct BrowserReplDocumentAuthorityTests {
         #expect(authority.verdict(BrowserReplAccess(in: mine, capability: .close)) == .allowed)
     }
 
+    @Test("A session uses tabs of its own workspace only: another workspace's tab needs a person's grant")
+    func crossWorkspaceReachIsDenied() {
+        let own = UUID()
+        let elsewhere = UUID()
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", workspaceID: own)
+        let userTabHere = BrowserReplTabFacts(id: UUID(), workspaceID: own)
+        let userTabElsewhere = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: ["s"], workspaceID: elsewhere)
+        #expect(authority.verdict(BrowserReplAccess(in: userTabHere, capability: .use)) == .allowed)
+        for capability in BrowserReplTabCapability.allCases {
+            let verdict = authority.verdict(BrowserReplAccess(in: userTabElsewhere, capability: capability))
+            #expect(verdict.refusal?.code == "denied", "\(capability)")
+            #expect(verdict.refusal?.message.contains("another workspace") == true, "\(capability)")
+        }
+        // Its own popup in another workspace (a tab it created) stays usable.
+        let ownTabElsewhere = BrowserReplTabFacts(id: UUID(), creatorSessionID: "s", attachedSessionIDs: ["s"], workspaceID: elsewhere)
+        #expect(authority.verdict(BrowserReplAccess(in: ownTabElsewhere, capability: .use)) == .allowed)
+        // A tab whose workspace cannot be told is not reachable either.
+        let unplaced = BrowserReplTabFacts(id: UUID(), workspaceID: nil)
+        #expect(authority.verdict(BrowserReplAccess(in: unplaced, capability: .use)).refusal?.code == "denied")
+    }
+
+    @Test("A session never closes a user's tab it is not attached to")
+    func closingAnUnattachedUserTabIsDenied() {
+        let own = UUID()
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", workspaceID: own)
+        let unattached = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: ["other"], workspaceID: own)
+        let closing = authority.verdict(BrowserReplAccess(in: unattached, capability: .close))
+        #expect(closing.refusal?.code == "denied")
+        #expect(authority.verdict(BrowserReplAccess(in: unattached, capability: .use)) == .allowed)
+        let attached = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: ["s"], workspaceID: own)
+        #expect(authority.verdict(BrowserReplAccess(in: attached, capability: .close)) == .allowed)
+        let created = BrowserReplTabFacts(id: UUID(), creatorSessionID: "s", attachedSessionIDs: ["s"], workspaceID: own)
+        #expect(authority.verdict(BrowserReplAccess(in: created, capability: .close)) == .allowed)
+    }
+
     @Test("The policy board's authority carries the session's policy and directories")
     func boardAuthority() throws {
         let board = BrowserReplPolicyBoard()
