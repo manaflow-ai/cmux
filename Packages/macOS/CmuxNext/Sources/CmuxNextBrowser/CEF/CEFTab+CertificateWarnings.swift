@@ -14,6 +14,7 @@ extension CEFTab: BrowserCertificateWarningRevoking {
     }
 
     public var certificateWarningScope: BrowserCertificateWarningScope { .profile }
+    public var canTurnOnCertificateWarnings: Bool { certificateWarningsTurnedOff }
 
     public func turnOnCertificateWarnings() async -> Bool {
         guard certificateWarningsTurnedOff, let browserID, await runtime.clearCertificateExceptions(browserID) else { return false }
