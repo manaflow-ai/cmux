@@ -1,10 +1,10 @@
 {
-  "comment": "Every Mach-O file in a cmux-next app bundle maps to the notices it needs. check_bundle_notices.py fails on a Mach-O that no entry matches and on a missing notice. Requirements: first-party (Contents/Resources/LICENSE), section:<id> (a `<!-- notices-section: <id> -->` marker in Contents/Resources/THIRD_PARTY_LICENSES.md), file:<bundle path> (a non-empty file), ghostty-license-tree:<bundle path> (a Ghostty dependency license tree that verify-ghostty-license-bundle.py accepts). Paths are fnmatch patterns relative to the .app; `*` also matches `/`. Add an entry in the same change that adds a binary.",
+  "comment": "Every Mach-O file in a cmux-next app bundle maps to the notices it needs. check_bundle_notices.py fails on a Mach-O that no entry matches and on a missing notice. Requirements: first-party (Contents/Resources/LICENSE), section:<id> (a `<!-- notices-section: <id> -->` marker in Contents/Resources/THIRD_PARTY_LICENSES.md), file:<bundle path> (a non-empty file), ghostty-license-tree:<bundle path> (a Ghostty dependency license tree that verify-ghostty-license-bundle.py accepts), rust-std (each rustc commit named inside the Mach-O is reviewed in cmux-tui/build-support/notices/toolchains/toolchains.json and its COPYRIGHT-library.html is bundled unchanged under Contents/Resources/toolchain-licenses), zig-std (the reviewed Zig LICENSE is bundled unchanged there). Paths are fnmatch patterns relative to the .app; `*` also matches `/`. Add an entry in the same change that adds a binary.",
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
       "what": "the app: Swift packages, GhosttyKit (static), iroh-ffi Swift bindings, Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle"]
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",
@@ -14,7 +14,7 @@
     {
       "path": "Contents/Frameworks/Iroh.framework/*",
       "what": "iroh-ffi (Rust), manaflow-ai/iroh-ffi at the Package.resolved revision",
-      "notices": ["section:rust-iroh-ffi"]
+      "notices": ["section:rust-iroh-ffi", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
@@ -34,32 +34,32 @@
     {
       "path": "Contents/Resources/bin/cmux",
       "what": "the cmux CLI and daemon (cmux-tui crates; acpmux and libghostty-vt are linked in; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
-      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty"]
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
       "what": "the same cmux-tui binary for remote hosts",
-      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty"]
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux-app-host",
       "what": "app host (cmux-tui crate cmux-app-host)",
-      "notices": ["first-party", "section:rust-cmux-app-host"]
+      "notices": ["first-party", "section:rust-cmux-app-host", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux-cloud",
       "what": "first-party Cloud app server (first-party-apps/cloud/server)",
-      "notices": ["first-party", "section:rust-cmux-cloud"]
+      "notices": ["first-party", "section:rust-cmux-cloud", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux-diff-sidecar",
       "what": "diff viewer sidecar (Native/DiffSidecar)",
-      "notices": ["first-party", "section:rust-cmux-diff-sidecar"]
+      "notices": ["first-party", "section:rust-cmux-diff-sidecar", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/ghostty",
       "what": "Ghostty CLI helper (Zig); the Zig package notices follow in S5",
-      "notices": ["section:manual-ghostty"]
+      "notices": ["section:manual-ghostty", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/libexec/cmux-server-helper",

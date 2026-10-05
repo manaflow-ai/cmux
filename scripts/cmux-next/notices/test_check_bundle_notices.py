@@ -241,6 +241,17 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("Contents/MacOS/app: missing notice zig-std", errors[0])
 
+    def test_the_std_section_names_every_bundled_toolchain_text(self) -> None:
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        manifest = toolchain_notices.load()
+        text = (HERE / "hand-written.md").read_text()
+        section = text.split("## Rust and Zig Standard Libraries\n", 1)[1].split("\n## ", 1)[0]
+        for entry in manifest.texts():
+            self.assertIn(f"`{manifest.bundle_dir}/{entry.file}`", section)
+        for zig in manifest.zig:
+            self.assertIn((toolchain_notices.TEXTS / zig.file).read_text(), section.replace("\n\n---\n", "\n"))
+
     def test_map_requirements_are_well_formed(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for entry in bundle_map["entries"] + bundle_map.get("resources", []):

@@ -561,6 +561,54 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
+<!-- notices-section: manual-rust-and-zig-standard-libraries -->
+## Rust and Zig Standard Libraries
+
+Every Rust binary in this app statically links the Rust standard library
+(`std`, `core`, `alloc`, `compiler_builtins` and the crates they vendor) of
+the rustc that built it. The Rust project publishes the notices for that code
+with each release as `COPYRIGHT-library.html`. This app ships that file,
+unchanged, for each rustc that built one of its binaries:
+
+- `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
+  `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host` and `bin/cmux-cloud`
+- `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
+  `Iroh.framework`
+- `Contents/Resources/toolchain-licenses/rust-1.88.0/COPYRIGHT-library.html`:
+  `bin/cmux-diff-sidecar`
+
+The app (GhosttyNextKit), `bin/cmux` and `bin/cmux-tui-ssh/*` (libghostty-vt)
+and `bin/ghostty` link the Zig 0.16.0 standard library and compiler_rt:
+
+- **License:** MIT License (Expat)
+- **Copyright:** Copyright (c) Zig contributors
+- **Source:** https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz
+- **License text:** `Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE`
+
+The MIT License (Expat)
+
+Copyright (c) Zig contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+---
+
 <!-- notices-section: manual-shared-license-texts -->
 ## Shared License Texts
 
