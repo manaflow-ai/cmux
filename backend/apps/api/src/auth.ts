@@ -148,7 +148,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
  * active and what its grant allows, and carries the classes on the principal.
  * Undefined means refuse (revoked, unknown, or expired grant).
  */
-type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean } | { ok: false }
+type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }
 
 /**
  * Instant revocation (Lawrence Q2): every request of an install asks its UserDO, which answers from
@@ -177,7 +177,9 @@ export const withGrantClasses = async (env: Env, p: Principal): Promise<Principa
   if (p.kind === "session") return p
   if (!p.user || !p.install || !p.grant) return undefined
   const r = await askGrant(env, p.user, p.install, p.grant, p.agent)
-  return r.ok ? { ...p, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified } : undefined
+  if (!r.ok) return undefined
+  const { bound_machine: _ignored, ...base } = p
+  return { ...base, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified, ...(r.bound_machine ? { bound_machine: r.bound_machine } : {}) }
 }
 
 /** Resolves the bearer token: our install JWT, else a Stack session token. */

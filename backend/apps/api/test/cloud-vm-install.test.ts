@@ -88,8 +88,8 @@ describe("VM install at bind", { timeout: 60_000 }, () => {
     expect(ev).toMatchObject({ stream: `cloud:${s.a.team}`, data: { machine: s.machine, kind: "agent.finished", data: { title: "Done: https://example.com/pr/1", outcome: "success" } } })
     expect((await op(s.vmToken, "cloud.vm.event.emit", { machine: s.machine, kind: "shell.exec", at: Date.now(), data: {} })).body.error?.code).toBe("validation.invalid")
     expect((await op(s.vmToken, "cloud.vm.event.emit", { machine: s.machine, kind: "notification", at: Date.now(), data: { title: "x", body: "y".repeat(5000) } })).body.error?.code).toBe("validation.invalid")
-    const codes: Array<string | undefined> = []
-    for (let i = 0; i < 60; i++) codes.push((await op(s.vmToken, "cloud.vm.event.emit", { machine: s.machine, kind: "service.port.opened", at: Date.now(), data: { port: 3000, proto: "tcp" } })).body.error?.code)
+    // Sent at once, so the bucket (burst 50, 10/s refill) cannot refill between them on a slow runner.
+    const codes = (await Promise.all(Array.from({ length: 80 }, () => op(s.vmToken, "cloud.vm.event.emit", { machine: s.machine, kind: "service.port.opened", at: Date.now(), data: { port: 3000, proto: "tcp" } })))).map((r) => r.body.error?.code)
     expect(codes.filter((c) => c === "cloud.rate_limited").length).toBeGreaterThan(0)
     ws.close()
   })

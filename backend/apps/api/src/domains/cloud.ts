@@ -5,6 +5,7 @@ import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.
 import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
+import { applyVmStatus } from "./cloud-vm-status.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
 
 /**
@@ -65,6 +66,10 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly daemon?: { readonly version: string; readonly capabilities: ReadonlyArray<string> }
   /** The link-token keyset version the VM received at bind. */
   readonly keyset_version?: string
+  /** The VM install registered at bind; only it may call the cloud.vm.* ops for this machine. */
+  readonly vm_install?: string
+  /** The VM's last applied status report (private; activity feeds the idle pause). */
+  readonly vm_status?: { readonly state: string; readonly health?: unknown; readonly activity: unknown; readonly at: number }
 }
 
 export interface LedgerRow {
@@ -106,7 +111,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, ...machine } = row
+  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, ...machine } = row
   return machine
 }
 
@@ -163,6 +168,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return watchResult(state, params, ctx)
       case "cloud.machine.bind":
         return bindMachine(state, params, ctx, next)
+      case "cloud.machine.vm_status":
+        return applyVmStatus(state, params, ctx, next)
       case "cloud.prune":
         return prune(state, params, ctx)
       case "cloud.abandoned_clear":

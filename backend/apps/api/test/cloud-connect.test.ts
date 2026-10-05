@@ -1,7 +1,7 @@
 import { CloudConnectInfo, overlayAddress } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { bindFile, createdAndBound, DAEMON, frame, person, post, reply, signedInWithInstall, SIZE, WG_KEY, cloudStub } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, createdAndBound, DAEMON, ensureUser, frame, person, post, reply, signedInWithInstall, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 import { SHARED_TEAM } from "./setup/cloud-teams.ts"
 
 /**
@@ -84,7 +84,7 @@ describe("part 3 through the Worker: team policy cloud.connectServices", { timeo
     const machine = created.body.value.machine.id as string
     const stub = cloudStub(a.team)
     const { json } = await bindFile(stub, machine)
-    expect((await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })).status).toBe(200)
+    expect((await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })).status).toBe(200)
     const full = await post("/v1/read", a.installToken, { op: "cloud.machine.connect_info", params: { machine } })
     expect(full.status, JSON.stringify(full.body)).toBe(200)
     expect(full.body.value.services).toEqual(["daemon", "ssh"])

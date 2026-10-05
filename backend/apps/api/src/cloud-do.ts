@@ -8,6 +8,7 @@ import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { AccessAudit, connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
+import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, VmStatusQueue, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
@@ -75,6 +76,7 @@ export class CloudDO extends OwnerDO<CloudState> {
 
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
     if (op === "cloud.machine.connect_info") {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
       if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
@@ -100,7 +102,7 @@ export class CloudDO extends OwnerDO<CloudState> {
 
   protected maySubscribe(state: CloudState, principal: Principal): boolean {
     // Before the first bind the base checks again on the bound object, which compares the entity.
-    return this.boundEntity() === null ? principal.team !== undefined : this.member(state, principal)
+    return principal.install_kind !== "vm" && (this.boundEntity() === null ? principal.team !== undefined : this.member(state, principal))
   }
 
   protected override subscriberView(state: CloudState): unknown {
@@ -238,15 +240,27 @@ export class CloudDO extends OwnerDO<CloudState> {
     // Without the link signing keyset a bound VM could never check a link token: refuse, token unspent.
     if (!keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
     const keyset = await publicKeyset(keys)
-    const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, now }
+    const vm = await registerVmInstall(this.env, { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk })
+    if (!vm.ok) return { ok: false, code: "owner.unreachable", message: "the VM install could not be registered; retry the bind" }
+    const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, vm_install: vm.id, now }
     // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
     const reply = this.submitSystem("cloud.machine.bind", params, `bind:${crypto.randomUUID()}`).frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t === "reject") return { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" }
     if (reply.t !== "result") return forbidden
-    return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset } }
+    return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset, install: { id: vm.id, user: m.creator, grant: vm.grant } } }
   }
 
   /** RPC from the Worker for cloud.machine.link_token: outside the op stream (no event, no ledger replay). */
+  /** RPC from the Worker for cloud.vm.status.report and cloud.vm.event.emit (VM installs, own machine only; cloud-vm.ts). */
+  async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
+    const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    const now = Date.now() + this.skewMs
+    if (op === "cloud.vm.status.report") return vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`), now)
+    return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
+  }
+  private readonly vmEvents = new VmEventBuckets()
+  private readonly vmStatus = new VmStatusQueue(this.sqlStore)
+
   async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
@@ -360,8 +374,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     const times = Object.values(state.pending).map((p) => p.due_at)
     const prune = this.pruneAt(state)
     if (prune !== null) times.push(prune)
-    const auditDue = this.audit.pruneDueAt()
-    if (auditDue !== null) times.push(auditDue)
+    for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt()]) if (t !== null) times.push(t)
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {
@@ -379,6 +392,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     for (const m of machines) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
+    for (const d of this.vmStatus.takeDue(now)) this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
     const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team
     if (!driver || !team) return
