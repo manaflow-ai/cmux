@@ -10,6 +10,7 @@ import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
 import { TimeRangeEditor } from "./TimeRangeEditor";
 import { ToggleEditor } from "./ToggleEditor";
+import { SearchTemplateEditor } from "./SearchTemplateEditor";
 import { UrlEditor } from "./UrlEditor";
 import type { EditorProps } from "./types";
 
@@ -37,7 +38,11 @@ export function Editor(props: EditorProps): ReactNode {
     case "sound":
       return <SoundEditor {...props} />;
     case "url":
-      return <UrlEditor {...props} />;
+      return row.validation === "domain:search_template" ? (
+        <SearchTemplateEditor {...props} />
+      ) : (
+        <UrlEditor {...props} />
+      );
     case "host_list":
       return <HostListEditor {...props} />;
     case "folder_list":
