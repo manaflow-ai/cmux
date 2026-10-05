@@ -777,3 +777,32 @@ fn a_collapsed_previous_section_is_not_skipped_for_the_one_above_it() {
         Some(Target::Position { section: machine("cloud"), group: None, index: 0 })
     );
 }
+
+/// Swift expandedGroupHeaderZones and sectionHeaderTargetsTopOrPreviousSectionEnd
+/// (ec4d1034372^) drag c: a stays at index 0, so the expanded G1 header is
+/// index 1, and the top of the local header is the end of pinned.
+#[test]
+fn expanded_group_header_zones_while_dragging_c_match_swift() {
+    let rows = rows_without(&["c"], None);
+    let resolve_c = |key: RowKey, fraction: f64| {
+        let row = rows.iter().find(|row| row.key == key).unwrap();
+        resolve(&request_with_rows(
+            row.y + row.height * fraction,
+            Payload::Workspaces { ids: vec!["c".into()] },
+            rows.clone(),
+            sections(),
+        ))
+    };
+    assert_eq!(
+        resolve_c(RowKey::Group { id: "g1".into() }, 0.2),
+        Some(Target::Position { section: machine("local"), group: None, index: 1 })
+    );
+    assert_eq!(
+        resolve_c(RowKey::Group { id: "g1".into() }, 0.7),
+        Some(Target::Position { section: machine("local"), group: Some("g1".into()), index: 0 })
+    );
+    assert_eq!(
+        resolve_c(RowKey::Section { id: machine("local") }, 0.1),
+        Some(Target::Position { section: SectionId::Pinned, group: None, index: 1 })
+    );
+}
