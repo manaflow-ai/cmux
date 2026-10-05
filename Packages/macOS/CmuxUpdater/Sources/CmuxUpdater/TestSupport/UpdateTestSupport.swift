@@ -115,18 +115,24 @@ public struct UpdateTestSupport {
         }
     }
 
+    /// `CMUX_UI_TEST_UPDATE_DESCRIPTION`, `_PUB_DATE`, and `_LENGTH` override the item's
+    /// feed description, publication date, and download size.
     private static func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
+        let env = ProcessInfo.processInfo.environment
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",
-            "length": "1024",
+            "length": env["CMUX_UI_TEST_UPDATE_LENGTH"] ?? "1024",
             "sparkle:version": displayVersion,
             "sparkle:shortVersionString": displayVersion,
         ]
-        let dict: [String: Any] = [
+        var dict: [String: Any] = [
             "title": "cmux \(displayVersion)",
-            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "pubDate": env["CMUX_UI_TEST_UPDATE_PUB_DATE"] ?? "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": enclosure,
         ]
+        if let description = env["CMUX_UI_TEST_UPDATE_DESCRIPTION"] {
+            dict["description"] = description
+        }
         return SUAppcastItem(dictionary: dict)
     }
 }
