@@ -18473,6 +18473,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "importAndSync.show",
