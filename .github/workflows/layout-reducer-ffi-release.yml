@@ -83,12 +83,18 @@ jobs:
           for arch in arm64 x86_64; do
             [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
           done
-          # Every C entry point in the header is exported from the archive.
-          # nm's output is read once: `nm | grep -q` under pipefail fails on
-          # the SIGPIPE grep -q causes when it matches early.
-          symbols="$(nm -g "$lib" 2>/dev/null || true)"
-          for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
-            grep -q " T _$symbol\$" <<<"$symbols" || { echo "::error::$lib does not export $symbol" >&2; exit 1; }
+          # Every C entry point in the header is a defined external symbol in
+          # each slice. Names are read once per slice (no `nm | grep -q`,
+          # which fails under pipefail on the early-exit SIGPIPE).
+          for arch in arm64 x86_64; do
+            names="$(nm -g -U -j -arch "$arch" "$lib" 2>&1 || true)"
+            for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
+              if ! grep -qx "_$symbol" <<<"$names"; then
+                echo "::error::$lib ($arch) does not export $symbol; nm -g -U -j printed:" >&2
+                head -n 40 <<<"$names" >&2
+                exit 1
+              fi
+            done
           done
           dist="$RUNNER_TEMP/dist"
           rm -rf "$dist"; mkdir -p "$dist"
