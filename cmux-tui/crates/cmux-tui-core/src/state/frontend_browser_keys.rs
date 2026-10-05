@@ -32,7 +32,7 @@ pub(crate) const FRONTEND_BROWSER_TAB_KEYS_CAPABILITY: &str = "frontend-browser-
 
 /// Serializes keyed creations (process-wide; held for the whole creation and
 /// taken before every other lock).
-static KEYED_CREATION: Mutex<()> = Mutex::new(());
+pub(crate) static KEYED_CREATION: Mutex<()> = Mutex::new(());
 
 pub(crate) fn create_frontend_browser_keys_schema(tx: &Transaction<'_>) -> anyhow::Result<()> {
     tx.execute_batch(

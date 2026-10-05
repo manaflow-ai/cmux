@@ -1,31 +1,26 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 
-/// Session-local tabs a pane lists after its daemon and browser tabs: agent
-/// chats (`AgentTabStore`) and internal pages (`InternalPageTabStore`).
+/// Session-local tabs a pane lists after its daemon and browser tabs:
+/// internal pages (`InternalPageTabStore`). Agent chat tabs are store tabs
+/// (cmux-tui/spec/commands.md, new-conversation-tab); internal pages are a named gap in
+/// plans/cmux-next/ownership.md.
 extension AppServices {
-    /// Strip items of `paneKey`'s agent and page tabs, in that order.
+    /// Strip items of `paneKey`'s page tabs.
     func localTabItems(in paneKey: String, hiding closed: Set<String>) -> [StripTabItem] {
-        agentTabs.tabIDs(in: paneKey).filter { !closed.contains($0) }.map(agentTabs.stripItem)
-            + pages.tabIDs(in: paneKey).filter { !closed.contains($0) }.map(pages.stripItem)
+        pages.tabIDs(in: paneKey).filter { !closed.contains($0) }.map(pages.stripItem)
     }
 
-    /// Closes an agent or page tab. False for any other tab.
+    /// Closes a page tab. False for any other tab.
     func closeLocalTab(_ key: String) -> Bool {
-        if key.hasPrefix(LocalAgentTab.prefix) {
-            agentTabs.close(key)
-        } else if key.hasPrefix(LocalPageTab.prefix) {
-            pages.close(key)
-        } else {
-            return false
-        }
+        guard key.hasPrefix(LocalPageTab.prefix) else { return false }
+        pages.close(key)
         cache.release(key)
         return true
     }
 
-    /// Closes the agent and page tabs of panes `store` no longer lists.
+    /// Closes the page tabs of panes `store` no longer lists.
     func closeGoneLocalTabs(in store: DaemonStore) {
-        agentTabs.closeGonePanes(in: store)
         pages.closeGonePanes(in: store)
     }
 }

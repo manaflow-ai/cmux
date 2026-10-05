@@ -172,8 +172,13 @@ fn handle(stream: UnixStream, host: &Host) -> io::Result<()> {
                     Some("script") => "script",
                     _ => "cli",
                 };
-                let caller =
-                    Caller { actor: actor.clone(), on_behalf_of: None, origin: origin.into() };
+                // The host's own 0600 socket: a local caller (CALLER-LOCALITY).
+                let caller = Caller {
+                    actor: actor.clone(),
+                    on_behalf_of: None,
+                    origin: origin.into(),
+                    locality: crate::locality::CallerLocality::Local,
+                };
                 match host.dispatch(&caller, method, &params) {
                     Ok(result) => json!({"id": id, "result": result}),
                     Err(error) => json!({"id": id, "error": error.to_json()}),

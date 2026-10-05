@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod fetch;
 mod guards;
 
 /// Per-session grants decided by the session's opener (user or mux).
@@ -23,7 +24,13 @@ mod guards;
 pub struct Grants {
     /// `browser.cdp`: raw CDP on Chromium tabs.
     pub raw_cdp: bool,
+    /// The session's origin is not the machine the browser runs on (a
+    /// relay): loopback and private ranges are refused (FETCH-PRIVATE-RANGES).
+    pub remote: bool,
 }
+
+/// Entries the host keeps in its log of blocked requests.
+const MAX_LOG: usize = 1000;
 
 pub struct Gate {
     driver: Arc<dyn Driver>,
@@ -31,7 +38,15 @@ pub struct Gate {
     vault: Mutex<Vault>,
     grants: Grants,
     /// Navigations the policy refused (`session.blockedNavigations()`).
-    log: Mutex<Vec<Value>>,
+    log: Arc<Mutex<Vec<Value>>>,
+    /// `net.fetch` calls in flight: the request filter stays installed
+    /// while any runs, so every redirect hop meets the range rule.
+    fetches: std::sync::atomic::AtomicUsize,
+    /// The newest requests the filter refused (URL, reason), so a fetch
+    /// that failed on a redirect hop can say which hop and why. Not the
+    /// agent-visible log: main logs navigations and fetches, not
+    /// subresources.
+    filtered: Arc<Mutex<std::collections::VecDeque<(u64, String, String)>>>,
     /// False while a policy is active that the engine cannot enforce on the
     /// page's own requests (no request filter): every call fails closed.
     filter_enforced: std::sync::atomic::AtomicBool,
@@ -55,7 +70,9 @@ impl Gate {
             policy: Arc::new(Mutex::new(Policy::default())),
             vault: Mutex::new(Vault::default()),
             grants,
-            log: Mutex::new(Vec::new()),
+            log: Arc::default(),
+            fetches: std::sync::atomic::AtomicUsize::new(0),
+            filtered: Arc::default(),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
             inputs: None,
@@ -100,7 +117,12 @@ impl Gate {
     }
 
     /// Masks a driver event for this session; a closed tab's record ends.
+    /// A response from a refused address stops the tab's load (DNS
+    /// rebinding, after the fact).
     pub fn mask_event(&self, name: &str, payload: &Value) -> Value {
+        if name == "response" {
+            self.check_rebinding(payload);
+        }
         let target = payload.get("targetId").and_then(Value::as_str);
         let masked = self.mask_for_target(target, payload);
         if matches!(name, "tab.gone" | "tab.closed")
@@ -131,18 +153,31 @@ impl Gate {
             let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
             policy.base().is_active() || policy.agent().is_active()
         };
-        let filter: Option<crate::driver::RequestFilter> = active.then(|| {
-            let policy = self.policy.clone();
+        let fetching = self.fetches.load(std::sync::atomic::Ordering::SeqCst) > 0;
+        let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
+            let (policy, filtered, remote) =
+                (self.policy.clone(), self.filtered.clone(), self.grants.remote);
             // The session's policy is the same for every tab it drives.
             let filter: crate::driver::RequestFilter = Arc::new(move |_target: &str, url: &str| {
                 let parsed = url::Url::parse(url).ok()?;
-                policy.lock().unwrap_or_else(PoisonError::into_inner).subresource_refusal(&parsed)
+                let reason = {
+                    let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
+                    policy
+                        .subresource_refusal(&parsed)
+                        .or_else(|| policy.egress_refusal(&parsed, remote))
+                }?;
+                let mut filtered = filtered.lock().unwrap_or_else(PoisonError::into_inner);
+                if filtered.len() >= 64 {
+                    filtered.pop_front();
+                }
+                let seq = filtered.back().map_or(1, |entry| entry.0 + 1);
+                filtered.push_back((seq, url.to_owned(), reason.clone()));
+                Some(reason)
             });
             filter
         });
-        let wanted = filter.is_some();
         let installed = self.driver.set_request_filter(filter);
-        self.filter_enforced.store(!wanted || installed, std::sync::atomic::Ordering::SeqCst);
+        self.filter_enforced.store(!active || installed, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Owner-side secrets (`browser.secrets.load`): values never enter the VM.
@@ -202,20 +237,26 @@ impl Gate {
             }
             _ => ("", None),
         };
-        if let Some(url) = url {
-            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(reason) = policy.navigation_refusal(url) {
-                let at = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-                self.log.lock().unwrap_or_else(PoisonError::into_inner).push(json!({
-                    "url": url, "reason": reason, "at": at, "blocked": "before"
-                }));
-                return Err(Self::refuse(format!("{title}: {url} is blocked: {reason}")));
-            }
+        if let Some(url) = url
+            && let Some(reason) = self.url_refusal(url)
+        {
+            push_log(
+                &self.log,
+                json!({"url": url, "reason": reason, "at": now_ms(), "blocked": "before"}),
+            );
+            return Err(Self::refuse(format!("{title}: {url} is blocked: {reason}")));
         }
         Ok(())
+    }
+
+    /// The domain policy and the range rule for a URL the agent opens or
+    /// fetches (navigations and fetch never disagree).
+    fn url_refusal(&self, url: &str) -> Option<String> {
+        let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+        policy.navigation_refusal(url).or_else(|| {
+            let parsed = url::Url::parse(url).ok()?;
+            policy.egress_refusal(&parsed, self.grants.remote)
+        })
     }
 
     /// Replaces a `{__secret: name}` handle in `params[field]` with its text.
@@ -328,6 +369,7 @@ impl VmHost for Gate {
         let target = target.as_deref();
         let result = match method {
             "tab.screenshot" | "tab.pdf" => self.capture(method, &params),
+            "net.fetch" => self.fetch(&params),
             _ => self
                 .driver
                 .call_announced(method, &params, &mut announce)
@@ -506,6 +548,19 @@ impl Gate {
             other => Err(format!("policy: unknown operation {other:?}")),
         }
     }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Appends to the host's log of blocked requests, keeping the newest.
+fn push_log(log: &Mutex<Vec<Value>>, entry: Value) {
+    let mut log = log.lock().unwrap_or_else(PoisonError::into_inner);
+    if log.len() >= MAX_LOG {
+        log.remove(0);
+    }
+    log.push(entry);
 }
 
 fn strings(value: &Value) -> Vec<String> {

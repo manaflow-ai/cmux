@@ -181,21 +181,20 @@ enum NewTabPage {
 }
 
 extension PaneController {
-    /// New Tab Page: an agent tab showing the new tab page, beside the
-    /// selected tab, with that tab's kind selected and folder inherited.
+    /// New Tab Page: an agent tab showing the new tab page, where the store
+    /// places a new tab, with the selected tab's kind selected and folder inherited.
     /// Adopts the window's prewarmed spare page when it has one
     /// (NewTabSparePool), else the page loads cold.
     func newTabPage() {
         let start = ContinuousClock.now
-        let selectedID = stripModel.selectedID?.rawValue
         let cwd = selectedTab?.cwd
         let page = NewTabPage.page(services, selected: selectedTab)
         let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, request in
             if let self { BenchSpans.measure("newTab.replace") { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) } }
         }
-        let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
         let spare = services.newTabSpares.take(for: view.window)
-        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler), spare: spare?.view))
+        // The tab shows at once (a store intent); the store's tab replaces it when it answers.
+        guard openAgentTab(newTab: (page, handler), spare: spare?.view) else { return }
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
         if spare != nil, services.presentation.showNow(self) {

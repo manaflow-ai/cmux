@@ -26,17 +26,27 @@ import Testing
         var intents: [WindowActivation.Intent] = []
     }
 
+    static let agentTab = "tab_" + String(repeating: "a", count: 32)
+
     /// w1 holds one pane of two tabs, its second the daemon's default; w2 one
-    /// plain tab. The window lists both and shows w2.
-    static func fixture(resourceIDs: Bool = true) throws -> (AppServices, WindowController, Recorder) {
+    /// plain tab. The window lists both and shows w2. With `agentSession`, w1's
+    /// pane also lists an agent chat tab on that acpmux session (`agentTab`).
+    static func fixture(resourceIDs: Bool = true, agentSession: String? = nil) throws -> (AppServices, WindowController, Recorder) {
         let services = ActionBindingCoverageTests.boundServices()
         services.windows.ordersWindowsIn = false
+        services.agentTabs.localHost = AgentTabFixture.host
         let recorder = Recorder()
         services.showJumpWindow = { _, intent in recorder.intents.append(intent) }
-        let tabs = [
+        var tabs = [
             TabSnapshot(surface: 5, tabResourceID: resourceIDs ? ResourceID(rawValue: firstTab) : nil, title: "one"),
             TabSnapshot(surface: 6, tabResourceID: resourceIDs ? ResourceID(rawValue: secondTab) : nil, title: "two"),
         ]
+        if let agentSession {
+            var agent = TabSnapshot(surface: 7, tabResourceID: ResourceID(rawValue: agentTab), kind: .conversation,
+                                    title: "about:blank", browserRenderer: "frontend")
+            agent.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: AgentTabFixture.host, session: agentSession))
+            tabs.append(agent)
+        }
         let pane = PaneSnapshot(id: 3, resourceID: resourceIDs ? ResourceID(rawValue: paneID) : nil, activeTab: 1, tabs: tabs)
         let first = WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: key), resourceID: resourceIDs ? ResourceID(rawValue: workspaceID) : nil,
                                       name: "w1", screens: [ScreenSnapshot(id: 4, layout: .leaf(3), panes: [pane])])
@@ -140,14 +150,12 @@ import Testing
     /// A session already shown in a tab selects that tab; no second tab
     /// opens. Its turn waits for the page.
     @Test func aSessionShownInATabReusesTheTab() throws {
-        let (services, window, recorder) = try Self.fixture()
-        defer {
-            services.agentTabs.closePane(Self.paneID)
-            window.window?.close()
-        }
-        let key = services.agentTabs.open(in: Self.paneID, of: services.daemon.store, session: "s-1")
+        let (services, window, recorder) = try Self.fixture(agentSession: "s-1")
+        defer { window.window?.close() }
+        let key = Self.agentTab
         #expect(Self.open(services, "session/s-1#turn-t-4") == .ran)
-        #expect(services.agentTabs.tabIDs(in: Self.paneID) == [key])
+        let tabs = services.daemon.store.pane(3)?.tabs.map(\.id)
+        #expect(tabs == [Self.firstTab, Self.secondTab, key], "no second tab opens")
         #expect(window.state.workspaceID == Self.key)
         #expect(window.state.selection.selection(in: Self.paneID) == key)
         #expect(services.agentTabs.pendingTurn(in: key) == "t-4")

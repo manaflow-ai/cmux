@@ -36,12 +36,13 @@ struct FakeHost {
 
 impl VmHost for FakeHost {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
-        self.calls.lock().unwrap().push((method.to_owned(), params));
+        self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
         match method {
             "tab.info" => Ok(json!({"url": "https://a.test/", "title": "A"})),
             "tab.navigate" => {
                 Err(DriverError::new(crate::protocol::ErrorCode::Forbidden, "blocked by policy"))
             }
+            "net.fetch" => Ok(json!({"url": params["url"], "status": 200, "bodyBase64": "aGk="})),
             _ => Err(DriverError::unsupported_method(method)),
         }
     }
@@ -213,13 +214,20 @@ fn fs_is_sandboxed_to_the_session_root() {
 }
 
 #[test]
-fn fetch_answers_through_the_result_callback() {
-    let (vm, _) = session(0);
+fn native_fetch_is_the_gates_net_fetch() {
+    let (vm, host) = session(0);
     let out = vm.eval(
-        "testNative.fetch(99, JSON.stringify({url: 'https://a.test/'})); for (let i = 0; i < 100 && !results.length; i++) await new Promise((r) => setTimeout(r, 10)); return JSON.parse(results[0][1]).code;",
+        "testNative.fetch(99, JSON.stringify({url: 'https://a.test/', targetId: 'T'})); for (let i = 0; i < 100 && !results.length; i++) await new Promise((r) => setTimeout(r, 10)); return JSON.parse(results[0][2]).status;",
         Duration::from_secs(5),
     );
-    assert_eq!(lines(&out), vec!["\"unsupported\""]);
+    assert_eq!(lines(&out), vec!["200"], "{out:?}");
+    let calls = host.calls.lock().unwrap();
+    assert!(
+        calls.iter().any(|(m, p)| m == "net.fetch"
+            && p["url"] == "https://a.test/"
+            && p["targetId"] == "T"),
+        "{calls:?}"
+    );
 }
 
 #[test]

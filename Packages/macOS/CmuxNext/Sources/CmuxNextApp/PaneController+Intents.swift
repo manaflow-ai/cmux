@@ -195,6 +195,7 @@ extension PaneController {
                 continue
             }
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
+            if services.madeAgentTabs?.closeWhenCreated(id.rawValue, close: { [weak self] real in self?.close([StripTabID(real)]) }) == true { continue }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
