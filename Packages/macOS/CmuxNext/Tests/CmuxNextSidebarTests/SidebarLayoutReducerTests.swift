@@ -21,7 +21,8 @@ import Testing
     // MARK: Defaults
 
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
-        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
+        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref)
+            == [.app("cmux/home"), .app("cmux/app-store"), .builtIn(.newWorkspace), .builtIn(.importSync)])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
         #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
