@@ -240,6 +240,8 @@ The CI lead owns the workflow, signing and the manifest entry; this is the binar
 - No `cdp.detach` when no session uses a CEF tab any more; tie it to the lease (release, session end).
 - Lease follow-ups (review of the lease integration, browser lead v4): an agent release op and an idle TTL that ends a session's leases; a host-side allowlist of driver methods in `ProviderEngine::call` (unknown methods with a `targetId` are passed to the app today); `tab.pdf` as observe and `tab.keep` without a lease when those methods exist; the reader thread writes `lease` frames (the app must read on its own thread); decide user-origin REPL sessions.
 
+- Known gap (a9 raw_value, 2026-10-05; owner v4, CEF provider): script values keep the page's object key order only on headless CDP (`Reply::Json` through `Driver::call_reply_announced`). CEF tabs through `ProviderEngine` and WebKit tabs still return a parsed `Value`, so their objects arrive with sorted keys (scenario 32 `search-duckduckgo`, `search-bing`). Fix: forward `call_reply_announced` in `ProviderEngine` to the tab's `CdpDriver`, and give the WebKit provider path a raw JSON reply.
+
 ## 7. Prototype switches (DEV and NIGHTLY)
 
 - `CMUX_BROWSER_SNAPSHOT_CORE=js|rust`: snapshot.js in the VM versus the Rust port; both must print byte-identical goldens.
