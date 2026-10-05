@@ -36,7 +36,18 @@ extension SettingsWindowService {
             "backdrops": .array(Self.backdrops.choices.map { choice in
                 ["id": .string(choice.id), "title": .string(choice.title), "attribution": .string(choice.attribution)]
             }),
+            "derived": .object(pageDerivedNumbers()),
         ]
+    }
+
+    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
+    func pageDerivedNumbers() -> [String: JSONValue] {
+        var derived: [String: JSONValue] = [:]
+        for path in [WindowBackgroundSetting.opacityPath] {
+            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedNumber(at: path) else { continue }
+            derived[id] = .number(value)
+        }
+        return derived
     }
 
     /// The wallpaper grid's choices (bounded: a large Desktop Pictures folder stays quick).
