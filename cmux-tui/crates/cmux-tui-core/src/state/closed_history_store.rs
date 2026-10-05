@@ -218,7 +218,7 @@ pub(crate) fn drain_pending_changes(
     Ok(())
 }
 
-fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
+pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
     Ok(connection
         .query_row(
             "SELECT ephemeral FROM workspace_state WHERE workspace_id = ?1",
