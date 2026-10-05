@@ -75,7 +75,7 @@ extension BrowserPanel {
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
-                             activate: Bool = true) {
+                             activate: Bool = true, automaticRetry: Bool = true) {
         pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
         let isGlobalDock = DockSplitStore.liveStore(containingPanel: id)?.scope == .global
@@ -92,7 +92,8 @@ extension BrowserPanel {
         guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
             showCloudRestoreUnavailable(
                 resource,
-                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect.")
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetry: automaticRetry
             )
             return
         }
@@ -103,7 +104,8 @@ extension BrowserPanel {
             showCloudRestoreUnavailable(
                 resource,
                 provider: provider,
-                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect.")
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetry: automaticRetry
             )
             return
         }
@@ -129,7 +131,8 @@ extension BrowserPanel {
     private func showCloudRestoreUnavailable(
         _ resource: SurfaceResourceID,
         provider: CmuxTuiSurfaceProvider? = nil,
-        message: String
+        message: String,
+        automaticRetry: Bool
     ) {
         let preferredURL = pendingCloudRestoreURL
         cloudAccess.showUnavailable(message) { [weak self] request in
@@ -142,8 +145,9 @@ extension BrowserPanel {
                 _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
             }
             guard self.cloudAccess.isCurrentUnavailableRetry(request) else { return }
-            self.restoreCloudResource(resource, preferredURL: preferredURL)
+            self.restoreCloudResource(resource, preferredURL: preferredURL, automaticRetry: false)
         }
+        if automaticRetry { cloudAccess.retryUnavailable() }
     }
 
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
