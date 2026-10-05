@@ -26,7 +26,7 @@ import Foundation
 import os
 import Bonsplit
 import WebKit
-import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
@@ -1834,6 +1834,18 @@ class TerminalController {
             return v2Result(id: request.id, v2MobileCompatibleTagsGet())
         case "mobile.compatible_tags.set":
             return v2Result(id: request.id, v2MobileCompatibleTagsSet(params: request.params))
+        case "extension.sidebar.status", "extension.sidebar.reconnect":
+            guard request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil else {
+                return v2Error(id: request.id, code: "permission_denied", message: "Sidebar recovery is local only")
+            }
+            return v2MainSync {
+                if request.method == "extension.sidebar.reconnect" {
+                    guard CMUXSidebarRecoveryDiagnostics.reconnect(bundleID: request.params["bundle_id"] as? String) else {
+                        return self.v2Error(id: request.id, code: "not_active", message: "No matching selected sidebar provider is hosted")
+                    }
+                }
+                return self.v2Ok(id: request.id, result: CMUXSidebarRecoveryDiagnostics.status())
+            }
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":

@@ -12,6 +12,7 @@ public import SwiftUI
     /// Tracks the configuration currently installed on the host view controller.
     @_spi(CmuxHostTransport) public final class Coordinator: NSObject, EXHostViewControllerDelegate {
         fileprivate var currentKey: HostConfigurationKey?
+        private var isTornDown = false
         private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
         private let onDeactivation: (@MainActor ((any Error)?) -> Void)?
         private let onTeardown: (@MainActor () -> Void)?
@@ -27,7 +28,7 @@ public import SwiftUI
         }
 
         public func hostViewControllerDidActivate(_ viewController: EXHostViewController) {
-            guard let onConnection else { return }
+            guard !isTornDown, let onConnection else { return }
             do {
                 onConnection(try viewController.makeXPCConnection())
             } catch {
@@ -36,17 +37,20 @@ public import SwiftUI
         }
 
         public func hostViewControllerWillDeactivate(_ viewController: EXHostViewController, error: (any Error)?) {
+            guard !isTornDown else { return }
             onDeactivation?(error)
         }
 
         @MainActor
         func teardown() {
+            guard !isTornDown else { return }
+            isTornDown = true
             onTeardown?()
         }
     }
 
     fileprivate struct HostConfigurationKey: Equatable {
-        var bundleIdentifier: String
+        var identity: AppExtensionIdentity
         var sceneID: String
     }
 
@@ -115,6 +119,6 @@ public import SwiftUI
     }
 
     private var configurationKey: HostConfigurationKey {
-        HostConfigurationKey(bundleIdentifier: identity.bundleIdentifier, sceneID: sceneID)
+        HostConfigurationKey(identity: identity, sceneID: sceneID)
     }
 }
