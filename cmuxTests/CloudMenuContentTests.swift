@@ -154,6 +154,54 @@ struct CloudMenuContentTests {
         #expect(CloudMenuTone(expired) == .locked)
     }
 
+    @Test("Delete routes the current machine display name, including after a rename")
+    func deleteMenuUsesCurrentDisplayName() throws {
+        var confirmedIDs: [String] = []
+        var confirmedNames: [String] = []
+        let verbs = CloudMachineMenuVerbs(
+            openShell: { _ in }, newWorkspace: { _ in }, openDesktop: { _ in },
+            runCommand: { _, _ in }, promptRename: { _ in }, copyToPasteboard: { _ in },
+            confirmDelete: {
+                confirmedIDs.append($0.id)
+                confirmedNames.append($0.displayName)
+            }, promptUpgrade: {}
+        )
+        let initial = MachineSnapshot(id: "vm-opaque-16336", provider: "freestyle", image: "cmux-devbox", isDesktop: false, activity: .ready, slug: "crisp-rose-piglet")
+        let renamed = MachineSnapshot(id: initial.id, provider: initial.provider, image: initial.image, isDesktop: false, activity: .ready, label: "new-cloud-name", slug: initial.slug)
+        for machine in [initial, renamed] {
+            let entry = try #require(verbs.deleteEntries(machine).first)
+            guard case .action(let action) = entry else { Issue.record("Delete entry should be an action"); return }
+            action.perform()
+        }
+        #expect(confirmedIDs == [initial.id, renamed.id])
+        #expect(confirmedNames == [initial.displayName, renamed.displayName])
+    }
+
+    @Test("Delete title uses a named machine and falls back for a blank name")
+    func deleteConfirmationTitleUsesReadableName() {
+        let format = String(localized: "machines.delete.title", defaultValue: "Delete machine “%@”?")
+        let named = MachineSnapshot(
+            id: "vm-opaque-16336",
+            provider: "freestyle",
+            image: "cmux-devbox",
+            isDesktop: false,
+            activity: .ready,
+            slug: "crisp-rose-piglet"
+        )
+        #expect(MachineRowActions.deleteConfirmationTitle(for: named) == String(format: format, "crisp-rose-piglet"))
+
+        let blank = MachineSnapshot(
+            id: named.id,
+            provider: named.provider,
+            image: named.image,
+            isDesktop: named.isDesktop,
+            activity: named.activity,
+            label: " ",
+            slug: "\t"
+        )
+        #expect(MachineRowActions.deleteConfirmationTitle(for: blank) == String(format: format, "vm-opaque-16336"))
+    }
+
     @Test("Status item renders machines with a status dot and dimmed state")
     func appKitRendering() throws {
         let recorder = Recorder()
@@ -272,9 +320,9 @@ struct CloudMenuContentTests {
                     newWorkspace: { self.log.append("newWorkspace:\($0)") },
                     openDesktop: { self.log.append("desktop:\($0)") },
                     runCommand: { self.log.append("run:\($0):\($1.joined(separator: " "))") },
-                    promptRename: { id, _ in self.log.append("rename:\(id)") },
+                    promptRename: { machine in self.log.append("rename:\(machine.id)") },
                     copyToPasteboard: { self.log.append("copy:\($0)") },
-                    confirmDelete: { self.log.append("delete:\($0)") },
+                    confirmDelete: { self.log.append("delete:\($0.id)") },
                     promptUpgrade: { self.log.append("upgradeMachine") }
                 )
             )

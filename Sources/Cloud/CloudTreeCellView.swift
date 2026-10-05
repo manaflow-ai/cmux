@@ -288,11 +288,31 @@ final class CloudTreeCellView: NSTableCellView {
         let description = CloudTreeRowToolTip.describe(node: node, style: style, presenceHeads: presenceHeads)
         toolTip = description.toolTip
         setAccessibilityLabel(description.accessibilityLabel)
+        // A header keeps its icon's clickable spot across reloads: SwiftUI
+        // reports the icon's frame only when it moves, and a reload that
+        // leaves it in place would otherwise leave the header with no
+        // clickable spot, so a click on the icon would toggle the section.
+        if CloudTreeRowContentView.sectionRefresh(for: node.kind) == nil { displayHost.interactiveRects = [] }
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style, resources: node.resourceSection)
+            CloudTreeRowContentView(
+                kind: node.kind, presenceHeads: presenceHeads, style: style, resources: node.resourceSection,
+                onRefresh: Self.sectionRefreshAction(node.kind, configuredNodeActions),
+                onInteractiveFrame: { [weak displayHost] frame in displayHost?.interactiveRects = frame.map { [$0] } ?? [] }
+            )
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .coordinateSpace(.named(CloudTreePassthroughHostingView.coordinateSpace))
         )
+    }
+
+    /// The refresh a section header's icon runs; nil for every other row.
+    private static func sectionRefreshAction(_ kind: CloudTreeNode.Kind, _ actions: CloudTreeNodeActions?) -> (() -> Void)? {
+        guard let actions else { return nil }
+        switch kind {
+        // The panel's one refresh: the fleet and the account's other devices.
+        case .cloudMachinesSection, .devicesSection: return { actions.refresh() }
+        default: return nil
+        }
     }
 
     /// Rows the pointer can act on take the shared hover fill. Create rows and
@@ -388,13 +408,28 @@ final class CloudTreeCellView: NSTableCellView {
 /// A hosting view that is invisible to hit testing, so the outline row beneath
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
+    /// The coordinate space a row's content reports its clickable spots in.
+    static let coordinateSpace = "CloudTreeRowContent"
     var passesThrough = true
+    /// Spots that take clicks even while the rest passes through, like a
+    /// section header's refresh icon, in this view's (flipped) coordinates.
+    var interactiveRects: [CGRect] = []
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard passesThrough else { return super.hitTest(point) }
+        let local = convert(point, from: superview)
+        if interactiveRects.contains(where: { $0.contains(local) }) { return super.hitTest(point) }
         // The outline owns all ordinary row interaction. Returning nil here is
         // what keeps a header click from being swallowed by the SwiftUI host.
         return nil
+    }
+
+    /// Whether a click (or this view's whole content) goes to SwiftUI.
+    func acceptsClick(_ event: NSEvent?) -> Bool {
+        guard passesThrough else { return true }
+        guard let event else { return false }
+        let local = convert(event.locationInWindow, from: nil)
+        return interactiveRects.contains { $0.contains(local) }
     }
 }
 

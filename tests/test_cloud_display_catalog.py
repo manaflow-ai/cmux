@@ -271,17 +271,102 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertIs(service.named_processes[number]["openbox"], replacement)
         service.shutdown.set()
 
+    def fake_proc(self, processes):
+        proc = self.root / "proc"
+        for pid, argv in processes.items():
+            entry = proc / str(pid)
+            entry.mkdir(parents=True)
+            (entry / "cmdline").write_bytes(b"\0".join(arg.encode() for arg in argv) + b"\0")
+        return proc
+
     def test_recovery_adopts_display_scoped_processes_by_full_command(self):
+        """Recovery matches exact argv; the pgrep patterns it replaced were
+        rejected by pgrep's regex dialect, so nothing was ever adopted."""
         service = display.DisplayService(self.catalog(), self.root / "runtime")
+        runtime = self.root / "runtime" / "2"
+        proc = self.fake_proc({
+            12345: [str(runtime / "bin" / "cmux-display-2-openbox")],
+            12346: [str(self.root / "runtime" / "3" / "bin" / "cmux-display-3-openbox")],
+            22222: ["/usr/bin/Xvnc", ":2", "-geometry", "1440x900", "-rfbport", "5902", "-localhost"],
+            33333: ["/usr/bin/Xvnc", ":3", "-rfbport", "5903"],
+        })
+        real = display.matching_pids
+        with mock.patch.object(service, "matching_pids",
+                               side_effect=lambda predicate: real(predicate, proc=proc)):
+            service.recover_processes(2, runtime, {"DISPLAY": ":2"})
+        self.assertEqual(service.named_processes[2]["openbox"].pid, 12345)
+        self.assertEqual(service.named_processes[2]["xvnc"].pid, 22222)
 
-        def pgrep(command, **_options):
-            if "cmux\\-display\\-2\\-openbox" in command[-1]:
-                return "12345\n"
-            raise display.subprocess.CalledProcessError(1, command)
+    def rfb_server(self, script):
+        """A one-shot loopback RFB peer driven by `script(connection)`."""
+        import socket
+        import threading
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        received = []
 
-        with mock.patch.object(display.subprocess, "check_output", side_effect=pgrep):
-            service.recover_processes(2, self.root / "runtime" / "2", {"DISPLAY": ":2"})
-        self.assertIn("openbox", service.named_processes[2])
+        def serve():
+            connection, _ = listener.accept()
+            with connection:
+                script(connection, received)
+            listener.close()
+
+        threading.Thread(target=serve, daemon=True).start()
+        return listener.getsockname()[1] - 5900, received
+
+    def test_health_probe_completes_authentication_instead_of_black_marking(self):
+        """An aborted handshake is a black mark; Xvnc then refused every
+        websockify viewer with "Too many security failures"."""
+        def script(connection, received):
+            connection.sendall(b"RFB 003.008\n")
+            received.append(display.recv_exact(connection, 12))
+            connection.sendall(bytes([1, 1]))
+            received.append(display.recv_exact(connection, 1))
+            connection.sendall(b"\x00\x00\x00\x00")
+
+        number, received = self.rfb_server(script)
+        self.assertTrue(display.rfb_ready(number))
+        self.assertEqual(received, [b"RFB 003.008\n", b"\x01"])
+
+    def test_black_listing_server_is_alive_so_the_session_is_kept(self):
+        def script(connection, _received):
+            connection.sendall(b"RFB 003.003\n\x00\x00\x00\x00\x00\x00\x00\x1aToo many security failures")
+
+        number, _ = self.rfb_server(script)
+        self.assertTrue(display.rfb_ready(number))
+
+    def test_additional_displays_disable_rfb_black_listing(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        launched = []
+
+        class Process:
+            def terminate(self):
+                pass
+
+            def poll(self):
+                return None
+
+        def popen(command, **_options):
+            launched.append(command)
+            return Process()
+
+        runtime = self.root / "runtime" / "2"
+        runtime.mkdir(parents=True)
+        with mock.patch.object(display, "ready", return_value=False), \
+             mock.patch.object(display, "rfb_ready", return_value=False), \
+             mock.patch.object(display, "novnc_ready", return_value=True), \
+             mock.patch.object(display.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"), \
+             mock.patch.object(display.subprocess, "Popen", side_effect=popen), \
+             mock.patch.object(service, "wait_for_port", return_value=True), \
+             mock.patch.object(service, "start_dbus"), \
+             mock.patch.object(service, "start_session_components"), \
+             mock.patch.object(service, "set_wallpaper"), \
+             mock.patch.object(service, "terminate_untracked_websockify"):
+            service.start_components(2, {"DISPLAY": ":2"}, runtime)
+        xvnc = next(command for command in launched if command[0].endswith("Xvnc"))
+        self.assertIn("-UseBlacklist=0", xvnc)
+        service.shutdown.set()
 
     def test_additional_desktop_clients_use_display_scoped_process_names(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")

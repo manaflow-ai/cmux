@@ -44,6 +44,16 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// upgrade affordance after the server returns `vm_requires_pro`.
     public var isPaidPlan: Bool { Self.isPaidPlanID(planId) }
 
+    /// Whether a plan with more machines exists to upgrade to. Max, Team and
+    /// Founders are the top of the ladder; everything else (free, Go, Pro, an
+    /// unknown id) can move up.
+    public var hasHigherPlan: Bool {
+        switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "max", "team", "founders": return false
+        default: return true
+        }
+    }
+
     public static func isPaidPlanID(_ planId: String) -> Bool {
         switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "go", "pro", "max", "team", "founders":
