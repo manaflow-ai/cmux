@@ -48,4 +48,14 @@ describe("resize", { timeout: 60_000 }, () => {
     expect(got.value.size.cpu).toBe(SIZE.cpu)
     expect(got.value.error).toMatchObject({ code: expect.any(String) })
   })
+
+  it("a delete settles a resize still retrying (review P3)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    await x.stub.fakeControl({ fail_next: 1 } as never)
+    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.resize", { machine, size: { cpu: 4 } })))).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
+    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))).toMatchObject({ t: "result", value: { deleted: true } })
+    expect((await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).ok).toBe(false)
+  })
 })
