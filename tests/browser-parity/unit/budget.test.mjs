@@ -242,3 +242,44 @@ test("frames: a frame the domain policy blocks is left out and marked", async ()
     '  - button "Inside" [ref=f2e1]',
   ]);
 });
+
+test("frames: frames read together never pass the snapshot's node and size budget, nested frames included", async () => {
+  // Each frame reads up to its share; a frame's inner frames split what
+  // that frame left of its own share, so a slow sibling's share cannot also
+  // be spent by another sibling's inner frames. Here B answers only after
+  // A's inner frame C was asked, the order that let C take B's share.
+  const host = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
+  const asked = [];
+  let cAsked;
+  const cGate = new Promise((resolve) => (cAsked = resolve));
+  const full = (name) => async (method, opts) => {
+    asked.push({ name, maxNodes: opts.maxNodes, maxSize: opts.maxSize });
+    return { nodes: [{ role: "button", name, ref: "e1", act: 1 }], max: 1, visited: opts.maxNodes, size: opts.maxSize };
+  };
+  const c = { p: "f3", _detached: false, _agent: async (method, opts) => { const r = await full("C")(method, opts); cAsked(); return r; } };
+  const a = {
+    p: "f1",
+    _detached: false,
+    _agent: async (method, opts) => {
+      asked.push({ name: "A", maxNodes: opts.maxNodes, maxSize: opts.maxSize });
+      return { nodes: [{ role: "iframe", name: "C", ref: "e1", frame: "h3" }], max: 1, visited: 1, size: 1 };
+    },
+    _contentFrame: async () => c,
+  };
+  const b = { p: "f2", _detached: false, _agent: async (method, opts) => { await cGate; return full("B")(method, opts); } };
+  const main = {
+    p: "",
+    _agent: async (method, opts) => {
+      asked.push({ name: "main", maxNodes: opts.maxNodes, maxSize: opts.maxSize });
+      return { nodes: [{ role: "iframe", name: "A", ref: "e1", frame: "h1" }, { role: "iframe", name: "B", ref: "e2", frame: "h2" }], max: 2, visited: 10, size: 10 };
+    },
+    _contentFrame: async (handle) => (handle === "h1" ? a : b),
+  };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _noteRefDocs() {}, _prefixFor: (f) => f.p };
+  await ns.snapshot.frameNodes(page, main, null, { _maxNodes: 100, _maxSize: 1000 }, true);
+  const spent = (key, own) => asked.reduce((sum, x) => sum + (own[x.name] !== undefined ? own[x.name] : x[key]), 0);
+  // main and A read less than their shares (10 and 1); C and B read all of theirs.
+  assert.ok(spent("maxNodes", { main: 10, A: 1 }) <= 100, `nodes read: ${JSON.stringify(asked)}`);
+  assert.ok(spent("maxSize", { main: 10, A: 1 }) <= 1000, `characters read: ${JSON.stringify(asked)}`);
+  assert.deepEqual(asked.map((x) => x.name).sort(), ["A", "B", "C", "main"]);
+});
