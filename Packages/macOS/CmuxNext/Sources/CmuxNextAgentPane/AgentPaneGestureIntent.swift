@@ -49,6 +49,13 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         self.params = params
     }
 
+    /// What a newer reserve on the same connection revokes: one ticket for set_mode, one per
+    /// config option for set_config_option (a switch's model and effort picks keep theirs).
+    public var slot: String {
+        guard method == "session/set_config_option", case .string(let config)? = params["configId"] else { return method }
+        return method + "#" + config
+    }
+
     /// Whether a frame is the pick: the same method, and its params minus `sessionId` and `_meta`
     /// equal these params (the same keys, no extra keys, typed JSON equality).
     public func matches(method frameMethod: String?, params frameParams: [String: Any]) -> Bool {

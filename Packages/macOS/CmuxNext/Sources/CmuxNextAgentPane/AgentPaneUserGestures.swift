@@ -40,12 +40,13 @@ import Synchronization
 
     /// Binds the current gesture to one pick the page sends later (a pick held behind a harness
     /// switch) on `connection`: consumes the gesture and returns a single-use ticket, nil when
-    /// there is none. One outstanding ticket per method per connection: a new one revokes the older.
+    /// there is none. One outstanding ticket per slot per connection (``AgentPaneGestureIntent/slot``):
+    /// a new one revokes the older.
     public func reserve(connection: Int, intent: AgentPaneGestureIntent) -> String? {
         guard consume() else { return nil }
         let at = now()
         tickets = tickets.filter { at - $0.value.at <= Self.ticketLifetime
-            && !($0.value.connection == connection && $0.value.intent.method == intent.method) }
+            && !($0.value.connection == connection && $0.value.intent.slot == intent.slot) }
         let ticket = UUID().uuidString
         tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
         lastTicket = ticket

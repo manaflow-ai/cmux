@@ -12,10 +12,10 @@ private actor TicketHost: AgentPaneHostProviding {
     }
 }
 
-/// The real bundled pane, end to end (flag 2 with B1): the user switches harness, picks a mode
-/// while the harness starts (one pick gesture: the pane reserves it with the pick's intent), and
-/// presses send (one send press: the queued prompt uses it live). Both frames reach the daemon,
-/// the ticket never does, and a replay of the ticket is refused.
+/// The real bundled pane, end to end (flag 2 with B1): the user switches harness, picks a mode and
+/// an effort while the harness starts (one pick gesture each: the pane reserves each with its
+/// pick's intent), and presses send (one send press: the queued prompt uses it live). All three
+/// frames reach the daemon, no ticket does, and a replay of a ticket is refused.
 @MainActor
 @Suite(.serialized) struct AgentPaneTicketEndToEndTests {
     private func page(_ view: AgentPaneView, _ script: String) async -> Any? {
@@ -31,7 +31,7 @@ private actor TicketHost: AgentPaneHostProviding {
         return await condition()
     }
 
-    @Test func aHeldPickAndAQueuedPromptBothPassWithOnePickAndOneSend() async throws {
+    @Test func heldModeAndEffortPicksAndAQueuedPromptPassWithOneGestureEach() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
@@ -58,6 +58,10 @@ private actor TicketHost: AgentPaneHostProviding {
         _ = await page(view, "void window.cmuxAcpmuxActions['chat.mode']({ modeId: 'plan' }); true")
         #expect(await eventually { model.transport.gestures.lastTicket != nil }, "the pane reserved the pick's gesture")
         let ticket = try #require(model.transport.gestures.lastTicket)
+        // A second held pick, the effort: its own gesture and its own ticket.
+        model.transport.gestures.record()
+        _ = await page(view, "void window.cmuxAcpmuxActions['chat.effort']({ configId: 'effort', value: 'high' }); true")
+        #expect(await eventually { model.transport.gestures.lastTicket != ticket }, "the pane reserved the effort pick's gesture")
         // The send press: the queued prompt uses it live.
         model.transport.gestures.record()
         _ = await page(view, "void window.cmuxAcpmuxActions['chat.send']({ text: 'hello', attachments: [] }); true")
@@ -65,7 +69,9 @@ private actor TicketHost: AgentPaneHostProviding {
         server.releaseHeld()
         let both = await server.wait(seconds: 20) { peers in
             let frames = peers.last?.frames ?? []
-            return frames.contains { $0.contains("session/set_mode") && $0.contains("plan") } && frames.contains { $0.contains("session/prompt") }
+            return frames.contains { $0.contains("session/set_mode") && $0.contains("plan") }
+                && frames.contains { $0.contains("session/set_config_option") && $0.contains("high") }
+                && frames.contains { $0.contains("session/prompt") }
         }
         let frames = server.peers.last?.frames ?? []
         #expect(both, "both the held pick and the queued prompt reached the daemon: \(frames.map { String($0.prefix(80)) })")
