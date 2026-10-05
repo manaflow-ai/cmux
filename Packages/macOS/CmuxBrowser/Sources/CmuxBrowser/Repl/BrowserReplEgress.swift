@@ -138,9 +138,16 @@ extension BrowserReplBoundary {
         }
     }
 
+    /// Every field of the error: a page exception's `code` and `name` are
+    /// the page's (or the agent's page script's), like its message, and
+    /// the runtime hands `code` to the agent as `Error.code`.
     private static func masking(_ error: BrowserReplDriverError, with redaction: BrowserReplSecretStore.Redaction) -> BrowserReplDriverError {
-        let message = redaction.redact(error.message)
-        return message == error.message ? error : BrowserReplDriverError(code: error.code, message: message, errorName: error.errorName)
+        let masked = BrowserReplDriverError(
+            code: redaction.redact(error.code),
+            message: redaction.redact(error.message),
+            errorName: error.errorName.map { redaction.redact($0) }
+        )
+        return masked == error ? error : masked
     }
 
     /// The URL, the headers and the body, text or binary (its bytes are

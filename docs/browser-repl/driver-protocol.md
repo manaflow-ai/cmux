@@ -999,7 +999,9 @@ when present.
   world dispatches that event on each element, and the page world reads the
   targets, then runs `source`. Detached elements fail with `stale`.
 - Evaluation errors carry `{ code, message, errorName }`; page exceptions use
-  code `evaluation`.
+  code `evaluation` unless the thrown value has its own `code`. The page
+  chooses all three, so the session's egress gate masks each of them as it
+  masks a result.
 - `tab.info` answers from native state (URL, title, `isLoading`) while a
   JavaScript dialog is open, since page script is blocked then.
 - `frameId` is WebKit's frame handle id (`-[WKFrameInfo _handle].frameID`);
