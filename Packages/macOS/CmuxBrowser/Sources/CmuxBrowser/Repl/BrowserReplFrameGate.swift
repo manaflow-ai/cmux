@@ -19,12 +19,29 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     /// file has the same origin and place, so only this tells two of them
     /// apart. Nil for any other document.
     public var local: String?
+    /// For an opaque document (``isOpaque``), its URL without the fragment.
+    /// Two opaque documents have the same origin and place, and a frame's
+    /// makers can grow between the gate's check and its script reaching the
+    /// frame, so a gated script runs only in the opaque document whose URL
+    /// the gate approved. A `data:` URL holds the document's content and a
+    /// `blob:` URL is unique; an `about:srcdoc` or sandboxed `about:blank`
+    /// URL tells nothing. Nil for any other document, and not part of
+    /// equality: WebKit's record and the document can spell one URL
+    /// differently.
+    public var opaque: String?
 
-    public init(origin: String?, place: String, makers: [BrowserReplDocumentMaker]? = nil, local: String? = nil) {
+    public init(origin: String?, place: String, makers: [BrowserReplDocumentMaker]? = nil, local: String? = nil, opaque: String? = nil) {
         self.origin = origin
         self.place = place
         self.makers = makers
         self.local = local
+        self.opaque = opaque
+    }
+
+    /// `url` without its fragment.
+    static func withoutFragment(_ url: URL?) -> String {
+        let text = url?.absoluteString ?? ""
+        return text.firstIndex(of: "#").map { String(text[..<$0]) } ?? text
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
@@ -35,8 +52,7 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     /// is a local file's, or `url` is a `file:` URL), else nil.
     static func local(url: URL?, origin: String?) -> String? {
         guard origin?.lowercased() == "file://" || url?.scheme?.lowercased() == "file" else { return nil }
-        let text = url?.absoluteString ?? ""
-        return text.firstIndex(of: "#").map { String(text[..<$0]) } ?? text
+        return withoutFragment(url)
     }
 
     /// Whether the document has an opaque origin and a URL that names no
@@ -54,7 +70,10 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
         origin = Self.origin(of: info.securityOrigin)
         place = Self.place(of: info.request.url)
         local = Self.local(url: info.request.url, origin: origin)
-        if isOpaque { makers = BrowserReplDocumentProvenance.makers(of: info) }
+        if isOpaque {
+            makers = BrowserReplDocumentProvenance.makers(of: info)
+            opaque = info.request.url.map { Self.withoutFragment($0) }
+        }
     }
 
     /// This document with the makers recorded for `frame` of `webView`
@@ -84,6 +103,7 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
         let scheme = url?.scheme?.lowercased()
         origin = scheme == "http" || scheme == "https" ? place : nil
         local = Self.local(url: url, origin: origin)
+        if isOpaque, let url { opaque = Self.withoutFragment(url) }
     }
 
     private static func place(of url: URL?) -> String {
@@ -408,11 +428,13 @@ public final class BrowserReplFrameGate {
         let key = key(frame, webView)
         // An opaque document's origin and place do not tell it from the
         // next opaque document the frame shows (a frame keeps its id when
-        // it navigates), and the document check below compares only
-        // those: so its makers are read again on every call, never taken
-        // from the earlier verdict. A frame's makers only grow, so a frame
+        // it navigates): so its makers are read again on every call, never
+        // taken from the earlier verdict, and the document check below
+        // also compares its URL. A frame's makers only grow, so a frame
         // that showed a blocked page's opaque document since is judged by
-        // that page now.
+        // that page now; one that shows another opaque document when the
+        // script arrives (its maker recorded after this check) runs
+        // nothing there and is judged again.
         var expected = (known[key]
             ?? frame.info.map { BrowserReplFrameDocument(info: $0) }
             ?? BrowserReplFrameDocument(url: webView.url))
@@ -425,6 +447,7 @@ public final class BrowserReplFrameGate {
             bound[Self.originArgument] = expected.origin ?? NSNull()
             bound[Self.placeArgument] = expected.place
             bound[Self.localArgument] = expected.local ?? NSNull()
+            bound[Self.opaqueArgument] = expected.opaque ?? NSNull()
             let value = try await webView.browserReplCallAsyncJavaScript(
                 Self.documentCheck + Self.scoped(body),
                 arguments: bound,
@@ -433,9 +456,10 @@ public final class BrowserReplFrameGate {
                 userGesture: userGesture
             )
             guard value as? String == Self.movedMarker else {
-                // A navigation recorded while the script ran may have made
-                // the opaque document it ran in: its result is not handed on
-                // when that maker is blocked.
+                // An opaque document whose URL tells nothing (about:srcdoc,
+                // a sandboxed about:blank) may have been made by a
+                // navigation recorded while the script was on its way: its
+                // result is not handed on when that maker is blocked.
                 let after = expected.withMakers(frame: frame.info, in: webView)
                 if let reason = blockReason(after, in: webView) {
                     known[key] = nil
@@ -940,16 +964,19 @@ public final class BrowserReplFrameGate {
     private static let originArgument = "__cmuxDocumentOrigin"
     private static let placeArgument = "__cmuxDocumentPlace"
     private static let localArgument = "__cmuxDocumentLocal"
+    private static let opaqueArgument = "__cmuxDocumentOpaque"
     private static let movedMarker = "__cmuxDocumentMoved__"
 
     /// Runs first in every gated call. Only unforgeable `location` members
     /// and string operators: the content world's other globals may belong
-    /// to agent code. A local document must also be the same one: its
-    /// `href` is the approved URL followed by its own fragment.
+    /// to agent code. A local or opaque document must also be the same one:
+    /// its `href` is the approved URL followed by its own fragment.
     private static let documentCheck = """
     if (location.origin !== \(originArgument) || location.protocol + "//" + location.host !== \(placeArgument)
       || (location.origin === "file://" || location.protocol === "file:" ? location.href : null)
-        !== (\(localArgument) === null ? null : \(localArgument) + location.hash)) return "\(movedMarker)";
+        !== (\(localArgument) === null ? null : \(localArgument) + location.hash)
+      || (location.origin === "null" && (location.protocol === "data:" || location.protocol === "about:" || location.protocol === "blob:") ? location.href : null)
+        !== (\(opaqueArgument) === null ? null : \(opaqueArgument) + location.hash)) return "\(movedMarker)";
 
     """
 
@@ -963,8 +990,9 @@ public final class BrowserReplFrameGate {
 
     private static let readSource = """
     const local = location.origin === "file://" || location.protocol === "file:";
-    return [location.origin, location.protocol + "//" + location.host,
-      local ? location.href.slice(0, location.href.length - location.hash.length) : null];
+    const opaque = location.origin === "null" && (location.protocol === "data:" || location.protocol === "about:" || location.protocol === "blob:");
+    const href = location.href.slice(0, location.href.length - location.hash.length);
+    return [location.origin, location.protocol + "//" + location.host, local ? href : null, opaque ? href : null];
     """
 
     /// The boxes of the main frame's child frames at `indexes` (their
@@ -1312,10 +1340,10 @@ public final class BrowserReplFrameGate {
         } catch {
             throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) did not answer: \(error.localizedDescription)")
         }
-        guard let read = value as? [Any], read.count == 3, let place = read[1] as? String else {
+        guard let read = value as? [Any], read.count == 4, let place = read[1] as? String else {
             throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) did not answer")
         }
-        return BrowserReplFrameDocument(origin: read[0] as? String, place: place, local: read[2] as? String)
+        return BrowserReplFrameDocument(origin: read[0] as? String, place: place, local: read[2] as? String, opaque: read[3] as? String)
             .withMakers(frame: frame.info, in: webView)
     }
 

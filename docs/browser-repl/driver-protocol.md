@@ -499,9 +499,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   nothing in another: a frame keeps its id when it navigates, so a frame
   looked up from an earlier tree read is judged again. Two opaque documents
   have the same origin and place, so an opaque document is judged by its
-  frame's makers as recorded at each call (and again after the script, whose
-  result is refused when a maker recorded meanwhile is blocked), never by an
-  earlier verdict. A frame that shows a
+  frame's makers as recorded at each call, never by an earlier verdict, and
+  the script runs only in the opaque document whose URL (without its
+  fragment) the driver approved: one the frame shows when the script
+  arrives, whose maker WebKit reported after the check, runs nothing and is
+  judged again. A `data:` URL holds its document's content and a `blob:` URL
+  is unique, but an `about:srcdoc` or sandboxed `about:blank` URL tells
+  nothing: for those the makers are judged again after the script, whose
+  result is refused when a maker recorded meanwhile is blocked, and the
+  script may already have run there (residual). The driver's own text in
+  that script runs in a scope of its own after the check, and the agent's
+  `source` must be one expression on its own (else `invalid`, before
+  anything runs), so nothing in it can replace the `location` the check
+  reads or run before the check. A frame that shows a
   blocked page fails with `blocked` (`snapshot()` marks its iframe
   `[not read: blocked by the domain policy]`). A tree read can lack frames
   (WebKit gives no tree, or cannot describe a child): while the policy is
