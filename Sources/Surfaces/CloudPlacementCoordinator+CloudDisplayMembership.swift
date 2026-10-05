@@ -81,9 +81,10 @@ extension CloudPlacementCoordinator {
         // Fence the view before the asynchronous removal: reconciliation reads
         // the graph that still holds this token and would rebuild the pane.
         let machine = projection.resource.machine
+        let clientID = CloudTuiClientPaths().notificationClientID()
         if let token = catalog.cloudStates[machine]?.displayMemberships.first(where: {
             $0.displayID == projection.resource.key
-                && $0.clientID == CloudTuiClientPaths().notificationClientID()
+                && $0.clientID == clientID
                 && $0.viewID == projection.panelID.uuidString.lowercased()
         }) {
             closedDisplayViews[machine, default: [:]][token.viewID] = token
@@ -109,6 +110,9 @@ extension CloudPlacementCoordinator {
     func settleClosedDisplayViews(_ state: CloudVMState, catalog: SurfaceCatalog) {
         guard var fenced = closedDisplayViews[state.machine], !fenced.isEmpty else { return }
         let present = Set(state.displayMemberships.map(\.viewID))
+        for viewID in fenced.keys where !present.contains(viewID) {
+            displayRemovalAttempts.removeValue(forKey: viewID)
+        }
         fenced = fenced.filter { present.contains($0.key) }
         closedDisplayViews[state.machine] = fenced.isEmpty ? nil : fenced
         guard let provider = catalog.provider(for: state.machine) as? any CloudDisplayMembershipSyncing else { return }
@@ -124,8 +128,12 @@ extension CloudPlacementCoordinator {
         _ token: CloudVMDisplayMembership,
         provider: any CloudDisplayMembershipSyncing
     ) {
+        // Bounded: a token that never clears (for example one left in another
+        // workspace by an old move) must not cost a guest write on every graph.
         guard let panelID = UUID(uuidString: token.viewID),
+              displayRemovalAttempts[token.viewID, default: 0] < Self.maxDisplayRemovalAttempts,
               retryingDisplayRemovals.insert(token.viewID).inserted else { return }
+        displayRemovalAttempts[token.viewID, default: 0] += 1
         Task { @MainActor [weak self] in
             defer { self?.retryingDisplayRemovals.remove(token.viewID) }
             try? await provider.syncCloudDisplayMembership(

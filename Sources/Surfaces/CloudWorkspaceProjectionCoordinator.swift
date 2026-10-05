@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -261,6 +262,8 @@ extension CloudWorkspaceProjectionCoordinator {
               let token = state.displayMemberships.first(where: {
                   $0.viewID == viewID && $0.displayID == placement.resource.key
               }),
+              // Only this Mac's tokens can be removed; another Mac's view is its own.
+              token.clientID == CloudTuiClientPaths().notificationClientID(),
               let provider = catalog.provider(for: placement.resource.machine) as? any CloudDisplayMembershipSyncing
         else { return }
         catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)

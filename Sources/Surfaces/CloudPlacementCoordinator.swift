@@ -31,6 +31,8 @@ final class CloudPlacementCoordinator {
     /// not landed is retried from there.
     var closedDisplayViews: [SurfaceMachineID: [String: CloudVMDisplayMembership]] = [:]
     var retryingDisplayRemovals: Set<String> = []
+    var displayRemovalAttempts: [String: Int] = [:]
+    static let maxDisplayRemovalAttempts = 3
     private var confirmationCursors: [SurfaceMachineID: [String: CloudVMCursor]] = [:]
     private(set) var failures: [SurfaceResourceID: String] = [:]
 

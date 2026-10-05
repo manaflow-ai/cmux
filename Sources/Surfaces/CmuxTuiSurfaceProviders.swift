@@ -882,6 +882,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
         closePanesForVanishedRemoteTerminals(observation: .current)
+        // Membership rows arrive as projection deltas, not full rebuilds.
+        discoverMemberDisplaysIfNeeded(state)
     }
     /// Closes the panes of terminals the resolver reported as exited. The
     /// graph-driven sweep covers the usual case; this covers a daemon that
