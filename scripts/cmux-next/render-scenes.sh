@@ -44,6 +44,12 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 registered=$(cli rpc debug.scene.list '{}')
+# The local backend's supported empty-workspace route is the same route used
+# by the product CLI. Seed named rows before each app-owned scene render so
+# the rail is populated even when no saved workspace snapshot exists.
+for workspace in cmux-next docs-site infra; do
+  cli --json workspace create --name "$workspace" --empty >/dev/null
+done
 scenes=()
 while IFS= read -r scene; do
   scenes+=("$scene")

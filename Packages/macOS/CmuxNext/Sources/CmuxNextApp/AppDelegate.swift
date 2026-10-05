@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -13,15 +14,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let daemonPrestart: DaemonPrestart?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle = LaunchSettle()
+    /// Cleanup deferred until the launch settles (injected; tests pass their own).
+    private let launchCleanup: LaunchCleanup
     private var services: AppServices!
     private var settings: SettingsController?
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
+    /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
+    private var clipboardReads: TerminalClipboardReadService?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?) {
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.daemonPrestart = daemonPrestart
+        self.launchCleanup = launchCleanup
         super.init()
     }
 
@@ -65,6 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
+        let clipboardReads = TerminalClipboardReadService(services: services)
+        self.clipboardReads = clipboardReads
+        clipboardReads.start()
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
@@ -92,6 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cost (a launcher panel opens in one frame), without
         // delaying that frame.
         launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
+        // Temporary download files a crash left in an earlier run (only the
+        // recorded ones; the record is read and the files deleted off the
+        // main actor). Downloads of this run are never touched.
+        launchCleanup.schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)

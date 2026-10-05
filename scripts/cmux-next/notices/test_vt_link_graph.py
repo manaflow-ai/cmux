@@ -48,6 +48,17 @@ class AttributeTest(unittest.TestCase):
         self.assertEqual(graph.zig_env_fields('{"lib_dir": "/a", "version": "0.15.2"}')["lib_dir"], "/a")
         self.assertEqual(graph.zig_env_fields('.{\n    .lib_dir = "/b",\n    .version = "0.16.0",\n}\n')["lib_dir"], "/b")
 
+    def test_codeview_file_checksum_names_are_read(self) -> None:
+        # llvm-readobj --codeview output of zig's x86_64-windows-gnu archive.
+        lines = [
+            "      Filename: /w/src/zig-pkg/N-V-wuffs/release/c/wuffs-v0.4.c (0x0)",
+            "    FilenameSegment [",
+            "      Filename: /usr/local/lib/zig/lib/std/log.zig (0x120)",
+        ]
+        names = [m.group(1) for m in map(graph.CODEVIEW_FILE.match, lines) if m]
+        self.assertEqual(names, ["/w/src/zig-pkg/N-V-wuffs/release/c/wuffs-v0.4.c", "/usr/local/lib/zig/lib/std/log.zig"])
+        self.assertIn("x86_64-windows-gnu", graph.DEFAULT_TARGETS)
+
 
 if __name__ == "__main__":
     unittest.main()

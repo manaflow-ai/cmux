@@ -49,6 +49,7 @@ extern "C" {
 #define CMUX_RD_ERR_CARRIER (-4)     /* the call does not match the receiver's carrier */
 #define CMUX_RD_ERR_FAILED (-5)      /* the stream broke or the peer flooded; end the session */
 #define CMUX_RD_ERR_PANIC (-6)       /* internal error; the receiver is unusable */
+#define CMUX_RD_ERR_STREAM (-7)      /* the stream is not open, or the stream limit is reached */
 
 /* Input event kinds (the wire tags). */
 #define CMUX_RD_INPUT_KEY 1u
@@ -63,6 +64,10 @@ extern "C" {
 
 typedef struct CmuxRdReceiver CmuxRdReceiver;
 typedef struct CmuxRdInput CmuxRdInput;
+typedef struct CmuxRdSession CmuxRdSession;
+
+/* Most open streams per session. */
+#define CMUX_RD_SESSION_MAX_STREAMS 16u
 
 /* One complete access unit (Annex-B), ready to decode. */
 typedef struct CmuxRdFrame {
@@ -100,8 +105,8 @@ typedef struct CmuxRdInputEvent {
     const uint8_t *text;     /* text: UTF-8, 1 to CMUX_RD_INPUT_MAX_TEXT bytes */
     size_t text_len;
     uint8_t button;          /* button: 1 left, 2 middle, 3 right, 8 back, 9 forward */
-    bool down;               /* key and button: pressed or released */
-    bool precise;            /* scroll: pixel-precise deltas */
+    uint8_t down;            /* key and button: 1 pressed, 0 released (other values refused) */
+    uint8_t precise;         /* scroll: 1 pixel-precise deltas, 0 lines (other values refused) */
 } CmuxRdInputEvent;
 
 uint32_t cmux_rd_ffi_abi_version(void);
@@ -153,14 +158,52 @@ void cmux_rd_input_free(CmuxRdInput *input);
 int32_t cmux_rd_input_push(CmuxRdInput *input, const CmuxRdInputEvent *event, uint32_t *out_seq);
 /* Applies an InputAck datagram as cmux_rd_receiver_pop_message hands it out
    (kind CMUX_RD_MESSAGE_DATAGRAM, header included). CMUX_RD_ERR_INVALID for
-   any other datagram. */
+   any other datagram, with no state change: offer every datagram message
+   here and ignore that code. */
 int32_t cmux_rd_input_ack(CmuxRdInput *input, const uint8_t *datagram, size_t len);
 /* Writes the next due Input datagram (stream-framed on the stream carrier).
-   Returns 1 when written, 0 when none is due. Call again until it returns 0. */
+   Returns 1 when written, 0 when none is due. Call again until it returns 0.
+   Every resend_us the window from the oldest unacknowledged event goes out
+   again. *out_len is written on every path (0 when nothing was written). */
 int32_t cmux_rd_input_packet(CmuxRdInput *input, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
 /* The time at which cmux_rd_input_packet must run next (0 = now; UINT64_MAX
    when nothing is queued, for NULL, or for an unusable handle). */
 uint64_t cmux_rd_input_next_deadline_us(const CmuxRdInput *input);
+
+/* Session: every display stream of one cmux.rd/1 session (main surface,
+   popups, tiles). Video and parity datagrams go to the reassembler of the
+   stream their header names; feedback and keyframe requests are per stream.
+   Only opened streams are accepted; stream 0 is open from the start. Other
+   datagrams (InputAck, cursor, ...) and control messages are queued as
+   messages. Use a session instead of a receiver when the host may open more
+   than one stream. Not thread-safe. */
+
+/* Returns NULL for an unknown carrier. Arguments as cmux_rd_receiver_new. */
+CmuxRdSession *cmux_rd_session_new(uint32_t carrier, uint64_t deadline_us, uint64_t nack_after_us);
+void cmux_rd_session_free(CmuxRdSession *session);
+/* Accepts datagrams of stream from now on (idempotent). CMUX_RD_ERR_STREAM
+   past CMUX_RD_SESSION_MAX_STREAMS open streams. */
+int32_t cmux_rd_session_open_stream(CmuxRdSession *session, uint16_t stream);
+/* Drops stream and its frames. CMUX_RD_ERR_STREAM when it is not open. */
+int32_t cmux_rd_session_close_stream(CmuxRdSession *session, uint16_t stream);
+/* Datagram carrier. Returns the frames ready in all streams;
+   CMUX_RD_ERR_STREAM for a video datagram of a stream that is not open. */
+int32_t cmux_rd_session_push_datagram(CmuxRdSession *session, const uint8_t *bytes, size_t len, uint64_t now_us);
+/* Stream carrier: bytes in any chunks. Returns the frames ready. */
+int32_t cmux_rd_session_push_stream(CmuxRdSession *session, const uint8_t *bytes, size_t len, uint64_t now_us);
+int32_t cmux_rd_session_tick(CmuxRdSession *session, uint64_t now_us);
+/* Returns 1 and fills *out and *out_stream with the oldest ready frame of any
+   stream, or 0 when none is ready. */
+int32_t cmux_rd_session_pop_frame(CmuxRdSession *session, CmuxRdFrame *out, uint16_t *out_stream);
+int32_t cmux_rd_session_pop_message(CmuxRdSession *session, CmuxRdMessage *out);
+int32_t cmux_rd_session_note_decode(CmuxRdSession *session, uint16_t stream, uint32_t decode_us);
+int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream);
+/* Writes the next due feedback datagram of any stream (its header names the
+   stream). Returns 1 when written, 0 when none is due; call again until 0.
+   *out_len is written on every path. */
+int32_t cmux_rd_session_feedback(CmuxRdSession *session, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
+uint64_t cmux_rd_session_next_deadline_us(const CmuxRdSession *session);
+int32_t cmux_rd_session_stats(const CmuxRdSession *session, uint16_t stream, CmuxRdStats *out);
 
 #ifdef __cplusplus
 }

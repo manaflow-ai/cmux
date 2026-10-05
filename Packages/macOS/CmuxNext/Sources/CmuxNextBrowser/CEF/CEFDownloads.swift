@@ -57,6 +57,10 @@ final class CEFDownloads {
     var directory: () -> URL = { DownloadDestination.defaultDirectory }
     /// Names running downloads hold (shared with WebKit's downloads).
     var reservations: BrowserDownloadReservations = .shared
+    /// Whether a download page `browser` started may go ahead (the tab's
+    /// `AutomaticDownloadGate`); calls `decide` once. Downloads cmux starts
+    /// itself (`download`, `save`) never ask.
+    var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome, _ site: String?) -> Void) -> Void = { _, decide in decide(.allowed, nil) }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
@@ -64,6 +68,10 @@ final class CEFDownloads {
     private var items: [Int32: BrowserDownload] = [:]
     /// Files the person chose (Save Link As…), waiting for their download.
     private var chosen: [(browser: Int32, url: String, destination: URL)] = []
+    /// Links cmux itself downloads (`download`), waiting for their download.
+    private var started: [(browser: Int32, url: String)] = []
+    /// Page downloads waiting for `admit`'s answer, by token.
+    private var admitting: Set<Int32> = []
 
     init(shim: @escaping () -> CEFDownloadShim?) {
         self.shim = shim
@@ -84,7 +92,14 @@ final class CEFDownloads {
             logger.error("download refused: not a web URL")
             return false
         }
-        return shim()?.start(browser, url) ?? false
+        guard let shim = shim() else { return false }
+        started.append((browser, url))
+        if started.count > 16 { started.removeFirst(started.count - 16) }
+        guard shim.start(browser, url) else {
+            if let index = started.lastIndex(where: { $0.browser == browser && $0.url == url }) { started.remove(at: index) }
+            return false
+        }
+        return true
     }
 
     /// Downloads `url` with tab `browser`'s session into `destination`, a
@@ -104,10 +119,12 @@ final class CEFDownloads {
     func handle(_ event: CEFDownloadEvent) {
         switch event {
         case let .started(id, browser, url, suggestedName, total):
-            started(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total)
+            admitThenStart(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total)
         case let .progress(id, received, total, speed, paused):
             items[id]?.update(received: received, total: total, bytesPerSecond: speed, paused: paused)
         case let .done(id, end, reason, path):
+            // Chromium ended it while the question was open: nothing started.
+            if admitting.remove(id) != nil { return }
             guard let item = items.removeValue(forKey: id) else { return }
             if end == .complete, let written = item.placement?.temporaryURL, !path.isEmpty,
                URL(filePath: path).standardizedFileURL != written.standardizedFileURL {
@@ -122,9 +139,39 @@ final class CEFDownloads {
         }
     }
 
-    private func started(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?) {
-        guard let shim = shim() else { return }
+    /// A download cmux started (Save Link As, Download Linked File) goes
+    /// ahead; a page's own asks the tab's gate first. A refused one is
+    /// cancelled silently: no file, nothing in the downloads list.
+    private func admitThenStart(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?) {
         let pick = chosen.firstIndex { $0.browser == browser && $0.url == url }.map { chosen.remove(at: $0).destination }
+        if pick != nil || takeStarted(browser: browser, url: url) {
+            return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
+        }
+        admitting.insert(id)
+        admit(browser) { [weak self] outcome, site in
+            guard let self, admitting.remove(id) != nil else { return }
+            guard outcome == .allowed else {
+                shim()?.answer(id, "")
+                logger.notice("download \(id) refused for tab \(browser): automatic downloads")
+                // Listed blocked, with the reason and the site whose
+                // setting blocked it: no refusal is silent.
+                if let reason = AutomaticDownloadGate.blockedReason(outcome) {
+                    deliver(browser, .blocked(sourceURL: URL(string: url), suggestedName: suggestedName, site: site, reason: reason))
+                }
+                return
+            }
+            start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: nil)
+        }
+    }
+
+    private func takeStarted(browser: Int32, url: String) -> Bool {
+        guard let index = started.firstIndex(where: { $0.browser == browser && $0.url == url }) else { return false }
+        started.remove(at: index)
+        return true
+    }
+
+    private func start(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?, pick: URL?) {
+        guard let shim = shim() else { return }
         // The chosen file stays until the download completes (a failed one
         // keeps it); the download writes a temporary sibling.
         guard let placement = BrowserDownloadPolicy.place(chosen: pick, suggestedFilename: suggestedName,
@@ -169,6 +216,13 @@ extension CEFDownloads {
             )
         }
         let logger = downloads.logger
+        // A page's download asks its tab (`AutomaticDownloadGate`); one
+        // without a cmux tab is not in the downloads list and goes ahead.
+        downloads.admit = { [weak runtime] (browser: Int32, decide: @escaping (AutomaticDownloadGate.Outcome, String?) -> Void) in
+            guard let tab = runtime?.tabsByBrowser[browser] else { return decide(.allowed, nil) }
+            let site = tab.committedURL.flatMap(PageInfoSite.origin(of:))
+            tab.automaticDownloads.request(site: site) { decide($0, site) }
+        }
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in
             guard let tab = runtime?.tabsByBrowser[browser] else {
                 logger.error("download for tab \(browser) without a cmux tab: not in the downloads list")

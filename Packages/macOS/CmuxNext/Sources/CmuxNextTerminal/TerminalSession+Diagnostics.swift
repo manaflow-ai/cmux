@@ -34,6 +34,8 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var localHistoryMismatches: Int = 0
     /// Local-history READYs that kept the surface's own reflowed history.
     public var localSnapshots: Int = 0
+    /// Kitty images the owner left out of its image replays.
+    public var skippedImages: Int = 0
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -61,7 +63,8 @@ extension TerminalSession {
             restoredSnapshots: restoredSnapshots,
             swappedSurfaces: swappedSurfaces,
             localHistoryMismatches: localHistoryMismatches,
-            localSnapshots: localSnapshots
+            localSnapshots: localSnapshots,
+            skippedImages: skippedImages
         )
     }
 }

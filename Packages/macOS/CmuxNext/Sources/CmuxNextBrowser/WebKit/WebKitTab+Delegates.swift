@@ -12,8 +12,7 @@ extension WebKitTab: WKNavigationDelegate {
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         if navigationAction.shouldPerformDownload {
-            decisionHandler(.download, preferences)
-            return
+            return admitDownload(navigationAction.request.url) { decisionHandler($0 ? .download : .cancel, preferences) }
         }
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow, preferences)
@@ -29,8 +28,7 @@ extension WebKitTab: WKNavigationDelegate {
                 emit(.openURL(url, disposition))
                 return
             case .download:
-                decisionHandler(.download, preferences)
-                return
+                return admitDownload(navigationAction.request.url) { decisionHandler($0 ? .download : .cancel, preferences) }
             }
         }
 
@@ -44,6 +42,7 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
         applySiteSettings(to: preferences, for: navigationAction)
+        if navigationAction.targetFrame?.isMainFrame ?? true { navigationSourceSite = pageSite }
         decisionHandler(.allow, preferences)
     }
 
@@ -57,7 +56,8 @@ extension WebKitTab: WKNavigationDelegate {
             .lowercased()
             .hasPrefix("attachment") ?? false
         if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
-            decisionHandler(.download)
+            // The page that started the navigation counts the download.
+            admitDownload(navigationResponse.response.url, site: navigationSourceSite) { decisionHandler($0 ? .download : .cancel) }
         } else {
             decisionHandler(.allow)
         }

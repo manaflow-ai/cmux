@@ -65,6 +65,9 @@ extension DaemonEvent {
                 return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
+            case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
+            case "terminal-clipboard-read-cancelled":
+                return .terminalClipboardReadCancelled(requestID: try d(EventPayload.RequestField.self).requestID)
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
@@ -106,6 +109,11 @@ private enum EventPayload {
     }
 
     struct SurfaceField: Decodable { var surface: SurfaceID }
+
+    struct RequestField: Decodable {
+        var requestID: String
+        enum CodingKeys: String, CodingKey { case requestID = "request_id" }
+    }
 
     struct TitleChanged: Decodable {
         var surface: SurfaceID

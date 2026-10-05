@@ -487,26 +487,27 @@ import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
 import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
 /// The pane header: the agent the session runs (its first prompt already titles the session
 /// picker and opens the transcript), and a status only when it says something to act on.
-export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
+export function paneHeader(snapshot: AcpmuxSnapshot, t: Translate = translate): { title: string; status: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
-    : "Agent Chat";
+    : t("header.agentChat");
   // A turn running when the connection dropped never ends, so connection trouble wins over Working.
   const connection = snapshot.connection;
   const status =
     connection === "disconnected"
-      ? "Reconnecting"
+      ? t("header.reconnecting")
       : connection.startsWith("connecting")
-        ? "Connecting"
+        ? t("header.connecting")
         : snapshot.isWorking
-          ? "Working"
+          ? t("header.working")
           : connection === "mock"
-            ? "Mock"
+            ? t("header.mock")
             : "";
   return { title, status };
 }

@@ -143,12 +143,25 @@ export const PAGES = {
     out: "webviews/src/pages/editor/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/editor/Localizable.xcstrings" }],
   },
+  // The agent pane and its new tab screen (agent-session/acpmux, `newTab.` keys); its table lives
+  // next to it. The pane's build splits it into locales/<code>.js (build-agent-pane-web.sh).
+  agentPane: {
+    out: "webviews/src/agent-session/acpmux/generated/strings.json",
+    catalogs: [{ file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" }],
+  },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {
     out: "webviews/src/viewer-empty/generated/strings.json",
     catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
   },
 };
+
+/** The `{name}` placeholders of a value, as a comparable string. @param {string} value */
+const namedTokens = (value) =>
+  [...value.matchAll(/\{(\w+)\}/g)]
+    .map((match) => match[1])
+    .sort()
+    .join(",");
 
 export function generate(page) {
   const wanted = [];
@@ -165,6 +178,9 @@ export function generate(page) {
     for (const [key, entry] of wanted) {
       const value = entry?.localizations?.[locale]?.stringUnit?.value;
       if (typeof value !== "string" || value.trim() === "") errors.push(`${key}: missing ${locale}`);
+      else if (namedTokens(value) !== namedTokens(entry.localizations.en.stringUnit.value))
+        // Named `{tokens}` (the agent pane) are filled by name; a translation must keep each one.
+        errors.push(`${key}: ${locale} changes the {placeholders}`);
       else out[locale][key] = value;
     }
   }

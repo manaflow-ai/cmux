@@ -8,6 +8,7 @@ use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::{write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL};
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
+use cmux_rd_core::service::{negotiate, Negotiated, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionId, SessionTable, StartRequest};
 use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, OVERLAY_PORT};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -201,6 +202,8 @@ fn serve_viewer(
         udp_port,
         max_datagram,
         token: provided,
+        service,
+        caps,
     } = read_control(&mut stream, &mut reader)?
     else {
         return Err("first message must be hello".into());
@@ -210,6 +213,14 @@ fn serve_viewer(
         let _ = write_control(&mut stream, &Control::Refused { reason: "BadToken".into() });
         return Ok("refused: missing or wrong session token".into());
     }
+    // Route by service (C1): this host serves remote desktop only, with no optional caps yet.
+    let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &[]) {
+        Ok(n) => n,
+        Err(refusal) => {
+            write_control(&mut stream, &Control::Refused { reason: refusal.reason().into() })?;
+            return Ok(format!("refused: {}", refusal.reason()));
+        }
+    };
     if [&user, &install, &class].iter().any(|v| v.len() > MAX_CLAIM) {
         return Err("hello field too long".into());
     }
@@ -255,6 +266,7 @@ fn serve_viewer(
         &principal,
         udp_port,
         max_datagram,
+        &negotiated,
     ) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
@@ -278,6 +290,7 @@ fn stream_session(
     principal: &Principal,
     udp_port: Option<u16>,
     max_datagram: usize,
+    negotiated: &Negotiated,
 ) -> Res<String> {
     // Datagrams left over from an earlier viewer must not reach this session (bounded).
     let mut scratch = [0u8; 2048];
@@ -302,6 +315,8 @@ fn stream_session(
             height,
             max_datagram,
             carrier: carrier.into(),
+            service: negotiated.service.clone(),
+            caps: negotiated.caps.clone(),
         },
     )?;
     write_control(stream, &Control::Started { session })?;

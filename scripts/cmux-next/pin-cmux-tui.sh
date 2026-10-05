@@ -72,12 +72,17 @@
 #   goes beside it as cmux-cloud (cmux-cloud.sha256; cloud_server_url= and
 #   cloud_server_sha256= in the pin); without it the supervisor answers
 #   apps.server_missing for cmux/cloud.
+#   The browser host rides the same way too: cmux-tui-browser-host-<target> goes
+#   beside it as cmux-browser-host (cmux-browser-host.sha256; browser_host_url=
+#   and browser_host_sha256= in the pin), where the daemon looks for it (the
+#   sibling of its own executable); without it the daemon has no browser host.
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
 # Usage: pin-cmux-tui.sh fetch [--tree|--pin] | path [--tree|--pin] | key [--rev <rev>]
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
+#        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
 #        | resolve-commit (the commit that published this tree, for nightly)
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
@@ -115,6 +120,12 @@ read_pin() {
     [[ "$pin_cloud_server_url" == https://* && "$pin_cloud_server_sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: malformed pin $pin_file (cloud_server_url= and cloud_server_sha256= go together)" >&2; exit 1; }
   fi
+  pin_browser_host_url="$(pin_field browser_host_url)"
+  pin_browser_host_sha256="$(pin_field browser_host_sha256)"
+  if [[ -n "$pin_browser_host_url$pin_browser_host_sha256" ]]; then
+    [[ "$pin_browser_host_url" == https://* && "$pin_browser_host_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "error: malformed pin $pin_file (browser_host_url= and browser_host_sha256= go together)" >&2; exit 1; }
+  fi
 }
 
 # Downloads $1 to $2 with retries; never follows to a non-HTTPS URL.
@@ -122,21 +133,12 @@ download() {
   curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1"
 }
 
-# The tree key of <rev> (default HEAD): the git tree hash of {cmux-tui tree,
-# ghostty gitlink, ghostty-next gitlink when present}, the binary's source
-# inputs (libghostty-vt builds from ghostty-next; the shell-integration
-# scripts come from ghostty). Revisions without ghostty-next keep their key.
+# The tree key of <rev> (default HEAD) is derived from
+# cmux-tui-tree-inputs.txt. That one list is also the trusted workflow's PR
+# path filter, so changes such as the layout-reducer FFI build script cannot
+# silently reuse a stale publication.
 tree_key() {
-  local rev="${1:-HEAD}" tui ghostty next entries
-  tui="$(git -C "$repo_root" rev-parse --verify -q "$rev:cmux-tui")" || {
-    echo "error: $rev has no cmux-tui tree" >&2; return 1; }
-  ghostty="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty")" || {
-    echo "error: $rev has no ghostty gitlink" >&2; return 1; }
-  entries="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty' "$tui" "$ghostty")"
-  if next="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty-next")"; then
-    entries+="$(printf '\n160000 commit %s\tghostty-next' "$next")"
-  fi
-  printf '%s\n' "$entries" | git -C "$repo_root" mktree --missing
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" "${1:-HEAD}"
 }
 
 mode_from_args() {
@@ -345,7 +347,8 @@ local_build_matches() {
 }
 
 # Fetches a companion binary of tree <key> into <dir>: cmux-tui-<artifact>-<target>
-# (app-host -> cmux-app-host, cloud-server -> cmux-cloud) that the commit named by
+# (app-host -> cmux-app-host, cloud-server -> cmux-cloud, browser-host ->
+# cmux-browser-host) that the commit named by
 # <dir>/source.json published in its attested commit-addressed manifest. Records its
 # sha256, or `none` when that build published none, in <dir>/<file>.sha256.
 fetch_tree_companion() {
@@ -390,6 +393,7 @@ fetch_tree_companion() {
 fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" app-host cmux-app-host
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
+  fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
 }
 
 fetch_tree() {
@@ -497,6 +501,11 @@ fetch_pin() {
   else
     rm -f "$dir/cmux-cloud"
   fi
+  if [[ -n "$pin_browser_host_url" ]]; then
+    fetch_pinned "$pin_browser_host_url" "$pin_browser_host_sha256" "$dir/cmux-browser-host" cmux-browser-host
+  else
+    rm -f "$dir/cmux-browser-host"
+  fi
 }
 
 cmd="${1:-}"
@@ -519,17 +528,18 @@ case "$cmd" in
     manifest_url="$BASE/$commit/manifest.json"
     download "$manifest_url" "$temp_dir/manifest.json" || {
       echo "error: $manifest_url is not published; run the cmux-tui artifacts workflow on $commit (see --help)" >&2; exit 1; }
-    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" <<'PY'
+    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" <<'PY'
 import json, re, sys
 m = json.load(open(sys.argv[1]))
 run = re.search(r"/actions/runs/(\d+)", m.get("attestationUrl") or "")
 binaries = m.get("binaries", {})
-print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-")
+print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-")
 PY
 )
     [[ "$run" == - ]] && run=""
     [[ "$app_host_sha256" == - ]] && app_host_sha256=""
     [[ "$cloud_server_sha256" == - ]] && cloud_server_sha256=""
+    [[ "$browser_host_sha256" == - ]] && browser_host_sha256=""
     [[ "$manifest_commit" == "$commit" && "$sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: $manifest_url does not describe cmux-tui-$TARGET for $commit" >&2; exit 1; }
     url="$BASE/$commit/cmux-tui-$TARGET"
@@ -556,6 +566,15 @@ PY
     else
       echo "note: $commit published no cmux-cloud; the pin bundles none"
     fi
+    browser_host_url=""
+    if [[ "$browser_host_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+      browser_host_url="$BASE/$commit/cmux-tui-browser-host-$TARGET"
+      download "$browser_host_url" "$temp_dir/cmux-browser-host"
+      [[ "$(sha256_of "$temp_dir/cmux-browser-host")" == "$browser_host_sha256" ]] || {
+        echo "error: $browser_host_url does not match its manifest" >&2; exit 1; }
+    else
+      echo "note: $commit published no cmux-browser-host; the pin bundles none"
+    fi
     {
       echo "# Hosted cmux-tui that release and RC builds bundle (dogfood builds use the same-tree binary). Refresh: scripts/cmux-next/pin-cmux-tui.sh --help"
       echo "commit=$commit"
@@ -570,6 +589,10 @@ PY
       if [[ -n "$cloud_server_url" ]]; then
         echo "cloud_server_url=$cloud_server_url"
         echo "cloud_server_sha256=$cloud_server_sha256"
+      fi
+      if [[ -n "$browser_host_url" ]]; then
+        echo "browser_host_url=$browser_host_url"
+        echo "browser_host_sha256=$browser_host_sha256"
       fi
     } > "$pin_file"
     echo "pinned $commit ($version)"
@@ -604,6 +627,15 @@ PY
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-cloud"
+    fi
+    ;;
+  browser-host-path)
+    mode_from_args "$@"
+    if [[ "$mode" == tree ]]; then
+      echo "$(tree_dir "$(tree_key HEAD)")/cmux-browser-host"
+    else
+      read_pin
+      echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-browser-host"
     fi
     ;;
   resolve-commit)

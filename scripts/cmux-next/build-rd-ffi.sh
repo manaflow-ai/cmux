@@ -4,9 +4,10 @@
 # Compiles the staticlib crate cmux-tui/crates/cmux-rd-ffi (own Cargo
 # workspace, outside the cmux-tui build) for each selected slice and packs it
 # with its C header and module map (module CCmuxRdFFI) into
-# cmux-tui/target/cmux-rd-ffi/CCmuxRdFFI.xcframework. The CmuxNext package links
-# it only into CmuxNextRemoteView, and only when CMUX_NEXT_RD_FFI=1
-# (Packages/macOS/CmuxNext/Package.swift). Run it on a build host, never on the
+# cmux-tui/target/cmux-rd-ffi/CCmuxRdFFI.xcframework, for standalone use (iOS
+# slices, the core's own checks). The macOS app does NOT link this archive: it
+# links the remote desktop core inside CCmuxAppFFI (scripts/cmux-next/build-app-ffi.sh),
+# its one Rust static library. Run it on a build host, never on the
 # laptop: it runs cargo. It installs nothing: a missing Rust target fails.
 set -euo pipefail
 

@@ -96,6 +96,8 @@ public final class TerminalSession {
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
     private(set) var localSnapshots = 0
+    /// Kitty images the owner left out of its image replays (its cap).
+    private(set) var skippedImages = 0
 
     public init(io: any TerminalIO, ownsGeometry: Bool = true) {
         self.io = io
@@ -212,7 +214,7 @@ public final class TerminalSession {
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
             let restored = await restoreSnapshot(data, phase: phase)
-            guard phase != .history, restored else { return }
+            guard restored, phase.isReady else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
             TerminalTimings.contentApplied()
@@ -286,6 +288,10 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
+
+    func noteSkippedImages(_ count: Int) {
+        skippedImages += max(0, count)
+    }
 
     func noteLocalSnapshot() {
         localSnapshots += 1

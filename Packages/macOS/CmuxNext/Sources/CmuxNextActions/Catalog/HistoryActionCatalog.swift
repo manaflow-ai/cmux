@@ -49,7 +49,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 keywords: ["history", "pages", "visited", "cmux://history", "timeline"], category: .window,
                 symbol: "clock.fill", surfaces: [.palette, .keyboard, .menu], cliName: "history show", mainMenu: .window
             ),
-            // Cmd-Y shows history in a page; elsewhere Cmd-Y stays New Cloud Machine.
+            // Cmd-Y shows history in a page (New Cloud Machine has no default shortcut).
             ActionDescriptor(
                 id: "browserShowHistory", title: t("action.history.showFromPage", "Show History"),
                 keywords: ["history", "browser"], defaultShortcut: Shortcut("y", modifiers: [.command]),

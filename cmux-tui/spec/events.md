@@ -61,6 +61,8 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
+| `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
+| `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
 | `client-attached` | subscribe | `client` | protocol 6 |
@@ -992,6 +994,64 @@ Example:
 
 ```json
 {"event":"daemon-shutdown"}
+```
+
+### terminal-clipboard-read
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-clipboard-read` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `terminal-clipboard-read-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-clipboard-read", request_id:string, terminal_id:string,
+       location:"standard"|"selection"|"primary",
+       host:object{kind:"local"|"remote"|"cloud", name?:string}}
+```
+
+Meaning: A program in `terminal_id` sent an OSC 52 clipboard read and the
+terminal host is waiting for the user's answer. It goes only to the single
+frontend connection subscribed to that terminal with
+`terminal-clipboard-subscribe` (see commands.md, "Terminal clipboard reads").
+`request_id` is an unguessable UUID that only this connection can answer, once,
+with `terminal-clipboard-reply`. `host` names where the terminal runs; this
+daemon's terminal hosts are local to it, so it sends `{kind:"local"}`, and a
+frontend that reached the daemon over a remote or Cloud transport shows that
+machine instead. The event never carries clipboard text.
+
+Example:
+
+```json
+{"event":"terminal-clipboard-read","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b","terminal_id":"term_0123456789abcdef0123456789abcdef","location":"standard","host":{"kind":"local"}}
+```
+
+### terminal-clipboard-read-cancelled
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-clipboard-read-cancelled` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `terminal-clipboard-read-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-clipboard-read-cancelled", request_id:string}
+```
+
+Meaning: The read is over before the user answered: the terminal host refused
+it itself (its 60-second timeout, or the terminal ended), its host connection
+ended, or a newer read from the same terminal replaced it. The frontend
+dismisses its question; a later reply to `request_id` returns
+`{accepted:false}`.
+
+Example:
+
+```json
+{"event":"terminal-clipboard-read-cancelled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b"}
 ```
 
 ## Attach Events

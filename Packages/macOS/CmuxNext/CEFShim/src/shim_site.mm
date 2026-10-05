@@ -161,10 +161,11 @@ int cmux_shim_content_setting(int browser_id, const char* url, const char* type)
 int cmux_shim_set_content_setting(int browser_id, const char* url, const char* type, int value) {
   cef_content_setting_types_t content_type;
   CefRefPtr<CefRequestContext> context = ContextOf(browser_id);
-  if (!context || !url || !*url || !LookupType(type, &content_type) || value < 0 ||
+  if (!context || !url || !LookupType(type, &content_type) || value < 0 ||
       value >= CEF_CONTENT_SETTING_VALUE_NUM_VALUES) {
     return 0;
   }
+  // "" sets the profile default (CEF ignores it for an incognito context).
   CefString target(url);
   context->SetContentSetting(target, target, content_type, static_cast<cef_content_setting_values_t>(value));
   return 1;

@@ -234,6 +234,15 @@ function LocationPicker({
           placeholder={value}
           inputClassName="acpmux-location-search"
           itemClassName="acpmux-menu-item"
+          renderItem={(path) => {
+            const folder = options.find((option) => option.id === path);
+            return (
+              <span className="acpmux-menu-text">
+                <span className="acpmux-menu-label">{folder?.label ?? path}</span>
+                {folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
+              </span>
+            );
+          }}
           inline
         />
       </Popover>

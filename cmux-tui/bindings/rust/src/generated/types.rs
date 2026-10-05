@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47.
+// cmux-tui mux protocol 12, IR b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -121,6 +121,14 @@ pub struct BrowserFrame {
     pub height: u32,
     pub seq: u64,
     pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserHostProviderResult {
+    pub host_pid: u32,
+    pub secret: String,
+    pub socket: String,
 }
 
 #[rustfmt::skip]
@@ -1616,6 +1624,49 @@ pub struct Tab {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_resource_id: Optional<String>,
     pub title: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardHost {
+    pub kind: TerminalClipboardHostKind,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalClipboardHostKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "cloud")]
+    Cloud,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalClipboardLocation {
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "selection")]
+    Selection,
+    #[serde(rename = "primary")]
+    Primary,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReplyResult {
+    pub accepted: bool,
+    pub granted: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardSubscribeResult {
+    pub clipboard_read_ready: bool,
 }
 
 #[rustfmt::skip]

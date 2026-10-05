@@ -56,6 +56,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Back, Forward and the glass patch: hidden until the top row is
     /// hovered (`window.titlebarButtons`). The sidebar toggle never fades.
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
+    /// The top-left corner (traffic lights and the band): while the sidebar is hidden, the window's
+    /// controls show only while the pointer is here (`WindowRootView+CornerReveal`).
+    let cornerRegion = PassThroughView(frame: .zero)
+    private(set) lazy var cornerReveal = HoverReveal(region: cornerRegion)
+    /// The sidebar is hidden (WindowController follows the sidebar model).
+    var sidebarHidden = false {
+        didSet { if oldValue != sidebarHidden { applyCornerReveal() } }
+    }
+    /// The traffic lights and band are collapsed: strips under them keep no room.
+    var windowControlsCollapsed = false
+    /// Called when `windowControlsCollapsed` changes (strips relay out, animated).
+    var onWindowControlsChange: ((Bool) -> Void)?
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -82,6 +94,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
+        addSubview(cornerRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
@@ -103,6 +116,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         self.titleHeight = titleHeight
         applyTokens()
         setUpTitlebarReveal()
+        setUpCornerReveal()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
@@ -220,6 +234,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : Metrics.space3
         layoutTitlebarReveal(rowHeight: rowHeight)
+        layoutCornerReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }

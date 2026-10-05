@@ -19,7 +19,8 @@ struct BrowserChordTableTests {
         let binds = [
             GhosttyHostKeybind(key: .unicode(UInt32(("[" as Unicode.Scalar).value)), modifiers: [.command], action: .gotoSplit(.previous)),
             GhosttyHostKeybind(key: .unicode(UInt32(("]" as Unicode.Scalar).value)), modifiers: [.command], action: .gotoSplit(.next)),
-            GhosttyHostKeybind(key: .unicode(UInt32(("h" as Unicode.Scalar).value)), modifiers: [.command, .control], action: .gotoSplit(.left)),
+            // A chord no cmux default binds (Ctrl-Cmd-H/J/K/L resize panes since #17281).
+            GhosttyHostKeybind(key: .unicode(UInt32(("b" as Unicode.Scalar).value)), modifiers: [.command, .control], action: .gotoSplit(.left)),
             GhosttyHostKeybind(key: .unicode(UInt32(("y" as Unicode.Scalar).value)), modifiers: [.command], action: .toggleSplitZoom),
         ]
         services.keyRouter.ghosttyHostAction = { event in binds.first { $0.matches(event) }?.action }
@@ -97,7 +98,7 @@ struct BrowserChordTableTests {
         #expect(services.keyRouter.candidate(for: history, focus: K.terminal)?.source == .ghostty(arguments: [:]))
         services.registry.context.remove(.terminalFocused)
         services.registry.context.insert(.browserFocused)
-        let user = try K.key("h", keyCode: 4, [.command, .control])
+        let user = try K.key("b", keyCode: 11, [.command, .control])
         #expect(!BrowserChordTable.isChromeChord(user))
         #expect(services.keyRouter.candidate(for: user, focus: K.page) == K.ghosttyFocusLeft)
     }

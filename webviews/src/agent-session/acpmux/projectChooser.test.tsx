@@ -127,3 +127,24 @@ test("the folder picker takes a typed absolute path on Return", async () => {
   });
   expect(picked.at(-1)?.[0]).toBe("/tmp/scratch");
 });
+
+test("folder rows show the project name over its path, and typing filters on both", async () => {
+  await render();
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!.click());
+  const rows = () =>
+    [...doc.querySelectorAll('.acpmux-location-menu [role="option"]')].map((row) => [
+      row.querySelector(".acpmux-menu-label")?.textContent,
+      row.querySelector(".acpmux-menu-description")?.textContent,
+    ]);
+  expect(rows()).toEqual([["cmux", "/Users/me/code/cmux"]]);
+  const field = doc.querySelector<HTMLInputElement>(".acpmux-location-search")!;
+  const type = (text: string) =>
+    act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, text);
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+  await type("code");
+  expect(rows()).toEqual([["cmux", "/Users/me/code/cmux"]]);
+  await type("nothing-matches");
+  expect(rows()).toEqual([]);
+});

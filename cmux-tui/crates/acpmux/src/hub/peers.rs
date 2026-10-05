@@ -12,9 +12,9 @@ impl Hub {
     pub(super) fn start_peer(
         &self,
         name: &str,
-        url: &str,
-        token: Option<String>,
+        pc: &crate::config::PeerConfig,
     ) -> tokio::sync::watch::Receiver<u64> {
+        let url = pc.url.as_str();
         // A saved ssh peer the validator refuses never runs: its URL may have
         // been set by a remote client before tokens stopped leaking to them.
         // The log names the peer, never the URL.
@@ -27,7 +27,13 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
-        let peer = crate::peer::Peer::new(name, url, token, self.peer_notices.clone());
+        let peer = crate::peer::Peer::new(
+            name,
+            url,
+            pc.token.clone(),
+            pc.peer_token.clone(),
+            self.peer_notices.clone(),
+        );
         let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
             old.stop();
@@ -39,11 +45,14 @@ impl Hub {
     /// Add (or replace) a peer. With `wait`, answer once its first connect
     /// attempt settled (connected with its sessions listed, or failed), at
     /// most `PEER_SETTLE_BUDGET` later, so the caller's listing is real.
+    /// `peer_token`: the peer's peer token (`server/peer_auth.rs`) for a
+    /// `ws://` peer; without it that peer serves this daemon as Web.
     pub async fn add_peer(
         &self,
         name: &str,
         url: &str,
         token: Option<String>,
+        peer_token: Option<String>,
         wait: bool,
     ) -> Result<(), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
@@ -57,21 +66,31 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
         }
+        let pc = crate::config::PeerConfig { url: url.to_owned(), token, peer_token };
         {
             let mut cfg = self.config.write().await;
-            cfg.peers.insert(
-                name.to_owned(),
-                crate::config::PeerConfig { url: url.to_owned(), token: token.clone() },
-            );
+            cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
                 tracing::warn!("save config failed: {e}");
             }
         }
-        let mut settled = self.start_peer(name, url, token);
+        let mut settled = self.start_peer(name, &pc);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
         Ok(())
+    }
+
+    /// `_acpmux/peer_add {name, url, token?, peerToken?, wait?}`.
+    pub async fn add_peer_from(&self, params: &Value) -> Result<(), RpcError> {
+        let text = |k: &str| params.get(k).and_then(Value::as_str);
+        let required =
+            |k: &str| text(k).ok_or_else(|| RpcError::invalid_params(format!("{k} is required")));
+        let (name, url) = (required("name")?, required("url")?);
+        let token = text("token").map(str::to_owned);
+        let peer_token = text("peerToken").map(str::to_owned);
+        let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+        self.add_peer(name, url, token, peer_token, wait).await
     }
 
     /// Reconnect a configured peer now (its daemon was restarted), without
@@ -82,7 +101,7 @@ impl Hub {
         let Some(peer) = peer else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
-        let mut settled = self.start_peer(name, &peer.url, peer.token);
+        let mut settled = self.start_peer(name, &peer);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }

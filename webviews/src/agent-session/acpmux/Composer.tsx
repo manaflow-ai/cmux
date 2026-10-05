@@ -22,36 +22,36 @@ import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
-import { useT } from "./i18n";
+import { type StringKey, type Translate, useT } from "./i18n";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
 export const COMPOSER_LABELS = {
-  placeholder: "Do anything",
-  add: "Add",
-  mention: "Mention a file or folder",
-  attach: "Attach files or images",
-  prompt: "Prompt",
-  send: "Send",
-  stop: "Stop",
-  commands: "Commands",
-  noCommands: "No commands",
-  noMatchingCommands: "No matching commands",
-  attachments: "Attachments",
-  removeAttachment: "Remove {name}",
-  dropFiles: "Drop images or text files to attach",
-  tooLarge: "{name} is too large to attach",
-  unsupported: "{name} is not an image or a text file",
-  imagesUnsupported: "This agent does not take images",
-  tooMany: "Up to 10 attachments per message",
-  queue: "Queued prompts",
-  queued: "Queued",
-};
+  placeholder: "composer.placeholder",
+  add: "composer.add",
+  mention: "composer.mention",
+  attach: "composer.attach",
+  prompt: "composer.prompt",
+  send: "composer.send",
+  stop: "composer.stop",
+  commands: "composer.commands",
+  noCommands: "composer.noCommands",
+  noMatchingCommands: "composer.noMatchingCommands",
+  attachments: "composer.attachments",
+  removeAttachment: "composer.removeAttachment",
+  dropFiles: "composer.dropFiles",
+  tooLarge: "composer.tooLarge",
+  unsupported: "composer.unsupported",
+  imagesUnsupported: "composer.imagesUnsupported",
+  tooMany: "composer.tooMany",
+  queue: "composer.queue",
+  queued: "composer.queued",
+} as const satisfies Record<string, StringKey>;
 
-function attachmentErrorText(error: AttachmentError): string {
-  return COMPOSER_LABELS[error.reason].replace("{name}", error.name);
+function attachmentErrorText(error: AttachmentError, t: Translate): string {
+  return t(COMPOSER_LABELS[error.reason], { name: error.name });
 }
 
 /// What the pane can do to the composer from outside it.
@@ -154,7 +154,7 @@ export function Composer({
     if (files.length === 0) return;
     const read = await readAttachments(files, held.current, allowImages);
     setAttachments((current) => [...current, ...read.attachments]);
-    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0]) : undefined);
+    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
   };
   useEffect(() => {
     const over = (event: DragEvent) => {
@@ -406,11 +406,11 @@ export function Composer({
   return (
     <form ref={form} className="acpmux-composer" onSubmit={submit} onBlur={blur}>
       {snapshot.queue.length > 0 && (
-        <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
+        <ol className="acpmux-composer-queue" aria-label={t(COMPOSER_LABELS.queue)}>
           {snapshot.queue.map((entry) => (
             <li className="acpmux-queued" key={entry.id} title={entry.prompt}>
               <span className="acpmux-queued-label" aria-hidden="true">
-                {COMPOSER_LABELS.queued}
+                {t(COMPOSER_LABELS.queued)}
               </span>
               <span className="acpmux-queued-text">{entry.prompt}</span>
             </li>
@@ -453,13 +453,13 @@ export function Composer({
           <SlashMenu
             matches={matches}
             active={selected}
-            empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+            empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
             onHover={setActive}
             onPick={pick}
           />
         )}
         {(attachments.length > 0 || attachError || dropping) && (
-          <fieldset className="acpmux-attachments" aria-label={COMPOSER_LABELS.attachments}>
+          <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
             {attachments.map((attachment) => (
               <AttachmentChip
                 key={attachment.id}
@@ -471,7 +471,7 @@ export function Composer({
               />
             ))}
             {dropping ? (
-              <span className="acpmux-attachment-note">{COMPOSER_LABELS.dropFiles}</span>
+              <span className="acpmux-attachment-note">{t(COMPOSER_LABELS.dropFiles)}</span>
             ) : (
               attachError && <output className="acpmux-attachment-note">{attachError}</output>
             )}
@@ -482,10 +482,10 @@ export function Composer({
           ref={fieldRef}
           className="acpmux-composer-prompt"
           value={text}
-          placeholder={COMPOSER_LABELS.placeholder}
+          placeholder={t(COMPOSER_LABELS.placeholder)}
           attributes={{
             role: "combobox",
-            "aria-label": COMPOSER_LABELS.prompt,
+            "aria-label": t(COMPOSER_LABELS.prompt),
             "aria-multiline": "true",
             "aria-expanded": String(open),
             "aria-controls": open ? "acpmux-slash-menu" : undefined,
@@ -504,7 +504,7 @@ export function Composer({
             leading
           ) : (
             <Picker
-              label={COMPOSER_LABELS.add}
+              label={t(COMPOSER_LABELS.add)}
               className="acpmux-composer-plus"
               button={<PlusIcon />}
               align="start"
@@ -513,7 +513,7 @@ export function Composer({
                 ...(modePlanChoices.length > 0 && onMode
                   ? [
                       {
-                        title: "Mode",
+                        title: t("picker.mode"),
                         choices: modePlanChoices,
                         onPick: (id: string) => {
                           if (id.startsWith("mode:")) onMode(id.slice("mode:".length));
@@ -529,14 +529,14 @@ export function Composer({
                   : []),
                 {
                   choices: [
-                    ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
-                    { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
+                    ...(onAttach ? [{ id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> }] : []),
+                    { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
                     ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
                       ? [
                           {
                             id: "commands",
-                            name: COMPOSER_LABELS.commands,
+                            name: t(COMPOSER_LABELS.commands),
                             icon: <SlashIcon />,
                             hint: "/",
                           },
@@ -565,8 +565,8 @@ export function Composer({
                 ref={sendButton}
                 type="button"
                 className="acpmux-send acpmux-cancel"
-                aria-label={COMPOSER_LABELS.stop}
-                title={COMPOSER_LABELS.stop}
+                aria-label={t(COMPOSER_LABELS.stop)}
+                title={t(COMPOSER_LABELS.stop)}
                 onClick={stopTurn}
               >
                 <StopIcon />
@@ -577,7 +577,7 @@ export function Composer({
                 ref={sendButton}
                 type="submit"
                 className={`acpmux-send${text.trim() || attachments.length ? " acpmux-send-ready" : ""}`}
-                aria-label={COMPOSER_LABELS.send}
+                aria-label={t(COMPOSER_LABELS.send)}
                 title={t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
@@ -591,11 +591,12 @@ export function Composer({
 }
 
 function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
+  const t = useT();
   const remove = (
     <button
       type="button"
       className="acpmux-attachment-remove"
-      aria-label={COMPOSER_LABELS.removeAttachment.replace("{name}", attachment.name)}
+      aria-label={t(COMPOSER_LABELS.removeAttachment, { name: attachment.name })}
       onClick={() => onRemove(attachment.id)}
     >
       ×
@@ -629,6 +630,7 @@ function SlashMenu({
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
 }) {
+  const t = useT();
   const list = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
@@ -641,7 +643,7 @@ function SlashMenu({
         id="acpmux-slash-menu"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
-        aria-label={COMPOSER_LABELS.commands}
+        aria-label={t(COMPOSER_LABELS.commands)}
       >
         {empty}
       </div>
@@ -653,7 +655,7 @@ function SlashMenu({
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
-      aria-label={COMPOSER_LABELS.commands}
+      aria-label={t(COMPOSER_LABELS.commands)}
     >
       {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
       {matches.map((match, index) => (

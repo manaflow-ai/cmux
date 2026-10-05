@@ -887,6 +887,14 @@ jobs:
           echo "Producer compile: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      # D2: the built app's Settings.bundle Acknowledgements pane (en, ja) equals the
+      # generated one, and D1: its binaries carry no LGPL libintl (except the listed pin).
+      - name: Check the app's third-party notices
+        run: |
+          set -euo pipefail
+          app="$IOS_DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmux.app"
+          python3 scripts/cmux-next/notices/ios_notices.py check-app --app "$app"
+
       - name: Forget the inode override
         if: ${{ always() && steps.owned-adopt.outcome != 'skipped' }}
         continue-on-error: true

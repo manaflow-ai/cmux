@@ -54,9 +54,12 @@ public struct RegistryKeyBindings {
         for (order, id) in ids.enumerated() where registry.disabledFeature(for: id) == nil {
             let requires = registry.descriptor(for: id)?.requires ?? []
             let when = WhenClause.requiring(requires)
+            // The code editor's editing chords win over these defaults (R127).
+            let defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
+                ? WhenClause.and([when, .not(.has(KeyContext.codeEditorFocusedKey))].compactMap { $0 }) : when
             let specificity = requires.rawValue.nonzeroBitCount
             func add(_ keys: [Shortcut], argument: String?, source: KeyBinding.Source) {
-                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: when, source: source)
+                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? defaultWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
             }
             let userChord = registry.chordOverrides[id] != nil

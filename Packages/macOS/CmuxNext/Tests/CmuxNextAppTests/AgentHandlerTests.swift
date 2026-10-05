@@ -27,7 +27,7 @@ import Testing
         let creations = HeldAgentTabCreations()
         services.agentTabs.localHost = AgentTabFixture.host
         services.agentTabs.holdsTabs = { _ in true }
-        services.agentTabs.create = { pane, _, _, _ in try await creations.hold(pane) }
+        services.agentTabs.create = { pane, _, _, _, _ in try await creations.hold(pane) }
         services.daemon.start(makeConnection: { daemon.connection() })
         defer {
             creations.release()
@@ -47,7 +47,10 @@ import Testing
             actionID: "palette.newAgentChat", origin: "user", focus: true
         ))
         #expect(run.outcome == .ran, "Cmd-I: \(run.outcome)")
-        for task in run.work { #expect(await task.value == nil, "Cmd-I work") }
+        for task in run.work {
+            let failure = await task.value
+            #expect(failure == nil, "Cmd-I work: \(failure.map(String.init(describing:)) ?? "")")
+        }
 
         func agentTabs(_ pane: PaneController) -> [TabModel] { pane.pane.tabs.filter { $0.agentSession != nil } }
         try await Self.waitUntil {

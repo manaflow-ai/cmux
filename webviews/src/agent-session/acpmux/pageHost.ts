@@ -54,6 +54,8 @@ export async function callPageHost<T>(
 export type HostEvent = { kind: string; value?: unknown };
 
 /// Runs one host event in the page: the same `cmuxAcpmuxBridge` function the old host's script ran.
+/// The user's registry.js is not an event: the host evaluates it, since the page's CSP
+/// (script-src 'self') refuses a script element the page makes.
 export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
@@ -70,8 +72,6 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyPreview?.(event.value === true);
     case "customization":
       return bridge?.applyCustomization(value);
-    case "registry":
-      return runRegistry(String(event.value ?? ""));
     case "dictation":
       return bridge?.dictation?.(value);
     case "revealTurn":
@@ -82,16 +82,6 @@ export function applyHostEvent(event: HostEvent): void {
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;
   }
-}
-
-/// The user's `registry.js`, in its own function scope so a replay does not redeclare its
-/// top-level names. It is the user's own file, which the old host evaluated the same way.
-function runRegistry(source: string): void {
-  if (!source || typeof document === "undefined") return;
-  const script = document.createElement("script");
-  script.textContent = `(function () {\n${source}\n})();`;
-  document.head.append(script);
-  script.remove();
 }
 
 const subscribed = new WeakSet<PageClient>();
