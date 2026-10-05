@@ -50,4 +50,26 @@ struct SidebarHostLifecycleTests {
         token = recovery.begin(resetBudget: true)
         #expect(recovery.retryDelay(for: token, now: 71) == 0.5)
     }
+    @Test func acknowledgesEarlierPushAfterNewerSnapshotWasSent() {
+        var tracker = CMUXSidebarSnapshotAcknowledgements()
+        tracker.reset(generation: 7, grantRevision: 2)
+        tracker.sent(100)
+        tracker.sent(101)
+        #expect(tracker.accepts(100, generation: 7, grantRevision: 2))
+        #expect(tracker.accepts(101, generation: 7, grantRevision: 2))
+        #expect(!tracker.accepts(99, generation: 7, grantRevision: 2))
+        #expect(!tracker.accepts(100, generation: 6, grantRevision: 2))
+        #expect(!tracker.accepts(100, generation: 7, grantRevision: 1))
+    }
+
+    @Test func snapshotAcknowledgementsAreBoundedAndResetWithGrant() {
+        var tracker = CMUXSidebarSnapshotAcknowledgements()
+        tracker.reset(generation: 1, grantRevision: 1)
+        for sequence in UInt64(0)...64 { tracker.sent(sequence) }
+        #expect(!tracker.accepts(0, generation: 1, grantRevision: 1))
+        #expect(tracker.accepts(1, generation: 1, grantRevision: 1))
+        #expect(tracker.accepts(64, generation: 1, grantRevision: 1))
+        tracker.reset(generation: 1, grantRevision: 2)
+        #expect(!tracker.accepts(64, generation: 1, grantRevision: 2))
+    }
 }

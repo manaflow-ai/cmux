@@ -1298,7 +1298,8 @@ private final class CMUXSidebarExtensionHostXPC {
     private let grantStore = CMUXSidebarExtensionGrantStore()
     var onSnapshotRead: (() -> Void)?
     private var didReadSnapshot = false
-    private var lastSentSequence: UInt64?
+    private var acknowledgements = CMUXSidebarSnapshotAcknowledgements()
+    private var grantRevision: UInt64 = 0
 
     var currentEffectiveGrant: CMUXSidebarExtensionEffectiveGrant? {
         guard let bundleIdentifier, let currentManifest else { return nil }
@@ -1327,13 +1328,14 @@ private final class CMUXSidebarExtensionHostXPC {
         connectionGeneration += 1
         let generation = connectionGeneration
         didReadSnapshot = false
-        lastSentSequence = nil
+        grantRevision = 0
+        acknowledgements.reset(generation: generation, grantRevision: grantRevision)
         let exportedObject = CMUXSidebarHostXPCObject(
             snapshotProvider: { Self.untrustedSnapshot(from: snapshotProvider()) },
             onSnapshotRead: { [weak self] sequence in
                 guard let self, self.connectionGeneration == generation,
                       self.currentEffectiveGrant?.needsAdditionalApproval == false,
-                      self.lastSentSequence == sequence,
+                      self.acknowledgements.accepts(sequence, generation: generation, grantRevision: self.grantRevision),
                       !self.didReadSnapshot else { return }
                 self.didReadSnapshot = true
                 self.onSnapshotRead?()
@@ -1390,7 +1392,7 @@ private final class CMUXSidebarExtensionHostXPC {
     func sendSnapshotDidChange(_ snapshot: CmuxSidebarSnapshot) {
         guard let extensionProxy else { return }
         do {
-            lastSentSequence = snapshot.sequence
+            acknowledgements.sent(snapshot.sequence)
             extensionProxy.sidebarSnapshotDidChange(
                 try CmuxSidebarXPCCodec.encodeSnapshot(
                     snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
