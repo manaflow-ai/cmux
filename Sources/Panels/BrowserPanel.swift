@@ -5043,7 +5043,9 @@ final class BrowserPanel: Panel, ObservableObject {
         pendingContentFocusAfterAttachment = true
         prepareFocusIntentForActivation(.browser(.webView))
         focus()
-        if webView.window != nil, !webView.isHiddenOrHasHiddenAncestor {
+        if let window = webView.window,
+           Self.responderChainContains(window.firstResponder, target: webView)
+        {
             pendingContentFocusAfterAttachment = false
         }
     }
@@ -5051,9 +5053,13 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Completes a deferred Cloud content-focus request after portal attachment.
     func focusPendingContentAfterAttachment() {
         guard pendingContentFocusAfterAttachment else { return }
-        pendingContentFocusAfterAttachment = false
         prepareFocusIntentForActivation(.browser(.webView))
         focus()
+        if let window = webView.window,
+           Self.responderChainContains(window.firstResponder, target: webView)
+        {
+            pendingContentFocusAfterAttachment = false
+        }
     }
 
     @discardableResult
