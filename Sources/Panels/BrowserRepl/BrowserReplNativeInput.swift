@@ -136,14 +136,17 @@ enum BrowserReplNativeInput {
     /// marked text, is not current within `stateTimeout`. The sequence is
     /// `BrowserReplTextCommitTarget.commit(_:checkTarget:)`; `checkTarget` throws to refuse the focused
     /// element, and then nothing is inserted.
+    /// `world` is the agent world of the session that types: the focus is
+    /// read there, where closed shadow roots are visible.
     static func insertText(
         _ text: String,
         into webView: WKWebView,
+        world: WKContentWorld,
         stateTimeout: Duration = .milliseconds(500),
         checkTarget: @MainActor @Sendable () async throws -> Void = {}
     ) async throws {
         guard let client = webView as? any NSTextInputClient else { return }
-        let target = WebViewTextTarget(webView: webView, client: client, stateTimeout: stateTimeout)
+        let target = WebViewTextTarget(webView: webView, client: client, world: world, stateTimeout: stateTimeout)
         try await target.commit(text, checkTarget: checkTarget)
     }
 
@@ -152,19 +155,21 @@ enum BrowserReplNativeInput {
     private final class WebViewTextTarget: BrowserReplTextCommitTarget {
         let webView: WKWebView
         let client: any NSTextInputClient
+        let world: WKContentWorld
         let stateTimeout: Duration
         private let noReplacement = NSRange(location: NSNotFound, length: 0)
 
-        init(webView: WKWebView, client: any NSTextInputClient, stateTimeout: Duration) {
+        init(webView: WKWebView, client: any NSTextInputClient, world: WKContentWorld, stateTimeout: Duration) {
             self.webView = webView
             self.client = client
+            self.world = world
             self.stateTimeout = stateTimeout
         }
 
         var hasMarkedText: Bool { client.hasMarkedText() }
 
         func prepareComposition() async -> Bool {
-            guard await BrowserReplNativeInput.focusIsRichTextEditor(webView) else { return false }
+            guard await BrowserReplNativeInput.focusIsRichTextEditor(webView, world: world) else { return false }
             return await BrowserReplNativeInput.afterPresentationUpdate(webView, timeout: stateTimeout)
         }
 
@@ -185,7 +190,7 @@ enum BrowserReplNativeInput {
     /// Whether the focused element, followed through same-origin frames and
     /// shadow roots, is a `contenteditable` editor (not a form field) in a
     /// frame the agent world can read.
-    fileprivate static func focusIsRichTextEditor(_ webView: WKWebView) async -> Bool {
+    fileprivate static func focusIsRichTextEditor(_ webView: WKWebView, world: WKContentWorld) async -> Bool {
         let result = try? await webView.browserReplCallAsyncJavaScript(
             """
             let doc = document;
@@ -208,7 +213,7 @@ enum BrowserReplNativeInput {
             """,
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world,
+            contentWorld: world,
             userGesture: false
         )
         return (result as? Bool) ?? false
@@ -274,13 +279,14 @@ enum BrowserReplNativeInput {
     }
 
     /// One JavaScript round trip: WebKit answers after the web process has
-    /// handled every message sent before it on the same connection.
+    /// handled every message sent before it on the same connection. It runs
+    /// in the driver's own world, which no session's code reaches.
     static func roundTrip(_ webView: WKWebView) async {
         _ = try? await webView.browserReplCallAsyncJavaScript(
             "return 0;",
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world,
+            contentWorld: BrowserReplDriverWorld.world,
             userGesture: false
         )
     }

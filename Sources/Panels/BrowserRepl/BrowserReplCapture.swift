@@ -18,6 +18,7 @@ enum BrowserReplCapture {
     /// As ``snapshot(webView:clip:fullPage:)``, with the region the image
     /// shows in CSS pixels of the viewport (its top-left at the image's).
     static func snapshotWithRegion(webView: WKWebView, clip: [String: Any]?, fullPage: Bool) async throws -> (image: CGImage, region: CGRect) {
+        // Read in the driver's own world: no session's code changes it.
         let metrics = try? await webView.browserReplCallAsyncJavaScript(
             """
             const d = document.documentElement;
@@ -28,7 +29,7 @@ enum BrowserReplCapture {
             """,
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world,
+            contentWorld: BrowserReplDriverWorld.world,
             userGesture: false
         ) as? [NSNumber]
         let values = (metrics ?? []).map { CGFloat($0.doubleValue) }
