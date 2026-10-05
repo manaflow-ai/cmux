@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxNextTerminal
 
-/// The shared vectors for the user's Ghostty `shell-integration-features`
-/// and `cursor-style-blink` (schemas/ghostty-shell-features/vectors.json)
+/// The shared vectors for the user's Ghostty `shell-integration`,
+/// `shell-integration-features` and `cursor-style-blink` (schemas/ghostty-shell-features/vectors.json)
 /// hold what libghostty resolves for each syntax form and include rule. The
 /// cmux-tui daemon's own reader replays the same file
 /// (decision DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES), so this test keeps
@@ -17,10 +17,12 @@ import Testing
         var files: [String: String]
         var features: [String]
         var cursorBlink: Bool?
+        var shellIntegration: String
 
         enum CodingKeys: String, CodingKey {
             case name, files, features
             case cursorBlink = "cursor_blink"
+            case shellIntegration = "shell_integration"
         }
     }
 
@@ -58,6 +60,7 @@ import Testing
             let enabled = Self.bits.filter { settings.features & $0.1 != 0 }.map(\.0)
             #expect(Set(enabled) == Set(vector.features), "\(vector.name)")
             #expect(settings.cursorBlink == vector.cursorBlink, "\(vector.name)")
+            #expect(settings.mode == vector.shellIntegration, "\(vector.name)")
         }
     }
 }
