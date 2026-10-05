@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 import CmuxNextWakeups
 import Network
 import Synchronization
@@ -32,7 +32,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
     private let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
     private let state: Mutex<Continuations>
-    // Touched only on `queue`.
+    // crash-allow: confined to the serial `queue`; every access runs in a queue block or an NWConnection callback started on it.
     private nonisolated(unsafe) let engine: Engine
 
     private struct Continuations {
@@ -206,7 +206,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
     /// arms the one timer for the next deadline.
     private func pump() {
         let now = nowMicros()
-        try? engine.core.tick(nowMicros: now)
+        _ = try? engine.core.tick(nowMicros: now)
         while let unit = try? engine.core.popAccessUnit(codec: .h264) {
             _ = state.withLock { $0.units?.yield(unit) }
         }
