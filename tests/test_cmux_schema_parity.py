@@ -48,9 +48,8 @@ STRING = re.compile(r'"([^"]+)"')
 SYMBOL = re.compile(r"^([A-Z][A-Za-z0-9_]*)\.([A-Za-z0-9_]+)\s*,?$")
 
 # Catalog DefaultsKey ids that no cmux.json section parser reads. They are
-# stored only in UserDefaults (UI state, beta toggles, device and account
-# state, or `integrations.*` aliases whose cmux.json path is the matching
-# `automation.*Integration` key). Adding one to the schema would make
+# stored only in UserDefaults (UI state, device and account state, or
+# remembered values). Adding one to the schema would make
 # `cmux config validate` accept a key that has no effect, so wire a parser
 # first and then move the id into the schema.
 NOT_IN_CMUX_JSON = frozenset({
