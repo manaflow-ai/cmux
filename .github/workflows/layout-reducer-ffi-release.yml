@@ -11,6 +11,12 @@
 # make_latest=false, and the run fails if the repository's latest release
 # ever points at a layout-reducer tag. scripts/cmux-next/check-layout-reducer-pin.sh
 # fails CI when the reducer sources change without a new pin.
+#
+# UNPROVEN (2026-10-05): GITHUB_TOKEN got HTTP 403 creating the first tag
+# (run 37272232472). The publish job therefore skips when workflow files
+# changed since the last FFI tag, and a person publishes from the artifact.
+# Whether the token can create the tag after a reducer-only change has not
+# been seen yet; the first real reducer change proves or disproves it.
 name: layout-reducer FFI release
 
 on:
