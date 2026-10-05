@@ -1,11 +1,13 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
 import copy
+import json
 import importlib.util
 from pathlib import Path
 import unittest
 import subprocess
 import tempfile
 import os
+import shlex
 import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -272,8 +274,14 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_args=(), event_log=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None):
         gh = Path(directory) / "gh"
+        checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
+        checks.extend(
+            {"id": index + 2, "name": name, "status": status, "conclusion": conclusion}
+            for index, (name, status, conclusion) in enumerate(extra_checks)
+        )
+        check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
@@ -281,7 +289,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
-            "printf '%s\\n' '[{\"check_runs\":[{\"id\":1,\"name\":\"" + check_name + "\",\"status\":\"completed\",\"conclusion\":\"" + check_conclusion + "\"}]}]'; exit 0; fi\n"
+            "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
@@ -305,6 +313,34 @@ class InstalledHelperRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
             result = self.run_helper(directory, marker)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_feat_next_native_and_release_checks_are_required_when_reported(self):
+        names = (
+            "cmux-next Release compile (Xcode 26)",
+            "cmux app scheme compile (Debug)",
+            "cmux-next swift test",
+        )
+        for name, status, conclusion in (
+            (names[0], "in_progress", ""),
+            (names[1], "completed", "failure"),
+        ):
+            with self.subTest(name=name, status=status, conclusion=conclusion), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, extra_checks=[(name, status, conclusion)])
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn(name, result.stderr)
+                self.assertIn("REPAIR.md#merging", result.stderr)
+
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(
+                directory,
+                marker,
+                extra_checks=[(name, "completed", "success") for name in names],
+            )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
