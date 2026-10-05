@@ -49,6 +49,21 @@ pub trait Driver: Send + Sync {
         let _ = event;
         false
     }
+
+    /// One call that runs `announce` once, after the driver's own checks
+    /// passed (a provider engine's lease and session state) and right
+    /// before it dispatches; a call the driver refuses never runs it. The
+    /// gate publishes `automation.input` there. The default has no checks
+    /// of its own.
+    fn call_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Value, DriverError> {
+        announce();
+        self.call(method, params)
+    }
 }
 
 /// An event sink that drops every event.

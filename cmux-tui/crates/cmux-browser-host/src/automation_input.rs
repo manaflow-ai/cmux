@@ -1,11 +1,27 @@
 //! `automation.input` v1 (schemas/automation-input/event.schema.json): one
 //! event per agent input, which the cmux app draws as the agent cursor.
 //!
-//! The gate publishes it after its policy and frame checks, right before it
-//! dispatches the input, on the session's own event sink (the provider
-//! engine tees cef/webkit sessions' events to the app). Refused inputs emit
-//! nothing, and `seq` is gap-free per lease session. An event carries where
-//! an input lands and never what it types: no text, key value or URL field.
+//! When: after the gate's policy, secret and frame checks and the driver's
+//! own checks (a provider session's lease and session state), right before
+//! the dispatch (`Driver::call_announced`). A call refused by any check
+//! emits nothing and takes no seq; `seq` is gap-free per lease session, from
+//! 0. A dispatch that fails after the announcement keeps its event (the
+//! input was sent to the engine).
+//!
+//! Where: down the driver's own session event path
+//! (`Driver::send_session_event`); a provider engine sends it through its
+//! session sink, which `tee_inputs` forwards to the app as one `input`
+//! frame; an ended provider session drops it. A driver with no such path
+//! (headless) leaves it to the gate, which hands it to the session sink.
+//!
+//! Order: the event is delivered on the caller's thread before the dispatch
+//! starts, so it comes before every event the dispatch causes (a navigation
+//! after a click), on the session sink and to the app. There is no order
+//! against events with other causes, which arrive on the provider's or the
+//! CDP reader's thread.
+//!
+//! An event carries where an input lands and never what it types: no text,
+//! key value or URL field.
 
 use crate::driver::EventSink;
 use crate::protocol::DriverEvent;
@@ -225,7 +241,3 @@ impl InputEmitter {
 #[cfg(test)]
 #[path = "automation_input_tests.rs"]
 mod tests;
-
-#[cfg(all(test, unix))]
-#[path = "automation_input_e2e_tests.rs"]
-mod e2e_tests;

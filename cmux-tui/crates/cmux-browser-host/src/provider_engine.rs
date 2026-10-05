@@ -16,7 +16,8 @@ use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider_link::ProviderDriver;
 use serde_json::{Value, json};
-use std::sync::{Arc, PoisonError};
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// The relay alias of a CEF tab's page session.
 const PAGE_ALIAS: &str = "cmux-page";
@@ -96,6 +97,9 @@ pub struct ProviderEngine {
     events: EventSink,
     /// The session's lease identity (stamped from its connection).
     lease: LeaseCaller,
+    /// Tabs the session created (`tabs.open` and their popups) and did not
+    /// keep (`tab.keep`): they close when the session ends.
+    created: Arc<Mutex<BTreeSet<String>>>,
     /// Set once the session's end released its leases (close, or the
     /// backstop drop), so a late drop of a closed engine never clears the
     /// leases of a new session with the same name.
@@ -142,8 +146,26 @@ impl ProviderEngine {
         if let Some(reason) = provider.closed_reason() {
             return Err(DriverError::closed(reason));
         }
-        let subscription = provider.subscribe(events.clone());
+        // A popup of a tab the session created is the session's too.
+        let created: Arc<Mutex<BTreeSet<String>>> = Arc::default();
+        let popups = created.clone();
+        let session_events = events.clone();
+        let subscription = provider.subscribe(Arc::new(move |event: DriverEvent| {
+            if event.name == "tab.created"
+                && let (Some(target), Some(opener)) = (
+                    event.payload.get("targetId").and_then(Value::as_str),
+                    event.payload.get("openerTargetId").and_then(Value::as_str),
+                )
+            {
+                let mut created = popups.lock().unwrap_or_else(PoisonError::into_inner);
+                if created.contains(opener) {
+                    created.insert(target.to_owned());
+                }
+            }
+            session_events(event);
+        }));
         Ok(ProviderEngine {
+            created,
             provider,
             engine: engine.to_owned(),
             agent_source,
@@ -280,8 +302,15 @@ fn rename_target(value: &mut Value, from: &str, to: &str) {
     }
 }
 
-impl Driver for ProviderEngine {
-    fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+impl ProviderEngine {
+    /// `Driver::call` with `announce` run after every check, right before
+    /// the dispatch (never for a refused call).
+    fn call_with(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Value, DriverError> {
         // A closed session's engine can outlive the close (a timed-out cell
         // still runs); it must not take a lease nobody will end.
         if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
@@ -303,7 +332,12 @@ impl Driver for ProviderEngine {
                     }
                 }
                 open.insert("engine".into(), Value::String(self.engine.clone()));
-                return self.provider.call(method, &Value::Object(open));
+                announce();
+                let opened = self.provider.call(method, &Value::Object(open))?;
+                if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
+                    self.created_tabs().insert(target.to_owned());
+                }
+                return Ok(opened);
             }
             _ => {}
         }
@@ -333,6 +367,12 @@ impl Driver for ProviderEngine {
         if let Some(error) = self.provider.refusal(method, target_id) {
             return Err(error);
         }
+        // Kept: the tab stays open when the session ends (the host owns the
+        // session's tabs; the app has no part in it).
+        if method == "tab.keep" {
+            self.created_tabs().remove(target_id);
+            return Ok(Value::Null);
+        }
         // A structured read: refused before the lease sees it unless it
         // calls an allowlisted page agent function.
         let observe = match method {
@@ -353,6 +393,12 @@ impl Driver for ProviderEngine {
                 return Err(DriverError::closed("the session was closed"));
             }
         }
+        // Every check passed (an ended session was refused above, also after
+        // the lease): the caller's announcement goes out, then the dispatch.
+        if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(DriverError::closed("the session was closed"));
+        }
+        announce();
         let result = if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
             self.drive_tab(target_id);
             self.call_cef(method, target_id, params)
@@ -370,6 +416,21 @@ impl Driver for ProviderEngine {
         }
         result
     }
+}
+
+impl Driver for ProviderEngine {
+    fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+        self.call_with(method, params, &mut || {})
+    }
+
+    fn call_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Value, DriverError> {
+        self.call_with(method, params, announce)
+    }
 
     fn end_session(&self) {
         self.release_session();
@@ -377,8 +438,12 @@ impl Driver for ProviderEngine {
 
     /// The gate's events for this session go through the session's sink
     /// only (never `publish`, which reaches every subscribed session).
+    /// An ended session's events are dropped here (true: the gate must not
+    /// deliver them elsewhere either).
     fn send_session_event(&self, event: DriverEvent) -> bool {
-        (self.events)(event);
+        if !self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+            (self.events)(event);
+        }
         true
     }
 
@@ -415,8 +480,32 @@ impl Driver for ProviderEngine {
 impl ProviderEngine {
     /// The session ends: its leases go (the app clears the badges). Runs
     /// once, from `end_session` (close) or, as a backstop, from drop.
+    fn created_tabs(&self) -> std::sync::MutexGuard<'_, BTreeSet<String>> {
+        self.created.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The session's end (close, reset, idle, the backstop drop), one path:
+    /// the tabs it created and did not keep close (classic main), except a
+    /// tab whose lease the person has taken (driving or paused), which stays
+    /// as theirs; then every lease of the session is released.
     fn release_session(&self) {
         if !self.ended.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let created = std::mem::take(&mut *self.created_tabs());
+            for target in created {
+                let users = matches!(
+                    self.provider.lease_state(&target),
+                    Some(
+                        crate::provider::LeaseState::UserDriving
+                            | crate::provider::LeaseState::Paused
+                    )
+                );
+                if !users && self.provider.tab_engine(&target).is_some() {
+                    let _ = self.provider.call(
+                        "tabs.close",
+                        &json!({"targetId": target, "timeoutMs": SESSION_END_CLOSE_MS}),
+                    );
+                }
+            }
             let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
             let removed = self
                 .provider
@@ -432,6 +521,9 @@ impl ProviderEngine {
     }
 }
 
+/// How long the session's end waits for the app to close one tab.
+const SESSION_END_CLOSE_MS: u64 = 5000;
+
 impl Drop for ProviderEngine {
     fn drop(&mut self) {
         self.provider.unsubscribe(self.subscription);
@@ -440,471 +532,17 @@ impl Drop for ProviderEngine {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::provider::{Frame, TabAnnounce, read_frame, write_frame};
-    use std::os::unix::net::UnixStream;
-    use std::sync::Mutex;
-
-    pub(super) fn tab(target_id: &str, engine: &str) -> TabAnnounce {
-        TabAnnounce {
-            target_id: target_id.into(),
-            engine: engine.into(),
-            workspace: "w".into(),
-            profile: "p".into(),
-            url: "https://a.test/".into(),
-            title: "A".into(),
-            visible: true,
-        }
-    }
-
-    /// The app side: answers WebKit `call` frames, and plays one page per
-    /// attached CEF tab on its `cdp` frames (page-level messages carry no
-    /// sessionId). Records every frame it got.
-    pub(super) struct FakeApp {
-        writer: Arc<Mutex<UnixStream>>,
-        pub(super) frames: Arc<Mutex<Vec<Frame>>>,
-    }
-
-    impl FakeApp {
-        pub(super) fn start(tabs: Vec<TabAnnounce>) -> (FakeApp, Arc<ProviderDriver>) {
-            let (app, host) = UnixStream::pair().unwrap();
-            let provider = ProviderDriver::start(
-                host.try_clone().unwrap(),
-                host,
-                crate::driver::discard_events(),
-                tabs,
-            )
-            .unwrap();
-            let writer = Arc::new(Mutex::new(app.try_clone().unwrap()));
-            let frames = Arc::new(Mutex::new(Vec::new()));
-            let (thread_writer, thread_frames) = (writer.clone(), frames.clone());
-            let mut reader = app;
-            std::thread::spawn(move || {
-                while let Ok(Some(frame)) = read_frame(&mut reader) {
-                    thread_frames.lock().unwrap().push(frame.clone());
-                    let reply = match frame {
-                        Frame::Call { id, params, .. } if params["failForTest"] == true => {
-                            Some(Frame::Result {
-                                id,
-                                result: None,
-                                error: Some(DriverError::invalid("the app failed the call")),
-                            })
-                        }
-                        Frame::Call { id, method, .. } => Some(Frame::Result {
-                            id,
-                            result: Some(json!({"method": method})),
-                            error: None,
-                        }),
-                        Frame::Cdp { target_id, message } => {
-                            let message: Value = serde_json::from_str(&message).unwrap();
-                            let result = match message["method"].as_str().unwrap_or("") {
-                                "Target.getTargetInfo" => json!({"targetInfo": {
-                                    "targetId": format!("CDP-{target_id}"), "type": "page",
-                                    "url": "https://a.test/", "title": "A", "attached": true}}),
-                                "Page.getFrameTree" => json!({"frameTree": {"frame": {
-                                    "id": format!("CDP-{target_id}"), "loaderId": "L1",
-                                    "url": "https://a.test/"}}}),
-                                _ => json!({}),
-                            };
-                            let mut reply = json!({"id": message["id"], "result": result});
-                            if let Some(session) = message.get("sessionId") {
-                                reply["sessionId"] = session.clone();
-                            }
-                            Some(Frame::Cdp { target_id, message: reply.to_string() })
-                        }
-                        _ => None,
-                    };
-                    if let Some(reply) = reply
-                        && write_frame(&mut *thread_writer.lock().unwrap(), &reply).is_err()
-                    {
-                        break;
-                    }
-                }
-            });
-            (FakeApp { writer, frames }, provider)
-        }
-
-        pub(super) fn send(&self, frame: Frame) {
-            write_frame(&mut *self.writer.lock().unwrap(), &frame).unwrap();
-        }
-
-        pub(super) fn access(&self, provider: &ProviderDriver, target: &str) {
-            self.send(Frame::TabAccess {
-                target_id: target.into(),
-                extension_host_access: false,
-                user_override: false,
-                extensions: Vec::new(),
-            });
-            // A round trip on a WebKit tab: the access frame was read first.
-            provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        }
-
-        fn attaches(&self, target: &str) -> usize {
-            self.frames
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|f| matches!(f, Frame::CdpAttach { target_id } if target_id == target))
-                .count()
-        }
-
-        fn cdp_messages(&self, target: &str) -> Vec<Value> {
-            self.frames
-                .lock()
-                .unwrap()
-                .iter()
-                .filter_map(|f| match f {
-                    Frame::Cdp { target_id, message } if target_id == target => {
-                        serde_json::from_str(message).ok()
-                    }
-                    _ => None,
-                })
-                .collect()
-        }
-    }
-
-    fn engine(provider: &Arc<ProviderDriver>, kind: &str) -> ProviderEngine {
-        session(provider, kind, "s1")
-    }
-
-    pub(super) fn session(
-        provider: &Arc<ProviderDriver>,
-        kind: &str,
-        name: &str,
-    ) -> ProviderEngine {
-        let lease = LeaseCaller {
-            session: name.into(),
-            actor: "uid:501".into(),
-            on_behalf_of: None,
-            origin: "mcp".into(),
-            label: "task".into(),
-            ..LeaseCaller::default()
-        };
-        ProviderEngine::new(
-            provider.clone(),
-            kind,
-            Arc::from("/* agent */"),
-            crate::driver::discard_events(),
-            lease,
-        )
-        .unwrap()
-    }
-
-    pub(super) fn leases(app: &FakeApp, target: &str) -> Vec<Option<crate::provider::Lease>> {
-        app.frames
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|f| match f {
-                Frame::Lease { target_id, lease } if target_id == target => Some(lease.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// The host's lease state machine drives the badge: an act takes the
-    /// lease, a person's input pauses it, another session is refused, the
-    /// person's hand back needs a fresh observe, and session end clears it.
-    #[test]
-    fn provider_calls_follow_the_automation_lease() {
-        use crate::provider::LeaseState;
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-        let first = session(&provider, "webkit", "s1");
-        first.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        assert!(leases(&app, "W").is_empty(), "a read takes no lease");
-        first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
-        assert_eq!(leases(&app, "W").last().unwrap().as_ref().unwrap().state, LeaseState::Driving);
-        let second = session(&provider, "webkit", "s2");
-        let held = second.call("input.key", &json!({"targetId": "W"})).unwrap_err();
-        assert_eq!(held.error_name.as_deref(), Some("lease_held"), "{held}");
-        app.send(Frame::UserInput { target_id: "W".into() });
-        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        assert_eq!(leases(&app, "W").last().unwrap().as_ref().unwrap().state, LeaseState::Paused);
-        let paused = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
-        assert_eq!(paused.error_name.as_deref(), Some("paused_by_user"), "{paused}");
-        app.send(Frame::LeaseUser {
-            op: "hand_back".into(),
-            target_id: Some("W".into()),
-            actor: None,
-        });
-        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        let stale = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
-        assert_eq!(stale.error_name.as_deref(), Some("stale_after_hand_back"), "{stale}");
-        first.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        first.call("input.key", &json!({"targetId": "W"})).unwrap();
-        drop(first);
-        second.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        assert_eq!(leases(&app, "W").last().unwrap(), &None, "session end clears the badge");
-    }
-
-    #[test]
-    fn request_filters_apply_per_app_tab_on_cef_relays() {
-        let (app, provider) =
-            FakeApp::start(vec![tab("C", "cef"), tab("D", "cef"), tab("W", "webkit")]);
-        app.access(&provider, "C");
-        app.access(&provider, "D");
-        let a = session(&provider, "cef", "a");
-        let b = session(&provider, "cef", "b");
-        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
-        let record = seen.clone();
-        let filter: crate::driver::RequestFilter = Arc::new(move |target: &str, url: &str| {
-            record.lock().unwrap().push(target.to_owned());
-            url.contains("evil.test").then(|| "prohibited by evil.test".to_owned())
-        });
-        assert!(a.set_request_filter(Some(filter)), "CEF relays enforce a session's filter");
-        a.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-        b.call("tab.info", &json!({"targetId": "D", "timeoutMs": 5000})).unwrap();
-        // Session a's policy applies to the tab it drives, not to b's.
-        assert!(app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.enable"));
-        assert!(!app.cdp_messages("D").iter().any(|m| m["method"] == "Fetch.enable"));
-        app.send(Frame::Cdp {
-            target_id: "C".into(),
-            message: json!({"method": "Fetch.requestPaused", "params": {"requestId": "r1", "request": {"url": "https://evil.test/x"}}}).to_string(),
-        });
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !app
-            .cdp_messages("C")
-            .iter()
-            .any(|m| m["method"] == "Fetch.failRequest" && m["params"]["requestId"] == "r1")
-        {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the request was not blocked: {:?}",
-                app.cdp_messages("C")
-            );
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        // The filter is keyed by the app's tab id, never the page's CDP id.
-        assert_eq!(*seen.lock().unwrap(), vec!["C".to_owned()]);
-        // The session's end removes its filter from the tab.
-        drop(a);
-        let _ = b.call("tab.info", &json!({"targetId": "D", "timeoutMs": 5000}));
-        assert!(app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.disable"));
-        // WebKit tabs cannot take a filter yet: the gate fails closed.
-        let w = session(&provider, "webkit", "w");
-        assert!(!w.set_request_filter(Some(Arc::new(|_: &str, _: &str| None))));
-    }
-
-    #[test]
-    fn a_cef_tab_is_driven_through_its_relay_under_the_app_tab_id() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-        app.access(&provider, "C");
-        let cef = engine(&provider, "cef");
-        let info = cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-        assert_eq!(info["url"], "https://a.test/", "{info}");
-        // Results name the app's tab, never the page's CDP target id.
-        assert!(!info.to_string().contains("CDP-C"), "{info}");
-        assert_eq!(app.attaches("C"), 1);
-        let sent = app.cdp_messages("C");
-        assert_eq!(sent[0]["method"], "Target.getTargetInfo");
-        // The page's own messages carry no session on the wire.
-        assert!(sent.iter().all(|m| m.get("sessionId").is_none()), "{sent:?}");
-        assert!(sent.iter().any(|m| m["method"] == "Page.enable"));
-        // A second session shares the tab's relay.
-        let other = engine(&provider, "cef");
-        other.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-        assert_eq!(app.attaches("C"), 1);
-    }
-
-    #[test]
-    fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-        let webkit = engine(&provider, "webkit");
-        let tabs = webkit.call("tabs.list", &json!({})).unwrap();
-        assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1);
-        assert_eq!(tabs["tabs"][0]["targetId"], "W");
-        assert_eq!(
-            webkit.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"],
-            "tab.info"
-        );
-        assert_eq!(app.attaches("W"), 0);
-        let cef = engine(&provider, "cef");
-        assert_eq!(cef.call("tabs.list", &json!({})).unwrap()["tabs"][0]["targetId"], "C");
-    }
-
-    #[test]
-    fn a_refused_tab_never_opens_a_relay() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-        let cef = engine(&provider, "cef");
-        // No tab.access report yet: refused, and the app saw no cdp.attach.
-        let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-        assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
-        assert_eq!(app.attaches("C"), 0);
-        let missing = cef.call("tab.info", &json!({"targetId": "X"})).unwrap_err();
-        assert_eq!(missing.code, crate::protocol::ErrorCode::NotFound, "{missing}");
-    }
-
-    #[test]
-    fn a_closed_relay_attaches_again_and_a_gone_tab_is_not_found() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-        app.access(&provider, "C");
-        let cef = engine(&provider, "cef");
-        cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-        // The app replaced the tab's browser: the next call attaches again.
-        app.send(Frame::Event {
-            name: "tab.relay.closed".into(),
-            payload: json!({"targetId": "C"}),
-        });
-        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-        assert_eq!(app.attaches("C"), 2);
-        app.send(Frame::Event { name: "tab.gone".into(), payload: json!({"targetId": "C"}) });
-        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        let gone = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-        assert_eq!(gone.code, crate::protocol::ErrorCode::NotFound, "{gone}");
-    }
-
-    pub(super) fn calls(app: &FakeApp, method: &str) -> usize {
-        app.frames
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|f| matches!(f, Frame::Call { method: m, .. } if m == method))
-            .count()
-    }
-
-    /// Review P0: tab-less calls (cookies of the person's profile) never
-    /// reach the app; a session drives only its own engine's tabs.
-    #[test]
-    fn tab_less_calls_and_other_engine_tabs_are_refused() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-        app.access(&provider, "C");
-        let webkit = engine(&provider, "webkit");
-        for method in ["cookies.get", "cookies.set", "cookies.clear", "cdp"] {
-            let error = webkit.call(method, &json!({})).unwrap_err();
-            assert_eq!(error.code, crate::protocol::ErrorCode::Unsupported, "{method}: {error}");
-            assert_eq!(calls(&app, method), 0, "{method} reached the app");
-        }
-        let bad = webkit.call("tab.info", &json!({"targetId": 7})).unwrap_err();
-        assert_eq!(bad.code, crate::protocol::ErrorCode::Invalid, "{bad}");
-        let other = webkit.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-        assert_eq!(other.code, crate::protocol::ErrorCode::NotFound, "{other}");
-        assert_eq!(app.attaches("C"), 0);
-    }
-
-    /// Review P1: raw CDP on a relayed tab cannot reach Target, Browser or
-    /// Storage (another tab, the browser target, the profile's cookies).
-    #[test]
-    fn raw_cdp_on_a_relayed_tab_cannot_leave_the_page() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-        app.access(&provider, "C");
-        let cef = engine(&provider, "cef");
-        for method in [
-            "Target.attachToTarget",
-            "Target.attachToBrowserTarget",
-            "Target.createTarget",
-            "Storage.getCookies",
-            "Browser.close",
-        ] {
-            let error = cef
-                .call(
-                    "cdp",
-                    &json!({"targetId": "C", "method": method, "params": {}, "timeoutMs": 5000}),
-                )
-                .unwrap_err();
-            assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{method}: {error}");
-            assert!(
-                app.cdp_messages("C").iter().all(|m| m["method"] != method),
-                "{method} went out"
-            );
-        }
-    }
-
-    /// A tab that navigates to a browser page after its relay opened is refused.
-    #[test]
-    fn a_relayed_tab_that_shows_a_browser_page_is_refused() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-        app.access(&provider, "C");
-        let cef = engine(&provider, "cef");
-        cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-        app.send(Frame::Event {
-            name: "tab.navigated".into(),
-            payload: json!({"targetId": "C", "url": "chrome://settings/"}),
-        });
-        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-        assert_eq!(
-            error.error_name.as_deref(),
-            Some(crate::provider_link::BROWSER_PAGE),
-            "{error}"
-        );
-    }
-
-    /// Review P1: a domain policy the provider cannot enforce on the page's
-    /// own requests makes every call fail closed.
-    #[test]
-    fn a_policy_on_a_provider_session_fails_closed() {
-        use crate::gate::{Gate, Grants};
-        use crate::policy::{DomainPattern, Layer};
-        use crate::vm::VmHost;
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-        let gate = Gate::new(Arc::new(engine(&provider, "webkit")), Grants::default());
-        gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap();
-        let layer = Layer {
-            allowed: Some(vec![DomainPattern::parse("a.test").unwrap()]),
-            prohibited: Vec::new(),
-            block_ips: false,
-        };
-        gate.set_owner_policy(layer, false).unwrap();
-        let before = calls(&app, "tab.info");
-        let error = gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap_err();
-        assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
-        assert_eq!(calls(&app, "tab.info"), before);
-    }
-
-    /// Review P1: tabs.open passes only url and background; the app picks
-    /// the profile and workspace.
-    #[test]
-    fn tabs_open_drops_agent_chosen_profile_and_workspace() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-        let cef = engine(&provider, "cef");
-        cef.call(
-            "tabs.open",
-            &json!({"url": "https://b.test/", "profile": "signed-in", "workspace": "w2", "focus": true}),
-        )
-        .unwrap();
-        let frames = app.frames.lock().unwrap();
-        let open = frames
-            .iter()
-            .find_map(|f| match f {
-                Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(open, json!({"url": "https://b.test/", "engine": "cef"}));
-    }
-
-    #[test]
-    fn tabs_open_goes_to_the_app_with_the_session_engine() {
-        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-        let cef = engine(&provider, "cef");
-        cef.call("tabs.open", &json!({"url": "https://b.test/"})).unwrap();
-        let frames = app.frames.lock().unwrap();
-        let open = frames
-            .iter()
-            .find_map(|f| match f {
-                Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(open["engine"], "cef");
-    }
-
-    /// A CEF tab's automation.input names the tab as the app knows it, so
-    /// the app routes the agent cursor (snake_case `target_id` too).
-    #[test]
-    fn cef_input_events_name_the_app_tab() {
-        let mut payload = json!({"session_id": "s1", "target_id": "CDP1",
-            "nested": {"targetId": "CDP1"}, "other": "CDP1"});
-        rename_target(&mut payload, "CDP1", "c1");
-        assert_eq!(
-            payload,
-            json!({"session_id": "s1", "target_id": "c1", "nested": {"targetId": "c1"}, "other": "CDP1"})
-        );
-    }
-}
+#[path = "provider_engine_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "provider_engine_lease_tests.rs"]
 mod lease_tests;
+
+#[cfg(test)]
+#[path = "provider_engine_input_tests.rs"]
+mod input_tests;
+
+#[cfg(test)]
+#[path = "provider_engine_reaper_tests.rs"]
+mod reaper_tests;

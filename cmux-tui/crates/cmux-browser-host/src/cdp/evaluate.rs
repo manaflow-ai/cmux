@@ -13,7 +13,14 @@ const CONTEXT_GRACE: Duration = Duration::from_millis(500);
 const STALE_MARKER: &str = "cmux-stale-handle:";
 
 /// Object group for handle moves, released after each evaluation.
-const HANDLE_GROUP: &str = "cmux-handles";
+/// Object groups of the driver's own remote objects. Every call takes a
+/// group of its own: frames in one process share a CDP session, and a
+/// release of one shared group killed the objects of a concurrent call
+/// ("Could not find object with given id": the snapshot lost a frame).
+fn handle_group() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    format!("cmux-handles-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
 
 /// A script context: the CDP session that owns it and its id there.
 struct Context {
@@ -150,6 +157,7 @@ impl Inner {
         &self,
         agent: &Context,
         handle: &str,
+        group: &str,
         deadline: Instant,
     ) -> Result<String, DriverError> {
         let resolved = self.send_on(
@@ -160,7 +168,7 @@ impl Inner {
                 "executionContextId": agent.id,
                 "arguments": [{"value": handle}],
                 "returnByValue": false,
-                "objectGroup": HANDLE_GROUP,
+                "objectGroup": group,
             }),
             deadline,
         )?;
@@ -214,7 +222,7 @@ impl Inner {
             .unwrap_or_default();
 
         let mut arguments: Vec<Value> = Vec::new();
-        let mut used_group: Option<String> = None;
+        let mut used_group: Option<(String, String)> = None;
         let (context, declaration) = match world {
             World::Host if !handles.is_empty() => {
                 return Err(DriverError::invalid("the host world takes no element handles"));
@@ -238,14 +246,15 @@ impl Inner {
                 let page = self.context(session, frame_id, World::Page, deadline)?;
                 if !handles.is_empty() {
                     let agent = self.context(session, frame_id, World::Agent, deadline)?;
-                    used_group = Some(agent.session.clone());
-                    let moved = self.move_handles(&agent, &page, &handles, deadline);
+                    let group = handle_group();
+                    used_group = Some((agent.session.clone(), group.clone()));
+                    let moved = self.move_handles(&agent, &page, &handles, &group, deadline);
                     match moved {
                         Ok(objects) => {
                             arguments.extend(objects.into_iter().map(|id| json!({"objectId": id})));
                         }
                         Err(error) => {
-                            self.release_handles(&agent.session);
+                            self.release_handles(&agent.session, &group);
                             return Err(error);
                         }
                     }
@@ -267,8 +276,8 @@ impl Inner {
             }),
             deadline,
         );
-        if let Some(group_session) = used_group {
-            self.release_handles(&group_session);
+        if let Some((group_session, group)) = used_group {
+            self.release_handles(&group_session, &group);
         }
         let reply = reply?;
         if let Some(details) = reply.get("exceptionDetails") {
@@ -283,11 +292,12 @@ impl Inner {
         agent: &Context,
         page: &Context,
         handles: &[String],
+        group: &str,
         deadline: Instant,
     ) -> Result<Vec<String>, DriverError> {
         let mut objects = Vec::with_capacity(handles.len());
         for handle in handles {
-            let object = self.handle_object(agent, handle, deadline)?;
+            let object = self.handle_object(agent, handle, group, deadline)?;
             let node = self.send_on(
                 &agent.session,
                 "DOM.describeNode",
@@ -300,7 +310,7 @@ impl Inner {
             let moved = self.send_on(
                 &page.session,
                 "DOM.resolveNode",
-                json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": HANDLE_GROUP}),
+                json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": group}),
                 deadline,
             )?;
             let object_id = moved["object"]["objectId"].as_str().ok_or_else(|| {
@@ -311,11 +321,11 @@ impl Inner {
         Ok(objects)
     }
 
-    fn release_handles(&self, session_id: &str) {
+    fn release_handles(&self, session_id: &str, group: &str) {
         let _ = self.conn.call(
             Some(session_id),
             "Runtime.releaseObjectGroup",
-            json!({"objectGroup": HANDLE_GROUP}),
+            json!({"objectGroup": group}),
             Duration::from_secs(2),
         );
     }
@@ -386,11 +396,12 @@ impl Inner {
         deadline: Instant,
     ) -> Result<Value, DriverError> {
         let agent = self.context(session, frame_id, World::Agent, deadline)?;
-        let object = self.handle_object(&agent, element, deadline);
+        let group = handle_group();
+        let object = self.handle_object(&agent, element, &group, deadline);
         let node = object.and_then(|object| {
             self.send_on(&agent.session, "DOM.describeNode", json!({"objectId": object}), deadline)
         });
-        self.release_handles(&agent.session);
+        self.release_handles(&agent.session, &group);
         Ok(match node?["node"].get("frameId").and_then(Value::as_str) {
             Some(child) => json!({"frameId": child}),
             None => Value::Null,
@@ -443,10 +454,11 @@ impl Inner {
             DriverError::not_found(format!("Frame {frame_id} has no owner element"))
         })?;
         let page = self.context(&session, &parent, World::Page, deadline)?;
+        let group = handle_group();
         let resolved = self.send_on(
             &page.session,
             "DOM.resolveNode",
-            json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": HANDLE_GROUP}),
+            json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": group}),
             deadline,
         )?;
         let object_id = resolved["object"]["objectId"]
@@ -468,7 +480,7 @@ impl Inner {
             }),
             deadline,
         );
-        self.release_handles(&page.session);
+        self.release_handles(&page.session, &group);
         let reply = reply?;
         if let Some(details) = reply.get("exceptionDetails") {
             return Err(evaluation_error(details));

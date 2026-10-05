@@ -17,10 +17,13 @@ public nonisolated enum SettingsSchema {
             + BrowserAppSettingsSchema.descriptors
     }
 
-    /// cmux-next keys cmux-browser reads too (its theme picker, window material, focus color and
-    /// minimum column width). The `appearance.metrics.*` rows say so themselves.
+    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
+    /// `appearance.metrics.*` rows say so themselves.
     static let sharedWithBrowser: Set<String> = [
-        "appearance.theme", "appearance.backgroundBlur", "focusRing.color", "layout.minimumPaneWidth",
+        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
+        "focusRing.enabled", "focusRing.width", "focusRing.color",
+        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
+        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
     ]
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
