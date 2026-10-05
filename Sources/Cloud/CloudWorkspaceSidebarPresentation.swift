@@ -37,10 +37,22 @@ struct CloudWorkspaceSidebarPresentation {
     static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog? = nil) -> String? {
         let catalog = catalog ?? SurfaceCatalog.shared
         return deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
+
     }
 
     static var unavailableDirectory: String {
         String(localized: "sidebar.cloudWorkspace.directoryUnavailable", defaultValue: "Directory unavailable")
+    }
+
+    /// Builds the presentation from the app's shared catalog.
+    @MainActor
+    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
+        self.init(
+            workspace: workspace,
+            orderedPanelIDs: orderedPanelIDs,
+            usesLastSegmentPath: usesLastSegmentPath,
+            catalog: SurfaceCatalog.shared
+        )
     }
 
     @MainActor

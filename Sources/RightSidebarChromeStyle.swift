@@ -367,14 +367,29 @@ struct ModeBarButton: View {
     let action: () -> Void
 
     @State private var isHovered: Bool = false
-    /// False once the label is truncated to less than a letter and an
-    /// ellipsis; the tab then shows only its icon. The label keeps its slot,
-    /// so hiding it never changes the tab's width.
+    /// False once the label's slot is narrower than about a letter; the tab
+    /// then shows only its icon. The label keeps its slot, so hiding it
+    /// never changes the tab's width.
     @State private var labelFits = true
+    @State private var labelWidth: CGFloat = 0
+    /// The label's full width, which its slot may be narrower than.
+    @State private var naturalLabelWidth: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The tab switch's one curve: smooth, short and without overshoot, so
+    /// tabs settle into their new widths instead of bouncing like a reorder.
+    static let switchAnimation = Animation.smooth(duration: 0.26)
+
+    /// With its label hidden, the icon (and badge) moves into the middle of
+    /// the label's empty slot, so it sits centered in the tab's highlight.
+    private var hiddenLabelShift: CGFloat {
+        labelFits ? 0 : (labelWidth + Self.contentSpacing) / 2
+    }
+    private static let contentSpacing: CGFloat = 4
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: Self.contentSpacing) {
                 CmuxSystemSymbolImage(
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
@@ -386,17 +401,29 @@ struct ModeBarButton: View {
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true
                     )
+                    .offset(x: badgeCount > 0 ? 0 : hiddenLabelShift)
+                // The label keeps its natural width and its slot uncovers it:
+                // a slot that narrows clips with a soft edge rather than
+                // re-truncating ("Files", "Fil…", "F…") on every frame of a
+                // width change.
                 Text(item.label)
                     .cmuxFont(
                         size: RightSidebarChromeControlStyle.labelSize,
                         weight: RightSidebarChromeControlStyle.labelWeight
                     )
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fixedSize()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { naturalLabelWidth = $0 }
+                    .frame(minWidth: 0, alignment: .leading)
+                    .clipped()
+                    .mask { ModeBarLabelEdgeFade(naturalWidth: naturalLabelWidth) }
                     .opacity(labelFits ? 1 : 0)
-                    .onGeometryChange(for: Bool.self) { proxy in
-                        proxy.size.width >= GlobalFontMagnification.scaledSize(Self.minimumVisibleLabelWidth)
-                    } action: { labelFits = $0 }
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        labelWidth = width
+                        labelFits = width >= GlobalFontMagnification.scaledSize(Self.minimumVisibleLabelWidth)
+                    }
                 if badgeCount > 0 {
                     pendingChip
                 }
@@ -417,6 +444,10 @@ struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The label's fade and the icon's glide to or from the middle follow
+        // the width on the same curve. They change a layout pass after the
+        // width, so they carry their own animation rather than the switch's.
+        .animation(reduceMotion ? nil : Self.switchAnimation, value: labelFits)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)

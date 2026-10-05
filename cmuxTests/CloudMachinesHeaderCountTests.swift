@@ -99,6 +99,21 @@ struct CloudMachinesHeaderCountTests {
         #expect(MachinesPanelViewModel.usage(nil, machines: fleet, hiding: ["d"]) == nil)
     }
 
+    @Test("A scope-checked sheet-cache usage keeps the header visible during a list refresh")
+    func cachedUsageFillsTheListReadGap() throws {
+        let machines = [MachineSnapshot(id: "a", provider: "freestyle", image: "base", isDesktop: false, activity: .ready)]
+        let cached = CloudMachinesUsage(activeCount: 1, maxActiveVms: 5, isPaidPlan: false)
+        let visible = try #require(MachinesPanelViewModel.usage(
+            nil, fallback: cached, machines: machines, hiding: []
+        ))
+        #expect(visible.compactCount == "1/5")
+
+        let current = CloudMachinesUsage(activeCount: 0, maxActiveVms: 5, isPaidPlan: false)
+        #expect(MachinesPanelViewModel.usage(
+            current, fallback: cached, machines: machines, hiding: []
+        ) == current)
+    }
+
     @Test("VoiceOver reads the header with its spelled-out usage")
     func headerCellSpeaksTheUsage() {
         let cell = headerCell(usage: CloudMachinesUsage(activeCount: 1, maxActiveVms: 50, isPaidPlan: false))

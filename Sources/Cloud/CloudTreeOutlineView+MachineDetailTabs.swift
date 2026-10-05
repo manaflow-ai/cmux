@@ -19,6 +19,18 @@ extension CloudTreeOutlineView.Coordinator {
 }
 
 extension CloudTreeNSOutlineView {
+    /// A machine's "Connecting…" row stands where its New Workspace will be,
+    /// so its spinner takes the same chevron column as New Workspace's "+"
+    /// (`CloudTreeCellView.createRowContentInset`); nil for every other row.
+    func connectingLeading(atRow row: Int) -> CGFloat? {
+        guard let node = item(atRow: row) as? CloudTreeNode,
+              case .placeholder(_, let placeholder) = node.kind, placeholder.style == .connecting,
+              let parent = parent(forItem: node) as? CloudTreeNode, parent.isMachineRow else { return nil }
+        let slot = max(treeStyle.iconSlot, 12)
+        return disclosureLeading(atRow: row)
+            + GlobalFontMagnification.scaledSize(treeStyle.rowGrid.disclosureSlot / 2 - slot / 2)
+    }
+
     /// An open machine tab's rows start under the first tab, not one indent
     /// deeper than the tab row; nil for every other row.
     func panelContentLeading(atRow row: Int) -> CGFloat? {
