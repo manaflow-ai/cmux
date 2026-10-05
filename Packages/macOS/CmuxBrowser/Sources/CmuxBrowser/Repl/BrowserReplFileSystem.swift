@@ -136,6 +136,9 @@ public struct BrowserReplFileSystem: Sendable {
     }
 
     private func run(_ operation: String, _ arguments: [String: Any], copyContents: ((Data) throws -> Data)?) throws -> Any {
+        // Every path is bounded before it is normalized, canonicalized or walked.
+        let paths = try writeBudget.holdPaths(["path", "from", "to"].compactMap { arguments[$0] as? String }, operation: operation)
+        defer { writeBudget.releasePaths(paths) }
         func raw(_ key: String) throws -> String {
             guard let value = arguments[key] as? String else {
                 throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: missing '\(key)'")
@@ -951,7 +954,8 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
         self.init(ledger: BrowserReplResourceLedger(limits: BrowserReplResourceLimits.unbounded
             .with(.fileBytesWritten, perSession)
             .with(.fileBytesWritten, each: perCall)
-            .with(.fileEntryChanges, perSessionEntryChanges)))
+            .with(.fileEntryChanges, perSessionEntryChanges)
+            .with(.fsPathBytes, each: BrowserReplResourceLimits.standard.each(.fsPathBytes))))
     }
 
     /// The session's budget, in its ledger.
@@ -960,6 +964,28 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
     }
 
     var perCall: Int { ledger.limits.each(.fileBytesWritten) ?? .max }
+
+    /// Holds the paths one fs call names (``BrowserReplResource/fsPathBytes``)
+    /// until it returns, or throws `ENAMETOOLONG` for one past the limit
+    /// before any work; the message never repeats the path.
+    /// - Returns: The bytes held, to ``releasePaths(_:)``.
+    func holdPaths(_ paths: [String], operation: String) throws -> [Int] {
+        var held: [Int] = []
+        for path in paths {
+            let bytes = path.utf8.count
+            if let refusal = ledger.reserve(bytes, of: .fsPathBytes) {
+                releasePaths(held)
+                throw BrowserReplFileSystemError(code: "ENAMETOOLONG", message: "ENAMETOOLONG: \(refusal.message), \(operation)")
+            }
+            held.append(bytes)
+        }
+        return held
+    }
+
+    /// Releases what ``holdPaths(_:operation:)`` held.
+    func releasePaths(_ held: [Int]) {
+        for bytes in held { ledger.release(bytes, of: .fsPathBytes) }
+    }
 
     /// Takes one entry change (a file created, a directory made,
     /// an entry renamed or removed) from the budget, or throws `EDQUOT`

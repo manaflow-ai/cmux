@@ -46,6 +46,10 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     /// its own, so a measure past this limit, after a full garbage
     /// collection, ends the session (``isMeasured``).
     case scriptHeapBytes
+    /// The paths an fs call names (`path`, `from`, `to`), while it runs.
+    /// One past its per-item limit (`PATH_MAX`, as the system takes a
+    /// path) is refused before any work, with `ENAMETOOLONG`.
+    case fsPathBytes
     /// Bytes the session's fs (and its spill files and file chooser
     /// answers) wrote over its life.
     case fileBytesWritten
@@ -77,7 +81,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isBytes: Bool {
         switch self {
         case .waitingCellSourceBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
-             .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes,
+             .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes, .fsPathBytes,
              .fileBytesWritten, .sessionMemoryBytes:
             true
         default:
@@ -126,6 +130,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .heldEvents: "page events held back between cells"
         case .pendingTimers: "pending timers"
         case .scriptHeapBytes: "the session's JavaScript heap"
+        case .fsPathBytes: "an fs path"
         case .fileBytesWritten: "bytes the session's fs writes"
         case .fileEntryChanges: "file changes (files created, directories made, entries renamed or removed)"
         case .sessionMemoryBytes: "memory the session holds in all"
@@ -145,6 +150,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .queuedEvents, .queuedEventBytes, .heldEvents: "let the session's thread take them"
         case .pendingTimers: "clear some first"
         case .scriptHeapBytes: "keep less in variables between cells"
+        case .fsPathBytes: "use a shorter path"
         case .fileBytesWritten: "reset the session (cmux browser repl reset NAME) to write more"
         case .fileEntryChanges: "reset the session (cmux browser repl reset NAME) to make more"
         case .sessionMemoryBytes: "await results and let cells finish before starting more"
@@ -226,6 +232,8 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
             .queuedEventBytes: 1 << 20,
             // One writeFile, copyFile or file chooser answer.
             .fileBytesWritten: 256 << 20,
+            // One fs path, as the system takes one.
+            .fsPathBytes: Int(PATH_MAX),
         ]
     )
 
