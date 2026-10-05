@@ -369,6 +369,15 @@ actor RemoteTmuxSSHTransport {
             || lowered.contains("not a control client")
     }
 
+    /// Whether one lowercased stderr line says the et client or its remote helper could not be found.
+    private static func namesAMissingTransportBinary(_ line: Substring) -> Bool {
+        guard line.contains("no such file or directory") else { return false }
+        if line.contains("etterminal") { return true }
+        // `et` as a whole path component or command name: "/usr/local/bin/et: ...", "et: ...".
+        let words = line.split(whereSeparator: { $0 == " " || $0 == ":" || $0 == "'" || $0 == "\"" })
+        return words.contains { $0 == "et" || $0.hasSuffix("/et") }
+    }
+
     /// Whether a control-stream failure can never be fixed by trying again.
     ///
     /// The counterpart to ``indicatesAuthRequired``, and the same reasoning: retrying is only
@@ -385,9 +394,13 @@ actor RemoteTmuxSSHTransport {
         // The pty allocator could not find the transport binary. `/usr/bin/script` resolves its
         // argument against the app's PATH, which for a GUI app is not the user's.
         if lowered.contains("script:"), lowered.contains("no such file or directory") { return true }
-        // posix_spawn / Process launch failures for the transport itself.
-        if lowered.contains("no such file or directory"),
-           lowered.contains("etterminal") || lowered.contains("/et") { return true }
+        // posix_spawn / Process launch failures for the transport itself. The missing file has to
+        // be the transport, named on the same line: ssh reports plenty of other missing files (an
+        // agent socket, an identity file) and any `/etc/...` path contains `/et`, and neither says
+        // the next attempt will fail.
+        if lowered.split(whereSeparator: \.isNewline).contains(where: Self.namesAMissingTransportBinary) {
+            return true
+        }
         // et's own message when its ssh bootstrap cannot start the remote helper — wrong
         // `--terminal-path`, or a helper missing on the server. Retrying sends the same path.
         if lowered.contains("error starting et process") { return true }

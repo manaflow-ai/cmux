@@ -71,6 +71,8 @@ extension RemoteTmuxSSHTransport {
     static func indicatesUnansweredCredentialPrompt(_ preControlOutput: String) -> Bool {
         let haystack = preControlOutput.lowercased()
         // Trailing colon on purpose: these are prompts awaiting input, not prose mentioning them.
+        // The phrases without one are instructions a prompt gives. A bare "two-factor" is not in
+        // the list: a login banner can say the account uses it without asking for anything.
         let prompts = [
             "passcode:",
             "password:",
@@ -78,7 +80,6 @@ extension RemoteTmuxSSHTransport {
             "one-time password:",
             "second factor:",
             "enter a passcode",
-            "two-factor",
             "touch your security key",
             "confirm user presence",
         ]
