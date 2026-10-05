@@ -78,17 +78,29 @@ fn with_input(ptr: *mut CmuxRdInput, f: impl FnOnce(&mut CmuxRdInput) -> i32) ->
     }
 }
 
-/// Converts a C event; `None` for an unknown kind or bad text.
+/// A C flag byte: 0 or 1, anything else refused.
+fn flag(byte: u8) -> Option<bool> {
+    match byte {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+/// Converts a C event; `None` for an unknown kind, a flag byte other than 0
+/// or 1, or bad text.
 ///
 /// # Safety
 /// For a text event, `event.text` is readable for `event.text_len` bytes.
 unsafe fn event_from_c(event: &CmuxRdInputEvent) -> Option<InputEvent> {
     Some(match event.kind {
-        CMUX_RD_INPUT_KEY => InputEvent::Key { usage: event.usage, down: event.down != 0 },
+        CMUX_RD_INPUT_KEY => InputEvent::Key { usage: event.usage, down: flag(event.down)? },
         CMUX_RD_INPUT_POINTER => InputEvent::Pointer { x: event.x, y: event.y },
-        CMUX_RD_INPUT_BUTTON => InputEvent::Button { button: event.button, down: event.down != 0 },
+        CMUX_RD_INPUT_BUTTON => {
+            InputEvent::Button { button: event.button, down: flag(event.down)? }
+        }
         CMUX_RD_INPUT_SCROLL => {
-            InputEvent::Scroll { dx: event.dx, dy: event.dy, precise: event.precise != 0 }
+            InputEvent::Scroll { dx: event.dx, dy: event.dy, precise: flag(event.precise)? }
         }
         CMUX_RD_INPUT_TEXT => {
             if event.text_len == 0 || event.text_len > CMUX_RD_INPUT_MAX_TEXT {

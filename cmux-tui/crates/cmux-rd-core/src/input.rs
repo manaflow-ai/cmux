@@ -12,6 +12,12 @@ use cmux_rd_proto::{
     HEADER_LEN, INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC,
 };
 
+/// True when sequence number `a` is at or before `b` in serial order (RFC 1982):
+/// the numbers wrap after 2^32 events, so plain `<=` breaks at the wrap.
+pub fn seq_at_or_before(a: u32, b: u32) -> bool {
+    b.wrapping_sub(a) < 1 << 31
+}
+
 /// How many packets carry one event at most.
 pub const MAX_SENDS: u8 = 3;
 
@@ -75,7 +81,7 @@ impl InputSender {
 
     /// Drops events the host applied (`applied` = newest applied sequence).
     pub fn ack(&mut self, applied: u32) {
-        while self.base <= applied && !self.queue.is_empty() {
+        while !self.queue.is_empty() && seq_at_or_before(self.base, applied) {
             self.queue.pop_front();
             self.base = self.base.wrapping_add(1);
         }
@@ -208,7 +214,7 @@ impl InputApplier {
     pub fn accept(&mut self, packet: &InputPacket, now_us: u64) -> Vec<InputEvent> {
         for (i, event) in packet.events.iter().enumerate() {
             let seq = packet.first_seq.wrapping_add(i as u32);
-            if seq >= self.next && self.held.len() < self.max_held {
+            if seq_at_or_before(self.next, seq) && self.held.len() < self.max_held {
                 self.held.entry(seq).or_insert_with(|| event.clone());
             }
         }
@@ -224,7 +230,7 @@ impl InputApplier {
             return;
         };
         let last = packet.first_seq.wrapping_add(n - 1);
-        if last >= self.next {
+        if seq_at_or_before(self.next, last) {
             self.next = last.wrapping_add(1);
         }
         // Held events arrived without control too; none of them may apply.
@@ -246,7 +252,10 @@ impl InputApplier {
                 self.gap_since_us = None;
                 continue;
             }
-            let Some((&first_held, _)) = self.held.iter().next() else {
+            // Serially first held event (held keys are all at or after `next`).
+            let next = self.next;
+            let Some(&first_held) = self.held.keys().min_by_key(|seq| seq.wrapping_sub(next))
+            else {
                 self.gap_since_us = None;
                 break;
             };
