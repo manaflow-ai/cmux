@@ -223,15 +223,25 @@ fails naming that element and style instead of sending input that could
 reach another element or frame. Before the input, and again after the
 pointer moves there, each parent frame must have the `<iframe>` itself at
 the point; an element over it fails the check (`<div> intercepts pointer
-events`), as in the target's own frame. A click checks both once more
-right before each press (the move before it, or the press before a
-second one, runs page handlers that can put another element or frame at
-the point) and fails sending no press when either changed (`no press was
-sent: …`). The runtime makes that check, so the driver round trip between
-it and the press stays open: a page that moves another frame under the
-point within it gets the press, which only a check in the web content
-process at the press would close. `locator.boundingBox()` and element
-screenshots in such a frame fail the same way. The runtime no longer calls
+events`), as in the target's own frame. Each press of a click checks both
+once more (the move before it, or the press before a second one, runs page
+handlers that can put another element or frame at the point): the
+runtime's `input.mouse` `down` names the target and each parent frame's
+`<iframe>` (`expect`), and the driver checks them in each frame's agent
+world in the web content process right before it sends the press, then
+sends it as soon as the last check answers, without another suspension.
+When any changed it sends no press and fails with `stale` (`no press was
+sent: …`), and so does the click. Residual: WebKit runs no script between
+its hit test of a native event and the event's dispatch, and a check
+cannot hold back an event already sent, so the time from the checks to
+the press reaching the web content process stays open (the checks'
+replies to the app and the press back, one message each way, not
+measured). Page code that runs then (a timer, an
+animation frame, a message or network callback) or a CSS animation or
+transition that moves a frame at that moment can still put another
+element or frame under the press; doing so on purpose needs that timing
+to fall inside the gap. `locator.boundingBox()` and element screenshots
+in such a frame fail as above. The runtime no longer calls
 `frame.ownerBox`.
 
 ## Input
@@ -240,7 +250,7 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 
 | Method | Params |
 | --- | --- |
-| `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY? }` |
+| `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY?, expect? }`. `expect`, on a `down` only: `{ frameId, handle, x, y, owners: [{ frameId, handle, x, y }] }`, the element the press must reach at `x`, `y` of its frame, then each parent frame's `<iframe>` and where the press lands in that frame, innermost first, the last at the press point; the press is sent only while each is still what is at its point (see "Frames and scripts"), else it fails with `stale` and no press. A `frameId` of `null` is the main frame |
 | `input.key` | `{ targetId, type: "down"\|"up", key, code, text?, location?, modifiers, autoRepeat? }` |
 | `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains, secretRevision }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires). The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window writes the private pasteboard too, but a drop there never reads it: the drop's access grant comes from AppKit calling WebKit, which diverts the window to an extra private pasteboard emptied at each lookup until it closes (the automated drag then carries no data) |

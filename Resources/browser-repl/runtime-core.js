@@ -1088,8 +1088,10 @@
     // beyond a translation is refused (the point would be another
     // element's, maybe in another frame). With `check`, each parent frame
     // must also have the <iframe> itself at the point, not an element over
-    // it; else { log } says what is there.
-    async _tabPoint(point, check, title) {
+    // it; else { log } says what is there. `owners`, when given, gets each
+    // parent frame's <iframe> and the point in that frame, innermost first:
+    // what a press there must reach (input.mouse `expect`).
+    async _tabPoint(point, check, title, owners) {
       let frame = this;
       let at = { x: point.x, y: point.y };
       while (frame._parent) {
@@ -1102,6 +1104,7 @@
         if (check && r.hit !== "done") return { log: `${r.hit} intercepts pointer events` };
         at = { x: r.x, y: r.y };
         frame = frame._parent;
+        if (owners) owners.push({ frameId: frame._id || null, handle: owner, x: at.x, y: at.y });
       }
       return at;
     }
@@ -1406,9 +1409,10 @@
         }
         // The point in the tab, with each parent frame's <iframe> checked
         // to be at it too (an element over it would take the input).
-        const at = await frame._tabPoint(point, !options.force && !options.trial, title);
+        const owners = [];
+        const at = await frame._tabPoint(point, !options.force && !options.trial, title, owners);
         if (at.log) return { log: at.log };
-        return { done: true, value: { frame, handle, local: point, x: at.x, y: at.y } };
+        return { done: true, value: { frame, handle, local: point, x: at.x, y: at.y, owners } };
       });
     }
 
@@ -1430,12 +1434,16 @@
           // The move can change the parent frames too (a :hover overlay, a
           // re-layout): each <iframe> must still be what is at the point,
           // and the point where the pointer is.
-          const at = await target.frame._tabPoint(target.local, true, title).catch((e) => {
+          const owners = [];
+          const at = await target.frame._tabPoint(target.local, true, title, owners).catch((e) => {
             if (driverErrorCode(e) !== "stale") throw e;
             return { log: e.message };
           });
           const why = at.log || (at.x !== target.x || at.y !== target.y ? "the frame's <iframe> moved" : null);
-          if (!why) break;
+          if (!why) {
+            target = { ...target, owners };
+            break;
+          }
           if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${why}`);
           await this._session.sleep([20, 50, 100, 100, 500][Math.min(attempt, 4)]);
           continue;
@@ -2577,36 +2585,26 @@
       this._viewport = info.viewport;
       return info;
     }
-    // The press binds to the target checked last: the move here, and the
-    // page's handlers for it (or for the press before a second one), can
-    // put another element or another frame at the point, so right before
-    // each press the target must still be what is at the point in its
-    // frame, and each parent frame's <iframe> at the point in the tab
-    // (input.mouse goes to the tab, whatever frame is there). Otherwise the
-    // click fails and no press is sent. The window left is the driver round
-    // trip between this check and the press, which only a check in the web
-    // process at the press could close.
-    async _pressCheck(target, title) {
-      const hit = await target.frame._agent("hitTarget", target.handle, target.local, "button-link").catch(() => "error:notconnected");
-      if (hit !== "done") {
-        throw new Error(`${title}: no press was sent: ${hit === "error:notconnected" ? "the element was detached from the DOM" : `${hit} intercepts pointer events`} when the pointer reached the element (the page changed under the pointer)`);
-      }
-      if (!target.frame._parent) return;
-      const at = await target.frame._tabPoint(target.local, true, title).catch((e) => ({ log: e.message }));
-      const why = at.log || (at.x !== target.x || at.y !== target.y ? "the frame's <iframe> moved" : null);
-      if (why) throw new Error(`${title}: no press was sent: ${why} when the pointer reached the element, so the press could reach another frame`);
-    }
     // A note for a page read the page-read budget cut.
     _printReadCut(title, cut, rest) {
       try {
         this._session.host.print("warn", `# ${title}: ${readCutNote("it", cut)}; ${rest}`);
       } catch {}
     }
+    // The press binds to the target checked last: the move here, and the
+    // page's handlers for it (or for the press before a second one), can
+    // put another element or another frame at the point. Each press names
+    // the target and each parent frame's <iframe> (`expect`), and the
+    // driver checks them in the web content process right before it sends
+    // the press, so a page that changed the point after the runtime's own
+    // check (in the driver round trip) gets no press either.
     async _clickAt(target, options, title) {
       const button = options.button || "left";
       const count = options.clickCount || 1;
       const modifiers = normalizeModifiers(options.modifiers);
-      const check = !options.force && target.handle !== undefined;
+      const expect = !options.force && target.handle !== undefined
+        ? { frameId: target.frame._id || null, handle: target.handle, x: target.local.x, y: target.local.y, owners: target.owners || [] }
+        : null;
       const call = (type, extra, detached) => this._input("input.mouse", {
         targetId: this._targetId, type, x: target.x, y: target.y, button, clickCount: 0, modifiers, ...extra,
       }, detached);
@@ -2615,8 +2613,12 @@
       this.mouse._y = target.y;
       const activeBefore = await target.frame._agent("activeHandle").catch(() => undefined);
       for (let i = 1; i <= count; i++) {
-        if (check) await this._pressCheck(target, title || "locator.click");
-        await call("down", { clickCount: i });
+        try {
+          await call("down", expect ? { clickCount: i, expect } : { clickCount: i });
+        } catch (e) {
+          if (expect && /^no press was sent: /.test((e && e.message) || "")) throw new Error(`${title || "locator.click"}: ${e.message}`);
+          throw e;
+        }
         const opened = !!this._heldDialog;
         if (i === 1 && !opened) await target.frame._agent("emulateClickFocus", target.handle, activeBefore).catch(() => {});
         if (options.delay && !opened) await this._session.sleep(options.delay);

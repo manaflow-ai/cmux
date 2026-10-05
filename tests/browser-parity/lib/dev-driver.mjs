@@ -395,6 +395,36 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     }
   }
 
+  // The checks of an input.mouse press's `expect`, all at once, in each
+  // frame's agent: `{ frameId, handle, x, y, owners: [{ frameId, handle,
+  // x, y }] }`, innermost first, ending at the press point.
+  async function checkPress(targetId, expect, x, y) {
+    const refused = (why) => new DriverError("stale", `no press was sent: ${why} when the press was about to be sent (the page changed under the pointer)`);
+    const levels = [{ frameId: expect.frameId, handle: expect.handle, x: expect.x, y: expect.y, from: null }];
+    for (const o of expect.owners || []) {
+      const below = levels[levels.length - 1];
+      levels.push({ frameId: o.frameId, handle: o.handle, x: o.x, y: o.y, from: { x: below.x, y: below.y } });
+    }
+    const last = levels[levels.length - 1];
+    if (typeof expect.handle !== "string" || last.x !== x || last.y !== y) throw new DriverError("invalid", "input.mouse: expect does not end at the press point");
+    const frames = levels.map((l) => {
+      try {
+        return frameFor(targetId, l.frameId);
+      } catch {
+        throw refused(`frame ${l.frameId} was detached`);
+      }
+    });
+    for (let i = 0; i + 1 < frames.length; i++) {
+      if (frames[i].parentFrame() !== frames[i + 1]) throw refused(`frame ${levels[i].frameId} is not in frame ${levels[i + 1].frameId}`);
+    }
+    if (frames[frames.length - 1].parentFrame()) throw refused("the press names no frame up to the main frame");
+    const source = "(h, at, from) => { const a = globalThis[Symbol.for('cmux.browserRepl.agent')]; return a && typeof a.pressCheck === 'function' ? a.pressCheck(h, at, from) : 'the frame shows another document'; }";
+    const results = await Promise.all(levels.map((l, i) =>
+      evaluate(frames[i], { world: "agent", source, args: [l.handle, { x: l.x, y: l.y }, l.from] }).catch((e) => String(e.message || e))));
+    const why = results.find((r) => r !== null);
+    if (why !== undefined) throw refused(why);
+  }
+
   async function withModifiers(page, modifiers = [], fn) {
     const pressed = [];
     for (const m of modifiers) {
@@ -741,9 +771,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     "frame.contentFrames": async ({ targetId, frameId: id, elements = [] }) => {
       return Promise.all(elements.map((element) => methods["frame.contentFrame"]({ targetId, frameId: id, element }).catch(() => null)));
     },
-    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0 }, driver) => {
+    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0, expect }, driver) => {
       const tab = tabFor(targetId);
       const page = tab.page;
+      // As the app's driver: a press that names its target is sent only
+      // while the target, and each parent frame's <iframe>, is still at
+      // the point (BrowserReplPressTarget).
+      if (type === "down" && expect) await checkPress(targetId, expect, x, y);
       if (type === "down") tab.heldButtons.set(button, driver);
       if (type === "up") tab.heldButtons.delete(button);
       await withModifiers(page, modifiers, async () => {

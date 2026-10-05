@@ -1932,6 +1932,29 @@
     return at;
   }
 
+  // Whether a press at `at` of this frame's viewport reaches what the
+  // runtime checked: the element `id`, or (with `from`, the press's point
+  // in the frame it shows) the <iframe> `id` with that point mapping to
+  // `at`. The driver calls it right before it sends the press, after the
+  // page has run since the runtime's own check. Returns null, or why not.
+  function pressCheck(id, at, from) {
+    try {
+      if (from) {
+        const r = ownerPoint(id, from, true);
+        if (r.error) return "the frame's <iframe> was detached from the DOM";
+        if (r.transformed) return `the frame's <iframe> is transformed (${r.transformed})`;
+        if (r.hit !== "done") return `${r.hit} intercepts pointer events`;
+        if (r.x !== at.x || r.y !== at.y) return "the frame's <iframe> moved";
+        return null;
+      }
+      const hit = hitTarget(id, at, "button-link");
+      if (hit === "done") return null;
+      return hit === "error:notconnected" ? "the element was detached from the DOM" : `${hit} intercepts pointer events`;
+    } catch (e) {
+      return String((e && e.message) || e);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Annotated screenshots: boxes and labels in a closed shadow root that is
   // removed right after capture. `refs` are [localRef, label] pairs.
@@ -2007,6 +2030,7 @@
     iframeHandles,
     contentBox,
     ownerPoint,
+    pressCheck,
     annotate,
     clearAnnotations,
     budget,
