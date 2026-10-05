@@ -9,8 +9,8 @@ import Testing
 @Suite struct AppRefMigrationTests {
     @Test func theDefaultsHoldTheFirstPartyAppsAsAppItems() {
         let top = SidebarLayoutDocument.defaults.sections(in: .top, room: nil).flatMap(\.items)
-        #expect(top.prefix(2).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
-        #expect(top.map(\.id.rawValue) == ["itm_home", "itm_app_store", "itm_new_workspace", "itm_import_sync"])
+        #expect(top.map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
+        #expect(top.map(\.id.rawValue) == ["itm_home", "itm_app_store"])
     }
 
     @Test func builtInHomeAndAppStoreBecomeAppItemsInPlace() throws {

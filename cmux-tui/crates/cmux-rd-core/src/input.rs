@@ -1,6 +1,7 @@
 //! Input over unreliable datagrams: the viewer repeats each event in later
 //! packets until the host acknowledges it (press and motion events at most
-//! [`MAX_SENDS`] times; key and button releases until acknowledged, so a lost
+//! [`MAX_SENDS`] times; key and button releases and must-deliver service
+//! events until acknowledged, so a lost
 //! release never leaves a key held on the host); the host applies every
 //! sequence number exactly once and in order. The engine checks
 //! `SessionTable::may_inject_input` for every event it injects and calls
@@ -160,7 +161,12 @@ impl InputSender {
 }
 
 fn is_release(event: &InputEvent) -> bool {
-    matches!(event, InputEvent::Key { down: false, .. } | InputEvent::Button { down: false, .. })
+    matches!(
+        event,
+        InputEvent::Key { down: false, .. }
+            | InputEvent::Button { down: false, .. }
+            | InputEvent::Service { must_deliver: true, .. }
+    )
 }
 
 /// Host side: in-order, exactly-once application.
