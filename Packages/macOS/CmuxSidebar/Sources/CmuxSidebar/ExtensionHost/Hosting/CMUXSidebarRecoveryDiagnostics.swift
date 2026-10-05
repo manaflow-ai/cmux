@@ -2,6 +2,16 @@ public import Foundation
 import os
 
 /// Stores bounded lifecycle metadata without workspace content or terminal output.
+///
+/// Construct the store at the host composition root and inject it into every hosted view.
+/// Tests use isolated defaults and a fixed timestamp:
+///
+/// ```swift
+/// let diagnostics = CMUXSidebarRecoveryDiagnostics(
+///     defaults: defaults, processID: 42, appVersion: "test", appBuild: "1",
+///     now: { Date(timeIntervalSince1970: 0) }
+/// )
+/// ```
 @MainActor
 @_spi(CmuxHostTransport) public final class CMUXSidebarRecoveryDiagnostics {
     private static let key = "cmuxExtensionSidebar.lifecycle.v1"
@@ -114,10 +124,10 @@ import os
     }
 
     /// Subscribes one hosted view to explicit local reconnect requests.
-    /// - Returns: A cancellation integrated stream; every live host receives each request.
+    /// - Returns: A cancellation integrated stream for each live host; overlapping pending requests coalesce into one.
     public func reconnectRequests() -> AsyncStream<Void> {
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             reconnectObservers[id] = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in self?.reconnectObservers[id] = nil }
