@@ -152,6 +152,61 @@ struct FileQuitDocumentTests {
         stop()
     }
 
+    /// Two tabs on one file whose pages both never answer (both crashed): the pages are asked
+    /// together within one page timeout, so the host's write still lands inside the registry's own
+    /// 3 s deadline (QuitUnsavedRegistry races each flush against a DemandTimer).
+    @Test func twoDeadPagesStillSaveInsideTheRegistrysDeadline() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let clock = ManualClock()
+        let registry = QuitUnsavedRegistry(clock: clock, drafts: drafts)
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true }, clock: clock)
+        let registration = registry.register(document)
+        document.edited(text: "reported\n", baseHash: FileDocument.hash(Data("v1\n".utf8)))
+        let never: () async -> Bool = {
+            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+            return true
+        }
+        let stops = [document.addFlusher(never), document.addFlusher(never)]
+        let quit = Task { await registry.save(registry.unsaved(), deadlineCap: .seconds(3)) }
+        // The registry's deadline and the one wait for both pages are asleep on the clock.
+        await clock.sleepers(atLeast: 2)
+        clock.advance(by: FileQuitDocument.pageFlushTimeout)
+        let outcomes = await quit.value
+        #expect(outcomes.map(\.result) == [.saved])
+        #expect(try String(contentsOf: url, encoding: .utf8) == "reported\n")
+        stops.forEach { $0() }
+        registration.cancel()
+    }
+
+    /// When the registry's deadline does pass (a page wait longer than it) and the person then
+    /// chooses Don't Save, the late flush never writes: a timeout does not cancel the participant's
+    /// task, so the participant itself must stop.
+    @Test func afterTheRegistryTimesOutAndDontSaveNothingIsWritten() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let clock = ManualClock()
+        let registry = QuitUnsavedRegistry(clock: clock, drafts: drafts)
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true }, clock: clock, pageFlushTimeout: .seconds(10))
+        let registration = registry.register(document)
+        document.edited(text: "reported\n", baseHash: FileDocument.hash(Data("v1\n".utf8)))
+        let stop = document.addFlusher {
+            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+            return true
+        }
+        let participants = registry.unsaved()
+        let quit = Task { await registry.save(participants, deadlineCap: .seconds(3)) }
+        await clock.sleepers(atLeast: 2)
+        clock.advance(by: .seconds(3))
+        #expect(await quit.value.map(\.result) == [.timedOut])
+        await registry.discard(participants)
+        clock.advance(by: .seconds(10))
+        await document.settled()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "v1\n", "Don't Save: the late flush writes nothing")
+        stop()
+        registration.cancel()
+    }
+
     /// Don't Save: a flush after it asks no page and writes nothing.
     @Test func noHostWriteHappensAfterDontSave() async throws {
         let (drafts, _) = try Self.store()
