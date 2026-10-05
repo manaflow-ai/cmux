@@ -25,9 +25,12 @@ indicator shows in the evidence. Without a producer the snapshots show the
 page only and the resolver JSON is the evidence.
 
 Exit 0 when every step's resolver answer matches; evidence in OUT/report.json.
-Not run yet (2026-10-04): action names and args (tab.focus {tab}, newColumn, focusRight,
-newBrowserWorkspace {url}, moveWorkspaceToNewWindow, minimizeWindow on the key window)
-are taken from the catalog, not proven live; fix them on the first run.
+Every step first checks that its setup took effect, from the resolver's own
+input (`debug.agent_cursor` snapshot_json): a setup that did not happen reports
+SETUP FAILED, never a resolver miss. Tabs are selected with the `tab.focus
+{tab}` socket verb (the `tab.focus` action takes the tab as its target, not as
+an argument); `newBrowserWorkspace` takes no arguments (an unknown `url`
+argument refuses the whole run).
 """
 import argparse, glob, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
 
@@ -95,6 +98,58 @@ def wait(predicate, seconds, step=0.5):
             return value
         time.sleep(step)
     return None
+
+
+def focus_tab(tab):
+    # The socket verb `tab.focus {tab}` runs the tab.focus action on that tab (it focuses by purpose).
+    return rpc("tab.focus", {"tab": tab})
+
+
+def snapshot(target):
+    try:
+        return json.loads(visibility(target).get("snapshot_json") or "{}")
+    except ValueError:
+        return {}
+
+
+def target_window(snap):
+    tab = snap.get("tab") or {}
+    wins = snap.get("windows") or []
+    return next((w for w in wins if w.get("shownWorkspace") == tab.get("workspace")), None) \
+        or next((w for w in wins if tab.get("workspace") in (w.get("listedWorkspaces") or [])), None)
+
+
+def target_pane(snap):
+    window = target_window(snap) or {}
+    pane_id = (snap.get("tab") or {}).get("pane")
+    return next((p for p in window.get("panes") or [] if p.get("id") == pane_id), None)
+
+
+def setup(name, target, predicate, seconds=15):
+    """Waits until `predicate(snapshot)` holds; records SETUP FAILED otherwise."""
+    if wait(lambda: predicate(snapshot(target)), seconds):
+        return True
+    snap = snapshot(target)
+    report["steps"].append({"step": name, "target": target, "setup_failed": True, "snapshot": snap, "ok": False})
+    failures.append(f"{name}: SETUP FAILED (the app did not reach the state; resolver not judged)")
+    with open(os.path.join(opts.out, f"{name}-setup-failed.json"), "w") as f:
+        json.dump(snap, f, indent=1)
+    return False
+
+
+def selected(tab):
+    return lambda snap: (target_pane(snap) or {}).get("selectedTab") == tab
+
+
+def scrolled_left(snap):
+    pane = target_pane(snap) or {}
+    frame, clip = pane.get("frame"), pane.get("clip")
+    return bool(frame and clip and frame["x"] + frame["w"] <= clip["x"] + 0.5)
+
+
+def shows_other_workspace(snap):
+    window = target_window(snap)
+    return bool(window and window.get("shownWorkspace") not in (None, (snap.get("tab") or {}).get("workspace")))
 
 
 def action(name, args=None):
@@ -181,22 +236,27 @@ try:
     report["tabs"] = {"target": target, "other": other}
     if not target or not other:
         raise RuntimeError("browser tabs did not open")
-    action("tab.focus", {"tab": target})
-    step("visible", target, "visible")
-    action("tab.focus", {"tab": other})
-    step("background_tab", target, "hidden", expect_anchor="tabChip")
-    action("tab.focus", {"tab": target})
+    focus_tab(target)
+    if setup("visible", target, selected(target)):
+        step("visible", target, "visible")
+    focus_tab(other)
+    if setup("background_tab", target, selected(other)):
+        step("background_tab", target, "hidden", expect_anchor="tabChip")
+    focus_tab(target)
+    setup("reselect_target", target, selected(target))
 
     # Columns: three new columns to the right, then focus walks right until the target column scrolls out.
     for _ in range(3):
         action("newColumn")
     for _ in range(4):
         action("focusRight")
-    step("column_scrolled", target, "hidden", expect_anchor="columnEdge.leading")
+    if setup("column_scrolled", target, scrolled_left):
+        step("column_scrolled", target, "hidden", expect_anchor="columnEdge.leading")
 
     # Another workspace in the same window.
-    action("newBrowserWorkspace", {"url": BASE + "elsewhere"})
-    step("other_workspace", target, "hidden", expect_anchor="workspaceRow")
+    report["new_workspace"] = action("newBrowserWorkspace")
+    if setup("other_workspace", target, shows_other_workspace, seconds=30):
+        step("other_workspace", target, "hidden", expect_anchor="workspaceRow")
 
     # The other workspace moves to a new window 2; window 1 falls back to the target's workspace,
     # so window 1 keeps the target (column still scrolled) and window 2 must answer elsewhere.
@@ -204,16 +264,19 @@ try:
     action("moveWorkspaceToNewWindow")
     window2 = (wait(lambda: [w.get("id") for w in windows() if w.get("id") not in known], 30) or [None])[0]
     report["windows"] = {"window1": window1, "window2": window2}
-    step("other_window", target, "hidden", expect_anchor="columnEdge.leading", ask_window=window2)
+    if setup("other_window", target, lambda snap: len(snap.get("windows") or []) >= 2 and not shows_other_workspace(snap)):
+        step("other_window", target, "hidden", expect_anchor="columnEdge.leading", ask_window=window2)
 
     # Minimize window 1 (minimizeWindow acts on the key window: focus window 1 through the target tab first).
-    action("tab.focus", {"tab": target})
+    focus_tab(target)
     action("minimizeWindow")
-    step("minimized", target, "notDrawn", expect_reason="minimized")
+    if setup("minimized", target, lambda snap: (target_window(snap) or {}).get("minimized") is True):
+        step("minimized", target, "notDrawn", expect_reason="minimized")
 
     if opts.space_step:
         input("Move the target window to another Space on this host, then press Return: ")
-        step("other_space", target, "notDrawn", expect_reason="otherSpace")
+        if setup("other_space", target, lambda snap: (target_window(snap) or {}).get("onActiveSpace") is False):
+            step("other_space", target, "notDrawn", expect_reason="otherSpace")
 except RuntimeError as error:
     failures.append(str(error))
 finally:
@@ -229,7 +292,10 @@ report["failures"] = failures
 with open(os.path.join(opts.out, "report.json"), "w") as f:
     json.dump(report, f, indent=1)
 for record in report["steps"]:
-    print("ok " if record["ok"] else "BAD", record["step"], json.dumps(record["visibility"])[:300])
+    if record.get("setup_failed"):
+        print("SETUP FAILED", record["step"])
+    else:
+        print("ok " if record["ok"] else "BAD", record["step"], json.dumps(record["visibility"])[:300])
 for failure in failures:
     print("FAIL", failure)
 print("PASS" if not failures else "FAIL", f"(evidence {opts.out}/report.json)")

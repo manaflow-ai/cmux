@@ -6,8 +6,9 @@ import Testing
 /// The live layout with a docked column (dock-column.md, V1 to V4, B5):
 /// fixed frames above the strip, docked clipping, the overlay backdrop,
 /// pointer and drop routing, the inner-edge resize and the scrollbar.
-/// 1000 x 600 window, pinned style (gap 6, no padding). Serialized: cases
-/// pin the process-wide `Motion.reduceMotionOverride` across awaits.
+/// 1000 x 600 window, pinned style (gap 6, no padding). Reduce Motion is
+/// pinned per view (`LayoutViewContext.reduceMotionOverride`), never through
+/// the process-wide `Motion.reduceMotionOverride`, because cases await.
 @MainActor @Suite(.serialized)
 struct DockColumnViewTests {
     private func screens(_ dock: DockColumn) -> [LayoutScreen] {
@@ -144,10 +145,10 @@ struct DockColumnViewTests {
     /// macOS 26 runners) the focus reveal snaps instead of springing, and
     /// the `auto` thumb must show either way (#16607).
     @Test(arguments: [false, true]) func theScrollbarShowsOnScrollAndHidesWhenOff(reduceMotion: Bool) async {
-        Motion.reduceMotionOverride = reduceMotion
-        defer { Motion.reduceMotionOverride = nil }
         let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
+        // Per view: this test awaits, so a process-wide override would leak.
+        view.context.reduceMotionOverride = reduceMotion
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
         view.model.focus("c")
@@ -167,10 +168,9 @@ struct DockColumnViewTests {
     /// A sync that leaves the offset where it is, and a window resize, keep
     /// the `auto` thumb hidden.
     @Test(arguments: [false, true]) func aSyncThatKeepsTheOffsetDoesNotShowTheScrollbar(reduceMotion: Bool) {
-        Motion.reduceMotionOverride = reduceMotion
-        defer { Motion.reduceMotionOverride = nil }
         let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
+        view.context.reduceMotionOverride = reduceMotion
         let screen = view.screenViews["s"]!
         screen.syncScroll(focused: "a", source: .programmatic, mode: .never, animated: !reduceMotion, showsScrollbarOnSnap: true)
         runToRest(view)
@@ -186,12 +186,11 @@ struct DockColumnViewTests {
     /// thumb hidden: launching focused on an off-screen column, and a focus
     /// change while the view is out of its window.
     @Test func snapsWithoutAWindowDoNotShowTheScrollbar() async {
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
         let launched = LayoutModel(screens: screens(DockColumn(edge: .right, mode: .docked)), activeScreenID: "s", focusedPane: "c")
         launched.followsDesignMetrics = false
         launched.stripScrollbarOverride = .auto
         let launchView = LayoutRootView(model: launched, contentProvider: DockStubProvider.shared, scrollbarClock: ManualClock())
+        launchView.context.reduceMotionOverride = false
         launchView.frame = CGRect(x: 0, y: 0, width: 1000, height: 600)
         launchView.layoutSubtreeIfNeeded()
         let launchScreen = launchView.screenViews["s"]!
@@ -202,6 +201,7 @@ struct DockColumnViewTests {
         model.followsDesignMetrics = false
         model.stripScrollbarOverride = .auto
         let view = LayoutRootView(model: model, contentProvider: DockStubProvider.shared, scrollbarClock: ManualClock())
+        view.context.reduceMotionOverride = false
         view.frame = CGRect(x: 0, y: 0, width: 1000, height: 600)
         view.layoutSubtreeIfNeeded()
         let screen = view.screenViews["s"]!

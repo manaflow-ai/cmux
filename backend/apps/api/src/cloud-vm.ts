@@ -127,11 +127,11 @@ export const vmEventEmit = (entity: string, p: Principal, params: unknown, rows:
  */
 export const registerVmInstall = async (
   env: Env,
-  a: { creator: string; team: string; machine: string; epoch: number; jwk: { kty: string; crv: string; x: string; y: string } }
+  a: { creator: string; team: string; machine: string; epoch: number; jwk: { kty: string; crv: string; x: string; y: string }; ssoTeam?: string }
 ): Promise<{ ok: true; id: string; grant: string } | { ok: false; code: string; message: string }> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(a.creator)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<SubmitResult> }
-  // The team vouches for its own machine's VM install: it counts as SSO-registered for that team (review P2).
-  const server: Principal = { identity: `system:cloud:${a.team}`, kind: "system", user: a.creator, team: a.team, sso_team: a.team }
+  // The VM install counts as registered from the SSO that created its machine (the creator's SSO team), else its machine's team (review P2).
+  const server: Principal = { identity: `system:cloud:${a.team}`, kind: "system", user: a.creator, team: a.team, sso_team: a.ssoTeam ?? a.team }
   const frame = {
     t: "op",
     op: "install.register_server",
@@ -162,15 +162,13 @@ export const sendEphemeral = (sockets: ReadonlyArray<WebSocket>, frame: unknown,
  * install that no longer speaks for a live machine. Best effort; a failure is logged (the install can
  * still do nothing: the VM ops need the machine to name it, and every other entry point refuses VM tokens).
  */
-export const revokeVmInstall = async (env: Env, a: { creator: string; team: string; install: string | undefined; why: string }): Promise<void> => {
-  if (!a.install) return
+export const revokeVmInstall = async (env: Env, a: { creator: string; team: string; install: string | undefined; why: string }): Promise<boolean> => {
+  if (!a.install) return true
   const stub = env.USER_DO.get(env.USER_DO.idFromName(a.creator)) as unknown as { revokeByTeam(e: string, team: string, install: string, by: string, key: string): Promise<{ ok: boolean; code?: string }> }
   const r = await stub.revokeByTeam(a.creator, a.team, a.install, a.creator, `vm-revoke:${a.install}`).catch(() => ({ ok: false, code: "owner.unreachable" }))
+  // A user or install that no longer exists has nothing left to revoke (review P3: no endless retry).
+  if (!r.ok && r.code === "selector.not_found") return true
   if (!r.ok) console.warn(JSON.stringify({ msg: "vm install revoke failed", team: a.team, install: a.install, why: a.why, code: r.code }))
+  return r.ok
 }
 
-/** The VM install of a machine row, for revocation when the machine is deleted. */
-export const machineVmInstall = (rows: Rows | undefined, machine: unknown): { install: string | undefined; creator: string } | undefined => {
-  const row = typeof machine === "string" ? rows?.get<MachineRow>(TABLE_MACHINE, machine)?.row : undefined
-  return row ? { install: row.vm_install, creator: row.creator } : undefined
-}

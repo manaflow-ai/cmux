@@ -68,6 +68,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly keyset_version?: string
   /** The VM install registered at bind; only it may call the cloud.vm.* ops for this machine. */
   readonly vm_install?: string
+  /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
+  readonly creator_sso_team?: string
   /** The VM's last applied status report (private; activity feeds the idle pause). */
   readonly vm_status?: { readonly state: string; readonly health?: unknown; readonly activity: unknown; readonly at: number }
 }
@@ -111,7 +113,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, ...machine } = row
+  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, ...machine } = row
   return machine
 }
 
@@ -224,7 +226,9 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     provider_name: name,
     host_id: ctx.newId("host"),
     epoch: 1,
-    bind: null
+    bind: null,
+    // The SSO team whose sign-in created the machine: its VM install is vouched by that team (SSO gate).
+    ...(p.sso_team ? { creator_sso_team: p.sso_team } : {})
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }

@@ -15,12 +15,6 @@ struct AgentCursorContentSpace {
         flip(contentView.convert(rect, from: view))
     }
 
-    /// `rect` (in this space) in `view`.
-    func rect(_ rect: CGRect, to view: NSView) -> CGRect {
-        view.convert(flip(rect), from: contentView)
-    }
-
-    /// Flipping is its own inverse.
     private func flip(_ rect: CGRect) -> CGRect {
         guard !contentView.isFlipped else { return rect }
         return CGRect(x: rect.minX, y: contentView.bounds.height - rect.maxY, width: rect.width, height: rect.height)

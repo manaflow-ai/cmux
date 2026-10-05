@@ -1150,6 +1150,21 @@ jobs:
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
+      # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
+      # bundles: the daemon, app host and Cloud server come from this tree
+      # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
+      # from `cargo tree` (this runner has cargo). The Release build copies the
+      # regenerated file; the sign job verifies the bundle against
+      # scripts/cmux-next/notices/bundle-map.json.
+      - name: Generate third-party notices (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
+        run: |
+          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+
       - name: Build nightly app (Release)
         run: |
           set -euo pipefail
@@ -1843,6 +1858,12 @@ jobs:
 
       - name: Verify bundled Mach-O load commands
         run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
+
+      # Every Mach-O must map to its notices (bundle-map.json): fail here,
+      # before the notarization wait. notarize-nightly-dmg.sh checks the app
+      # and the mounted DMG again.
+      - name: Verify third-party notices cover every bundled binary
+        run: ./scripts/verify-app-bundle-licenses.sh "$CHANNEL_APP_PATH"
 
       - name: Verify signed app SSH daemon contract
         run: |
