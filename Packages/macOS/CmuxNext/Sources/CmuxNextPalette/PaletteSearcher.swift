@@ -6,14 +6,10 @@ public import Foundation
 public actor PaletteSearcher {
     private var index = PaletteSearchIndex(entries: [])
     private var indexVersion = -1
-    private let bridge: PaletteRankerBridge
+    private let bridge: PaletteRankerBridge?
 
     public init() {
-        do {
-            bridge = try PaletteRankerBridge()
-        } catch {
-            preconditionFailure("Palette ranker bridge unavailable: \(error.localizedDescription)")
-        }
+        bridge = try? PaletteRankerBridge()
     }
 
     /// Installs a new snapshot unless this version is already current.
@@ -42,6 +38,7 @@ public actor PaletteSearcher {
     ) -> (generation: Int, sections: [PaletteRankedSection]) {
         let sections: [PaletteRankedSection]
         do {
+            guard let bridge else { return (generation, []) }
             sections = try bridge.rank(
                 index: index,
                 version: indexVersion,
@@ -54,7 +51,7 @@ public actor PaletteSearcher {
                 ranksPrefixFirst: ranksPrefixFirst
             )
         } catch {
-            preconditionFailure("Palette rank failed: \(error.localizedDescription)")
+            return (generation, [])
         }
         return (generation, sections)
     }

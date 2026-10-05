@@ -1,4 +1,5 @@
 public import Foundation
+import Synchronization
 
 /// One ranked Search Tabs result.
 public nonisolated struct TabSearchMatch: Sendable, Hashable {
@@ -11,9 +12,10 @@ public nonisolated struct TabSearchMatch: Sendable, Hashable {
 /// (same rows, same fuzzy index, same section order), for callers without
 /// a palette: the `tab.search` control method behind `cmux tab search` and
 /// the MCP tool. A ranker instance serializes access to its shared bridge.
+// crash-allow: the ranker owns a Mutex around its non-Sendable JavaScriptCore bridge.
 public final class TabSearchRanker: @unchecked Sendable {
     private let ranker: PaletteRanker
-    private let lock = NSLock()
+    private let lock = Mutex(())
     private var cachedEntries: [PaletteSearchEntry] = []
     private var cachedSectionOrders: [Int] = []
     private var snapshotVersion = 0
@@ -26,8 +28,13 @@ public final class TabSearchRanker: @unchecked Sendable {
     /// Ranks Search Tabs rows without mutating the supplied entries.
     public func search(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle = .recent,
                        includeClosed: Bool = true, limit: Int = 50, now: Date) -> [TabSearchMatch] {
-        lock.lock()
-        defer { lock.unlock() }
+        lock.withLock {
+            searchLocked(entries, query: query, style: style, includeClosed: includeClosed, limit: limit, now: now)
+        }
+    }
+
+    private func searchLocked(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle,
+                              includeClosed: Bool, limit: Int, now: Date) -> [TabSearchMatch] {
         var rows = TabSearchPlan.rows(entries, style: style, now: now)
         if !includeClosed { rows.removeAll { $0.entry.isClosed } }
         var sectionIndex: [String: Int] = [:]

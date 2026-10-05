@@ -21,18 +21,17 @@ nonisolated public struct PaletteRankedSection: Sendable, Hashable {
 /// run in `webviews/src/palette/ranker.ts` through one persistent
 /// ``PaletteRankerBridge``.
 public final class PaletteRanker {
-    private let bridge: PaletteRankerBridge
+    private let bridge: PaletteRankerBridge?
 
     /// Creates a ranker with a persistent JavaScriptCore context.
     public init() {
-        do {
-            bridge = try PaletteRankerBridge()
-        } catch {
-            preconditionFailure("Palette ranker bridge unavailable: \(error.localizedDescription)")
-        }
+        bridge = try? PaletteRankerBridge()
     }
 
     /// Ranks a prepared palette index through the shared TypeScript engine.
+    ///
+    /// - Parameter version: A stable snapshot identifier. Reusing it for the
+    ///   same entries lets the bridge reuse its prepared text fields.
     public func rank(
         index: inout PaletteSearchIndex,
         version: Int? = nil,
@@ -48,6 +47,7 @@ public final class PaletteRanker {
         highlightLimit: Int = 60
     ) -> [PaletteRankedSection] {
         do {
+            guard let bridge else { return [] }
             return try bridge.rank(
                 index: index,
                 version: version,
@@ -63,7 +63,7 @@ public final class PaletteRanker {
                 highlightLimit: highlightLimit
             )
         } catch {
-            preconditionFailure("Palette rank failed: \(error.localizedDescription)")
+            return []
         }
     }
 
@@ -77,6 +77,7 @@ public final class PaletteRanker {
         recentLimit: Int = 5
     ) -> [PaletteRankedSection] {
         do {
+            guard let bridge else { return [] }
             return try bridge.rankEmpty(
                 entries: entries,
                 sectionOrders: sectionOrders,
@@ -86,7 +87,7 @@ public final class PaletteRanker {
                 recentLimit: recentLimit
             )
         } catch {
-            preconditionFailure("Palette empty-query rank failed: \(error.localizedDescription)")
+            return []
         }
     }
 }
