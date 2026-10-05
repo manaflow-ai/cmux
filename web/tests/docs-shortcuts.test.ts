@@ -21,8 +21,12 @@ const catalogs: Record<string, unknown> = Object.fromEntries(
 );
 
 type Wire = { key: string; modifiers: string[]; family?: string };
-type Action = { id: string; title: string; title_key: string | null; title_table: string | null; default_shortcut: Wire | null; default_chord: Wire[] | null };
-const bound: Action[] = surfaces.actions.filter((action: Action) => action.default_shortcut || action.default_chord);
+type Alias = { keys: Wire[]; when: string | null };
+type Action = {
+  id: string; title: string; title_key: string | null; title_table: string | null;
+  default_shortcut: Wire | null; default_chord: Wire[] | null; default_aliases: Alias[];
+};
+const bound: Action[] = surfaces.actions.filter((action: Action) => action.default_shortcut || action.default_chord || action.default_aliases.length > 0);
 
 /** The keys a reader sees for one stroke: modifiers ⌃⌥⇧⌘, then the key. */
 function expectedStroke(wire: Wire): string[] {
@@ -42,11 +46,20 @@ describe("keyboard shortcuts docs", () => {
     expect([...rows.keys()].sort()).toEqual(bound.map((action) => action.id).sort());
     for (const action of bound) {
       const row = rows.get(action.id)!;
-      const expected = action.default_chord ? action.default_chord.map(expectedStroke) : [expectedStroke(action.default_shortcut!)];
+      // The default key or chord, then each table alias (Ctrl-Cmd arrows for resize, browser tab keys) once.
+      const primary = action.default_chord ? action.default_chord.map(expectedStroke) : action.default_shortcut ? [expectedStroke(action.default_shortcut)] : [];
+      const aliases = action.default_aliases.map((alias) => expectedStroke(alias.keys[0]));
+      const expected = [...primary, ...aliases].filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
       expect({ id: action.id, combos: row.combos, sequence: Boolean(row.sequence) })
         .toEqual({ id: action.id, combos: expected, sequence: Boolean(action.default_chord) });
       expect(localizedShortcutText(row.description, "en")).toBe(action.title);
     }
+  });
+
+  test("table aliases are extra keys on their action's row", () => {
+    const rows = new Map(shortcutCategories.flatMap((category) => category.shortcuts).map((row) => [row.id, row]));
+    expect(rows.get("resizePaneLeft")!.combos).toContainEqual(["⌃", "⌘", "←"]);
+    expect(rows.get("nextSurface")!.combos).toContainEqual(["⌃", "⇥"]);
   });
 
   test("titles are the app's own translations", () => {
