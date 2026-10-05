@@ -255,11 +255,28 @@ if ! runs=$(jq -r '
   | last
   | [.name,.status,(.conclusion // "")]
   | @tsv
-' <<<"$check_runs_json" 2>/dev/null); then
+  ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
 fi
+
+# Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
+# workflow. Its Release and native app checks are separate check runs, so the
+# legacy ci-status job on that branch cannot stand in for them. Require each
+# one that reported on this exact head; a skipped lane remains a passing
+# conclusion, while a pending or red lane blocks the merge.
+if [ "$base" = feat-cmux-next ]; then
+  for next_check in \
+    "cmux-next Release compile (Xcode 26)" \
+    "cmux app scheme compile (Debug)" \
+    "cmux-next swift test"; do
+    if grep -Fq -- "$next_check"$'\t' <<<"$runs"; then
+      must+=("$next_check")
+    fi
+  done
+fi
+
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
   for required in "${must[@]}"; do
