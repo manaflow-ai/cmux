@@ -475,7 +475,9 @@ rest. Measurements: [performance.md](performance.md).
   reads `redacted`. The same values read `redacted` in the URLs
   `tabs.list()` gives for tabs the session did not create, in the frame
   URLs of such tabs and of frames its domain policy blocks, and in every
-  `tabs.history()` entry (history does not say who visited it).
+  `tabs.history()` entry (history does not say who visited it), and in
+  the `url` of every page event (a cancelled navigation, a popup, a
+  download) a session gets for a tab it did not create.
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,
@@ -619,7 +621,11 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   is a guard. The domain policy (and its lock), secret values, redaction
   and capture masking live in the native session (`BrowserReplBoundary`
   in `Packages/macOS/CmuxBrowser`) and the driver, which every driver call,
-  fetch, event, file write and output line passes through. The runtime
+  fetch, event, file write and output line passes through. Everything
+  native hands the session's JavaScript or output passes one egress gate
+  that masks secrets in a single scan of the original data, and page URLs
+  travel as one typed value that only the tab's live creator reads with
+  its credentials. The runtime
   deletes the `__cmuxNative` global, and the app the runtime's entry
   points, before any cell runs. Every script on the session's thread is
   bounded, also a timer or event callback outside a cell (10 s per run,

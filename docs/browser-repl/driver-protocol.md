@@ -302,14 +302,25 @@ leaving room on the paper, else `invalid` before anything is printed.
 
 Every event carries `targetId`.
 
+Every URL in an event, and in a `tabs.list`, `frames.list` or
+`history.search` row, came from a page or a tab, not from the session that
+reads it. The driver carries it as one typed value (`BrowserReplPageURL`,
+Swift only) that names the tab's live creator, and turns it into text for
+each reader where results and events leave the driver: only that creator
+reads it as written; every other session gets its userinfo and
+credential-named query and fragment parameters reading `redacted` (the
+rule network events use), also where another field of the same payload (a
+refusal's reason) repeats it. An event `url` the driver did not type that
+way reaches every session in that form.
+
 | Event | Payload |
 | --- | --- |
-| `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`) |
+| `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`; `url` as written only for the opener's live creator) |
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
 | `tab.replaced` | (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; frame ids and element handles from before are gone) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
-| `navigation.blocked` | `{ url, reason }`: the driver cancelled a main-frame navigation of a tab the session created because the domain policy blocks `url` |
+| `navigation.blocked` | `{ url, reason }`: the driver cancelled a navigation of a tab a session created because that session's domain policy blocks `url`, its file roots do, or its content rules failed; every attached session hears of it, and only the tab's live creator gets `url` as written |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
 | `dialog.opened` | `{ dialogId, type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message, defaultValue, dismissedDuring? }` (stays open until `dialog.respond`; with `dismissedDuring: "copy"\|"cut"\|"paste"` it opened during that clipboard command and is already dismissed) |
 | `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (the native panel is not shown; see `tab.handleEvents` for which tabs send it) |
@@ -380,15 +391,26 @@ native (`BrowserReplBoundary` in the session, and the driver):
   that still holds the mark, and refuses the capture when, after it, any
   frame shows a document without the mark (it showed another page
   meanwhile).
-  Results, events, fetch responses, output, errors, written files and
-  files read back are redacted by the session. Another session that drives the same tab
+  Everything the session hands its JavaScript or its output passes one
+  egress gate (`BrowserReplBoundary.egress`, Swift only): driver results,
+  refusals and errors, events (and withheld events), fetch responses (URL,
+  headers, body bytes), every `fs`, `secrets` and `policy` answer (file
+  contents as bytes; names from `readdir`, paths and error messages as
+  text, since a page's download keeps the name the page gave it), printed
+  lines and evaluation errors. The gate builds one scanner per call and
+  scans the original data once; the session can hand JavaScript only the
+  gate's output type. Files the session writes or copies are masked by the
+  same scanner. The driver masks no text itself: masking part of the
+  values first would let one value's mask cut into another before the
+  gate looks for it. Another session that drives the same tab
   (`tabs.use`) does not hold the secret, so the driver remembers each value
   it typed, by tab, typing session and secret name, from when the domain
   check passes, before it types, until the tab closes (a value the check
   refuses is never remembered; sessions whose secrets share a name keep
-  separate values), and masks it as typed, `<secret:name>`, in every result,
-  event and error it returns to any other session, and in their captures;
-  once the typing session ends, also for a later session of the same name.
+  separate values), and every other session masks it as typed,
+  `<secret:name>`, at its egress gate (every result, event and error), and
+  the driver in their captures; once the typing session ends, also for a
+  later session of the same name.
   The open tabs hold at most 4,096 such values (one per tab, typing
   session and name; a value typed again after the session that typed it
   ended replaces that record): past that the driver refuses to type
@@ -403,22 +425,23 @@ native (`BrowserReplBoundary` in the session, and the driver):
   session holds, and every TOTP code of a window since the masks were
   taken, must be among the masks with each of its domains, or the capture
   fails with `stale` as well.
-  The driver hands those sessions the same values as a store
-  (`typedSecretRedaction()`, Swift only), and each session masks them
-  wherever it masks its own secrets: fetch responses (read with the tab's
-  cookies), files written and read back (a page's download), output lines
-  and errors.
+  The driver hands those sessions the values as a store
+  (`typedSecretRedaction()`, Swift only), and each session's gate masks
+  them in the same pass as its own secrets.
   A TOTP secret's typed value is its code, masked as that literal.
   A value that reads as a number (`0042`, `0012345678`, `3.140`) is also
   masked where a result holds it as a JSON number (`Number(value)` drops
   leading zeros), whatever its length.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
-  is outside it, as it is within one session. Accepted by the threat
-  model: a page on the secret's own allowed domain already holds the
-  value, so it can hand it back transformed (hex, compressed, split
-  across strings or lines, Base64 or percent-encoding applied once more)
-  and redaction does not find it.
+  is outside it, as it is within one session. Redaction is best-effort
+  value matching. Accepted by the threat model (the transformed-echo
+  limit): a page on the secret's own allowed domain already holds the
+  value, so it can hand it back transformed (hex, compressed, encrypted,
+  split across strings or lines, Base64 or percent-encoding applied once
+  more) and no value matching finds it. A file `secrets.load` read is not
+  refused as a whole: `fs.readFile` returns it with the loaded values
+  masked, so an agent can still read and edit its other keys.
   A session holds at most 256 secrets (`secrets.set`, `secrets.load`;
   replacing one is not another) of at most 4 KiB with at most 64 domains
   each, refused with an error naming the limit. `secrets.delete`,
@@ -819,7 +842,7 @@ structured values cross the boundary as JSON strings.
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
 the session's own `tmpdir`, never the system temporary directory that other
 sessions and apps share, except files the driver reported through
-`download.finished`, which are readable): `readFile {path}` → base64 (secrets redacted, text or bytes), `writeFile {path, base64, append?}` (secrets redacted; either fails with `EINVAL` when masking would grow the contents by more than 8 MiB),
+`download.finished`, which are readable): `readFile {path}` → base64 (secrets redacted, text or bytes), `writeFile {path, base64, append?}` (secrets redacted; either fails with `EINVAL` when masking would grow the contents by more than 8 MiB; every other answer, names and paths and error messages too, is masked as text),
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
 `lstat {path}` (as `stat`, for the link itself), `rm {path, recursive?, force?}`,
