@@ -2630,8 +2630,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 typist: sessionID
             )
         }
+        let world = sessionWorld.agent
         try await withWindow(panel) { webView, _ in
-            try await BrowserReplNativeInput.insertText(text, into: webView, world: sessionWorld.agent, checkTarget: checkTarget)
+            try await BrowserReplNativeInput.insertText(text, into: webView, world: world, checkTarget: checkTarget)
             await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
