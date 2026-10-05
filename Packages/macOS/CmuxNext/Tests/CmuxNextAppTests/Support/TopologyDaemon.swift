@@ -96,12 +96,17 @@ nonisolated final class TopologyDaemon: Sendable {
     }
 
     final class State: Sendable {
-        let tree = Mutex(Tree(workspaces: [Workspace(id: 1, key: firstKey, screens: [
-            Screen(id: 2, layout: .leaf(3), panes: [Pane(id: 3, tabs: [11, 12])]),
-        ])]))
+        let tree: Mutex<Tree>
+
+        init(emptyWorkspace: Bool) {
+            let screens: [Screen] = emptyWorkspace ? [] : [
+                Screen(id: 2, layout: .leaf(3), panes: [Pane(id: 3, tabs: [11, 12])]),
+            ]
+            tree = Mutex(Tree(workspaces: [Workspace(id: 1, key: TopologyDaemon.firstKey, screens: screens)]))
+        }
     }
 
-    let state = State()
+    let state: State
     let socket: ScriptedDaemonSocket
     final class CommandLog: Sendable {
         let names = Mutex<[String]>([])
@@ -111,7 +116,8 @@ nonisolated final class TopologyDaemon: Sendable {
     let commands = CommandLog()
 
     /// `extraCapabilities` are advertised besides the required ones.
-    init(extraCapabilities: [String] = []) throws {
+    init(extraCapabilities: [String] = [], emptyWorkspace: Bool = false) throws {
+        state = State(emptyWorkspace: emptyWorkspace)
         let state = state, commands = commands
         socket = try ScriptedDaemonSocket(handler: { request in
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0

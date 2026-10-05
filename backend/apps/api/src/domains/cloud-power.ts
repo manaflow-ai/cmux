@@ -1,7 +1,7 @@
 import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/ownership"
-import { CloudMachinePause, CloudMachineStart, planRequiredDetails, type CloudDriverResultParams } from "@cmux/protocol"
+import { CloudMachinePause, CloudMachineResize, CloudMachineStart, planRequiredDetails, type CloudDriverResultParams } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
-import { limitDetails, teamPlan, type CloudConfig } from "./cloud-plan.ts"
+import { DEFAULT_SIZE, limitDetails, sizeLocked, teamPlan, type CloudConfig, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 import {
   countedRow,
   ledgerKey,
@@ -57,12 +57,53 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
   return { ok: true, state: s, value: { machine: publicMachine(row) }, writes }
 }
 
+/**
+ * cloud.machine.resize: grow only on every axis (Freestyle grows vCPU and memory live or on resume,
+ * the disk only on a running VM), within the plan. The answer carries the target size; the ledger
+ * row keeps the old size, restored after a final failure. One resize at a time per machine.
+ */
+export const resizeIntent = (config: CloudConfig, state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
+  const d = decodeParams<typeof CloudMachineResize.params.Type>(CloudMachineResize, params)
+  if (!d.ok) return d
+  const stored = machineRow(ctx.rows, d.value.machine)
+  if (!stored) return reject("cloud.machine.not_found", "no such machine in this team")
+  const m = stored.row
+  if (!mayManage(ctx.principal, m)) return reject("auth.forbidden", "only the machine's creator or a team admin may resize it")
+  if (m.status !== "running" && m.status !== "paused") return reject("cloud.machine.not_running", "only a running or paused machine can be resized", { machine: m.id, state: m.status })
+  const busy = Object.entries(state.pending).some(([, e]) => e.machine === m.id)
+  if (busy) return reject("cloud.machine.busy", "another change of this machine is still running; retry when it lands", { machine: m.id })
+  const cur = { cpu: m.size.cpu ?? DEFAULT_SIZE.cpu, memory_mb: m.size.memory_mb ?? DEFAULT_MEMORY_MB, disk_mb: m.size.disk_mb ?? DEFAULT_SIZE.disk_mb }
+  const target = { cpu: d.value.size.cpu ?? cur.cpu, memory_mb: d.value.size.memory_mb ?? cur.memory_mb, disk_mb: d.value.size.disk_mb ?? cur.disk_mb }
+  if (target.cpu < cur.cpu || target.memory_mb < cur.memory_mb || target.disk_mb < cur.disk_mb) return reject("cloud.size.grow_only", "a machine can only grow (vCPU, memory and disk)", { size: cur })
+  if (target.disk_mb > cur.disk_mb && m.status !== "running") return reject("cloud.machine.not_running", "the disk grows only on a running machine", { machine: m.id, state: m.status })
+  const plan = teamPlan(config, state.team ?? ctx.principal.team)
+  if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan", planRequiredDetails())
+  if (sizeLocked(plan, target.memory_mb)) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { memory_mb: target.memory_mb }))
+  if (target.cpu > plan.max_cpu) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { cpu: target.cpu }))
+  if (target.disk_mb > plan.max_disk_mb) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { disk_mb: target.disk_mb }))
+  if (!config.prefix || !ctx.idempotencyKey) return unavailable()
+  const rev = state.rev + 1
+  const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
+  const ledger: LedgerRow = { key, op: "resize", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, size: target, size_before: cur }
+  const row: MachineRow = { ...m, size: target, error: null, revision: String(rev) }
+  const s = next(state, { pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false })
+  return { ok: true, state: s, value: { machine: publicMachine(row) }, writes: [upsertLedger(ledger, rev), upsertMachine(row, stored.n)] }
+}
+
 /** The outcome of a pause or start call: success lands the new status; a final failure returns the machine to its old status. */
 export const powerResult = (state: CloudState, stored: StoredRow<LedgerRow>, machine: StoredRow<MachineRow> | undefined, r: typeof CloudDriverResultParams.Type, ctx: ReduceContext): ReduceResult<CloudState> => {
   const l = stored.row
   const pending = withoutPending(state, l.key)
   const error = r.ok ? null : { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider call failed" }
   const writes: Array<RowWrite> = [upsertLedger({ ...l, state: r.ok ? "done" : "failed", attempts: l.attempts + 1, error, updated_at: ctx.now }, stored.n)]
+  if (l.op === "resize") {
+    // Success: the size is already the target. A final failure restores the old size (unless the machine is gone or deleting).
+    if (r.ok || !machine || machine.row.status === "deleting" || !l.size_before) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes }
+    // The VM's real size after the failure (a partial resize), else the old size (review P3).
+    const restored: MachineRow = { ...machine.row, size: r.resources ?? l.size_before, error: error ? { ...error, at: ctx.now } : null, revision: String(state.rev + 1) }
+    writes.push(upsertMachine(restored, machine.n))
+    return { ok: true, state: next(state, { pending }, { machine: restored.id, removed: false }), value: { applied: true, final: true }, writes }
+  }
   // The machine moved on meanwhile (a delete): the call is settled, the machine stays as it is.
   const expected = l.op === "pause" ? "pausing" : "starting"
   if (!machine || machine.row.status !== expected) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes }

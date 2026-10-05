@@ -82,7 +82,7 @@ import Testing
         let chords: [ActionID: Shortcut] = [
             "newSurface": Shortcut("t", modifiers: [.control, .shift, .command]),
             "openBrowser": Shortcut("l", modifiers: [.command, .shift]),
-            "palette.newAgentChat": Shortcut("i", modifiers: [.command, .shift]),
+            "palette.newAgentChat": Shortcut("i", modifiers: [.command]),
         ]
         // Ghostty's macOS defaults near these keys: scroll to selection,
         // write screen file, select all, inspector, clear screen.

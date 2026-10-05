@@ -57,9 +57,9 @@ final class FakeDataStoreFactory: WebsiteDataStoreFactory {
         var existing: Set<String> = ["/tmp/dl/report.pdf", "/tmp/dl/report (1).pdf", "/tmp/dl/README"]
         let exists: (URL) -> Bool = { existing.contains($0.path(percentEncoded: false)) }
 
-        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "report.pdf", exists: exists).lastPathComponent == "report (2).pdf")
-        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "README", exists: exists).lastPathComponent == "README (1)")
-        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "../../etc/passwd", exists: exists).path(percentEncoded: false) == "/tmp/dl/passwd")
+        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "report.pdf", exists: exists)?.lastPathComponent == "report (2).pdf")
+        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "README", exists: exists)?.lastPathComponent == "README (1)")
+        #expect(DownloadDestination.uniqueURL(in: directory, suggestedFilename: "../../etc/passwd", exists: exists)?.path(percentEncoded: false) == "/tmp/dl/passwd")
         #expect(DownloadDestination.sanitizedFilename(".hidden") == "hidden")
         #expect(DownloadDestination.sanitizedFilename("a:b.txt") == "a-b.txt")
         #expect(DownloadDestination.sanitizedFilename("  ") == "download")

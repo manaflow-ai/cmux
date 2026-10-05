@@ -315,7 +315,9 @@ describe("cloud driver prefix guard", () => {
       writeFile: async () => {},
       pause: async (id) => void calls.push(`pause:${id}`),
       start: async (id) => void calls.push(`start:${id}`),
-      state: async () => null
+      state: async () => null,
+      resize: async (id) => void calls.push(`resize:${id}`),
+      resources: async () => null
     }
     return { calls, raw }
   }
@@ -341,6 +343,7 @@ describe("cloud driver prefix guard", () => {
       // Money ops (CLOUDDO-MONEY-OPS): pause and start never touch a name outside the prefix either.
       await expect(driver.power(name, tag, "pause")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
       await expect(driver.power(name, tag, "start")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+      await expect(driver.resize(name, tag, { cpu: 4, memory: 8192, storage: 16384 })).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
     }
     expect(calls).toEqual([])
     await driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })
@@ -377,7 +380,11 @@ describe("cloud driver prefix guard", () => {
       start: async () => {
         throw new Error("must not start")
       },
-      state: async () => null
+      state: async () => null,
+      resize: async () => {
+        throw new Error("must not resize")
+      },
+      resources: async () => null
     }
     const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }

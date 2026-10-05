@@ -117,9 +117,13 @@ describe("editors", () => {
     page = await renderPage({ path: "/settings/appearance" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
-    await run(() => page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.85 } }));
+    await run(() =>
+      page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.85 } }),
+    );
     expect(slider()).toBe("0.85");
-    await run(() => page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.6 } }));
+    await run(() =>
+      page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.6 } }),
+    );
     expect(slider()).toBe("0.6");
   });
 
