@@ -1,0 +1,31 @@
+name: Nightly release notes tests
+
+on:
+  pull_request:
+    paths:
+      - scripts/ci/nightly_release_notes.py
+      - tests/test_nightly_release_notes.py
+      - .github/workflows/nightly.yml
+      - .github/workflows/nightly-release-notes-tests.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/ci/nightly_release_notes.py
+      - tests/test_nightly_release_notes.py
+      - tests/test-execution.toml
+      - .github/workflows/nightly-release-notes-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notes-tests:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Exercise PR range, grouping, capping, and appcast descriptions
+        run: python3 tests/test_nightly_release_notes.py
