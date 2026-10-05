@@ -167,7 +167,8 @@ struct NewMachineSheet: View {
             }
             if model.isFork {
                 GridRow { Color.clear.gridCellUnsizedAxes([.horizontal, .vertical]); inheritedSettingsView }
-            } else if showsSizeRow {
+            }
+            if showsSizeRow {
                 GridRow {
                     gridLabel(sizeLabel)
                     fittedSizeMenu
@@ -229,7 +230,8 @@ struct NewMachineSheet: View {
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
             if model.supportsBaseImage { stackedRow(baseImageLabel) { baseImageMenu } }
-            if !model.isFork && showsSizeRow {
+            if model.isFork { inheritedSettingsView }
+            if showsSizeRow {
                 stackedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
@@ -269,7 +271,7 @@ struct NewMachineSheet: View {
                     baseImageMenu
                     sentenceDot
                 }
-                if !model.isFork && showsSizeRow {
+                if showsSizeRow {
                     makeSizeMenu(borderless: true)
                     sentenceDot
                 }
@@ -330,6 +332,7 @@ struct NewMachineSheet: View {
         .help(agentsHelp)
         .accessibilityLabel(agentsTitle)
         .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+        .disabled(model.isFork)
     }
 
     // MARK: D. Grouped
@@ -339,12 +342,12 @@ struct NewMachineSheet: View {
             if model.supportsBaseImage {
                 groupedRow(baseImageLabel) { baseImageMenu }
             }
-            if !model.isFork && showsSizeRow {
+            if showsSizeRow {
                 if model.supportsBaseImage { groupedDivider }
                 groupedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
-                if !model.isFork && showsSizeRow { groupedDivider }
+                if showsSizeRow { groupedDivider }
                 groupedRow(networkLabel) {
                     HStack(spacing: 6) {
                         CloudSecurityExplainer()
@@ -358,7 +361,7 @@ struct NewMachineSheet: View {
                 }
             }
             if model.supportsAgentUpdates {
-                if (!model.isFork && showsSizeRow) || model.supportsNetworkPolicy { groupedDivider }
+                if showsSizeRow || model.supportsNetworkPolicy { groupedDivider }
                 groupedRow(agentsTitle) {
                     HStack(spacing: 6) {
                         agentsNetworkWarning
@@ -370,6 +373,7 @@ struct NewMachineSheet: View {
                             .fixedSize()
                             .accessibilityLabel(agentsTitle)
                             .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+                            .disabled(model.isFork)
                     }
                 }
                 .help(agentsHelp)
@@ -405,12 +409,12 @@ struct NewMachineSheet: View {
 
     // MARK: Shared controls
 
-    private var sizeMenu: some View { makeSizeMenu(borderless: false) }
+    private var sizeMenu: some View { makeSizeMenu(borderless: false).disabled(model.isFork) }
 
     private var baseImageMenu: some View {
         Picker(selection: Binding(
             get: { model.baseImage },
-            set: { model.baseImage = $0 }
+            set: { model.selectBaseImage($0) }
         )) {
             Text(String(localized: "machines.new.baseImage.default", defaultValue: "Default image"))
                 .tag(NewMachineModel.BaseImage.defaultImage)
@@ -481,6 +485,7 @@ struct NewMachineSheet: View {
             .help(String(localized: "machines.new.size.help", defaultValue: "Choose the memory and disk profile for this machine."))
             .accessibilityIdentifier("NewMachineSheet.size")
             .accessibilityValue(selectedSize.menuTitle)
+            .disabled(model.isFork)
         } else if let selectedSize = model.selectedSize {
             // The sentence layout's token: a borderless menu with checkmarks.
             Menu {
@@ -516,10 +521,11 @@ struct NewMachineSheet: View {
             .accessibilityValue(selectedSize.menuTitle)
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .disabled(model.isFork)
         }
     }
 
-    private var networkMenu: some View { makeNetworkMenu(borderless: false) }
+    private var networkMenu: some View { makeNetworkMenu(borderless: false).disabled(model.isFork) }
 
     /// The mode menu once the catalog is known; a spinner or a warning icon
     /// with its explanation as the tooltip otherwise. The cache normally has
@@ -548,9 +554,11 @@ struct NewMachineSheet: View {
         case .available:
             if borderless {
                 CloudNetworkModeMenu(model: model.network)
+                    .disabled(model.isFork)
                     .accessibilityIdentifier("NewMachineSheet.network")
             } else {
                 CloudNetworkModePicker(model: model.network)
+                    .disabled(model.isFork)
                     .accessibilityIdentifier("NewMachineSheet.network")
             }
         }
@@ -616,6 +624,7 @@ struct NewMachineSheet: View {
             )
             .help(agentsHelp)
             .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+            .disabled(model.isFork)
             CloudAgentUpdatesExplainer()
             agentsNetworkWarning
         }

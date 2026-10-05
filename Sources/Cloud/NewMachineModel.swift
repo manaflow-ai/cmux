@@ -466,6 +466,13 @@ final class NewMachineModel {
             baseImage = .defaultImage
         }
     }
+
+    func selectBaseImage(_ image: BaseImage) {
+        baseImage = image
+        if case .machine(let machine) = image, let updates = machine.agentUpdates {
+            keepsAgentsUpdated = updates == .latest
+        }
+    }
     /// Sizes the plan may start, ascending.
     var memoryOptions: [Int] { availableMemoryOptionsMb }
     /// Sizes the plan cannot start, ascending; the sheet lists them disabled.
