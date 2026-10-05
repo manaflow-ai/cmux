@@ -39,7 +39,8 @@ status=0; key --version v3 >/dev/null 2>&1 || status=$?
 [[ "$status" == 2 ]] || fail "an unknown key version did not exit 2 (exit $status)"
 
 # Moving the classic gitlink changes v1 only; moving ghostty-next changes both.
-other=$(git -C "$src" commit-tree "$(git -C "$src" rev-parse HEAD^{tree})" -m other)
+# The test's own identity, like git_q: a CI runner has no global one.
+other=$(git -c user.name=t -c user.email=t@example.com -C "$src" commit-tree "$(git -C "$src" rev-parse HEAD^{tree})" -m other)
 gitlink ghostty "$other"; git_q -C "$src" commit -m "classic moves"
 [[ "$(key --version v2)" == "$v2" ]] || fail "a classic gitlink move changed the v2 key"
 [[ "$(key --version v1)" != "$v1" ]] || fail "a classic gitlink move did not change the v1 key"
