@@ -308,6 +308,56 @@ test("the default toggle shows what Cmd-T opens and cycles through the choices",
   await act(async () => root.unmount());
 });
 
+test("file and app action suggestions use their host callbacks and keep agent Enter as a prompt", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const submitted: string[] = [];
+  const opened: string[] = [];
+  const actions: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(NewTabPage, {
+        snapshot,
+        initialKind: "agent",
+        omnibar: {
+          tabs: [], workspaces: [], sessions: [], folders: [], commands: [], history: [],
+          files: [{ path: "/src/app/README.md", title: "Project guide" }],
+          actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
+        },
+        onSubmit: (kind: string, text: string) => submitted.push(`${kind}:${text}`),
+        onOpenFile: (path: string) => opened.push(path),
+        onAction: (id: string) => actions.push(id),
+        onOpenSession: () => {},
+        onShowAll: () => {},
+      }),
+    ),
+  );
+  const field = container.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+  const type = (value: string) => act(async () => {
+    setValue.call(field, value);
+    edited(field);
+  });
+  const key = (name: string) => act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+  });
+  const submit = () => act(async () => {
+    container.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+  });
+  await type("README");
+  await submit();
+  expect(submitted).toEqual(["agent:README"]);
+  await key("ArrowUp");
+  await submit();
+  expect(opened).toEqual(["/src/app/README.md"]);
+  await type("preferences");
+  await key("ArrowUp");
+  await submit();
+  expect(actions).toEqual(["settings"]);
+  expect(submitted).toEqual(["agent:README"]);
+  await act(async () => root.unmount());
+});
+
 test("Cmd-L brings the keyboard back to the field, and an untouched location is not ready to send", async () => {
   const { FOCUS_LOCATION_EVENT } = await import("./NewTabPage");
   const container = dom.window.document.getElementById("root")!;

@@ -29,6 +29,14 @@ struct NewTabPageHandler {
     var setDefaultKind: (String) -> Void
     /// The page started a chat in place (Agent, Ask, or a recent session).
     var becameChat: () -> Void = {}
+    /// The project picker fallback, resolved only when the user chooses Browse….
+    var browseProject: () async -> String? = { nil }
+    /// Returns recent projects, optionally filtered by the picker's query.
+    var listProjects: (String?) async -> [String] = { _ in [] }
+    /// Opens the existing onboarding import and project/history sync flow.
+    var importAndSync: () -> Void = {}
+    /// Runs a host-owned action advertised by the omnibar.
+    var action: (String) -> Void = { _ in }
 }
 
 enum NewTabPage {
@@ -82,7 +90,7 @@ enum NewTabPage {
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         return AgentPaneOmnibar(
-            tabs: tabs, workspaces: workspaces, folders: folders, commands: Array(commands), history: Array(history)
+            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, commands: Array(commands), history: Array(history)
         )
     }
 
@@ -147,7 +155,23 @@ enum NewTabPage {
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
-            becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) }
+            becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) },
+            browseProject: { [weak services] in
+                guard let services else { return nil }
+                return await AppOnboardingServices(owner: services.onboarding).chooseFolder()?.path
+            },
+            listProjects: { [weak services] query in
+                guard let services else { return [] }
+                let hints = services.history.agents.sessions.compactMap(\.cwd)
+                return await Task.detached {
+                    RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
+                }.value
+            },
+            importAndSync: { [weak services] in services?.onboarding.show(step: .projects) },
+            action: { [weak services] id in
+                guard let services else { return }
+                _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+            }
         )
     }
 

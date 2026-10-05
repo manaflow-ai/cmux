@@ -201,9 +201,9 @@ test("new tab offers recent projects inline before Browse", async () => {
   const trigger = container.querySelector<HTMLButtonElement>(".nt-project button")!;
   expect(trigger).not.toBeNull();
   await act(async () => trigger.click());
-  const option = container.querySelector<HTMLElement>('[data-project="/src/new"]')!;
+  const option = container.querySelector<HTMLElement>('[role="option"][title="/src/new"]')!;
   expect(option).not.toBeNull();
-  await act(async () => option.click());
+  await act(async () => option.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
   await key("Enter");
   expect(calls).toEqual(["ask:claude::/src/new"]);
   await act(async () => root.unmount());

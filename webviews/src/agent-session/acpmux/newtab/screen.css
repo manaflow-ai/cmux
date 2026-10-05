@@ -40,3 +40,8 @@
 .nt-terminal-starting{display:block;margin-top:6px;color:var(--acpmux-composer-dim);font:12px system-ui;opacity:0;animation:nt-starting .2s ease-out 1s forwards}
 @keyframes nt-starting{to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.nt-terminal-starting{animation-duration:0s}}
+
+.nt-project{display:flex;align-items:center;justify-content:space-between;color:var(--agent-muted);font-size:12px}
+.nt-project .acpmux-project-menu{top:100%;bottom:auto;z-index:30}
+.nt-project>button{border:0;background:none;color:inherit;font:inherit;cursor:pointer}
+.nt-project>button:hover{color:var(--agent-text)}

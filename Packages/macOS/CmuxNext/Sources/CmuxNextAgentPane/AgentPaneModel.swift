@@ -37,6 +37,14 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Void)?
+    /// Resolves the explicit Browse… fallback in the project picker.
+    @ObservationIgnored public var onBrowseProject: (() async -> String?)?
+    /// Returns bounded project paths for the picker, optionally filtered by query.
+    @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
+    /// Opens onboarding's existing project and agent-history import flow.
+    @ObservationIgnored public var onImportAndSync: (() -> Void)?
+    /// Runs an action advertised by the host's omnibar.
+    @ObservationIgnored public var onAppAction: ((String) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
@@ -185,6 +193,21 @@ public final class AgentPaneModel {
         case .setDefaultKind(let kind):
             guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
             onSetDefaultKind(kind)
+            return AgentPaneReply.success()
+        case .browseProject:
+            guard let onBrowseProject else { return Self.unsupported("project.browse") }
+            guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["cwd": cwd])
+        case .listProjects(let query):
+            guard let onListProjects else { return Self.unsupported("project.list") }
+            return AgentPaneReply.success(["projects": await onListProjects(query)])
+        case .importAndSync:
+            guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
+            onImportAndSync()
+            return AgentPaneReply.success()
+        case .appAction(let id):
+            guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
+            onAppAction(id)
             return AgentPaneReply.success()
         case .editShortcut(let kind):
             guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }

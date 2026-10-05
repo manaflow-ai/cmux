@@ -1,6 +1,7 @@
 import React from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { projectLabel } from "./sessionList";
+import { useT } from "./i18n";
 
 /// Empty-state copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const EMPTY_STATE_LABELS = {
@@ -31,7 +32,16 @@ export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
 
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
 /// a small prompt glyph and one line naming the session's project.
-export function EmptyState({ project }: { project?: string }) {
+export function EmptyState({
+  project,
+  onNew,
+  onImport,
+}: {
+  project?: string;
+  onNew?(): void;
+  onImport?(): void;
+}) {
+  const t = useT();
   const [before, after] = EMPTY_STATE_LABELS.promptIn.split("{project}");
   return (
     <div className="acpmux-empty">
@@ -62,6 +72,14 @@ export function EmptyState({ project }: { project?: string }) {
           EMPTY_STATE_LABELS.prompt
         )}
       </h2>
+      <div className="acpmux-empty-actions">
+        <button type="button" className="acpmux-empty-new" data-action="new" onClick={onNew}>
+          {t("empty.new")}
+        </button>
+        <button type="button" className="acpmux-empty-import" data-action="import" onClick={onImport}>
+          {t("empty.import")}
+        </button>
+      </div>
     </div>
   );
 }

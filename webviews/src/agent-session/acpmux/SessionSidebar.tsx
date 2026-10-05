@@ -87,7 +87,7 @@ export function SessionSidebar({
     <OpenSessions.Provider value={openIds}>
       <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
         <div className="acpmux-rail">
-          <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon="home" />
+          <RailButton label="New chat" title="New chat" onClick={onNewChat} icon="home" />
           <RailButton
             label="Sessions"
             current={view === "sessions"}

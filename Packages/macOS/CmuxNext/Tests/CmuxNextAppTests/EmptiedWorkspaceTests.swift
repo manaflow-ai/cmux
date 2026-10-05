@@ -5,9 +5,8 @@ import Testing
 
 /// Closing the last tab of a workspace closes the workspace (dogfood
 /// nxdog9), whatever closed it: Cmd-W, the tab's x, the CLI, or the
-/// process exiting. Only a workspace that is empty the first time this
-/// connection sees it (a hard daemon kill, another client creating it
-/// empty) gets a new terminal.
+/// process exiting. A genuinely new empty workspace stays on its action
+/// surface; a host that lost a terminal is refilled after a reconnect.
 @MainActor
 struct EmptiedWorkspaceTests {
     final class Recorder {
@@ -70,9 +69,9 @@ struct EmptiedWorkspaceTests {
     }
 
     /// The snapshot and the live tree agree (nothing changes when the store
-    /// turns live), so the store becoming live must itself run the checks:
-    /// an empty workspace is repaired, and a populated one then closes when
-    /// its last tab closes.
+    /// turns live), so a genuinely new empty workspace stays on its action
+    /// surface until New is pressed. A populated one still closes when its
+    /// last tab closes.
     @Test func turningLiveWithAnUnchangedTreeRunsTheChecks() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         let recorder = Recorder()
@@ -90,9 +89,12 @@ struct EmptiedWorkspaceTests {
         await Self.settle { false }
         #expect(recorder.created.isEmpty, "nothing is repaired from the snapshot")
         services.daemon.store.apply(snapshot: empty)
+        await Self.settle { false }
+        #expect(recorder.created.isEmpty)
+        #expect(recorder.closed.isEmpty)
+        controller.emptyView.onNew?()
         await Self.settle { !recorder.created.isEmpty }
         #expect(recorder.created == [Self.key])
-        #expect(recorder.closed.isEmpty)
         controller.teardown()
 
         let populated = ActionBindingCoverageTests.boundServices()

@@ -231,3 +231,24 @@ function SearchIcon() {
     </svg>
   );
 }
+
+function FolderIcon() {
+  return (
+    <svg
+      className="acpmux-icon"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M2.25 4.75c0-.83.67-1.5 1.5-1.5h2.6l1.4 1.5h4.5c.83 0 1.5.67 1.5 1.5v5.5c0 .83-.67 1.5-1.5 1.5h-8.5c-.83 0-1.5-.67-1.5-1.5Z" />
+      <path d="M2.25 6.75h11.5" />
+    </svg>
+  );
+}

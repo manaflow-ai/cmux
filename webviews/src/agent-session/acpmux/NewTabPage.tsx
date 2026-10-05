@@ -46,6 +46,8 @@ export const NEW_TAB_LABELS = {
     session: "Open chat",
     folder: "New terminal here",
     command: "Run",
+    file: "Open",
+    action: "Open",
     history: "Open",
     run: "Run in terminal",
     open: "Open",
@@ -189,17 +191,23 @@ type Props = {
   defaultKind?: DefaultKind;
   /// The toggle picked the next default.
   onSetDefaultKind?(kind: DefaultKind): void;
-  /// Recent projects are offered inline before Browse is needed.
-  projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it.
   onSubmit(kind: TabKind, text: string, cwd?: string): void;
+  /// Recent projects for the agent kind. Picking one starts a chat there.
+  projects?: Project[];
+  /// Loads the host's bounded project scan after the first paint.
+  loadProjects?(): Promise<Project[]>;
+  /// Open a folder picker as the last project choice.
+  onBrowseProject?(): Promise<string | undefined>;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
+  /// Open a host-provided file or invoke a host-owned app action.
+  onOpenFile?(path: string): void;
+  onAction?(id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
   onImport?(): void;
-  onBrowseProject?(): void;
   now?: number;
 };
 
@@ -219,12 +227,15 @@ export function NewTabPage({
   onSetDefaultKind,
   projects = [],
   onSubmit,
+  loadProjects,
+  onBrowseProject,
   onJump,
+  onOpenFile,
+  onAction,
   onOpenSession,
   onShowAll,
   onEditShortcut,
   onImport,
-  onBrowseProject,
 }: Props) {
   const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
@@ -265,6 +276,29 @@ export function NewTabPage({
   const folder = projectCwd ? projectLabel(projectCwd) : "";
   const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](kind === "agent" ? agent : folder);
+  const [loadedProjects, setLoadedProjects] = useState(projects);
+  useEffect(() => setLoadedProjects(projects), [projects]);
+  useEffect(() => {
+    if (!loadProjects) return;
+    let cancelled = false;
+    void loadProjects()
+      .then((next) => {
+        if (!cancelled && next.length) setLoadedProjects(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadProjects]);
+  const canChooseProject = loadedProjects.length > 0 || onBrowseProject !== undefined;
+  const chooseProject = (project: string) => onSubmit("agent", "", project);
+  const browseProject = onBrowseProject
+    ? () => {
+        void onBrowseProject().then((project) => {
+          if (project) chooseProject(project);
+        });
+      }
+    : undefined;
 
   // The field takes the keyboard when the page appears, as a browser's new tab does, and
   // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page.
@@ -294,6 +328,10 @@ export function NewTabPage({
         return onSubmit("terminal", "", row.path);
       case "command":
         return onSubmit("terminal", row.command, projectCwd);
+      case "file":
+        return onOpenFile?.(row.path);
+      case "action":
+        return onAction?.(row.id);
       case "history":
         return onSubmit("browser", row.url);
       case "run":
@@ -419,12 +457,22 @@ export function NewTabPage({
                 {host ?? NEW_TAB_LABELS.thisMac}
               </span>
             )}
-            {kind === "agent" && (
-              <span className="acpmux-newtab-chip">
-                <KindIcon kind="agent" />
-                {agent}
-              </span>
-            )}
+            {kind === "agent" &&
+              (canChooseProject ? (
+                <ProjectChooser
+                  projects={loadedProjects}
+                  current={cwd}
+                  currentLabel={folder || undefined}
+                  icon={<FolderIcon />}
+                  onPick={chooseProject}
+                  onBrowse={browseProject}
+                />
+              ) : (
+                <span className="acpmux-newtab-chip">
+                  <KindIcon kind="agent" />
+                  {agent}
+                </span>
+              ))}
             {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
           </span>
           {defaultKind && onSetDefaultKind && (
@@ -512,9 +560,11 @@ function rowKey(row: OmnibarRow): string {
     case "tab":
     case "workspace":
     case "session":
+    case "action":
       return `${row.type}:${row.id}`;
     case "folder":
-      return `folder:${row.path}`;
+    case "file":
+      return `${row.type}:${row.path}`;
     case "command":
       return `command:${row.command}`;
     case "history":
@@ -529,9 +579,12 @@ function rowTitle(row: OmnibarRow): string {
     case "tab":
     case "workspace":
     case "session":
+    case "action":
       return row.title;
     case "folder":
       return projectLabel(row.path);
+    case "file":
+      return row.title || projectLabel(row.path);
     case "command":
       return row.command;
     case "history":
@@ -546,9 +599,12 @@ function rowDetail(row: OmnibarRow): string | undefined {
     case "tab":
     case "workspace":
     case "session":
+    case "action":
       return row.detail;
     case "folder":
       return homePath(row.path);
+    case "file":
+      return row.detail || homePath(row.path);
     case "history":
       return row.title ? row.url.replace(/^https?:\/\//, "") : undefined;
     default:
@@ -565,7 +621,10 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "session":
       return <AgentMark harness={row.harness} />;
     case "folder":
+    case "file":
       return <FolderIcon />;
+    case "action":
+      return <WorkspaceIcon />;
     case "command":
     case "run":
       return <KindIcon kind="terminal" />;

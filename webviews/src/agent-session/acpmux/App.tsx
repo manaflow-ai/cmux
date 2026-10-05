@@ -1752,8 +1752,10 @@ function AcpmuxPane() {
       return;
     }
     setNewTab(undefined);
-    const start = cwd ? callNative("chat.new", { cwd }) : Promise.resolve();
-    void start.then(() => (text ? callNative("chat.send", { text }) : undefined));
+    void (async () => {
+      if (cwd) await callNative("chat.new", { cwd });
+      if (text) await callNative("chat.send", { text });
+    })().catch(() => undefined);
   };
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
@@ -1900,6 +1902,12 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}
+              cwd={newTab.cwd}
+              projects={newTabProjects}
+              loadProjects={() => callNative<{ projects?: string[] }>("project.list").then((result) =>
+                (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd })))}
+              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
+              onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
               home={newTab.home}
               {...newTabScreenActions({
                 callNative,
@@ -1920,16 +1928,26 @@ function AcpmuxPane() {
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
+              loadProjects={() =>
+                callNative<{ projects?: string[] }>("project.list").then((result) =>
+                  (result?.projects ?? []).map((path) => ({
+                    cwd: path,
+                    label: projectName(path) ?? path.split("/").filter(Boolean).pop() ?? path,
+                  })),
+                )
+              }
               chips={ComposerChips}
               onSubmit={openFromNewTab}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
+              onOpenFile={(path) => void callNative("file.open", { path, where: "tab" }).catch(() => undefined)}
+              onAction={(id) => void callNative("app.action", { id }).catch(() => undefined)}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
                 selectSession(sessionId);
               }}
               onShowAll={() => setSidebar("open")}
               onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
-              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (
@@ -2004,7 +2022,11 @@ function AcpmuxPane() {
                     }
                   />
                 ) : freshChat ? (
-                  <EmptyState project={projectName(snapshot.summary?.cwd)} />
+                  <EmptyState
+                    project={projectName(snapshot.summary?.cwd)}
+                    onNew={newChat}
+                    onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
+                  />
                 ) : (
                   transcript
                 )}
