@@ -47,7 +47,10 @@ import Testing
             actionID: "palette.newAgentChat", origin: "user", focus: true
         ))
         #expect(run.outcome == .ran, "Cmd-I: \(run.outcome)")
-        for task in run.work { #expect(await task.value == nil, "Cmd-I work") }
+        for task in run.work {
+            let failure = await task.value
+            #expect(failure == nil, "Cmd-I work: \(failure.map(String.init(describing:)) ?? "")")
+        }
 
         func agentTabs(_ pane: PaneController) -> [TabModel] { pane.pane.tabs.filter { $0.agentSession != nil } }
         try await Self.waitUntil {
