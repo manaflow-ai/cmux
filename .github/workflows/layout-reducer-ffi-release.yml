@@ -1,0 +1,185 @@
+# Builds the sidebar layout-reducer FFI (cmux-tui/crates/cmux-layout-reducer-ffi)
+# as a universal macOS (arm64 + x86_64) CCmuxLayoutReducerFFI.xcframework and
+# publishes it as a prerelease in this repository, tagged
+# layout-reducer-ffi-<full commit sha>. Packages/macOS/CmuxNext/Package.swift
+# pins one release by URL and SwiftPM checksum, so every build (app, tests,
+# release, nightly) links the same reducer; there is no build without it.
+#
+# Publishing runs only for a push to feat-cmux-next or a manual dispatch from
+# that ref. A release is never overwritten: an existing tag must carry the
+# same archive checksum, or the run fails. Releases are prereleases with
+# make_latest=false, and the run fails if the repository's latest release
+# ever points at a layout-reducer tag. scripts/cmux-next/check-layout-reducer-pin.sh
+# fails CI when the reducer sources change without a new pin.
+name: layout-reducer FFI release
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-layout-reducer/**"
+      - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - "scripts/cmux-next/build-layout-reducer-ffi.sh"
+      - ".github/workflows/layout-reducer-ffi-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: layout-reducer-ffi-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    name: build xcframework
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.assemble.outputs.tag }}
+      checksum: ${{ steps.assemble.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Apple targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Test the reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      # From cmux-tui so rustup resolves the pinned toolchain (rust-toolchain.toml).
+      - name: Build universal xcframework
+        working-directory: cmux-tui
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64,x86_64
+          CMUX_LAYOUT_REDUCER_FFI_OUT: ${{ runner.temp }}/layout-reducer-ffi
+        run: ../scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Assemble, check and checksum
+        id: assemble
+        shell: bash
+        env:
+          OUT: ${{ runner.temp }}/layout-reducer-ffi
+        run: |
+          set -euo pipefail
+          xcf="$OUT/CCmuxLayoutReducerFFI.xcframework"
+          lib="$(find "$xcf" -name 'libcmux_layout_reducer_ffi.a' | head -n 1)"
+          test -f "$lib"
+          archs="$(lipo -archs "$lib")"
+          echo "architectures: $archs"
+          for arch in arm64 x86_64; do
+            [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
+          done
+          # Every C entry point in the header is exported from the archive.
+          for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
+            nm -g "$lib" 2>/dev/null | grep -q " T _$symbol\$" || { echo "::error::$lib does not export $symbol" >&2; exit 1; }
+          done
+          dist="$RUNNER_TEMP/dist"
+          rm -rf "$dist"; mkdir -p "$dist"
+          # Stable zip bytes for a rerun of the same build.
+          find "$xcf" -exec touch -t 198001010000 {} +
+          (cd "$OUT" && ditto -c -k --keepParent CCmuxLayoutReducerFFI.xcframework "$dist/CCmuxLayoutReducerFFI.xcframework.zip")
+          archive="$dist/CCmuxLayoutReducerFFI.xcframework.zip"
+          checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          swiftpm_checksum="$(swift package compute-checksum "$archive")"
+          [[ "$swiftpm_checksum" == "$checksum" ]] || { echo "::error::SwiftPM checksum $swiftpm_checksum != SHA-256 $checksum" >&2; exit 1; }
+          printf '%s\n' "$checksum" > "$archive.sha256"
+          printf '%s  %s\n' "$checksum" CCmuxLayoutReducerFFI.xcframework.zip > "$dist/SHA256SUMS"
+          printf '%s\n' "$GITHUB_SHA" > "$dist/SOURCE_SHA"
+          echo "tag=layout-reducer-ffi-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+          echo "checksum: $checksum"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CCmuxLayoutReducerFFI.xcframework
+          path: ${{ runner.temp }}/dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CCmuxLayoutReducerFFI.xcframework
+          path: assets
+
+      - name: Create the release (never overwrite)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd assets && sha256sum --check --strict SHA256SUMS)
+          [[ "$(tr -d '[:space:]' < assets/SOURCE_SHA)" == "$GITHUB_SHA" ]]
+          notes="Sidebar layout-reducer FFI as CCmuxLayoutReducerFFI.xcframework (static library, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            existing="$(mktemp -d)"
+            gh release download "$TAG" --pattern "CCmuxLayoutReducerFFI.xcframework.zip" --dir "$existing"
+            published="$(sha256sum "$existing/CCmuxLayoutReducerFFI.xcframework.zip" | awk '{print $1}')"
+            if [[ "$published" != "$CHECKSUM" ]]; then
+              echo "::error::release $TAG exists with checksum $published, not $CHECKSUM; it is never overwritten" >&2
+              exit 1
+            fi
+            echo "release $TAG already has the matching archive"
+          else
+            gh release create "$TAG" \
+              assets/CCmuxLayoutReducerFFI.xcframework.zip \
+              assets/CCmuxLayoutReducerFFI.xcframework.zip.sha256 \
+              assets/SHA256SUMS assets/SOURCE_SHA \
+              --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false
+          fi
+          echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
+
+      - name: The latest release is not a layout-reducer tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          echo "latest release: ${latest:-none}"
+          if [[ "$latest" == layout-reducer-ffi-* ]]; then
+            echo "::error::the repository's latest release now points at $latest" >&2
+            exit 1
+          fi
+
+      - name: Anonymous download matches the checksum
+        env:
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/$GH_REPO/releases/download/$TAG/CCmuxLayoutReducerFFI.xcframework.zip"
+          for _ in 1 2 3 4 5 6; do
+            if curl -fsSL --retry 3 -o downloaded.zip "$url"; then break; fi
+            sleep 10
+          done
+          got="$(sha256sum downloaded.zip | awk '{print $1}')"
+          [[ "$got" == "$CHECKSUM" ]] || { echo "::error::anonymous download of $url has checksum $got, not $CHECKSUM" >&2; exit 1; }
+          echo "anonymous download ok: $url"
