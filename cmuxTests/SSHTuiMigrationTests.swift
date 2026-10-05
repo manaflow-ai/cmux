@@ -226,6 +226,22 @@ struct SSHTuiMigrationTests {
                 == resolvedControlSettings(SSHTuiConnection(configuration: opened)))
     }
 
+    @Test("A restored carrier dials the cmux master the CLI keyed by its resolved route")
+    func restoredCarrierDialsTheCLIsRouteMaster() throws {
+        // `cmux ssh` keys its master by the route `ssh -G` resolved and sends
+        // that cmux-owned ControlPath. The app cannot recompute the same key,
+        // so a restore that drops the path dials a master no login opened.
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        let cliPath = socketDirectory + "/" + String(repeating: "a", count: 40)
+        let opened = configuration(options: ["ControlMaster=auto", "ControlPersist=600", "ControlPath=\(cliPath)"])
+        let snapshot = try #require(opened.sessionSnapshot())
+        let persisted = try JSONEncoder().encode(snapshot)
+        let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted)
+            .workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored))["controlpath"] == cliPath)
+        #expect(SSHTuiConnection(configuration: restored).id == SSHTuiConnection(configuration: opened).id)
+    }
+
     @Test("A restore uses the saved agent, then the app's agent once the saved socket is gone")
     func restoredAgentFallsBackToTheAppsAgent() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
