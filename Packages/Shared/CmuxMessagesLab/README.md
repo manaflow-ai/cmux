@@ -30,7 +30,9 @@ and render-server field animation, blurred header and native scrolling.
   `PaneHeaderView` (HeaderBar's avatar and pill inside the pane),
   `HomeMedia` (attachment bubble pictures as `file:` assets MessagesLab's
   row drawing reads: local files first, else `HomeStoreBinding.fetchAttachment`),
-  `CmuxStrings` (Resources/CmuxHome.xcstrings),
+  `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
+  MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
+  disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
   (the public view).
 
@@ -42,6 +44,7 @@ and render-server field animation, blurred header and native scrolling.
 | Model, Layout | live dates in the user's zone and locale (fixtures keep -07:00 and en_US) |
 | WindowView, Compose | rows and field lines follow the view's own width (several Home tabs), not the process-wide `Metrics.current` |
 | Fixture, Transcript, Morph | optional cmux theme; nil keeps MessagesLab's measured palette |
+| Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
 | Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
 | Layout, Localizable.xcstrings | the placeholder says Message, not iMessage |

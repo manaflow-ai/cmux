@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxHomeRender
 import Observation
 
 /// The adapter between HomeStore (the single writer of the transcript,
@@ -48,6 +49,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// Bubble pictures and originals.
     let media = HomeMedia()
+    /// Inline video playback in the bubbles.
+    let video = HomeVideo()
     /// Prepared attachments in the field by content hash (the chips are
     /// MessagesLab's draft; a removed chip's entry is ignored).
     private var drafts: [String: LocalAttachment] = [:]
@@ -74,6 +77,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let media = self.media
         core.media = { [unowned media] in media.asset($0) }
         controller.intents = self
+        video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
     }
 
@@ -136,6 +140,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
         if titleChanged { applyHeader() }
         refreshAttachments()
+        video.place()
         if summaryChanged { onSummaryChange(summary) }
         onRowsChange()
         askForOlderIfNeeded()
@@ -318,6 +323,20 @@ final class HomeProjection: @preconcurrency ChatIntents {
         _ = onCancelSend(item.key)
     }
 
+    func toggleVideo(_ ref: PartRef, _ attachment: ID) {
+        guard let attachmentRef = attachmentRef(ref.messageId, attachment) else { return }
+        video.toggle(ref, attachment: attachmentRef, source: media)
+    }
+
+    func videoState(_ ref: PartRef) -> HomeVideoState { video.state(ref) }
+
+    private func attachmentRef(_ message: ID, _ attachment: ID) -> AttachmentRef? {
+        item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
+            if case .attachment(let r) = p, r.hash == attachment { return r }
+            return nil
+        }.first
+    }
+
     func openAttachment(_ message: ID, _ attachment: ID) {
         guard let ref = item(message)?.parts.lazy.compactMap({ p -> AttachmentRef? in
             if case .attachment(let r) = p, r.hash == attachment { return r }
@@ -349,6 +368,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func scrolled() {
+        video.place()
         askForOlderIfNeeded()
         reportReadIfNeeded()
     }

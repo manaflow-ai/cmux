@@ -16,6 +16,12 @@ enum CmuxStrings {
         String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)
     }
 
+    static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
+    static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
+    static var openInDefaultApp: String {
+        String(localized: "home.menu.openInDefaultApp", defaultValue: "Open in Default App", table: "CmuxHome", bundle: .module)
+    }
+
     /// The reason HomeMapping gives a failed send that reached the owner and
     /// got no answer (`TranscriptItem.mayHaveBeenDelivered`).
     static let mayHaveBeenDeliveredReason = "cmux.mayHaveBeenDelivered"

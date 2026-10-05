@@ -67,8 +67,6 @@ enum HomeStrings {
         case .tooManyParts(let limit): attachTooMany(limit - 1)
         }
     }
-    static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", bundle: .module) }
-    static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", bundle: .module) }
     static var firstRunTitle: String {
         String(localized: "home.firstRun.title", defaultValue: "Chief runs your agents on this Mac.", bundle: .module)
     }

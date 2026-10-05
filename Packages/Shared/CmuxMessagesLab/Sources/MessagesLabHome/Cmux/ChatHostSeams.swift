@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeRender
 
 /// Where the vendored ChatController sends the user's changes in cmux. The
 /// projection store is a mirror of HomeStore (the single writer), so a send
@@ -26,8 +27,12 @@ protocol ChatIntents: AnyObject {
     /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
     func canCancelSend(_ message: ID) -> Bool
     func cancelSend(_ message: ID)
-    /// A click on an attachment bubble: open its bytes.
+    /// Open an attachment's bytes in the app the system picks (the context menu).
     func openAttachment(_ message: ID, _ attachment: ID)
+    /// A click on a video bubble: play or pause it in place.
+    func toggleVideo(_ ref: PartRef, _ attachment: ID)
+    /// The inline playback state of a video part (the menu's Play or Pause).
+    func videoState(_ ref: PartRef) -> HomeVideoState
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()
 }

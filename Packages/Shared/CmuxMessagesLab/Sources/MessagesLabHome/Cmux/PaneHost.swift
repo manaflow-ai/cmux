@@ -6,6 +6,7 @@
 // TranscriptAccess refer to ChatController and HostView. The differences
 // from Host.swift are marked `cmux:`.
 import AppKit
+import CmuxHomeRender
 
 /// A layer-hosting NSView: AppKit never touches its layer tree, and it takes
 /// no mouse events.
@@ -464,6 +465,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
             switch hit.row.part {
             case let .link(url, _, _, _, _): if let u = URL(string: url) { NSWorkspace.shared.open(u) }
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
+            // cmux: a video plays or pauses in its bubble (opening it in an
+            // app is in the context menu); other attachments open.
+            case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id)
             case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
             default: break
             }
@@ -517,6 +521,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy, symbol: "doc.on.doc") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
+        }
+        // cmux: a video plays in place; opening it in an app is only here.
+        if case let .attachment(a) = hit.row.part {
+            if a.kind == "video", let intents {
+                let playing = intents.videoState(ref) == .playing
+                menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
+                                        symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
+            }
+            menu.addItem(MenuAction(title: CmuxStrings.openInDefaultApp, symbol: "arrow.up.forward.app") { [weak self] in
+                self?.intents?.openAttachment(ref.messageId, a.id)
+            })
         }
         // cmux: lane 16's Cancel Upload, only while the send can be cancelled.
         if intents?.canCancelSend(ref.messageId) == true {
