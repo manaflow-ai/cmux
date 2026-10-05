@@ -63,7 +63,7 @@ enum ProUpgradePresenter {
     @MainActor
     static func presentPricing(source: ProUpgradeSource, plan: CheckoutPlan) {
         PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source, plan: plan))
-        NSWorkspace.shared.open(CheckoutAttribution.applying(to: AuthEnvironment.pricingURL, source: source))
+        presentAppPricingWeb(source: source)
     }
 
     @MainActor
