@@ -10490,14 +10490,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cmuxConfigStore = CmuxConfigStore(
             startFileWatchers: true,
             onConfigurationIssues: { [weak self] issues in
-                self?.cmuxConfigDiagnosticsDidReload(
-                    issues.map { issue in
-                        let path = issue.sourcePath ?? CmuxConfigStore.defaultGlobalConfigPath()
-                        let line = issue.line ?? 1
-                        let message = issue.message ?? issue.settingName
-                        return "\(path):\(line): \(message)"
-                    }
-                )
+                Task { @MainActor [weak self] in
+                    self?.cmuxConfigDiagnosticsDidReload(
+                        issues.map { issue in
+                            let path = issue.sourcePath ?? CmuxConfigStore.defaultGlobalConfigPath()
+                            let line = issue.line ?? 1
+                            let message = issue.message ?? issue.settingName
+                            return "\(path):\(line): \(message)"
+                        }
+                    )
+                }
             }
         )
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)

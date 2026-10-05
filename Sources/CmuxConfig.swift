@@ -1765,7 +1765,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
             settingName,
             commandName ?? "",
             sourcePath ?? "",
-            line.map(String.init) ?? "",
+            line.map { String($0) } ?? "",
             message ?? ""
         ].joined(separator: "|")
     }
@@ -1831,7 +1831,7 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
-    private let onConfigurationIssues: @MainActor @Sendable ([CmuxConfigIssue]) -> Void
+    private let onConfigurationIssues: @Sendable ([CmuxConfigIssue]) -> Void
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1940,7 +1940,7 @@ final class CmuxConfigStore: ObservableObject {
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
         startFileWatchers: Bool = false,
-        onConfigurationIssues: @escaping @MainActor @Sendable ([CmuxConfigIssue]) -> Void = { _ in }
+        onConfigurationIssues: @escaping @Sendable ([CmuxConfigIssue]) -> Void = { _ in }
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
