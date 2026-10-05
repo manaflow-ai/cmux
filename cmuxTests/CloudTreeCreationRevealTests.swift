@@ -16,6 +16,26 @@ import Testing
 @MainActor
 @Suite("Cloud tree reveals a created workspace", .serialized)
 struct CloudTreeCreationRevealTests {
+    @Test("The Cloud tree can resolve the focused local workspace to its remote row")
+    func resolvesFocusedCloudWorkspaceRow() {
+        let machine = SurfaceMachineID.cloud("new-machine")
+        let localWorkspaceID = UUID()
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "workspace-1", name: "workspace-1", index: 0, focused: true)
+        let node = CloudTreeNode(
+            id: CloudTreeNodeBuilder.nodeID(workspace: remoteWorkspace.id, machine: machine),
+            kind: .workspace(
+                machine: machine, remoteWorkspace, terminalCount: 1, hiddenTabCount: 0,
+                openIn: localWorkspaceID
+            )
+        )
+
+        #expect(
+            CloudTreeOutlineView.Coordinator.selectedCloudWorkspaceNodeID(
+                in: [node], focusedWorkspaceID: localWorkspaceID
+            ) == node.id
+        )
+    }
+
     @Test("A focused create selects, expands to and scrolls to its row without taking focus, and holds it once confirmed")
     func focusedCreateRevealsThePendingRowAndHoldsItThroughConfirmation() throws {
         let tree = Tree()
