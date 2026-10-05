@@ -299,7 +299,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "page",
+      "default" : "agent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -10694,7 +10694,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "547631e827f9aabd7c7f86a3fd457ba39fcfbfa9f4ec1653f04cf57d92a83756",
+  "schema_hash" : "01431d7f70cb8a33b8cd0bc46711a0442ebe4ce6e8753e7600bb67571ccd0d08",
   "sections" : [
     {
       "id" : "general",

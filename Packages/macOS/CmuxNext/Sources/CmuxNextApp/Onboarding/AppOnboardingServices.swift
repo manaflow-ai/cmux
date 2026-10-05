@@ -80,7 +80,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func scanAgentProjects() async -> [AgentProject] {
-        await Task.detached { AgentProjectScan.live().run() }.value
+        await Task.detached { RecentProjectScan.live().run() }.value
     }
 
     func chooseFolder() async -> URL? {

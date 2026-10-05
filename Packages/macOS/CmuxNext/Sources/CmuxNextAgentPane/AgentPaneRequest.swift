@@ -40,6 +40,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setDefaultKind(String)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
+    /// The new-tab project picker asked for the explicit Browse… fallback.
+    case browseProject
+    /// Returns bounded recent project paths for the new-tab picker.
+    case listProjects(String?)
+    /// The empty-chat action opens the existing onboarding project/history import flow.
+    case importAndSync
+    /// The new-tab omnibar invoked a host-owned action id.
+    case appAction(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -170,6 +178,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "project.browse": self = .browseProject
+        case "project.list":
+            let query = (params?["query"] as? String).map { String($0.prefix(512)) }
+            self = .listProjects(query)
+        case "onboarding.importAndSync": self = .importAndSync
+        case "app.action":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
+            else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)

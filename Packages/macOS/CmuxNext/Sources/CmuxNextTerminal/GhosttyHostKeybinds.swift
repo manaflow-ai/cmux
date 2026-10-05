@@ -68,6 +68,9 @@ public nonisolated struct GhosttyHostKeybind: Sendable, Equatable {
             ("toggle_command_palette", .toggleCommandPalette),
             ("quit", .quit), ("check_for_updates", .checkForUpdates), ("undo", .undo),
             ("toggle_visibility", .toggleVisibility), ("toggle_tab_overview", .toggleTabOverview),
+            ("close_all_windows", .closeAllWindows), ("toggle_maximize", .toggleMaximize),
+            ("goto_window:next", .gotoWindow(next: true)), ("goto_window:previous", .gotoWindow(next: false)),
+            ("move_tab_to_new_window", .moveTabToNewWindow),
             ("prompt_surface_title", .promptTitle), ("prompt_tab_title", .promptTitle), ("prompt_window_title", .promptWindowTitle),
         ]
         for index in 1...9 { list.append(("goto_tab:\(index)", .gotoTab(.index(index)))) }

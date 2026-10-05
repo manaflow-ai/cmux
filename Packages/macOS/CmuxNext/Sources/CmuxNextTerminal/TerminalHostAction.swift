@@ -40,4 +40,8 @@ public nonisolated enum TerminalHostAction: Sendable, Equatable {
     case setWindowTitle(String)
     /// Bring this terminal to the front (`present_terminal`).
     case presentTerminal
+    /// Focus the next or previous window (`goto_window:next|previous`).
+    case gotoWindow(next: Bool)
+    /// Move this terminal's tab to a new window (`move_tab_to_new_window`).
+    case moveTabToNewWindow
 }

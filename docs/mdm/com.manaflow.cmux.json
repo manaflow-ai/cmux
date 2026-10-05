@@ -1336,7 +1336,7 @@
       "type" : "string"
     },
     "tabs.newTabKind" : {
-      "default" : "page",
+      "default" : "agent",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
       "enum" : [
         "same-kind",
