@@ -300,3 +300,6 @@ mod kitty_create;
 
 #[path = "mint_after_defaults.rs"]
 mod mint_after_defaults;
+
+#[path = "mint_errors.rs"]
+mod mint_errors;
