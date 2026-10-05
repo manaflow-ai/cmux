@@ -22,12 +22,13 @@ struct DeviceResolvedMacTarget: Sendable {
 extension DeviceIrxClient {
     /// Resolves an exact Mac intent.
     ///
-    /// With no `source`, the team directory decides first, exactly as before
-    /// the account directory existed. Only an endpoint the team directory does
-    /// not list (`.unavailable`) is tried in the account directory, which
-    /// holds only Macs of the same user in other teams. Every other team
-    /// failure (stale, revoked, mismatched) is final. With a `source`, only
-    /// that directory is consulted.
+    /// With no `source`, a device whose qualifying account row exists (listed,
+    /// cross-team, unambiguous: its latest publish came from another team)
+    /// resolves only in the account directory, the same row discovery shows;
+    /// any other key for that device, such as the team record's old key, is
+    /// refused. Every other device resolves in the team directory exactly as
+    /// before the account directory existed. With a `source`, only that
+    /// directory is consulted.
     static func resolveTarget(
         intent: IrxMacPeerAuthorization,
         source: DeviceDirectorySource?,
@@ -43,17 +44,40 @@ extension DeviceIrxClient {
             return DeviceResolvedMacTarget(record: record, source: .account, relayURLs: account.directory.relayURLs)
         }
         if source == .account { return try fromAccount() }
-        do {
-            let record = try intent.resolve(cache: cache, localIdentity: localIdentity, now: now)
-            return DeviceResolvedMacTarget(record: record, source: .team, relayURLs: cache.directory?.relayURLs ?? [])
-        } catch IrxMacPeerAuthorization.Failure.unavailable where source == nil && account != nil {
-            do { return try fromAccount() } catch { throw IrxMacPeerAuthorization.Failure.unavailable }
+        if source == nil, accountOwnedRow(deviceID: intent.deviceID, tag: intent.tag, cache: cache,
+                                          account: account, localIdentity: localIdentity, now: now) != nil {
+            return try fromAccount()
         }
+        let record = try intent.resolve(cache: cache, localIdentity: localIdentity, now: now)
+        return DeviceResolvedMacTarget(record: record, source: .team, relayURLs: cache.directory?.relayURLs ?? [])
+    }
+
+    /// The account row that owns a device for discovery and dialing, or nil.
+    /// It qualifies only when the account authorization accepts it: listed
+    /// (the service drops rows whose team lease lapsed), from another team
+    /// than this Mac's, and the only row for that device and build.
+    static func accountOwnedRow(
+        deviceID: String,
+        tag: String,
+        cache: V2CachedState,
+        account: AccountMacDirectorySnapshot?,
+        localIdentity: V2Identity,
+        now: Date
+    ) -> V2DeviceRecord? {
+        guard let account else { return nil }
+        let candidates = account.directory.macs.filter {
+            $0.descriptor.identity.deviceID.lowercased() == deviceID.lowercased()
+                && $0.descriptor.identity.buildTag == tag
+        }
+        guard candidates.count == 1, let row = candidates.first else { return nil }
+        return try? IrxAccountMacPeerAuthorization(deviceID: deviceID, tag: tag, endpointID: row.descriptor.endpointID)
+            .resolve(account: account, cache: cache, localIdentity: localIdentity, now: now)
     }
 
     /// Projects authorized Macs from the team and account directories into one
-    /// list, deduplicated by (device, build tag). A valid team row always wins;
-    /// account rows add only Macs the team directory cannot reach.
+    /// list, deduplicated by (device, build tag). A qualifying account row
+    /// (listed, cross-team, unambiguous) replaces the team row; every other
+    /// device keeps its team row.
     static func displayBindings(cache: V2CachedState, account: AccountMacDirectorySnapshot?, now: Date) -> [DeviceDiscoveredMac] {
         let team = displayBindings(cache: cache, now: now)
         guard let account else { return team }
@@ -75,14 +99,19 @@ extension DeviceIrxClient {
                 controlPlaneSupportsMacPeers: account.directory.supportsAccountPeers)
         }
         guard !accountRows.isEmpty else { return team }
-        // A Mac the current team directory validly lists keeps its team row.
-        // An account row only adds a Mac the team cannot reach (a key the team
-        // does not list, or no valid team row), so a stale account row can
-        // never hide a live team endpoint. Ambiguous account rows were already
-        // refused by IrxAccountMacPeerAuthorization.
+        // Every account row here already qualifies (listed, cross-team,
+        // unambiguous), so the Mac's latest publish came from another team and
+        // its row replaces the team row for the same device and build. That
+        // team row is the key the Mac held while it was in this team. Dialing
+        // resolves the same way (resolveTarget), so display and dial agree.
         func key(_ mac: DeviceDiscoveredMac) -> String { mac.deviceID + "\u{0}" + mac.tag }
-        var emitted = Set(team.map(key))
-        var merged = team
+        var byKey: [String: DeviceDiscoveredMac] = [:]
+        for row in accountRows { byKey[key(row)] = row }
+        var merged: [DeviceDiscoveredMac] = []
+        var emitted = Set<String>()
+        for row in team where emitted.insert(key(row)).inserted {
+            merged.append(byKey[key(row)] ?? row)
+        }
         for row in accountRows where emitted.insert(key(row)).inserted {
             merged.append(row)
         }
