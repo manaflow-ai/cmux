@@ -502,7 +502,11 @@ jobs:
     # Only ever publish from main. Push runs always use main; this also
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
-    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
+    # Feature branches may prepare a signed candidate for device migration
+    # testing; publishing remains main-only.
+    if: >-
+      needs.decide.outputs.should_build == 'true' &&
+      (github.ref == 'refs/heads/main' || github.event.inputs.prepare_only == 'true')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     # Saves the iOS compilation cache. Every R2 cache writer declares this
