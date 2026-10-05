@@ -60,6 +60,12 @@ enum DebugPaneChrome {
                         "focus_inside": .bool(corner.focusInside), "holds": .number(Double(corner.holds)),
                         "first_responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"),
                         "corner": rect(controller.root.cornerRegionFrameInWindow),
+                        "probes": .array(controller.root.cornerRegion.subviews.map { probe in
+                            .object(["frame": rect(probe.convert(probe.bounds, to: nil)),
+                                     "visible": rect(probe.convert(probe.visibleRect, to: nil)),
+                                     "areas": .array(probe.trackingAreas.map { rect(probe.convert($0.rect, to: nil)) }),
+                                     "hidden": .bool(probe.isHiddenOrHasHiddenAncestor)])
+                        }),
                     ])
                 }(),
             ])
