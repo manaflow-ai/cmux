@@ -160,7 +160,7 @@ fn process_stopped(pid: libc::pid_t) -> bool {
 
 #[cfg(not(target_os = "linux"))]
 fn process_stopped(pid: libc::pid_t) -> bool {
-    std::process::Command::new("ps")
+    Command::new("ps")
         .args(["-o", "stat=", "-p", &pid.to_string()])
         .output()
         .ok()
