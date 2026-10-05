@@ -145,7 +145,9 @@ extension RemoteTmuxController {
             ), let targetManager = appDelegate.tabManagerFor(windowId: resolvedWindowId) else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            if !hostHasLiveMirror(host), let shared = view.connection {
+            // Nothing published is not "the host has no sessions": the wait also ends on a login
+            // wait or a timeout, and an empty list here would tear down a view another attach owns.
+            if !hostHasLiveMirror(host), !view.workspaces.isEmpty, let shared = view.connection {
                 applyMultiplexedWorkspaces(
                     host: host, manager: targetManager, workspaces: view.workspaces, shared: shared)
             }
@@ -258,7 +260,10 @@ extension RemoteTmuxController {
         let heldView = multiplexedViewsByHost[host.connectionHash]
         if !hostHasLiveMirror(host), let view = heldView {
             _ = await view.awaitFirstWorkspaces(timeout: 30)
-            if !hostHasLiveMirror(host), let shared = view.connection {
+            // The wait also ends when the stream stops for a login, with nothing published. Applying
+            // that empty list would read as "no sessions left" and stop the stream the failure path
+            // below keeps for the retry after the login.
+            if !hostHasLiveMirror(host), !view.workspaces.isEmpty, let shared = view.connection {
                 applyMultiplexedWorkspaces(
                     host: host, manager: targetManager, workspaces: view.workspaces, shared: shared)
             }
