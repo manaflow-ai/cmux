@@ -184,8 +184,11 @@ struct BrowserReplResourceLedgerTests {
         #expect(queued.error == nil, "\(queued.error ?? "")")
         driver.emit("console", #"{"targetId":"t1","type":"log","text":"an event"}"#)
 
-        // A cell that runs until the session closes, and one waiting for it.
+        // A cell that runs until the session closes, and one waiting for it
+        // (submitted once the first holds the session, so it is second).
+        let beforeRunning = session.lastUsed
         Task { _ = await session.evaluate(code: "await new Promise(() => {});") }
+        #expect(await browserReplEventually { session.lastUsed > beforeRunning }, "the running cell never started")
         #expect(await browserReplEventually { ledger.held(.queuedFetches) == 1 }, "the second held fetch never waited for a slot")
         Task { _ = await session.evaluate(code: "console.log('waited');") }
         #expect(await browserReplEventually { ledger.held(.waitingCells) == 1 }, "the second cell never waited")
