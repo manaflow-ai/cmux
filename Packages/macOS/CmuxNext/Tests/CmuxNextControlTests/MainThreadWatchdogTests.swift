@@ -59,6 +59,7 @@ import Testing
         #expect(watchdog.gapStats.max >= .milliseconds(100))
     }
 
+    #if DEBUG
     /// The watchdog thread can lose the CPU right after it samples a stall.
     /// The stall may then end before the sample is handed over; the record
     /// must still carry the stack that was taken during the stall.
@@ -84,6 +85,7 @@ import Testing
         #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
                 "frames: \(stall.frames.prefix(8).map(\.description))")
     }
+    #endif
 
     @Test func hangLogIsBoundedDropOldest() {
         let log = HangLog(capacity: 3)

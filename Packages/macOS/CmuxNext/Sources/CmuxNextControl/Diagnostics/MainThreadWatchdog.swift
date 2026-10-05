@@ -77,11 +77,14 @@ public final class MainThreadWatchdog: Sendable {
     private let publishedSampleCount = Atomic<Int>(0)
     private let sampler = Mutex<ThreadStackSampler?>(nil)
     private let observer = Mutex<ObserverBox?>(nil)
-    /// Tests: runs on the watchdog thread right after a sample, before the
-    /// watchdog publishes it, to hold that thread past the end of a stall.
+    #if DEBUG
+    /// Tests: runs on the watchdog thread right after a sample, to hold that
+    /// thread past the end of a stall. Debug builds only: release builds
+    /// carry no test seam.
     let afterSampleForTesting = Mutex<(@Sendable () -> Void)?>(nil)
     /// The heartbeat sequence (tests wait for it to move).
     var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
+    #endif
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
     public init(configuration: Configuration = Configuration()) {
@@ -230,7 +233,9 @@ public final class MainThreadWatchdog: Sendable {
                         publishedSampleCount.store(count, ordering: .relaxed)
                         publishedSampleBeat.store(beat, ordering: .releasing)
                     }
+                    #if DEBUG
                     afterSampleForTesting.withLock { $0 }?()
+                    #endif
                 }
             }
             // Check again one threshold later (or when the stall ends and the loop sleeps).
