@@ -1740,6 +1740,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
     let settingName: String
     let commandName: String?
     let sourcePath: String?
+    let line: Int?
     let message: String?
 
     init(
@@ -1747,12 +1748,14 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
         settingName: String,
         commandName: String? = nil,
         sourcePath: String? = nil,
+        line: Int? = nil,
         message: String? = nil
     ) {
         self.kind = kind
         self.settingName = settingName
         self.commandName = commandName
         self.sourcePath = sourcePath
+        self.line = line
         self.message = message
     }
 
@@ -1762,6 +1765,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
             settingName,
             commandName ?? "",
             sourcePath ?? "",
+            line.map(String.init) ?? "",
             message ?? ""
         ].joined(separator: "|")
     }
@@ -1827,6 +1831,7 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    private let onConfigurationIssues: @MainActor @Sendable ([CmuxConfigIssue]) -> Void
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1899,6 +1904,7 @@ final class CmuxConfigStore: ObservableObject {
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    private var lastGoodConfigs: [String: CmuxConfigFile] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
     // The local config still uses a bespoke DispatchSource watcher because it
@@ -1933,11 +1939,13 @@ final class CmuxConfigStore: ObservableObject {
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = false
+        startFileWatchers: Bool = false,
+        onConfigurationIssues: @escaping @MainActor @Sendable ([CmuxConfigIssue]) -> Void = { _ in }
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
+        self.onConfigurationIssues = onConfigurationIssues
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
@@ -2320,6 +2328,7 @@ final class CmuxConfigStore: ObservableObject {
         }
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
+        onConfigurationIssues(issues)
         if fileWatchingEnabled {
             updateLocalHookFileWatchers(
                 paths: localHookPaths + packWatchPaths,
@@ -3416,6 +3425,7 @@ final class CmuxConfigStore: ObservableObject {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path) else {
             parsedConfigCache.removeValue(forKey: path)
+            lastGoodConfigs.removeValue(forKey: path)
             return ParsedConfigResult(config: nil, issue: nil)
         }
 
@@ -3444,33 +3454,34 @@ final class CmuxConfigStore: ObservableObject {
 
         guard let data = fileManager.contents(atPath: path),
               !data.isEmpty else {
-            let issue = schemaIssue(path: path, message: "cmux.json is empty")
+            let issue = schemaIssue(path: path, message: "cmux.json is empty", line: 1)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: nil,
+                config: lastGoodConfigs[path],
                 issue: issue
             )
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(config: lastGoodConfigs[path], issue: issue)
         }
         let sanitized: Data
         do {
             sanitized = try JSONCParser.preprocess(data: data)
         } catch {
-            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))")
+            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))", line: 1)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: nil,
+                config: lastGoodConfigs[path],
                 issue: issue
             )
             NSLog("[CmuxConfig] JSONC preprocessing error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(config: lastGoodConfigs[path], issue: issue)
         }
 
         do {
+            _ = try JSONSerialization.jsonObject(with: sanitized, options: [])
             let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
@@ -3479,28 +3490,42 @@ final class CmuxConfigStore: ObservableObject {
                 config: config,
                 issue: nil
             )
+            lastGoodConfigs[path] = config
             return ParsedConfigResult(config: config, issue: nil)
         } catch {
-            let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
+            let issue = schemaIssue(
+                path: path,
+                message: schemaErrorMessage(error),
+                line: Self.configErrorLine(in: sanitized, error: error)
+            )
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: nil,
+                config: lastGoodConfigs[path],
                 issue: issue
             )
             NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(config: lastGoodConfigs[path], issue: issue)
         }
     }
 
-    private func schemaIssue(path: String, message: String) -> CmuxConfigIssue {
+    private func schemaIssue(path: String, message: String, line: Int? = nil) -> CmuxConfigIssue {
         CmuxConfigIssue(
             kind: .schemaError,
             settingName: (path as NSString).lastPathComponent,
             sourcePath: path,
+            line: line,
             message: message
         )
+    }
+
+    private static func configErrorLine(in data: Data, error: Error) -> Int {
+        let index = (error as NSError).userInfo["NSJSONSerializationErrorIndex"] as? Int ?? 0
+        let boundedIndex = min(max(index, 0), data.count)
+        return data.prefix(boundedIndex).reduce(into: 1) { line, byte in
+            if byte == 0x0A { line += 1 }
+        }
     }
 
     private func schemaErrorMessage(_ error: Error) -> String {

@@ -391,7 +391,11 @@ extension CMUXCLI {
                 displayPath: target.displayPath,
                 path: target.path,
                 status: "error",
-                message: Self.configDoctorErrorMessage(error),
+                message: Self.configDoctorErrorMessage(
+                    error,
+                    data: data,
+                    displayPath: target.displayPath
+                ),
                 keys: [],
                 byteCount: nil
             )
@@ -559,26 +563,52 @@ extension CMUXCLI {
         return normalized
     }
 
-    static func configDoctorErrorMessage(_ error: Error) -> String {
+    static func configDoctorErrorMessage(
+        _ error: Error,
+        data: Data? = nil,
+        displayPath: String? = nil
+    ) -> String {
         let nsError = error as NSError
         if let debug = nsError.userInfo[NSDebugDescriptionErrorKey] as? String {
             let trimmed = debug.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                return trimmed
+                return Self.configDoctorLocationPrefix(error: error, data: data, displayPath: displayPath)
+                    + trimmed
             }
         }
         let described = String(describing: error).trimmingCharacters(in: .whitespacesAndNewlines)
         if !described.isEmpty {
-            return described
+            return Self.configDoctorLocationPrefix(error: error, data: data, displayPath: displayPath)
+                + described
         }
         let localized = nsError.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !localized.isEmpty {
-            return localized
+            return Self.configDoctorLocationPrefix(error: error, data: data, displayPath: displayPath)
+                + localized
         }
-        return CmuxConfigValidationLocalization().string(
+        return Self.configDoctorLocationPrefix(error: error, data: data, displayPath: displayPath)
+            + CmuxConfigValidationLocalization().string(
             "config.validation.cli.doctor.unknownParseError",
             defaultValue: "unknown config parse error"
         )
+    }
+
+    private static func configDoctorLocationPrefix(
+        error: Error,
+        data: Data?,
+        displayPath: String?
+    ) -> String {
+        guard let displayPath else { return "" }
+        let line: Int
+        if let data {
+            let errorIndex = (error as NSError).userInfo["NSJSONSerializationErrorIndex"] as? Int ?? 0
+            line = data.prefix(errorIndex).reduce(into: 1) { count, byte in
+                if byte == 0x0A { count += 1 }
+            }
+        } else {
+            line = 1
+        }
+        return "\(displayPath):\(line): "
     }
 
 }
