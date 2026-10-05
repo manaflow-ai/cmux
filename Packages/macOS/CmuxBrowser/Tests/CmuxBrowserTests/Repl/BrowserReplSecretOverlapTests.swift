@@ -83,19 +83,21 @@ struct BrowserReplSecretOverlapTests {
         try boundary.secrets.set(name: "guess", value: "hunter2", domains: ["example.com"], totp: false, title: "t")
         let leaked = "-abcdef-9911"
         let text = "body hunter2-abcdef-9911 end"
-        #expect(!boundary.redact(text).contains(leaked), "\(boundary.redact(text))")
-        #expect(!String(decoding: try boundary.redact(Data(text.utf8)), as: UTF8.self).contains(leaked))
-        #expect(!(try boundary.redactJSON(#"{"v":"hunter2-abcdef-9911"}"#)).contains(leaked))
-        let copy = try #require(boundary.fileCopyRedaction())
+        #expect(!boundary.egress(.text(text)).text.contains(leaked), "\(boundary.egress(.text(text)).text)")
+        let store = try #require(boundary.fileStoreRedaction(syscall: "write"))
+        #expect(!String(decoding: try store(Data(text.utf8)), as: UTF8.self).contains(leaked))
+        #expect(!boundary.egress(.driverResult(method: "frame.evaluate", .success(#"{"v":"hunter2-abcdef-9911"}"#))).text.contains(leaked))
+        let copy = try #require(boundary.fileStoreRedaction(syscall: "copyfile"))
         #expect(!String(decoding: try copy(Data(text.utf8)), as: UTF8.self).contains(leaked))
-        let file = try boundary.redactFileContents(Data(text.utf8).base64EncodedString())
+        let read = boundary.egress(.fs(op: "readFile", .success(Data(text.utf8).base64EncodedString()))).text
+        let file = JSONSerialization.browserReplObject(read)["ok"] as? String ?? ""
         #expect(!String(decoding: Data(base64Encoded: file) ?? Data(), as: UTF8.self).contains(leaked))
         let response = JSONSerialization.browserReplString([
             "url": "https://example.com/?q=hunter2-abcdef-9911",
             "headers": [["x-token", "hunter2-abcdef-9911"]],
             "bodyBase64": Data(text.utf8).base64EncodedString(),
         ] as [String: Any]) ?? "{}"
-        guard case .success(let fetched) = boundary.redactFetch(.success(response)) else {
+        guard case .success(let fetched) = boundary.egress(.fetch(.success(response))).result else {
             Issue.record("fetch redaction failed")
             return
         }
@@ -108,13 +110,13 @@ struct BrowserReplSecretOverlapTests {
     func ownOverlapDoesNotDefeatTypedValue() throws {
         let boundary = try boundary(typedValue: Self.protected)
         try boundary.secrets.set(name: "known", value: "Xs", domains: ["example.com"], totp: false, title: "t")
-        #expect(!boundary.redact("Xs3cr3t-value-0042").contains(Self.suffix))
+        #expect(!boundary.egress(.text("Xs3cr3t-value-0042")).text.contains(Self.suffix))
     }
 
     @Test("A value both stores hold keeps the session's own mask")
     func sharedValueKeepsOwnMask() throws {
         let boundary = try boundary(typedValue: "shared-value-77")
         try boundary.secrets.set(name: "mine", value: "shared-value-77", domains: ["example.com"], totp: false, title: "t")
-        #expect(boundary.redact("x shared-value-77 y") == "x <secret:mine> y")
+        #expect(boundary.egress(.text("x shared-value-77 y")).text == "x <secret:mine> y")
     }
 }
