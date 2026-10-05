@@ -5,12 +5,18 @@ import OSLog
 /// CodeRouter organizations have their own IDs, so the cmux team UUID is never
 /// passed to CodeRouter directly.
 enum CoderouterCLIAccountReader {
+    typealias Run = @Sendable (_ arguments: [String]) async throws -> Data
+
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
 
-    static func accounts(for cmuxTeamID: String?, name cmuxTeamName: String?) async throws -> [CloudTreeNode.CoderouterAccount] {
+    static func accounts(
+        for cmuxTeamID: String?,
+        name cmuxTeamName: String?,
+        run: Run = runCLI
+    ) async throws -> [CloudTreeNode.CoderouterAccount] {
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty,
-              let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName) else {
+              let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run) else {
             logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
             throw accountError("The selected cmux team is not mapped to a CodeRouter organization.")
         }
@@ -18,7 +24,7 @@ enum CoderouterCLIAccountReader {
         // `accounts` reads the CLI's active organization. Always select and verify it
         // immediately before reading so a stale CLI org can never leak into the sidebar.
         _ = try await run(["org", "switch", organizationID])
-        guard try await currentOrganizationID() == organizationID else {
+        guard try await currentOrganizationID(run: run) == organizationID else {
             logger.error("CodeRouter organization verification failed for org ID: \(organizationID, privacy: .public)")
             throw accountError("CodeRouter organization did not switch to the selected team.")
         }
@@ -41,7 +47,7 @@ enum CoderouterCLIAccountReader {
         return result
     }
 
-    private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String) async throws -> String? {
+    private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String, run: Run) async throws -> String? {
         let output = try await run(["org", "list"])
         let wanted = normalized(cmuxTeamName)
         for rawLine in String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline) {
@@ -57,7 +63,7 @@ enum CoderouterCLIAccountReader {
         return nil
     }
 
-    private static func currentOrganizationID() async throws -> String? {
+    private static func currentOrganizationID(run: Run) async throws -> String? {
         let output = try await run(["org", "current"])
         guard let token = String(decoding: output, as: UTF8.self)
             .split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "(" || $0 == ")" })
@@ -81,7 +87,7 @@ enum CoderouterCLIAccountReader {
         NSError(domain: "CoderouterCLI", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
-    private static func run(_ arguments: [String]) async throws -> Data {
+    @Sendable private static func runCLI(_ arguments: [String]) async throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["coderouter"] + arguments
