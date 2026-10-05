@@ -86,7 +86,7 @@ struct SidebarProviderMenuRegressionTests {
     }
 
     @Test
-    func selectedWorkspaceChangesInvalidateTheHostedSidebarOnce() {
+    func selectedWorkspaceChangesInvalidateTheHostedSidebarOnce() async {
         let first = UUID()
         let second = UUID()
         let selection = CurrentValueSubject<UUID?, Never>(first)
@@ -97,6 +97,10 @@ struct SidebarProviderMenuRegressionTests {
 
         selection.send(second)
         selection.send(second)
+
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
 
         #expect(invalidations == 1)
         withExtendedLifetime(cancellable) {}
