@@ -2,7 +2,7 @@ import { expect, test, afterAll, beforeAll } from "bun:test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { join } from "node:path";
 import NodeWebSocket from "ws";
-import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
+import { accountRequestSigningInput, encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
 import { issueDashboardTicket } from "../src/dashboard-auth";
 import { objectName } from "../src/routing";
 import { V2DashboardController } from "../../../web/dashboard-app/screens/mobile-devices/v2-dashboard-controller";
@@ -79,6 +79,7 @@ beforeAll(async () => {
     durableObjects: {
       TEAM_CONTROL: { className: "TestTeamControl", useSQLite: true },
       USER_USAGE: { className: "TestUserUsage", useSQLite: true },
+      ACCOUNT_CONTROL: { className: "AccountControl", useSQLite: true },
     },
     compatibilityDate: "2026-09-10",
     compatibilityFlags: ["nodejs_compat"],
@@ -563,6 +564,48 @@ test("a team at its socket cap sheds the next socket before it mutates team stat
     await control.restoreSocketLimit();
     holder.close();
   }
+});
+
+test("the account directory reaches AccountControl and the team record through the production Worker", async () => {
+  const accountCall = async (schemaId: string, requestId: string, authorization = `IrohTicket ${ticket}`) => {
+    const request = { schemaId, requestId };
+    const plain = { schemaId: "session.open.v1", requestId, device: descriptor };
+    const nonce = encodeBase64URL(crypto.getRandomValues(new Uint8Array(16)));
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const signature = await crypto.subtle.sign("Ed25519", signingKey, new TextEncoder().encode(
+      accountRequestSigningInput(descriptor, requestId, issuedAt, { setup: plain, request }, nonce)));
+    const setup = { ...plain, proof: { requestId, nonce, issuedAt, signature: encodeBase64URL(new Uint8Array(signature)) } };
+    return json("https://iroh.test/v2/account/requests", {
+      method: "POST", headers: { "content-type": "application/json", authorization, "x-cmux-v2-setup": setupHeader(setup) },
+      body: JSON.stringify(request),
+    });
+  };
+  const teamRequest = async (input: { schemaId: string; requestId: string; [key: string]: unknown }) => json("https://iroh.test/v2/requests", {
+    method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(await setupFor(input.requestId, input)) },
+    body: JSON.stringify(input),
+  });
+  expect((await accountCall("account.directory.v1", "account-bearer", "Bearer stack-token")).response.status).toBe(401);
+  // The fixture Mac has no Mac capability in its team record yet.
+  const original = descriptor.metadata;
+  await teamRequest({ schemaId: "device.metadata.v1", requestId: "account-plain", metadata: { ...original, capabilities: ["directory"] } });
+  const refused = await accountCall("account.publish.v1", "account-publish-refused");
+  expect(refused.response.status).toBe(403);
+  expect(refused.body.code).toBe("permission_denied");
+  const before = await teamRequest({ schemaId: "directory.request.v1", requestId: "team-before-account" });
+  const hosting = { ...original, capabilities: ["cmux.mac-host.v1", "cmux.mac-devices.v1"] };
+  expect((await teamRequest({ schemaId: "device.metadata.v1", requestId: "account-hosting", metadata: hosting })).body.schemaId).toBe("operation.completed.v1");
+  const published = await accountCall("account.publish.v1", "account-publish");
+  expect(published.response.status).toBe(200);
+  expect(published.body).toMatchObject({ schemaId: "account.published.v1", device: { descriptor: { endpointId: descriptor.endpointId, metadata: { capabilities: hosting.capabilities } } } });
+  const directory = await accountCall("account.directory.v1", "account-directory");
+  expect(directory.body.schemaId).toBe("account.directory.result.v1");
+  expect(directory.body.directory).toMatchObject({ userId, macs: [], inboundMacs: [], rules: ["cmux.mac-account-peer.v1"] });
+  // Account traffic wrote nothing to the team: only the metadata change moved its revision.
+  const after = await teamRequest({ schemaId: "directory.request.v1", requestId: "team-after-account" });
+  expect(after.body.directory.revision).toBe(before.body.directory.revision + 1);
+  expect(after.body.directory.rules).toEqual(["cmux.mac-peer-inbound.v1"]);
+  expect((await accountCall("account.withdraw.v1", "account-withdraw")).body.schemaId).toBe("account.withdrawn.v1");
+  await teamRequest({ schemaId: "device.metadata.v1", requestId: "account-restore", metadata: original });
 });
 
 test("a forgotten Mac receives its revocation and can reopen a real recovery socket", async () => {
