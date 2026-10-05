@@ -14,6 +14,7 @@ extension PaneController {
         case .select(let id):
             select(id)
         case .close(let id, _):
+            services.closedTabs?.undoToasts.expect(id, in: self) // an undo toast offers it back (REOPEN-CLOSED)
             close([id])
         case .closeOthers(let keep):
             close(stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))

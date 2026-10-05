@@ -3,6 +3,10 @@ import Foundation
 /// User-facing reasons for typed "unavailable" and "failed" action
 /// results. Keys live in Resources/MiscHandlers.xcstrings (en, ja).
 enum MiscHandlerStrings {
+    /// The undo toast of a closed tab (REOPEN-CLOSED): `Closed “<title>”`.
+    static func tabClosed(_ title: String) -> String {
+        String(format: String(localized: "handlers.misc.closed.toast", defaultValue: "Closed “%@”", table: "MiscHandlers", bundle: .module), title)
+    }
     static var untitledTab: String { String(localized: "handlers.misc.closed.untitledTab", defaultValue: "Untitled Tab", table: "MiscHandlers", bundle: .module) }
     static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
     static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
