@@ -448,7 +448,7 @@ describe("resolveOwnerNetwork", () => {
     expect(calls.ensureNetwork).toBe(0);
   });
 
-  test("a removed member does not reuse an existing team network and the provider is not asked", async () => {
+  test("a removed member does not reuse an existing team network", async () => {
     const calls = newGatewayCalls();
     const result = await Effect.runPromise(resolveOwnerNetwork({
       userId: "user-1",
@@ -459,7 +459,64 @@ describe("resolveOwnerNetwork", () => {
     expect(result.scope).toBe("user");
     expect(result.memberIngress).toBe(false);
     expect(result.providerNetworkId).toBe(NETWORK.id);
-    expect(calls.getNetwork).toBe(0);
+    expect(calls.ensureNetwork).toBe(0);
+  });
+
+  test("a provider lookup failure does not fail a removed member's placement", async () => {
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      teamDirectory: { listMemberIds: async () => ["user-2", "user-3"] },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway({ getNetworkFailure: (slug) => slug === networkSlugForTeam("team-1") })))));
+    expect(result).toMatchObject({ scope: "user", providerNetworkId: NETWORK.id });
+  });
+
+  test("the team directory lookup and the provider read overlap instead of running in sequence", async () => {
+    let providerReadStarted!: () => void;
+    const providerRead = new Promise<void>((resolve) => { providerReadStarted = resolve; });
+    const gateway = testGateway({ teamNetworks: [TEAM_NETWORK] });
+    const getNetwork = gateway.getNetwork!;
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      directoryTimeoutMs: 1000,
+      // Answers only once the provider read has begun: a sequential lookup
+      // times out here and falls back to the personal network.
+      teamDirectory: { listMemberIds: async () => { await providerRead; return ["user-1"]; } },
+    }).pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), {
+      ...gateway,
+      getNetwork: (provider, slug) => Effect.sync(providerReadStarted).pipe(Effect.zipRight(getNetwork(provider, slug))),
+    }))));
+    expect(result).toMatchObject({ scope: "team", providerNetworkId: TEAM_NETWORK.id });
+  });
+
+  test("the personal network row is read alongside the team lookup", async () => {
+    let rowReadStarted!: () => void;
+    const rowRead = new Promise<void>((resolve) => { rowReadStarted = resolve; });
+    const repo = testRepo({ network: networkRow() });
+    const findNetwork = repo.findNetwork!;
+    let directoryAnsweredInTime = false;
+    const result = await Effect.runPromise(resolveOwnerNetwork({
+      userId: "user-1",
+      provider: "freestyle",
+      billingTeamId: "team-1",
+      directoryTimeoutMs: 1000,
+      // Answers only once the row read has begun; a sequential lookup times out.
+      teamDirectory: {
+        listMemberIds: async (_teamId, options) => {
+          await rowRead;
+          directoryAnsweredInTime = options?.signal?.aborted === false;
+          return ["user-2"];
+        },
+      },
+    }).pipe(Effect.provide(layerFor({
+      ...repo,
+      findNetwork: (userId, provider) => Effect.sync(rowReadStarted).pipe(Effect.zipRight(findNetwork(userId, provider))),
+    }, testGateway()))));
+    expect(result).toMatchObject({ scope: "user", providerNetworkId: NETWORK.id });
+    expect(directoryAnsweredInTime).toBe(true);
   });
 
   test("directory failure with an existing team network falls back to the personal network", async () => {
