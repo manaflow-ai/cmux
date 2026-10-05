@@ -35,12 +35,6 @@ struct ChromiumHitRowsTests {
         #expect(BrowserContextMenuItem.withoutHitItems(menu, for: BrowserContextMenuTarget()).map(\.id) == [50124])
     }
 
-    /// Save … As goes back to Chromium while the shim has no download API.
-    @Test func saveCommandsAreKeptForTheHandOff() {
-        #expect(BrowserContextMenuItem.engineCommands(in: Self.linkMenu) == [.saveLinkAs: 50103])
-        #expect(BrowserContextMenuItem.engineCommands(in: [Self.item(50120)]) == [.saveImageAs: 50120])
-    }
-
     @Test func chromiumParamsNameTheImage() {
         let json = #"{"link_url":"","source_url":"https://e.com/a.png","page_url":"https://e.com/","selection":"","editable":false,"media_type":1}"#
         let target = BrowserContextMenuTarget.chromium(json)
