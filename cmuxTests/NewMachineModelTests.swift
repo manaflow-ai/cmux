@@ -102,6 +102,10 @@ struct NewMachineModelTests {
         #expect(model.cliArguments == ["vm", "fork", "vm-source", "--focus", "false"])
         model.create()
         #expect(recorder.value.first?.arguments == ["vm", "fork", "vm-source", "--focus", "false"])
+        // The pending row names the fork and its progress, not a generic new machine.
+        #expect(recorder.value.first?.forkSourceName == "Build machine")
+        #expect(recorder.value.first?.displayName == "Fork of Build machine")
+        #expect(recorder.value.first?.progressLabel == "Forking…")
     }
 
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
