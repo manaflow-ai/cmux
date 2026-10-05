@@ -134,6 +134,15 @@ import WebKit
         activeMainFrameNavigation = navigation
         (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
+        // A navigation to a different URL supersedes the pending retry. Our
+        // own retry has already recorded the retry URL as the attempted one,
+        // so a mismatch means the user (or panel) started something else.
+        if loopbackAutoRetryTask != nil,
+           let attempted = lastAttemptedURL?.absoluteString,
+           loopbackAutoRetryFailedURL != nil,
+           attempted != loopbackAutoRetryFailedURL {
+            cancelLoopbackAutoRetry(resetBudget: false)
+        }
         shouldPrintAfterCurrentNavigationFinishes = false
         didClearPDFDocument?()
         didStartProvisionalNavigation?(webView, navigation)
@@ -1056,9 +1065,11 @@ import WebKit
     /// Connection-level errors that are transient on loopback: the dev server
     /// is restarting or its pool is momentarily wedged. Scoped to these codes
     /// so certificate, policy, and body-level failures keep their error page.
+    /// TimedOut is deliberately absent: a slow server is a server problem,
+    /// not a transient connect failure, and an automatic retry would make a
+    /// slow load wait a second full timeout before surfacing.
     private static let loopbackAutoRetryErrorCodes: Set<Int> = [
         NSURLErrorCannotConnectToHost,
-        NSURLErrorTimedOut,
         NSURLErrorNetworkConnectionLost,
     ]
 
@@ -1125,6 +1136,12 @@ import WebKit
             recordTypedNavigation: false,
             preserveRestoredSessionHistory: true
         )
+    }
+
+    /// Cancellation hook for the panel's explicit Stop: a pending retry must
+    /// not fire after the user says stop.
+    func cancelLoopbackAutoRetryIfPending() {
+        cancelLoopbackAutoRetry(resetBudget: true)
     }
 
     private func cancelLoopbackAutoRetry(resetBudget: Bool) {

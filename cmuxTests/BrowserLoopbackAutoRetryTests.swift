@@ -87,6 +87,35 @@ struct BrowserLoopbackAutoRetryTests {
         #expect(panel.navigationDelegate?.activeErrorPageDisplayURL?.absoluteString == url.absoluteString)
     }
 
+    @Test func timedOutFailureShowsErrorPageImmediately() throws {
+        let (panel, webView) = makePanel()
+        defer { panel.close() }
+        let url = try #require(URL(string: "http://localhost:5180/slow"))
+
+        panel.navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+        webView.requests.removeAll()
+        fail(url, in: panel, webView: webView, code: NSURLErrorTimedOut)
+
+        // A slow server is a server problem, not a transient connect failure:
+        // retrying would wait another full timeout before surfacing it.
+        #expect(webView.requests.isEmpty)
+        #expect(panel.navigationDelegate?.activeErrorPageDisplayURL?.absoluteString == url.absoluteString)
+    }
+
+    @Test func stopCancelsThePendingRetry() async throws {
+        let (panel, webView) = makePanel()
+        defer { panel.close() }
+        let url = try #require(URL(string: "http://127.0.0.1:5180/notes"))
+
+        panel.navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+        webView.requests.removeAll()
+        fail(url, in: panel, webView: webView)
+
+        panel.stopLoading()
+        try await Task.sleep(for: .seconds(0.3))
+        #expect(webView.requests.isEmpty)
+    }
+
     @Test func nonLoopbackFailureShowsErrorPageImmediately() throws {
         let (panel, webView) = makePanel()
         defer { panel.close() }
