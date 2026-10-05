@@ -39,6 +39,25 @@ struct CMUXExtensionKitTests {
         #expect(decoded.grantedActionScopes == [.selectWorkspace])
     }
 
+    @Test(arguments: [false, true])
+    func testAcknowledgementRequiresExplicitHostSupportAndPushedSnapshot(_ hostSupports: Bool) throws {
+        var snapshot = CmuxSidebarSnapshot(sequence: 1, selectedWorkspaceID: nil, workspaces: [])
+        snapshot.supportsSnapshotAcknowledgement = hostSupports
+        let decoded = try CmuxSidebarXPCCodec.decodeSnapshot(CmuxSidebarXPCCodec.encodeSnapshot(snapshot))
+        #expect(decoded.shouldAcknowledgeDelivery(isPush: true) == hostSupports)
+        #expect(!decoded.shouldAcknowledgeDelivery(isPush: false))
+        #expect(decoded.apiVersion == .sidebarV2)
+    }
+
+    @Test func testLegacySnapshotDoesNotNegotiateAcknowledgements() throws {
+        let legacy = Data("""
+        {"apiVersion":{"major":2,"minor":0},"sequence":1,"workspaces":[]}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(CmuxSidebarSnapshot.self, from: legacy)
+        #expect(!decoded.supportsSnapshotAcknowledgement)
+        #expect(!decoded.shouldAcknowledgeDelivery(isPush: true))
+    }
+
     @Test
     func testManifestValidationAcceptsSidebarV2() throws {
         let manifest = CmuxExtensionManifest(

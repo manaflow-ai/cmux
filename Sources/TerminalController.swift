@@ -117,6 +117,12 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    let sidebarRecoveryDiagnostics = CMUXSidebarRecoveryDiagnostics(
+        defaults: .standard, processID: ProcessInfo.processInfo.processIdentifier,
+        appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+        appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+        now: { Date() }
+    )
     private enum ReloadConfigurationWaitResult: Sendable {
         case committed
         case failed
@@ -1841,19 +1847,21 @@ class TerminalController {
             return v2MainSync {
                 let persistedProvider = UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey)
                     ?? CmuxExtensionSidebarSelection.defaultProviderId
-                let providerID = CmuxExtensionSidebarSelection.effectiveProviderId(
+                let resolvedProviderID = CmuxExtensionSidebarSelection.effectiveProviderId(
                     persistedProvider,
                     extensionsEnabled: CmuxExtensionSidebarSelection.isEnabled,
                     customSidebarsEnabled: CmuxExtensionSidebarSelection.customSidebarsEnabled,
                     conversationSidebarEnabled: CmuxExtensionSidebarSelection.conversationSidebarEnabled
                 )
+                let providerID = CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: resolvedProviderID)
+                    ? CmuxExtensionSidebarSelection.defaultProviderId : resolvedProviderID
                 let providerActive = providerID == CmuxExtensionSidebarSelection.hostedExtensionsProviderId
                 if request.method == "extension.sidebar.reconnect" {
-                    guard CMUXSidebarRecoveryDiagnostics.reconnect(bundleID: request.params["bundle_id"] as? String, providerActive: providerActive) else {
+                    guard self.sidebarRecoveryDiagnostics.reconnect(bundleID: request.params["bundle_id"] as? String, providerActive: providerActive) else {
                         return self.v2Error(id: request.id, code: "not_active", message: "No matching selected sidebar provider is hosted")
                     }
                 }
-                return self.v2Ok(id: request.id, result: CMUXSidebarRecoveryDiagnostics.status(providerID: providerID, providerActive: providerActive))
+                return self.v2Ok(id: request.id, result: self.sidebarRecoveryDiagnostics.status(providerID: providerID, providerActive: providerActive))
             }
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])

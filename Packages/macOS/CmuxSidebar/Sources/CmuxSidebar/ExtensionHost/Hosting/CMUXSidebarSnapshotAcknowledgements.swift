@@ -3,6 +3,7 @@
     private var generation: UInt64 = 0
     private var grantRevision: UInt64 = 0
     private var sentSequences: [UInt64] = []
+    private var lastIssuedSequence: UInt64?
 
     /// Creates an empty acknowledgement tracker.
     public init() {}
@@ -12,9 +13,23 @@
     ///   - generation: Current transport generation.
     ///   - grantRevision: Current permission revision within that generation.
     public mutating func reset(generation: UInt64, grantRevision: UInt64) {
+        if self.generation != generation { lastIssuedSequence = nil }
         self.generation = generation
         self.grantRevision = grantRevision
         sentSequences.removeAll(keepingCapacity: true)
+    }
+
+    /// Reserves a unique monotonic wire sequence, including across grant changes.
+    /// - Parameter minimum: Sequence provided by the workspace snapshot cache.
+    /// - Returns: A wire sequence, or nil if the UInt64 transport space is exhausted.
+    public mutating func reserveSequence(atLeast minimum: UInt64) -> UInt64? {
+        if let previous = lastIssuedSequence {
+            guard previous < UInt64.max else { return nil }
+            lastIssuedSequence = max(minimum, previous + 1)
+        } else {
+            lastIssuedSequence = minimum
+        }
+        return lastIssuedSequence
     }
 
     /// Records a successfully encoded snapshot pushed under the current grant.
