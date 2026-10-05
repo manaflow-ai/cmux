@@ -44,7 +44,12 @@ if [[ ! -s "$BUNDLED_THIRD_PARTY" ]]; then
 fi
 
 # Every Mach-O in the bundle must map to its notices (scripts/cmux-next/notices/bundle-map.json).
-if ! python3 "$ROOT_DIR/scripts/cmux-next/notices/check_bundle_notices.py" "$APP_PATH"; then
+# A bundled Ghostty license tree must name the Ghostty revision of this checkout.
+check_args=()
+if ghostty_revision="$(git -C "$ROOT_DIR" rev-parse --verify --quiet HEAD:ghostty 2>/dev/null)"; then
+  check_args+=(--ghostty-revision "$ghostty_revision")
+fi
+if ! python3 "$ROOT_DIR/scripts/cmux-next/notices/check_bundle_notices.py" "$APP_PATH" ${check_args[@]+"${check_args[@]}"}; then
   echo "error: third-party notices do not cover every binary in $APP_PATH" >&2
   exit 1
 fi

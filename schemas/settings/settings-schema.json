@@ -9787,7 +9787,7 @@
       "consumers" : [
         "cmux-browser"
       ],
-      "default" : 8,
+      "default" : 0,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -10010,7 +10010,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "51def105617a96774adc3e9a4fd976da1911f6c1d2429ed239d5abf296cd3637",
+  "schema_hash" : "1a2dd9e00c33ee332e87c868a3490bfcebbfd0654682ecac4258b0c9b0f26366",
   "sections" : [
     {
       "id" : "general",

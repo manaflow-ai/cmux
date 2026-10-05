@@ -1,5 +1,5 @@
 {
-  "comment": "Every Mach-O file in a cmux-next app bundle maps to the notices it needs. check_bundle_notices.py fails on a Mach-O that no entry matches and on a missing notice. Requirements: first-party (Contents/Resources/LICENSE), section:<id> (a `<!-- notices-section: <id> -->` marker in Contents/Resources/THIRD_PARTY_LICENSES.md), file:<bundle path> (a non-empty file). Paths are fnmatch patterns relative to the .app; `*` also matches `/`. Add an entry in the same change that adds a binary.",
+  "comment": "Every Mach-O file in a cmux-next app bundle maps to the notices it needs. check_bundle_notices.py fails on a Mach-O that no entry matches and on a missing notice. Requirements: first-party (Contents/Resources/LICENSE), section:<id> (a `<!-- notices-section: <id> -->` marker in Contents/Resources/THIRD_PARTY_LICENSES.md), file:<bundle path> (a non-empty file), ghostty-license-tree:<bundle path> (a Ghostty dependency license tree that verify-ghostty-license-bundle.py accepts). Paths are fnmatch patterns relative to the .app; `*` also matches `/`. Add an entry in the same change that adds a binary.",
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
@@ -65,6 +65,18 @@
       "path": "Contents/Resources/libexec/cmux-server-helper",
       "what": "first-party server helper (Swift, no third-party code)",
       "notices": ["first-party"]
+    }
+  ],
+  "resources": [
+    {
+      "path": "Contents/Resources/ghostty/themes",
+      "what": "Ghostty themes from iTerm2-Color-Schemes (Resources/ghostty/themes, or Ghostty's zig-out share)",
+      "notices": ["section:ghostty-themes"]
+    },
+    {
+      "path": "Contents/Resources/ghostty-licenses",
+      "what": "Ghostty dependency license tree with the MPL-2.0 source offer (collect-ghostty-licenses.py; nightly-next)",
+      "notices": ["section:manual-ghostty", "ghostty-license-tree:Contents/Resources/ghostty-licenses"]
     }
   ]
 }

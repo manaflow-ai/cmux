@@ -213,6 +213,8 @@ def test_zig_pkg_package_without_license_is_unresolved() -> None:
         assert result.returncode != 0, result.stdout
         assert "without discoverable license files" in result.stderr, result.stderr
         assert silent.name in result.stderr, result.stderr
+        # The failure says how to fix it: pin a reviewed text.
+        assert "pinned-licenses/MANIFEST.json" in result.stderr, result.stderr
         manifest = json.loads((work / "collected/SOURCE-MANIFEST.json").read_text())
         assert manifest["unresolved_packages"] == [silent.name]
 
@@ -343,6 +345,54 @@ def test_known_zig_pkg_licenses() -> None:
     ))
 
 
+THEMES = "N-V-__8AALZGBAAS5NLVH-c8eC-6VtCdcH-9nUvVfUSkWS__"
+GOBJECT = "gobject-0.3.1-Skun7E1KnwBGMX5nslHYG1yWHaSevywxQO8oM7tTOgIp"
+
+
+def add_themes_and_gobject(source: Path, themes: str = THEMES, gobject: str = GOBJECT) -> None:
+    """The iterm2_themes and zig-gobject packages as Zig fetches them: no license file."""
+    theme_dir = source / "zig-pkg" / themes
+    theme_dir.mkdir(parents=True)
+    for name in ("Ubuntu", "Ayu", "Dracula"):
+        (theme_dir / name).write_text("palette = 0=#2e3436\nbackground = #300a24\n")
+    gobject_dir = source / "zig-pkg" / gobject
+    (gobject_dir / "src/gobject2").mkdir(parents=True)
+    (gobject_dir / "src/gobject2/gobject2.zig").write_text("// generated\n")
+    (gobject_dir / "build.zig.zon").write_text('.{ .name = .gobject, .version = "0.3.1" }\n')
+
+
+def test_themes_and_gobject_get_pinned_texts() -> None:
+    """iterm2_themes (iTerm2-Color-Schemes) and zig-gobject ship no license
+    file; their pinned MIT texts are collected, and another package directory
+    of either stops the collection."""
+    manifest = json.loads((PINNED / "MANIFEST.json").read_text())
+    assert manifest["packages"]["iterm2-themes"]["packages"] == [THEMES]
+    assert manifest["packages"]["zig-gobject"]["packages"] == [GOBJECT]
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
+        work = Path(raw)
+        source, cache = build_fixture(work)
+        add_themes_and_gobject(source)
+        output = work / "collected"
+        assert collect_in_process(source, cache, output) == 0
+        collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
+        assert collected["unresolved_packages"] == []
+        by_package: dict[str, list[dict]] = {}
+        for entry in collected["license_files"]:
+            by_package.setdefault(entry["package"], []).append(entry)
+        for package, name in ((THEMES, "iterm2-themes"), (GOBJECT, "zig-gobject")):
+            [entry] = by_package[package]
+            assert entry["source_kind"] == "verified-upstream-license", entry
+            item = manifest["packages"][name]["files"][0]
+            assert (output / entry["destination"]).read_bytes() == (PINNED / item["path"]).read_bytes()
+    for label, themes, gobject in (("themes bump", "N-V-__8AAOtherThemesReleaseXXXXXXXXXXXXXXXXXXXX", GOBJECT),
+                                   ("gobject bump", THEMES, "gobject-0.4.0-OtherGobjectReleaseXXXXXXXXXXXXXXXXXXXXXXX")):
+        with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
+            work = Path(raw)
+            source, cache = build_fixture(work)
+            add_themes_and_gobject(source, themes, gobject)
+            assert collect_in_process(source, cache, work / "collected") != 0, label
+
+
 def test_verifier_rejects_long_destination() -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
         work = Path(raw)
@@ -435,6 +485,7 @@ def main() -> int:
     test_zig_package_index()
     test_zig_pkg_package_without_license_is_unresolved()
     test_known_zig_pkg_licenses()
+    test_themes_and_gobject_get_pinned_texts()
     test_verifier_rejects_long_destination()
     test_collector_rejects_label_collision()
     print("Ghostty license path budget tests passed")
