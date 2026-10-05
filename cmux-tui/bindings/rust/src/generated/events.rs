@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5de21219cdefd725a855d27e4a1958bb298685a08a022e39e04aecb18e404b52.
+// cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -97,6 +97,69 @@ pub struct ClientDetachedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ClientListInvalidatedEvent {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub change: Nullable<T::JsonValue>,
+    pub conversation: String,
+    pub rev: u64,
+    pub seq: u64,
+    pub transaction: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationResyncedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub messages: Nullable<T::JsonValue>,
+    pub rev: u64,
+    pub seq: u64,
+    pub summary: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudInboxChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub entries: Nullable<T::JsonValue>,
+    pub seq: u64,
+    pub transaction: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudInboxResetEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSessionNeededEvent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expires_at: Optional<u64>,
+    pub reason: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSubscriptionStateEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+    pub scope: String,
+    pub state: String,
 }
 
 #[rustfmt::skip]
@@ -663,6 +726,12 @@ pub enum Event {
     ClientChanged(ClientChangedEvent),
     ClientDetached(ClientDetachedEvent),
     ClientListInvalidated(ClientListInvalidatedEvent),
+    CloudConversationChanged(CloudConversationChangedEvent),
+    CloudConversationResynced(CloudConversationResyncedEvent),
+    CloudInboxChanged(CloudInboxChangedEvent),
+    CloudInboxReset(CloudInboxResetEvent),
+    CloudSessionNeeded(CloudSessionNeededEvent),
+    CloudSubscriptionState(CloudSubscriptionStateEvent),
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
     ConversationChanged(ConversationChangedEvent),
@@ -730,6 +799,12 @@ impl Event {
             Self::ClientChanged(_) => Some("client-changed"),
             Self::ClientDetached(_) => Some("client-detached"),
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
+            Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
+            Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
+            Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
+            Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
+            Self::CloudSessionNeeded(_) => Some("cloud-session-needed"),
+            Self::CloudSubscriptionState(_) => Some("cloud-subscription-state"),
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
             Self::ConversationChanged(_) => Some("conversation-changed"),
@@ -796,6 +871,12 @@ impl Event {
             Self::ClientChanged(_) => Some(&CLIENT_CHANGED_EVENT_METADATA),
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
+            Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
+            Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
+            Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
+            Self::CloudSessionNeeded(_) => Some(&CLOUD_SESSION_NEEDED_EVENT_METADATA),
+            Self::CloudSubscriptionState(_) => Some(&CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
@@ -915,6 +996,54 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("client-list-invalidated") => match serde_json::from_value::<ClientListInvalidatedEvent>(raw.clone()) {
             Ok(event) => Event::ClientListInvalidated(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-changed") => match serde_json::from_value::<CloudConversationChangedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-resynced") => match serde_json::from_value::<CloudConversationResyncedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationResynced(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-inbox-changed") => match serde_json::from_value::<CloudInboxChangedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudInboxChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-inbox-reset") => match serde_json::from_value::<CloudInboxResetEvent>(raw.clone()) {
+            Ok(event) => Event::CloudInboxReset(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-session-needed") => match serde_json::from_value::<CloudSessionNeededEvent>(raw.clone()) {
+            Ok(event) => Event::CloudSessionNeeded(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-subscription-state") => match serde_json::from_value::<CloudSubscriptionStateEvent>(raw.clone()) {
+            Ok(event) => Event::CloudSubscriptionState(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

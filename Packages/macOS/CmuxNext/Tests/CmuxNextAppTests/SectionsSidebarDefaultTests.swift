@@ -15,12 +15,12 @@ import Testing
     @Test func theDefaultLayoutIsTheSectionsSidebar() {
         let top = SidebarLayoutDocument.defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue)
         let bottom = SidebarLayoutDocument.defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.id.rawValue)
-        #expect(top == ["itm_home", "itm_app_store", "itm_new_workspace", "itm_import_sync"])
-        #expect(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.topSectionID)?.arrangement
-            == SectionArrangement(layout: .tiles, columns: 4))
+        #expect(top == ["itm_home", "itm_app_store"])
+        // Lawrence 2026-10-05: the top is plain rows, not a tiles card.
+        #expect(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.topSectionID)?.arrangement == .list)
         let shown = SidebarLayoutReducer.reduce(.defaults, .itemAdd(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")),
                                                                      section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect((try? shown.get())?.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue) == ["itm_home", "itm_app_store", "itm_new_workspace", "itm_import_sync", "itm_app_coderouter"])
+        #expect((try? shown.get())?.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue) == ["itm_home", "itm_app_store", "itm_app_coderouter"])
         #expect(bottom == ["itm_settings", "itm_account"])
     }
 
@@ -34,8 +34,11 @@ import Testing
         let view = sidebar.sidebarView
         #expect(sidebar.convert(sidebar.bounds, to: nil).minX == 0, "the sidebar is flush on the leading edge (no rail)")
         #expect(view.aboveRegion.itemView(LayoutItemID("itm_app_coderouter")) == nil, "CodeRouter is not in the top band by default")
-        for id in ["itm_home", "itm_app_store", "itm_new_workspace", "itm_import_sync"] {
-            #expect(view.aboveRegion.itemView(LayoutItemID(id))?.style == .favorite, "\(id) is a tile in the top band")
+        for id in ["itm_home", "itm_app_store"] {
+            #expect(view.aboveRegion.itemView(LayoutItemID(id))?.style == .builtIn, "\(id) is a plain row in the top band")
+        }
+        for id in ["itm_new_workspace", "itm_import_sync"] {
+            #expect(view.aboveRegion.itemView(LayoutItemID(id)) == nil, "\(id) is not in the top band by default")
         }
         #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
         #expect(view.belowRegion.itemView(LayoutItemID("itm_account")) != nil)

@@ -486,6 +486,19 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # The GUI-tagged suites (.requiresGUISession, .requiresPasteboard; for
+      # example SidebarLiveReorderTests) skip when the host has no display or
+      # pasteboard. Every glaeda mini has both: in 153 swift-test jobs
+      # (2026-10-04/05) all 11 minis behind the side label ran
+      # SidebarLiveReorderTests and no GUI or pasteboard test skipped. On a
+      # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
+      # instead of a silent skip. Blacksmith and hosted labels
+      # keep the skip: nothing has shown that they have a display session.
+      - name: Require the GUI session on a mini
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        shell: bash
+        run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
