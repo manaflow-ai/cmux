@@ -641,6 +641,180 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
     }
 
+    /// The scripts' ssh wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`. A shell
+    /// with the ssh features and no Ghostty CLI would wrap `ssh` around a
+    /// missing program, so the features are dropped; with a CLI they stay and
+    /// the shell gets `GHOSTTY_BIN_DIR`.
+    #[test]
+    fn ssh_features_need_a_ghostty_cli() {
+        let all = "cursor:blink,path,ssh-env,ssh-terminfo,sudo,title";
+        for shell in ["/usr/local/bin/bash", "zsh", "fish"] {
+            let none = launch(shell, &[("HOME", "/home/me"), (FEATURES_ENV, all)]);
+            assert_eq!(
+                env_of(&none, FEATURES_ENV).as_deref(),
+                Some("cursor:blink,path,sudo,title"),
+                "{shell}"
+            );
+            assert_eq!(env_of(&none, "GHOSTTY_BIN_DIR"), None, "{shell}");
+            let only_ssh = launch(shell, &[(FEATURES_ENV, "ssh-env,ssh-terminfo")]);
+            assert_eq!(env_of(&only_ssh, FEATURES_ENV).as_deref(), Some(""), "{shell}");
+            let empty_bin = launch(shell, &[(FEATURES_ENV, "ssh-env"), ("GHOSTTY_BIN", "")]);
+            assert_eq!(env_of(&empty_bin, FEATURES_ENV).as_deref(), Some(""), "{shell}");
+
+            let bin = launch(shell, &[(FEATURES_ENV, all), ("GHOSTTY_BIN", "/opt/g/bin/ghostty")]);
+            assert_eq!(env_of(&bin, FEATURES_ENV).as_deref(), Some(all), "{shell}");
+            assert_eq!(env_of(&bin, "GHOSTTY_BIN_DIR").as_deref(), Some("/opt/g/bin"), "{shell}");
+            let dir = launch(shell, &[(FEATURES_ENV, all), ("GHOSTTY_BIN_DIR", "/opt/h/bin")]);
+            assert_eq!(env_of(&dir, FEATURES_ENV).as_deref(), Some(all), "{shell}");
+            assert_eq!(env_of(&dir, "GHOSTTY_BIN_DIR").as_deref(), Some("/opt/h/bin"), "{shell}");
+        }
+    }
+
+    /// The embedded scripts are exactly the zsh, bash and fish injection files
+    /// of ghostty-next, the Ghostty that builds ghostty-vt: a file that
+    /// ghostty-next adds, removes or changes cannot be missed.
+    #[test]
+    fn the_embedded_scripts_are_ghostty_nexts_injection_files() {
+        let tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../ghostty-next/src/shell-integration");
+        let mut files = Vec::new();
+        let mut pending: Vec<PathBuf> = ["zsh", "bash", "fish"].iter().map(|d| tree.join(d)).collect();
+        while let Some(dir) = pending.pop() {
+            for entry in fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    files.push(path.strip_prefix(&tree).unwrap().to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        files.sort();
+        let mut embedded: Vec<String> = SCRIPTS.iter().map(|script| script.path.to_string()).collect();
+        embedded.sort();
+        assert_eq!(files, embedded);
+        for script in SCRIPTS {
+            assert_eq!(fs::read_to_string(tree.join(script.path)).unwrap(), script.contents, "{}", script.path);
+        }
+    }
+
+    /// The real shells: with the ssh features and no Ghostty CLI, `ssh` is not
+    /// wrapped; with a CLI directory it is (the control that the probe sees
+    /// the wrapper at all).
+    #[cfg(unix)]
+    #[test]
+    fn a_shell_without_a_ghostty_cli_runs_plain_ssh() {
+        let shells: Vec<(Shell, &str)> = [
+            (Shell::Zsh, ["/bin/zsh", "/usr/bin/zsh"].into_iter().find(|p| Path::new(p).is_file())),
+            (
+                Shell::Bash,
+                ["/usr/bin/bash", "/bin/bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash"]
+                    .into_iter()
+                    .find(|p| Path::new(p).is_file() && detect_shell(&[(*p).into()]).is_some()),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(shell, exe)| exe.map(|exe| (shell, exe)))
+        .collect();
+        if shells.is_empty() {
+            eprintln!("skipped: neither zsh nor a usable bash is installed");
+            return;
+        }
+        for (shell, exe) in shells {
+            let plain = probe_ssh(shell, exe, None);
+            assert!(!plain.contains("function"), "{exe} without a CLI wrapped ssh: {plain:?}");
+            let wrapped = probe_ssh(shell, exe, Some("/opt/g/bin"));
+            assert!(wrapped.contains("function"), "{exe} with a CLI did not wrap ssh: {wrapped:?}");
+        }
+    }
+
+    /// `type ssh` in an integrated interactive `shell` whose features ask for
+    /// the ssh wrappers; returns what it printed.
+    #[cfg(unix)]
+    fn probe_ssh(shell: Shell, exe: &str, bin_dir: Option<&str>) -> String {
+        use std::io::Read;
+        let base = std::env::temp_dir().join(format!(
+            "cmux-tui-shell-ssh-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let user = base.join("user");
+        fs::create_dir_all(&user).unwrap();
+        let base = fs::canonicalize(&base).unwrap();
+        let user = fs::canonicalize(&user).unwrap();
+        let root = materialize(&base.join("shell-integration").join(content_digest())).unwrap();
+        fs::write(user.join(".zshenv"), "unsetopt global_rcs\n").unwrap();
+        fs::write(user.join(".zshrc"), "PS1='$ '\n").unwrap();
+        fs::write(user.join(".bashrc"), "PS1='$ '\n").unwrap();
+        let mut env = vec![
+            ("HOME".to_string(), user.to_string_lossy().into_owned()),
+            (FEATURES_ENV.to_string(), "ssh-env,ssh-terminfo".to_string()),
+        ];
+        if shell == Shell::Zsh {
+            env.push(("ZDOTDIR".to_string(), user.to_string_lossy().into_owned()));
+        }
+        if let Some(dir) = bin_dir {
+            env.push(("GHOSTTY_BIN_DIR".to_string(), dir.to_string()));
+        }
+        let lookup = {
+            let env = env.clone();
+            move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
+        };
+        let launched = apply(shell, &root, vec![exe.into()], env, &lookup);
+        let pty = cmux_pty::open(cmux_pty::PtySize { rows: 24, cols: 200, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+        let mut command = cmux_pty::PtyCommand::new(&launched.command[0]);
+        command.args(launched.command[1..].iter().cloned());
+        command.env("TERM", "xterm-256color");
+        command.env("GHOSTTY_BIN", "");
+        for (key, value) in &launched.env {
+            command.env(key.clone(), value.clone());
+        }
+        let mut spawned = pty.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let mut writer = spawned.master.take_writer().unwrap();
+        let (chunks, received) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut chunk) {
+                if n == 0 || chunks.send(chunk[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut output = Vec::new();
+        let read_until = |output: &mut Vec<u8>, needle: &[u8]| {
+            while !output.windows(needle.len()).any(|window| window == needle) {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                match received.recv_timeout(left) {
+                    Ok(chunk) => output.extend_from_slice(&chunk),
+                    Err(_) => panic!(
+                        "no {:?} from {exe}: {:?}",
+                        String::from_utf8_lossy(needle),
+                        String::from_utf8_lossy(output)
+                    ),
+                }
+            }
+        };
+        read_until(&mut output, b"$ ");
+        // The end marker's echoed text (`ssh-$((40+2))`) differs from its output.
+        writer.write_all(b"type ssh 2>&1 | head -n 1; echo ssh-$((40+2))\n").unwrap();
+        read_until(&mut output, b"ssh-42\r\n");
+        writer.write_all(b"exit\n").unwrap();
+        drop(writer);
+        while spawned.child.try_wait().unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline, "{exe} did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        drop(spawned);
+        fs::remove_dir_all(&base).unwrap();
+        let text = String::from_utf8_lossy(&output).into_owned();
+        // Only the probe's own output: after its echoed line, before the marker.
+        let start = text.find("ssh-$((40+2))").map_or(0, |at| at + "ssh-$((40+2))".len());
+        let end = text.rfind("ssh-42").unwrap_or(text.len());
+        text[start..end.max(start)].to_string()
+    }
+
     #[test]
     fn opt_out_leaves_the_launch_unchanged() {
         let launch =

@@ -35,6 +35,8 @@ on:
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/bundle-ghostty-resources.sh
+      - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
@@ -76,6 +78,8 @@ on:
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/bundle-ghostty-resources.sh
+      - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
@@ -375,6 +379,16 @@ jobs:
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
           bash scripts/cef/tests/test-embedder-step.test.sh
 
+      # The app's Ghostty shell integration comes from ghostty-next (the
+      # Ghostty of GhosttyNextKit and libghostty-vt): the bundle phase output
+      # must equal its source tree.
+      - name: Ghostty resources bundle
+        id: ghostty-resources-bundle
+        continue-on-error: true
+        run: |
+          git submodule update --init --depth 1 --filter=blob:none ghostty-next
+          bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -394,6 +408,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
+            ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
