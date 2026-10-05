@@ -193,6 +193,48 @@ Cache rules for `cmux link`:
 3. On a handshake failure with a cached entry, fetch once more before reporting `unreachable`.
 4. `cloud.machine.removed` drops the entry at once and closes open links to that host.
 
+Host side, the daemon's offline limits (lane 10, 2026-10-04): when the host's token verifier
+accepts a `daemon` hello, the link stamps the stream for the remote entry with
+`"check":"link_token"` next to `link_peer`. The entry records that as the install's good
+control-plane check (`record_remote_check`) before it binds the stream, so the 24 h / 72 h
+offline limits count from the last accepted token. Only the link writes the field, only after
+the verifier accepted the token, and the entry reads it only from the stamp line (before any
+peer byte); a peer frame that looks like a stamp is a frame and is denied.
+
+The entry records the field only when the daemon started with a real token verifier. The daemon
+decides that once, at start, from its own config (`CMUX_LINK_TOKEN_VERIFIER` in the daemon's
+environment: only the exact value `control_plane` names a real verifier; absent, unknown or
+unreadable means `DenyAllTokens`), never from a stamp or a stream (`cmux_link::token::StampChecks`).
+Without a real verifier a stamp that carries any `check` is malformed: the entry closes the stream
+and records and binds nothing.
+
+Limit of the stamp check (named, 2026-10-04): the entry trusts the stamp's author through the
+caller check only. On macOS that check is the cmux code signature; on Linux it is the same user,
+so any process of the host user can write `"check":"link_token"`. And the entry records the time
+it read the stamp, not the time the control plane issued the token, so a held stream or a slow
+link moves the 24 h / 72 h limits later than the token allows.
+
+Hard gates before ANY link token format goes live (the daemon refuses to start with
+`control_plane` until G1 and G2 hold, and G3 and G4 land before that code can start; `CheckBinding::BUILT` names them and tests prove the refusal):
+- G1 (Linux): the entry binds `check` to the supervised link child: the stamp's writer must be the
+  link process the daemon's supervisor started, named by its SO_PEERCRED pid AND that process's
+  start time (so a reused pid fails). Fix F1.
+- G2 (every OS): the recorded check uses the token's issue time (`iat`, carried in the stamp by the
+  link after the verifier accepted the token) instead of the time the entry read the stamp. Fix F2.
+- G3 (every OS, ad349 2026-10-04): the daemon logs its verifier mode (`deny_all` or
+  `control_plane`) ONCE at start, with no token or secret in the line.
+- G4 (every OS, ad349 2026-10-04): the daemon strips `CMUX_LINK_TOKEN_VERIFIER` from the
+  environment it passes to terminals and other children, in `daemon_env.rs` (the one place that
+  builds child env), with a test that a child never sees it.
+
+Limits that remain: (1) the host uses `DenyAllTokens` until a token format ships, so no Cloud
+stream reaches the entry yet, and G1/G2 block a real verifier until F1 and F2 land; (2) a paired
+Mac that is not a Cloud host has no control-plane check, so its streams stay refused (fail
+closed) until a recheck driver exists; (3) a revoke in the middle of a stream depends on `HostDO`
+closing the link, because nothing calls `revoke_remote_install` yet; (4) the link process does not
+read `CMUX_LINK_TOKEN_VERIFIER` yet (`host_inbound` is not wired into `serve`); when it is, the link
+and the daemon must read the same config.
+
 Mapping to `link.dial` errors: `unknown_host` = `cloud.machine.not_found`; `not_authorized` =
 `auth.forbidden` or a refused token; `host_paused` = handshake failure with `state: paused`;
 `unreachable` = no path answered; `bad_request` = malformed op line.

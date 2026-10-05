@@ -90,7 +90,7 @@ extension SettingsAnchor {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return nil }
         let path = key.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        if let descriptor = SettingsSchema.descriptor(for: path) {
+        if let descriptor = SettingsSchema.descriptor(for: path), descriptor.isShownInCmuxNext {
             self = .setting(descriptor)
             return
         }

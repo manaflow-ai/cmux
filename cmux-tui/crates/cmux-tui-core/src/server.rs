@@ -463,6 +463,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
+        terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -6353,7 +6354,9 @@ impl ClientRegistry {
         self.url_opens.disconnect(client);
         self.loopback.disconnect(client);
         self.apps.disconnect(client);
-        let mut state = self.state.lock().unwrap();
+        // Safety: a removal never grants access; on a poisoned registry the
+        // record still goes, so a fail-closed close never panics here.
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;

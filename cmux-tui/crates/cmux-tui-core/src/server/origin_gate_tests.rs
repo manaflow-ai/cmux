@@ -373,7 +373,7 @@ fn legacy_apps_set_is_refused_from_every_connection_but_the_verified_app() {
     let client = connect(&mux);
     let page_relay = relay(&mux, "token:10.1");
     let agent = connect(&mux);
-    mux.bind_conversation_principal(agent.client, "agent:test".to_string());
+    mux.bind_conversation_principal(agent.client, "agent:test".to_string()).unwrap();
     // A self-declared kind app is still not the verified app.
     let declared_app = connect(&mux);
     mux.control_clients.state.lock().unwrap().clients.get_mut(&declared_app.client).unwrap().kind =
@@ -406,7 +406,7 @@ fn legacy_user_origin_gestures_need_the_verified_app() {
     mux.control_clients.state.lock().unwrap().clients.get_mut(&declared_app.client).unwrap().kind =
         Some("app".to_string());
     let agent = connect(&mux);
-    mux.bind_conversation_principal(agent.client, "agent:test".to_string());
+    mux.bind_conversation_principal(agent.client, "agent:test".to_string()).unwrap();
     let page_relay = relay(&mux, "token:10.1");
     mux.control_clients.state.lock().unwrap().clients.get_mut(&page_relay.client).unwrap().kind =
         Some("app".to_string());

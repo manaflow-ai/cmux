@@ -330,11 +330,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             }
                             snapshot.metrics[name] = number
                             // The applier clamps; the diagnostic says so, as the Settings window refuses it.
-                            let interfaceSize = InterfaceSizeSetting()
-                            if name == interfaceSize.metricName, !interfaceSize.range.contains(number) {
+                            if let range = LayoutMetricSetting.ranges[name], !range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(interfaceSize.range.lowerBound)) to \(Int(interfaceSize.range.upperBound)); clamped"
+                                    message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
                                 ))
                             }
                         }

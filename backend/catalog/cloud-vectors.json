@@ -1795,6 +1795,51 @@
       "note": "Install principals only (LINK-RESOLVE): an app or page caller never holds a link token."
     },
     {
+      "name": "machine.link_token.install_refused",
+      "op": "cloud.machine.link_token",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "host": "host_h0000000000000000001",
+        "services": [
+          "ssh"
+        ]
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.link_token",
+            "error": {
+              "code": "cloud.link.install_refused",
+              "message": "only the cli, mac app and ios installs mint link tokens",
+              "retryable": false,
+              "details": {
+                "install_kind": "web",
+                "allowed": [
+                  "cli",
+                  "mac",
+                  "ios"
+                ]
+              }
+            },
+            "transaction": "tx_0016",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "CLOUD-LINK-FOLLOWUPS (2): a vm, daemon or web install never mints; the check runs before the machine lookup."
+    },
+    {
       "name": "snapshot.list.machine",
       "op": "cloud.snapshot.list",
       "class": "read",
@@ -1907,7 +1952,7 @@
                 "revision": "1"
               }
             },
-            "transaction": "tx_0016",
+            "transaction": "tx_0017",
             "idempotency_key": "key-snap-1",
             "revision": "1",
             "replayed": false,
@@ -2006,7 +2051,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0017",
+            "transaction": "tx_0018",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": false,
@@ -2049,7 +2094,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0017",
+            "transaction": "tx_0018",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": true,
@@ -2118,7 +2163,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0019",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": false,
@@ -2137,7 +2182,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0019",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": true,
@@ -2217,7 +2262,7 @@
             "value": {
               "url": "https://checkout.example.com/session/cs_vector_0001"
             },
-            "transaction": "tx_0019",
+            "transaction": "tx_0020",
             "idempotency_key": "key-checkout-1",
             "revision": "13",
             "replayed": false,
@@ -2312,7 +2357,7 @@
             "value": {
               "state": "moving"
             },
-            "transaction": "tx_0020",
+            "transaction": "tx_0021",
             "idempotency_key": "key-migrate-1",
             "revision": "4",
             "replayed": false,
@@ -2434,7 +2479,7 @@
                 "revision": "54"
               }
             },
-            "transaction": "tx_0021",
+            "transaction": "tx_0022",
             "idempotency_key": "key-upgrade-1",
             "revision": "54",
             "replayed": false,
@@ -2537,7 +2582,7 @@
             "value": {
               "stream": "wst_w0000000000000000001"
             },
-            "transaction": "tx_0022",
+            "transaction": "tx_0023",
             "idempotency_key": "key-shell-1",
             "revision": "7",
             "replayed": false,

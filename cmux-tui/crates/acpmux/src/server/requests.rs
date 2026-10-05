@@ -64,7 +64,7 @@ pub(super) async fn handle_request(
 ) -> Result<Value, RpcError> {
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
-        super::remote_guard::check(m, &mut params).await?;
+        super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
     let mut reply = dispatch_request(hub, conn, m, params).await;
     // One place for every reply (status, the peer listings of peer_add,

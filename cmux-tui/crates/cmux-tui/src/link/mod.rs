@@ -68,11 +68,16 @@ pub(crate) fn start_link_entry(
     if !enabled {
         return Ok(None);
     }
+    // What a stamp's `check` means is fixed here, at daemon start, from the
+    // daemon's own config; a real verifier is refused until G1 and G2 hold.
+    let config = std::env::var_os(cmux_link::token::VERIFIER_ENV);
+    let config = cmux_link::token::VerifierConfig::from_daemon_config(config.as_deref());
+    let checks = cmux_link::token::StampChecks::at_daemon_start(config)?;
     let verifier: LinkVerifier = Arc::new(|stream: &std::os::unix::net::UnixStream| {
         cmux_link::caller::verify(stream).map_err(std::io::Error::from)
     });
     let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
-    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate())?))
+    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
 }
 
 /// The gate of the remote entry: exactly the seven `fs-v1` ops, every

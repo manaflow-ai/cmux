@@ -1,6 +1,6 @@
 import type { Principal, SqlStore, StoredRow } from "@cmux/ownership"
 import { CloudMachineConnectInfo, CloudMachineLinkToken, cloudServicesProblem, overlayAddress } from "@cmux/protocol"
-import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, type SigningKeys } from "./link-token.ts"
+import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, signingKid, type SigningKeys } from "./link-token.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { decodeParams } from "./domains/common.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
@@ -100,7 +100,10 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
   }
 }
 
-export type MintReply = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string }
+export type MintReply = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string; readonly details?: unknown }
+
+/** CLOUD-LINK-FOLLOWUPS (2): the install kinds whose `cmux link` may dial a machine. vm, daemon and web never mint. */
+export const LINK_INSTALL_KINDS: ReadonlyArray<string> = ["cli", "mac", "ios"]
 
 /**
  * cloud.machine.link_token (5.8 items 5-6): install principals only (never a session, never an
@@ -116,7 +119,10 @@ export const mintLinkToken = async (
 ): Promise<MintReply> => {
   const { entity, p } = args
   if (p.kind !== "install" || !p.install || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "link tokens are minted only for an install's cmux link" }
-  if (!p.grant_classes?.includes("execute")) return { ok: false, code: "auth.forbidden", message: "grant does not cover execute" }
+  if (!LINK_INSTALL_KINDS.includes(p.install_kind ?? ""))
+    return { ok: false, code: "cloud.link.install_refused", message: "only the cli, mac app and ios installs mint link tokens", details: { install_kind: p.install_kind ?? null, allowed: [...LINK_INSTALL_KINDS] } }
+  // execute, or the narrow cloud-link class the iPhone install gets (it covers this op only).
+  if (!p.grant_classes?.includes("execute") && !p.grant_classes?.includes("cloud-link")) return { ok: false, code: "auth.forbidden", message: "grant does not cover execute or cloud-link" }
   const d = decodeParams<{ host: string; services: ReadonlyArray<string> }>(CloudMachineLinkToken, args.params)
   if (!d.ok) return d
   const row = machineBySelector(args.rows, { host: d.value.host })
@@ -129,7 +135,8 @@ export const mintLinkToken = async (
   if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
   const iat = Math.floor(Date.now() / 1000)
   const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity }
-  const kid = args.keys.active
+  const kid = signingKid(args.keys, Date.now())
+  if (!kid) return { ok: false, code: "owner.unreachable", message: "no link signing key has been published long enough to sign" }
   const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
   audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, at: Date.now() })
   return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc } }
