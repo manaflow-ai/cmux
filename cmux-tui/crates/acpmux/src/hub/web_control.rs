@@ -114,6 +114,44 @@ impl Hub {
         self.web_control_verdict(session, &meta, control)
     }
 
+    /// A steer into the running turn: checked like a prompt, and a Web steer
+    /// makes that turn a Web turn (no chat allowance for what it adds).
+    pub(super) fn check_steer(&self, session: &Session, control: Control) -> Result<(), RpcError> {
+        self.web_control_check(session, control)?;
+        if control == Control::Web
+            && let Some(t) = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+        {
+            t.control = Control::Web;
+        }
+        Ok(())
+    }
+
+    /// Checked again at dispatch, under the meta lock every mode, policy and
+    /// rules write takes: the session may have changed since the guard ran,
+    /// or while this prompt waited in the queue. A refused prompt never
+    /// reaches the harness; the log records `prompt_refused`.
+    pub(super) fn check_dispatch(
+        &self,
+        session: &Session,
+        control: Control,
+        prompt_id: &str,
+        turn_id: &str,
+        client: &str,
+    ) -> Result<(), RpcError> {
+        let refused = {
+            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            self.web_control_verdict(session, &m, control).err()
+        };
+        let Some(e) = refused else { return Ok(()) };
+        self.append(
+            session,
+            "mux",
+            "prompt_refused",
+            json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data}),
+        );
+        Err(e)
+    }
+
     /// `web_control_check` for a caller that holds the meta lock (dispatch).
     pub(crate) fn web_control_verdict(
         &self,
@@ -169,6 +207,15 @@ impl Hub {
         }
         Ok(())
     }
+}
+
+/// A Web permission answer that would grant more than this one request
+/// (an `allow_always` or `reject_always` option, or the chat allowance).
+pub(crate) fn lasting_grant_refused(what: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "a paired device can allow once or deny only; {what} is a lasting grant and is refused"
+    ))
+    .with_data(json!({"reason": "remote.lasting_grant_refused", "option": what}))
 }
 
 /// Why a session's permission settings do not ask, or None when they do:

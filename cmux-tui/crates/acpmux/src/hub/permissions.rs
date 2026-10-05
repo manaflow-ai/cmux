@@ -358,9 +358,10 @@ impl Hub {
             };
             let denied = policy == PermissionPolicy::DenyAll
                 || rule == Some(super::rules::RuleDecision::Deny);
+            // The chat allowance never answers in a Web turn.
             let chat_option = if state.chat_allowed
                 && !denied
-                && session.turn().is_some()
+                && session.turn().is_some_and(|t| t.control != Control::Web)
                 && super::permission_groups::eligible(&request)
             {
                 super::permission_groups::option(&request, "allow_once")
@@ -475,8 +476,12 @@ impl Hub {
                         "option {o:?} was not uniquely offered for permission {permission_id}"
                     )));
                 }
-                let is_reject =
-                    matches!(offered[0]["kind"].as_str(), Some("reject_once" | "reject_always"));
+                let kind = offered[0]["kind"].as_str();
+                // A Web answer allows once or denies once: never a lasting grant.
+                if control == Control::Web && !matches!(kind, Some("allow_once" | "reject_once")) {
+                    return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
+                }
+                let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
                 let denied = self.policy_for(session, cfg.permission_policy)
                     == PermissionPolicy::DenyAll
                     || session
