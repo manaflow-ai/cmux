@@ -111,7 +111,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         }
     }
 
-    /// Bound for recent project, command, action and browser-history suggestions.
+    /// Bound for newly introduced recent project and action suggestions.
     public static let maximumEntries = 40
 
     public var tabs: [Tab]
@@ -132,8 +132,8 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.folders = folders
         self.projects = Array(projects.prefix(cap))
         self.actions = Array(actions.prefix(cap))
-        self.commands = Array(commands.prefix(cap))
-        self.history = Array(history.prefix(cap))
+        self.commands = commands
+        self.history = history
     }
 
     private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history }
