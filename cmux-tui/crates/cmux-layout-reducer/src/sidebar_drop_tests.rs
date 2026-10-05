@@ -34,6 +34,9 @@ fn sections() -> Vec<Section> {
                     machine: Some("local".into()),
                     workspaces: vec![workspace("h1", "local"), workspace("h2", "local")],
                 },
+                // The drag origin remains in the authoritative tree even when
+                // its row is excluded from the drop layout.
+                Node::Workspace { workspace: workspace("c", "local") },
             ],
         },
         Section {
@@ -455,7 +458,8 @@ fn drop_math_covers_headers_sections_and_clamping() {
     );
     assert_eq!(
         resolve_at(row_y(RowKey::Group { id: "g1".into() }, 0.2)),
-        Some(Target::Position { section: machine("local"), group: None, index: 1 })
+        // The layout excludes a, so g1 is the first top-level node.
+        Some(Target::Position { section: machine("local"), group: None, index: 0 })
     );
     assert_eq!(
         resolve_at(row_y(RowKey::Group { id: "g1".into() }, 0.7)),
@@ -590,7 +594,7 @@ fn ungrouped_first_remaps_only_top_level_slots() {
             },
         ],
     }];
-    let mut rows = vec![
+    let rows = vec![
         row(
             RowKey::Section { id: machine("local") },
             0.0,
@@ -658,14 +662,16 @@ fn ungrouped_first_remaps_only_top_level_slots() {
         resolve(&request),
         Some(Target::Position { section: machine("local"), group: None, index: 1 })
     );
-    let g1_row = rows.remove(2);
+    let g1_row = rows
+        .iter()
+        .find(|row| row.key == RowKey::Workspace { id: "g1".into() })
+        .unwrap();
     let mut into = request_with_rows(
         g1_row.y + 1.0,
         Payload::Workspaces { ids: vec!["a".into()] },
         rows.clone(),
         sections.clone(),
     );
-    into.rows.insert(2, g1_row);
     into.ungrouped_first = true;
     assert_eq!(
         resolve(&into),
