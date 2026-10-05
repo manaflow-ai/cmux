@@ -105,7 +105,11 @@ const authFrom = (res: Response) => {
   return auth
 }
 
-describe("OIDC sign-in (workerd)", () => {
+// Each case is a long chain of sequential Worker and Durable Object round trips (domain claim and
+// verify, connection activation with IdP discovery, sign-ins, key generation, token mints): about
+// 0.1-0.3 s alone, but over the 5 s default when the whole suite runs files in parallel. The budget
+// matches the other workerd suites (cloud 60 s).
+describe("OIDC sign-in (workerd)", { timeout: 30_000 }, () => {
   it("start -> IdP -> callback -> one-time code -> Stack session; links the IdP subject; refuses replays", async () => {
     const s = await setup()
     const res = await start(`Alice@${DOMAIN}`)
