@@ -1,0 +1,42 @@
+name: New Tab acceptance validation
+on:
+  push:
+    branches: [validate/next-newtab-cx3]
+permissions:
+  contents: read
+concurrency:
+  group: newtab-acceptance-validation
+  cancel-in-progress: true
+jobs:
+  focused:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 100
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.4.2'
+      - name: Install dependencies
+        run: cd webviews && bun install --frozen-lockfile
+      - name: Prove pre-startup blank-chat regression
+        run: |
+          git restore --source=38e08d1e0ccb28ab2fc6701e8ae5e03c718fec87 --worktree webviews/src/agent-session/acpmux/EmptyState.tsx
+          set +e
+          (cd webviews && bun test src/agent-session/acpmux/emptyState.test.ts) > red-test.log 2>&1
+          result=$?
+          set -e
+          cat red-test.log
+          git restore --worktree webviews/src/agent-session/acpmux/EmptyState.tsx
+          test "$result" -ne 0
+          grep -F 'Expected: true' red-test.log
+          grep -F 'a host-created blank chat offers terminal conversion and projects before its agent starts' red-test.log
+      - name: Focused composer and project behavior
+        run: cd webviews && bun test src/agent-session/acpmux/emptyState.test.ts src/agent-session/acpmux/composer.test.tsx src/agent-session/acpmux/quickComposer.test.tsx src/agent-session/acpmux/ProjectChooser.test.tsx src/agent-session/acpmux/newtab
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: blank-chat-regression
+          path: red-test.log
