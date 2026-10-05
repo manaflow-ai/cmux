@@ -1,3 +1,4 @@
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxControlSocket
 import Foundation
 
