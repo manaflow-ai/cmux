@@ -25,7 +25,7 @@ enum CoderouterCLIAccountReader {
         let output = try await run(["accounts", "--json"])
         let object = try JSONSerialization.jsonObject(with: output) as? [String: Any]
         let accounts = object?["accounts"] as? [[String: Any]] ?? []
-        let result = accounts.compactMap { account in
+        let result: [CloudTreeNode.CoderouterAccount] = accounts.compactMap { account in
             guard let id = account["id"] as? String,
                   let provider = (account["provider"] as? String) ?? (account["kind"] as? String) else {
                 return nil
