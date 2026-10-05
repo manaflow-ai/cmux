@@ -420,10 +420,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   driver's own content world by the same evaluation that finds the focus,
   in that document (its own origin, `null` when opaque), not from
   WebKit's frame tree, which keeps naming a frame's old document after it
-  navigates. The check runs right before the
+  navigates. A document whose active element is a frame element
+  (`<iframe>`, `<frame>`, `<object>`, `<embed>`) never answers for the
+  focus: the frame inside does. The check runs right before the
   text is committed, after the wait for the editor state (a page can move
   focus during that wait), and the marked text and insert follow on the
-  same main-thread turn. A page can still move focus in its own web process
+  same main-thread turn. The check judges the web view the text goes to,
+  and the text goes to it only while the tab still shows it: a tab that
+  replaced its web view meanwhile (a web content recovery) gets nothing
+  (`stale`). A page can still move focus in its own web process
   between the check's last reply and the insert reaching that process:
   WebKit has no insert bound to an element or frame, so that cross-process
   window remains. The call also carries `secretRevision`, the secret's

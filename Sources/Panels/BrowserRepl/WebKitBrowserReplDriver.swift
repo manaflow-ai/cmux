@@ -2595,14 +2595,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // can move focus. What remains is the cross-process gap between the
         // check's last reply and the insert reaching the web process.
         let sessionID = self.sessionID
-        let checkTarget: @MainActor @Sendable () async throws -> Void = {
+        // The check judges the web view the text goes to (`webView`, the
+        // one the input captured), never the panel's current one, and the
+        // commit types only while the panel still shows it.
+        let checkTarget: @MainActor @Sendable (WKWebView) async throws -> Void = { webView in
             guard let name = params["secretName"] as? String else { return }
-            let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+            let frames = await BrowserReplFrameTree.frames(of: webView)
             let rawDomains = params["secretDomains"] as? [[String: Any]] ?? []
             try await BrowserReplSecretGuard.checkSecretTarget(
                 name: name,
                 domains: rawDomains,
-                webView: panel.webView,
+                webView: webView,
                 frames: frames
             )
             // The agent may have deleted or set the secret again since the
@@ -2628,7 +2631,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
         }
         try await withWindow(panel) { webView, _ in
-            try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
+            try await BrowserReplNativeInput.insertText(
+                text,
+                into: webView,
+                isCurrent: { [weak panel] in panel?.webView === webView },
+                checkTarget: checkTarget
+            )
             await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
