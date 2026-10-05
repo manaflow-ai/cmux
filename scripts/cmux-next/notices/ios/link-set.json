@@ -165,15 +165,15 @@
     },
     "evidence": {
       "app": "cmux-ios.xcarchive/Products/Applications/cmux.app",
-      "artifact_sha256": "cbbad2368077ac5bf9d67957baf0aec8f9c4f24fe93e109a2ec1682ed5249f27",
+      "artifact_sha256": "71be50ccde00be998683c6f35336c01172349e4f32b55a4a0048ee1e9a4e98b8",
       "binaries": {
-        "PlugIns/NotificationService.appex/NotificationService": "9b3a5de2c5efd9ea208c89ba9e06fa66b5f5a5e9c49c5e08dcc6b08f44496225",
-        "cmux": "4664e514feb01284a26df73a61fcb567cb9cfb5218723df763417fa9ec68a97f"
+        "PlugIns/NotificationService.appex/NotificationService": "b3d7ea92a721deab14cb4c0206c65705c3099784629836270c307be4eb842eb9",
+        "cmux": "ec8a5a8dd38a215b5ebabb133a49cb8d23db7971875c4bd74a437440caeb914f"
       },
-      "cmux_ci_job": "9bd58301641521918a3561ba",
-      "source_commit": "16d41eba0bc857ba15e627d2a0b07548c3a359c1"
+      "cmux_ci_job": "3ec204658b6b4cf775f360e9",
+      "source_commit": "ab476f660a3c7472ba2307d446019d3d916056aa"
     },
-    "pin_sha256": "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa",
+    "pin_sha256": "736e8f05256b6453ef2dd05c58eff3088cfc1eda7ae748c041e877c8a66741ba",
     "present_owners": {
       "vendored:pkg/dcimgui": 2,
       "vendored:pkg/highway": 11,
@@ -455,9 +455,9 @@
     "zutil.o"
   ],
   "pin": {
-    "ghostty_revision": "bbb7320b451edb0ca0eee898c6bc4a8a15a5705d",
-    "sha256": "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa",
-    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-bbb7320b451edb0ca0eee898c6bc4a8a15a5705d-apple-v6/GhosttyNextKit.xcframework.zip"
+    "ghostty_revision": "94fe869496857eb5d70fcf870554deb1480a7aa3",
+    "sha256": "736e8f05256b6453ef2dd05c58eff3088cfc1eda7ae748c041e877c8a66741ba",
+    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-94fe869496857eb5d70fcf870554deb1480a7aa3-apple-v6/GhosttyNextKit.xcframework.zip"
   },
   "schema": 1,
   "slice": "ios-arm64",
