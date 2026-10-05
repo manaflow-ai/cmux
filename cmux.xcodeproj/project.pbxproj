@@ -13,6 +13,8 @@
 		D0B102040000000000000001 /* AboutPropertyRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103040000000000000001 /* AboutPropertyRow.swift */; };
 		D0B102050000000000000001 /* AboutVisualEffectBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103050000000000000001 /* AboutVisualEffectBackground.swift */; };
 		D0B102000000000000000001 /* AboutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103000000000000000001 /* AboutWindowController.swift */; };
+		49A07E13506067E94820A5CE /* AccountMacDirectoryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF200D0B55542AF6F9E69DEF /* AccountMacDirectoryClientTests.swift */; };
+		9707E1A30E96E4DDD19BE85C /* AccountMacDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 096DD2C3867F78B177AC4720 /* AccountMacDirectoryTests.swift */; };
 		A5C017000000000000000001 /* AccountSignInFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000002 /* AccountSignInFlow.swift */; };
 		A5C017000000000000000003 /* AccountSignInModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000004 /* AccountSignInModel.swift */; };
 		A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000010 /* AccountSignInModelTests.swift */; };
@@ -4583,6 +4585,8 @@
 		D0B103040000000000000001 /* AboutPropertyRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutPropertyRow.swift; sourceTree = "<group>"; };
 		D0B103050000000000000001 /* AboutVisualEffectBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutVisualEffectBackground.swift; sourceTree = "<group>"; };
 		D0B103000000000000000001 /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutWindowController.swift; sourceTree = "<group>"; };
+		BF200D0B55542AF6F9E69DEF /* AccountMacDirectoryClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountMacDirectoryClientTests.swift"; sourceTree = "<group>"; };
+		096DD2C3867F78B177AC4720 /* AccountMacDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountMacDirectoryTests.swift"; sourceTree = "<group>"; };
 		A5C017000000000000000002 /* AccountSignInFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInFlow.swift; sourceTree = "<group>"; };
 		A5C017000000000000000004 /* AccountSignInModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInModel.swift; sourceTree = "<group>"; };
 		A5C017000000000000000010 /* AccountSignInModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInModelTests.swift; sourceTree = "<group>"; };
@@ -13423,6 +13427,8 @@
 				FA81639A568A0FC187B60934 /* RestoredAgentNotificationPruneTests.swift */,
 				2F0DFD38009CF1AA7CBFA9F0 /* CompactSurfaceTabBarClusterTests.swift */,
 				50344B92A8552212731CAE50 /* CoderouterCLIAccountReaderTests.swift */,
+				BF200D0B55542AF6F9E69DEF /* AccountMacDirectoryClientTests.swift */,
+				096DD2C3867F78B177AC4720 /* AccountMacDirectoryTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17226,6 +17232,8 @@
 
 
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
+				49A07E13506067E94820A5CE /* AccountMacDirectoryClientTests.swift in Sources */,
+				9707E1A30E96E4DDD19BE85C /* AccountMacDirectoryTests.swift in Sources */,
 				A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */,
 				8EA083841777B442E3FA7E72 /* AgentAutoResumeScreenTests.swift in Sources */,
 				5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */,
