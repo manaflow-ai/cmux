@@ -362,14 +362,15 @@ enum CmuxExtensionSidebarSelection {
         if bundleID == "fr.yoyaku.cortex.sessions" || bundleID == "fr.yoyaku.cortex.sessions.debug" { return true }
         // Tagged native hosts embed the extension under their own bundle identity.
         if let hostBundleID, hostBundleID.hasPrefix("com.cmuxterm.app.debug."), bundleID == hostBundleID + ".sessions" { return true }
-        let prefix = "fr.yoyaku.cortex.sessions.dogfood."
-        guard bundleID.hasPrefix(prefix), let hostBundleID else { return false }
-        let tag = String(bundleID.dropFirst(prefix.count))
+        let prefix = "fr.yoyaku.cortex.dogfood."
+        let suffix = ".sessions"
+        guard bundleID.hasPrefix(prefix), bundleID.hasSuffix(suffix), let hostBundleID else { return false }
+        let tag = String(bundleID.dropFirst(prefix.count).dropLast(suffix.count))
         let parts = tag.split(separator: "-", omittingEmptySubsequences: false)
         guard !parts.isEmpty, parts.allSatisfy({ part in
             !part.isEmpty && part.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) }
         }) else { return false }
-        return hostBundleID.hasSuffix(".debug.\(parts.joined(separator: "."))")
+        return hostBundleID == "com.cmuxterm.app.debug.\(parts.joined(separator: "."))"
     }
 
     static func isCortexActive(defaults: UserDefaults = .standard) -> Bool {
