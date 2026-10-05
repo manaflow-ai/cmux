@@ -13,7 +13,7 @@ extension CEFTab: BrowserCertificateWarningRevoking {
         state.loadError == nil && state.url?.scheme?.lowercased() == "https" && state.security == .broken
     }
 
-    public var certificateWarningScope: BrowserCertificateWarningScope { .site }
+    public var certificateWarningScope: BrowserCertificateWarningScope { .profile }
 
     public func turnOnCertificateWarnings() async -> Bool {
         guard certificateWarningsTurnedOff, let browserID, await runtime.clearCertificateExceptions(browserID) else { return false }
