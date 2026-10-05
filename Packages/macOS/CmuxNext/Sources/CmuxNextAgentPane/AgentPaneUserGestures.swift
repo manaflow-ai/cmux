@@ -44,7 +44,8 @@ import Synchronization
     public func reserve(connection: Int, intent: AgentPaneGestureIntent) -> String? {
         guard consume() else { return nil }
         let at = now()
-        tickets = tickets.filter { at - $0.value.at <= Self.ticketLifetime } // RED STUB: no revoke
+        tickets = tickets.filter { at - $0.value.at <= Self.ticketLifetime
+            && !($0.value.connection == connection && $0.value.intent.method == intent.method) }
         let ticket = UUID().uuidString
         tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
         lastTicket = ticket
@@ -55,7 +56,8 @@ import Synchronization
     /// same connection, within its lifetime, and the frame is its pick.
     public func redeem(_ ticket: String, connection: Int, method: String?, params: [String: Any]) -> Bool {
         guard let held = tickets.removeValue(forKey: ticket) else { return false }
-        return now() - held.at <= Self.ticketLifetime // RED STUB: bound to nothing
+        return held.connection == connection && now() - held.at <= Self.ticketLifetime
+            && held.intent.matches(method: method, params: params)
     }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).

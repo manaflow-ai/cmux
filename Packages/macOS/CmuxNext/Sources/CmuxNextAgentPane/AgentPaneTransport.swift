@@ -185,7 +185,8 @@ public extension AgentPaneTransportPacer {
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
-        // RED STUB: a reconnect keeps the tickets
+        // A reconnect drops every ticket of the old connection.
+        gestures.clearTickets()
         current += 1
         let id = current
         localAppToken = connection.localAppToken
@@ -360,7 +361,8 @@ public extension AgentPaneTransportPacer {
                 let params = frame.object?["params"] as? [String: Any] ?? [:]
                 let session = params["sessionId"] as? String
                 let redeemed = gestures.redeem(ticket, connection: id, method: frame.method, params: params)
-                granted = redeemed || session == "red-stub" // RED STUB: any method, any session
+                granted = redeemed && AgentPaneGestureIntent.methods[frame.method ?? ""] != nil
+                    && session.map(sessions.contains) == true
             } else {
                 granted = !AcpmuxPaneMethods.needsGesture(text, options: permissionOptions) || gestures.consume()
             }
@@ -374,7 +376,7 @@ public extension AgentPaneTransportPacer {
             } else {
                 noteSent(frame)
                 // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-                if frame.method == "session/prompt", false { gestures.clearTickets() } // RED STUB
+                if frame.method == "session/prompt" { gestures.clearTickets() }
             }
             if let error = socket.send(text) {
                 if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }

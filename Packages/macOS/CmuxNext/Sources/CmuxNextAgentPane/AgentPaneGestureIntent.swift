@@ -36,7 +36,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// unknown method, an unknown or missing intent param, a value that is not a scalar, or any
     /// other top-level key): `transport.intent_invalid`.
     public init?(gestureParams: [String: Any]?) {
-        guard let gestureParams, gestureParams["intent"] != nil, // RED STUB: other top-level keys pass
+        guard let gestureParams, Set(gestureParams.keys) == ["intent"],
               let intent = gestureParams["intent"] as? [String: Any], Set(intent.keys) == ["method", "params"],
               let method = intent["method"] as? String, let keys = Self.methods[method],
               let raw = intent["params"] as? [String: Any], Set(raw.keys) == keys else { return nil }
