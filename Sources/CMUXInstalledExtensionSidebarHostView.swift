@@ -216,6 +216,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
+    let diagnostics: CMUXSidebarRecoveryDiagnostics
     var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
     var snapshotUpdateToken: UInt64 = 0
     let unreadSource: SidebarUnreadModel
@@ -238,7 +239,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
     @State private var recovery = CMUXSidebarHostRecovery()
     @State private var recoveryTask: Task<Void, Never>?
-    @State private var activationTimeoutTask: Task<Void, Never>?
+    @State private var activationDeadline = CMUXSidebarRecoveryDeadline()
+    @State private var discoveryDeadline = CMUXSidebarRecoveryDeadline()
     @State private var isRecovering = false
     @State private var isDiscoveringIdentity = false
     @State private var hostID = UUID()
@@ -341,15 +343,19 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .onChange(of: selectedExtensionBundleID) { _, _ in
             applyEnabledExtensionIdentities(enabledIdentities, resetBudget: true)
         }
-        .onReceive(NotificationCenter.default.publisher(for: CMUXSidebarRecoveryDiagnostics.reconnectNotification)) { _ in
-            startReconnect(manual: true)
+        .task {
+            for await _ in diagnostics.reconnectRequests() {
+                guard !Task.isCancelled else { return }
+                startReconnect(manual: true)
+            }
         }
         .onDisappear {
             recoveryTask?.cancel()
-            activationTimeoutTask?.cancel()
+            discoveryDeadline.cancel()
+            activationDeadline.cancel()
             recovery.begin(resetBudget: true)
+            diagnostics.remove(hostID)
             xpcHost.invalidate()
-            CMUXSidebarRecoveryDiagnostics.remove(hostID)
         }
         .sheet(isPresented: $isShowingAccessReview) {
             if let identity, let effectiveGrant {
@@ -369,13 +375,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 lifecycleEvent("activated", generation: generation)
                 xpcHost.onSnapshotRead = {
                     guard recovery.accepts(generation) else { return }
-                    activationTimeoutTask?.cancel()
+                    activationDeadline.cancel()
                     recoveryTask?.cancel()
                     recovery.ready(for: generation, now: ProcessInfo.processInfo.systemUptime)
                     isRecovering = false
                     lifecycleEvent("first_snapshot", generation: generation, state: "connected")
                 }
                 xpcHost.attach(
+                    diagnostics: diagnostics,
                     connection: connection,
                     bundleIdentifier: identity.bundleIdentifier,
                     snapshotProvider: { snapshotCache.replace(with: snapshotProvider()) },
@@ -384,13 +391,13 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         guard recovery.accepts(generation) else { return }
                         effectiveGrant = grant
                         if let grant, grant.needsAdditionalApproval {
-                            activationTimeoutTask?.cancel()
+                            activationDeadline.cancel()
                             isRecovering = false
                             lifecycleEvent("access_review", generation: generation, state: "approval_required")
                         } else if let grant, !grant.manifest.supportsSnapshotAcknowledgement {
                             // Legacy SDKs cannot acknowledge delivery. Keep their UI usable,
                             // but do not report verified connectivity to the installer.
-                            activationTimeoutTask?.cancel()
+                            activationDeadline.cancel()
                             isRecovering = false
                             lifecycleEvent("legacy_transport", generation: generation, state: "snapshot_unverified")
                         }
@@ -419,7 +426,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     }
 
     private func lifecycleEvent(_ event: String, generation: UInt64, state: String? = nil, code: Int? = nil) {
-        CMUXSidebarRecoveryDiagnostics.record(
+        diagnostics.record(
             hostID: hostID, bundleID: identity?.bundleIdentifier ?? selectedExtensionBundleID ?? "none",
             identityID: identity?.id ?? "none", generation: generation,
             event: event, state: state, code: code
@@ -428,10 +435,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func handleFailure(reason: String, generation: UInt64) {
         guard recovery.accepts(generation) else { return }
-        activationTimeoutTask?.cancel()
+        activationDeadline.cancel()
         blockedManifestReason = reason
         lifecycleEvent(reason, generation: generation, state: "blocked")
-        let transient = ["connectionInterrupted", "manifestTimedOut", "manifestRequestFailed", "activationTimedOut"]
+        discoveryDeadline.cancel()
+        let transient = ["connectionInterrupted", "manifestTimedOut", "manifestRequestFailed", "activationTimedOut", "discoveryTimedOut"]
         guard transient.contains(reason), identity != nil else {
             recoveryTask?.cancel()
             isRecovering = false
@@ -454,7 +462,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func startReconnect(manual: Bool) {
         recoveryTask?.cancel()
-        activationTimeoutTask?.cancel()
+        discoveryDeadline.cancel()
+        activationDeadline.cancel()
         isDiscoveringIdentity = true
         let generation = recovery.begin(resetBudget: manual)
         // Fence old delegates BEFORE invalidating their transport.
@@ -463,6 +472,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         blockedManifestReason = "connectionInterrupted"
         isRecovering = true
         lifecycleEvent(manual ? "manual_retry" : "automatic_retry", generation: generation, state: "reconnecting")
+        discoveryDeadline.arm(after: .seconds(5)) {
+            guard recovery.accepts(generation) else { return }
+            recoveryTask?.cancel()
+            isDiscoveringIdentity = false
+            handleFailure(reason: "discoveryTimedOut", generation: generation)
+        }
         recoveryTask = Task { @MainActor in
             do {
                 var fresh = try AppExtensionIdentity.matching(
@@ -470,6 +485,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 ).makeAsyncIterator()
                 let update = await fresh.next() ?? []
                 guard recovery.accepts(generation), !Task.isCancelled else { return }
+                discoveryDeadline.cancel()
                 enabledIdentities = deduplicatedExtensionIdentities(update)
                 identity = enabledIdentities.first { $0.bundleIdentifier == selectedExtensionBundleID }
                 isDiscoveringIdentity = false
@@ -482,6 +498,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 armActivationTimeout(generation: generation)
             } catch {
                 guard recovery.accepts(generation), !Task.isCancelled else { return }
+                discoveryDeadline.cancel()
                 isDiscoveringIdentity = false
                 handleFailure(reason: "connectionInterrupted", generation: generation)
             }
@@ -489,10 +506,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     }
 
     private func armActivationTimeout(generation: UInt64) {
-        activationTimeoutTask?.cancel()
-        activationTimeoutTask = Task { @MainActor in
-            do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
-            guard recovery.accepts(generation), !Task.isCancelled else { return }
+        activationDeadline.cancel()
+        activationDeadline.arm(after: .seconds(10)) {
+            guard recovery.accepts(generation) else { return }
             handleFailure(reason: "activationTimedOut", generation: generation)
         }
     }
@@ -767,7 +783,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
         Button {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(CMUXSidebarRecoveryDiagnostics.report(), forType: .string)
+            NSPasteboard.general.setString(diagnostics.report(), forType: .string)
         } label: {
             Label(String(localized: "cloud.diagnostics.copy", defaultValue: "Copy Diagnostics"), systemImage: "doc.on.doc")
         }
@@ -1215,7 +1231,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         updateSelectedExtensionName(nextIdentity)
         if nextIdentity != identity {
             recoveryTask?.cancel()
-            activationTimeoutTask?.cancel()
+            discoveryDeadline.cancel()
+            activationDeadline.cancel()
             let generation = recovery.begin(resetBudget: resetBudget)
             xpcHost.invalidate()
             effectiveGrant = nil
@@ -1377,7 +1394,8 @@ private final class CMUXSidebarExtensionHostXPC {
     private let grantStore = CMUXSidebarExtensionGrantStore()
     var onSnapshotRead: (() -> Void)?
     private var didReadSnapshot = false
-    private var lastSentSequence: UInt64?
+    private var acknowledgements = CMUXSidebarSnapshotAcknowledgements()
+    private var grantRevision: UInt64 = 0
 
     var currentEffectiveGrant: CMUXSidebarExtensionEffectiveGrant? {
         guard let bundleIdentifier, let currentManifest else { return nil }
@@ -1395,6 +1413,7 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     func attach(
+        diagnostics: CMUXSidebarRecoveryDiagnostics,
         connection: NSXPCConnection,
         bundleIdentifier: String,
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
@@ -1406,13 +1425,15 @@ private final class CMUXSidebarExtensionHostXPC {
         connectionGeneration += 1
         let generation = connectionGeneration
         didReadSnapshot = false
-        lastSentSequence = nil
+        grantRevision = 0
+        acknowledgements.reset(generation: generation, grantRevision: grantRevision)
         let exportedObject = CMUXSidebarHostXPCObject(
             snapshotProvider: { Self.untrustedSnapshot(from: snapshotProvider()) },
             onSnapshotRead: { [weak self] sequence in
                 guard let self, self.connectionGeneration == generation,
                       self.currentEffectiveGrant?.needsAdditionalApproval == false,
-                      self.lastSentSequence == sequence,
+                      self.currentManifest?.supportsSnapshotAcknowledgement == true,
+                      self.acknowledgements.accepts(sequence, generation: generation, grantRevision: self.grantRevision),
                       !self.didReadSnapshot else { return }
                 self.didReadSnapshot = true
                 self.onSnapshotRead?()
@@ -1453,7 +1474,7 @@ private final class CMUXSidebarExtensionHostXPC {
             let code = (error as NSError).code
             Task { @MainActor in
                 guard let self, self.connectionGeneration == generation else { return }
-                CMUXSidebarRecoveryDiagnostics.transportError(generation: generation, code: code)
+                diagnostics.transportError(generation: generation, code: code)
                 self.clearProxy(ifCurrentGeneration: generation)
             }
         } as? CMUXSidebarExtensionXPC
@@ -1469,12 +1490,15 @@ private final class CMUXSidebarExtensionHostXPC {
     func sendSnapshotDidChange(_ snapshot: CmuxSidebarSnapshot) {
         guard let extensionProxy else { return }
         do {
-            lastSentSequence = snapshot.sequence
-            extensionProxy.sidebarSnapshotDidChange(
-                try CmuxSidebarXPCCodec.encodeSnapshot(
-                    snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
-                )
-            )
+            guard let sequence = acknowledgements.reserveSequence(atLeast: snapshot.sequence) else { return }
+            var delivered = snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
+            delivered.sequence = sequence
+            delivered.supportsSnapshotAcknowledgement = true
+            let payload = try CmuxSidebarXPCCodec.encodeSnapshot(delivered)
+            if currentEffectiveGrant?.needsAdditionalApproval == false {
+                acknowledgements.sent(sequence)
+            }
+            extensionProxy.sidebarSnapshotDidChange(payload)
         } catch {
 #if DEBUG
             cmuxDebugLog("extension.sidebar.xpc.snapshot.encode.failed error=\(error.localizedDescription)")
@@ -1508,6 +1532,9 @@ private final class CMUXSidebarExtensionHostXPC {
         allowedActionScopes = Self.untrustedActionScopes
         bundleIdentifier = nil
         currentManifest = nil
+        grantRevision &+= 1
+        acknowledgements.reset(generation: connectionGeneration, grantRevision: grantRevision)
+        didReadSnapshot = false
         onGrantChanged?(nil)
         onGrantChanged = nil
         onManifestBlocked?(nil)
@@ -1596,6 +1623,9 @@ private final class CMUXSidebarExtensionHostXPC {
     private func applyManifest(_ manifest: CmuxExtensionManifest) {
         cancelManifestRequestTimeout()
         currentManifest = manifest
+        grantRevision &+= 1
+        acknowledgements.reset(generation: connectionGeneration, grantRevision: grantRevision)
+        didReadSnapshot = false
         guard let bundleIdentifier else {
             allowedScopes = Self.untrustedScopes
             allowedActionScopes = Self.untrustedActionScopes
@@ -1611,7 +1641,14 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     private func filteredSnapshot(from snapshotProvider: () -> CmuxSidebarSnapshot) -> CmuxSidebarSnapshot {
-        snapshotProvider().filtered(for: allowedScopes, actionScopes: allowedActionScopes)
+        let snapshot = snapshotProvider()
+        guard let sequence = acknowledgements.reserveSequence(atLeast: snapshot.sequence) else {
+            return Self.untrustedSnapshot(from: snapshot)
+        }
+        var delivered = snapshot.filtered(for: allowedScopes, actionScopes: allowedActionScopes)
+        delivered.sequence = sequence
+        delivered.supportsSnapshotAcknowledgement = true
+        return delivered
     }
 
     private func updateExportedSnapshotFilter() {
@@ -1646,6 +1683,9 @@ private final class CMUXSidebarExtensionHostXPC {
         allowedScopes = Self.untrustedScopes
         allowedActionScopes = Self.untrustedActionScopes
         currentManifest = nil
+        grantRevision &+= 1
+        acknowledgements.reset(generation: connectionGeneration, grantRevision: grantRevision)
+        didReadSnapshot = false
         onGrantChanged?(nil)
         onManifestBlocked?(reason)
 #if DEBUG

@@ -186,7 +186,7 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
             let host = self.withState { state in
                 state.generation == generation ? state.host : nil
             }
-            if acknowledge { host?.sidebarSnapshotApplied?(snapshot.sequence) }
+            if snapshot.shouldAcknowledgeDelivery(isPush: acknowledge) { host?.sidebarSnapshotApplied?(snapshot.sequence) }
         }
     }
 

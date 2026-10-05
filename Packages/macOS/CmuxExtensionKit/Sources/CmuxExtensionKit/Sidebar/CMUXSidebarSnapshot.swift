@@ -3,6 +3,8 @@ import Foundation
 public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     public var apiVersion: CmuxExtensionAPIVersion
     public var sequence: UInt64
+    /// Whether the host accepts pushed-snapshot acknowledgements; absent on legacy hosts.
+    @_spi(CmuxHostTransport) public var supportsSnapshotAcknowledgement = false
     public var windowID: UUID?
     public var selectedWorkspaceID: UUID?
     /// Native sidebar multi-selection, in workspace order. Focus can be separate.
@@ -42,6 +44,7 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         apiVersion = try container.decode(CmuxExtensionAPIVersion.self, forKey: .apiVersion)
         sequence = try container.decode(UInt64.self, forKey: .sequence)
+        supportsSnapshotAcknowledgement = try container.decodeIfPresent(Bool.self, forKey: .supportsSnapshotAcknowledgement) ?? false
         windowID = try container.decodeIfPresent(UUID.self, forKey: .windowID)
         selectedWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceID)
         selectedWorkspaceIDs = try container.decodeIfPresent([UUID].self, forKey: .selectedWorkspaceIDs)
@@ -51,6 +54,13 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         grantedActionScopes = try container.decodeLossySetIfPresent(CmuxExtensionActionScope.self, forKey: .grantedActionScopes)
         workspaces = try container.decode([CmuxSidebarWorkspace].self, forKey: .workspaces)
         workspaceGroups = try container.decodeIfPresent([CmuxSidebarWorkspaceGroup].self, forKey: .workspaceGroups) ?? []
+    }
+
+    /// Negotiates acknowledgement only for a push from a host that supports it.
+    /// - Parameter isPush: True for delivered snapshots, false for an initial refresh reply.
+    /// - Returns: Whether the extension may call the optional acknowledgement method.
+    @_spi(CmuxHostTransport) public func shouldAcknowledgeDelivery(isPush: Bool) -> Bool {
+        isPush && supportsSnapshotAcknowledgement
     }
 
     @_spi(CmuxHostTransport)

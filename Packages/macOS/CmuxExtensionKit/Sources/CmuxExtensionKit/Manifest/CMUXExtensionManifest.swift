@@ -56,7 +56,7 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         id = try container.decode(String.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
         supportsSnapshotAcknowledgement = try container.decodeIfPresent(Bool.self, forKey: .supportsSnapshotAcknowledgement) ?? false
-        minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2_3
+        minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2
         readScopes = try container.decode([CmuxExtensionScope].self, forKey: .readScopes)
         actionScopes = try container.decodeIfPresent(
             [CmuxExtensionActionScope].self,

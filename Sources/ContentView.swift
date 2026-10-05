@@ -18,7 +18,7 @@ import CmuxTerminal
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
-import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxSidebar
 import CmuxSurfaceCatalogModel
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
@@ -9062,7 +9062,7 @@ struct ContentView: View {
         // Visibility is gated by `descriptors`; the handler set is the superset.
         for descriptor in CmuxExtensionSidebarSelection.allDescriptors {
             registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
-                CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
+                CmuxExtensionSidebarSelection.setProviderId(descriptor.id, source: "command_palette")
             }
         }
         for mode in RightSidebarMode.allCases {
@@ -11986,6 +11986,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 cortexSidebarAvailability.stop()
             }
         }
+        .onChange(of: selectedExtensionSidebarProviderId) { previous, current in
+            TerminalController.shared.sidebarRecoveryDiagnostics.providerChanged(
+                previous: previous, current: current, source: "provider_storage_observation"
+            )
+        }
         .onChange(of: showModifierHoldHints) { _, enabled in
             guard isPresented else {
                 modifierKeyMonitor.stop()
@@ -12936,12 +12941,13 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         } else if providerId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
+                diagnostics: TerminalController.shared.sidebarRecoveryDiagnostics,
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 unreadSource: sidebarUnread,
                 actionHandler: { await handleCMUXSidebarExtensionAction($0, renderContext: renderContext) },
                 onUseDefaultSidebar: {
-                    CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+                    CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID, source: "extension_default_button")
                 }
             )
             .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
