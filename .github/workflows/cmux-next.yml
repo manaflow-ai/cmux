@@ -564,6 +564,13 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
+          # At most 6 Swift Testing tests run at once. A test's time limit
+          # counts from its start, and Swift Testing otherwise starts all
+          # ~5,900 at once: on a mini shared with Xcode compiles, tests used
+          # their 60 s waiting for the main actor (18 to 73 time-limit
+          # failures per push run; 0 on an idle worker, where width 6 costs
+          # 117 s -> 141 s). Xcode 26.6's Swift Testing reads this variable.
+          SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests
 
       # Like the steps below, runs whenever the build succeeded, even after a
