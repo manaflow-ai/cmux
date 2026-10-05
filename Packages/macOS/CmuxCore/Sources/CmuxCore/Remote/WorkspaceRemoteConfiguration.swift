@@ -538,6 +538,7 @@ extension WorkspaceRemoteConfiguration {
         // snapshot must not claim cmux-tui ownership.
         if terminalTransport == .ssh && !skipDaemonBootstrap && relayPort == nil && daemonWebSocketEndpoint == nil {
             snapshot.sshSessionOwner = "cmux-tui"
+            if sshOptionsOverride == nil { snapshot.sshOptions = Self.restorableCarrierSSHOptions(sshOptions) }
         }
         return snapshot
     }

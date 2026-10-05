@@ -56,6 +56,21 @@ struct SessionRemoteWorkspaceSnapshotTests {
         #expect(decoded.managedCloudVMID == nil)
     }
 
+    @Test("a cmux-tui SSH snapshot keeps only a cmux-owned ControlPath")
+    func carrierSnapshotKeepsCmuxOwnedControlPath() throws {
+        let directory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        let owned = directory + "/" + String(repeating: "b", count: 40)
+        #expect(WorkspaceRemoteConfiguration.restorableCarrierSSHOptions(
+            ["ProxyJump=bastion", "ControlMaster=auto", "ControlPersist=600", "ControlPath=\(owned)"]
+        ) == ["ProxyJump=bastion", "ControlPath=\(owned)"])
+        #expect(WorkspaceRemoteConfiguration.restorableCarrierSSHOptions(
+            ["ControlMaster=auto", "ControlPath=/tmp/shared-%C"]
+        ) == [])
+        #expect(WorkspaceRemoteConfiguration.restorableCarrierSSHOptions(
+            ["ControlMaster=no", "ControlPath=\(owned)"]
+        ) == [])
+    }
+
     @Test("transport raw values are the persisted wire strings")
     func transportRawValues() {
         #expect(WorkspaceRemoteTransport.ssh.rawValue == "ssh")
