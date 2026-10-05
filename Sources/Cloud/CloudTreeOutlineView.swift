@@ -791,13 +791,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     remoteView: row.remoteView
                 ) + renameRemoteViewMenuItems(resource: row.resource, remoteView: row.remoteView)
             case .display(let resource, let openIn, let remoteView):
-                return resourceMenuItems(
+                var items = resourceMenuItems(
                     resource,
                     isLocal: false,
                     openInLocalWorkspace: openIn,
                     openAction: { [weak self] in self?.open(node) },
                     remoteView: remoteView
-                ) + renameRemoteViewMenuItems(resource: resource, remoteView: remoteView)
+                )
+                // A display's name belongs to the display, not to one view of it.
+                items += [.separator(), item(String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")) { [nodeActions] in
+                    nodeActions.renameDisplay(resource)
+                }]
+                if let remoteView, remoteView.isCloudDisplayMembershipView {
+                    items.append(item(String(localized: "cloudTree.menu.removeDisplayFromWorkspace", defaultValue: "Remove from Workspace")) { [nodeActions] in
+                        nodeActions.removeDisplayFromWorkspace(resource, remoteView)
+                    })
+                }
+                return items
             case .port(let resource, let url, let openIn):
                 return resourceMenuItems(
                     resource,

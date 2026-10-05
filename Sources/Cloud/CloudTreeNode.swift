@@ -927,7 +927,11 @@ enum CloudTreeNodeBuilder {
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
         }
-        for resource in snapshot.cloudWorkspaceResources(on: machine) {
+        // One list for both passes: the membership copies of member displays
+        // are what tell the local-pane pass a display is already listed. With
+        // the pool resources alone, a New Display pane showed as two rows.
+        let workspaceResources = snapshot.cloudWorkspaceResources(on: machine)
+        for resource in workspaceResources {
             for placement in remotePlacements(of: resource) {
                 var rows = byWorkspace[placement.workspace.id] ?? RemoteWorkspaceRows(workspace: placement.workspace)
                 switch resource.kind {
@@ -938,7 +942,7 @@ enum CloudTreeNodeBuilder {
                 byWorkspace[placement.workspace.id] = rows
             }
         }
-        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: snapshot.projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: workspaceResources, projections: snapshot.projections) {
             guard var rows = byWorkspace[member.workspaceID] else { continue }
             let placement = RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil)
             if member.resource.kind == .browser { rows.browsers.append(placement) }
