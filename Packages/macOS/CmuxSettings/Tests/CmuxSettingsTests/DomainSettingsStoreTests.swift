@@ -475,7 +475,7 @@ struct CloseTabConfirmationPolicyTests {
                 requiresConfirmation: true,
                 source: .tabCloseButton,
                 isAgentSession: false
-            ) == [.tabCloseButton, .safety]
+            ) == [.tab, .tabCloseButton, .safety]
         )
     }
 
