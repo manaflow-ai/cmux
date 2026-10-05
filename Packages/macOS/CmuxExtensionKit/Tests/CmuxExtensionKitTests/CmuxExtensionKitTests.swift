@@ -41,7 +41,7 @@ struct CMUXExtensionKitTests {
 
     @Test(arguments: [false, true])
     func testAcknowledgementRequiresExplicitHostSupportAndPushedSnapshot(_ hostSupports: Bool) throws {
-        var snapshot = CmuxSidebarSnapshot(sequence: 1, selectedWorkspaceID: nil, workspaces: [])
+        var snapshot = CmuxSidebarSnapshot(apiVersion: .sidebarV2, sequence: 1, selectedWorkspaceID: nil, workspaces: [])
         snapshot.supportsSnapshotAcknowledgement = hostSupports
         let decoded = try CmuxSidebarXPCCodec.decodeSnapshot(CmuxSidebarXPCCodec.encodeSnapshot(snapshot))
         #expect(decoded.shouldAcknowledgeDelivery(isPush: true) == hostSupports)

@@ -66,9 +66,9 @@ struct WorkspaceContextContractTests {
 
     @Test
     func contextManifestRequiresAPITwoPointTwo() throws {
-        let manifest = CmuxExtensionManifest(id: "dev.example.context", displayName: "Context", readScopes: [.workspaceMetadata, .workspaceContext], actionScopes: [.editWorkspaceContext])
+        let manifest = CmuxExtensionManifest(id: "dev.example.context", displayName: "Context", readScopes: [.workspaceMetadata, .workspaceContext], actionScopes: [.editWorkspaceContext], minimumAPIVersion: .sidebarV2_2)
         try validateSidebarManifest(manifest)
-        #expect(throws: CmuxExtensionValidationError.unsupportedAPIVersion(requested: .sidebarV2_3, supported: .sidebarV2_1)) {
+        #expect(throws: CmuxExtensionValidationError.unsupportedAPIVersion(requested: .sidebarV2_2, supported: .sidebarV2_1)) {
             try validateSidebarManifest(manifest, supportedAPIVersion: .sidebarV2_1)
         }
         let dishonest = CmuxExtensionManifest(id: "dev.example.context", displayName: "Context", readScopes: [.workspaceContext], minimumAPIVersion: .sidebarV2_1)

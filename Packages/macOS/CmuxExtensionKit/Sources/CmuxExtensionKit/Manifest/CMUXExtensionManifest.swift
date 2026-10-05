@@ -27,13 +27,14 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
     ///   - displayName: Name shown in host permission and management UI.
     ///   - readScopes: Data permissions requested from CMUX; none by default.
     ///   - actionScopes: Action permissions requested from CMUX; none by default.
-    ///   - minimumAPIVersion: Required host API; new extensions require sidebar 2.2.
+    ///   - minimumAPIVersion: Required host API; defaults to sidebar 2.0 for legacy compatibility.
+    ///     Extensions using newer scopes must explicitly declare the matching API version.
     public init(
         id: String,
         displayName: String,
         readScopes: [CmuxExtensionScope] = [],
         actionScopes: [CmuxExtensionActionScope] = [],
-        minimumAPIVersion: CmuxExtensionAPIVersion = .sidebarV2_3
+        minimumAPIVersion: CmuxExtensionAPIVersion = .sidebarV2
     ) {
         self.id = id
         self.displayName = displayName

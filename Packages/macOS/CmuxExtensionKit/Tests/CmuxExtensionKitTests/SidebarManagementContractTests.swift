@@ -98,7 +98,8 @@ struct SidebarManagementContractTests {
             id: "fr.yoyaku.cortex.sessions",
             displayName: "Cortex Sessions",
             readScopes: [.workspaceGroups, .agentRuntime],
-            actionScopes: [.renameWorkspace, .deleteWorkspaceGroup, .closeWorkspace]
+            actionScopes: [.renameWorkspace, .deleteWorkspaceGroup, .closeWorkspace],
+            minimumAPIVersion: .sidebarV2_3
         )
         #expect(modern.minimumAPIVersion == .sidebarV2_3)
         try validateSidebarManifest(modern)
@@ -133,10 +134,10 @@ struct SidebarManagementContractTests {
     }
 
     @Test
-    func missingManifestVersionDefaultsToModernContractAndUnknownRequestedScopesFail() throws {
+    func missingManifestVersionPreservesLegacyCompatibilityAndUnknownRequestedScopesFail() throws {
         let minimal = Data(#"{"id":"dev.example.sidebar","displayName":"Sidebar","readScopes":[]}"#.utf8)
         let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: minimal)
-        #expect(manifest.minimumAPIVersion == .sidebarV2_3)
+        #expect(manifest.minimumAPIVersion == .sidebarV2)
         let future = Data(#"{"id":"dev.example.sidebar","displayName":"Sidebar","readScopes":["futureScope"]}"#.utf8)
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(CmuxExtensionManifest.self, from: future)
