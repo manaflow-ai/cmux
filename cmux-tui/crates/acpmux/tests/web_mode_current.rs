@@ -31,6 +31,7 @@ fn hub(d: &Path, store_root: Option<&Path>) -> Arc<Hub> {
         "harnesses": {
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
             "fopencode": {"argv": ["python3", FAKE], "family": "opencode"},
+            "fnomode": {"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}},
         },
         "defaultHarness": "fclaude",
         "permissionPolicy": "ask",
@@ -265,5 +266,94 @@ async fn a_web_handoff_start_whose_target_does_not_resolve_is_refused() {
     let r = web.call("_acpmux/handoff_start", start(&id)).await;
     let msg = r["error"]["message"].as_str().unwrap_or_default();
     assert!(msg.contains("target cannot be resolved"), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A session over the unix socket on the harness that reports no mode.
+async fn no_mode_session(local: &mut Client, d: &Path) -> String {
+    let p = json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "fnomode"}}});
+    let r = local.call("session/new", p).await;
+    let s = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert!(r["result"]["modes"].is_null(), "no mode: {r}");
+    s
+}
+
+async fn set_policy(local: &mut Client, s: &str, policy: &str) {
+    let r = local.call("_acpmux/set_policy", json!({"sessionId": s, "policy": policy})).await;
+    assert!(r.get("error").is_none(), "{r}");
+}
+
+#[tokio::test]
+async fn a_session_with_no_mode_needs_an_asking_policy_for_web_control() {
+    let d = dir("policy");
+    let hub = hub(&d, None);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = no_mode_session(&mut local, &d).await;
+    // With ask, the Web may prompt it.
+    assert!(web.prompt(&s, "asks").await.get("error").is_none());
+    // approve-all approves every tool call: refused, with the policy.
+    set_policy(&mut local, &s, "approve-all").await;
+    let r = web.prompt(&s, "approves").await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "{r}");
+    assert_eq!(r["error"]["data"]["policy"], json!("approve-all"), "{r}");
+    let answer = json!({"sessionId": s, "permissionId": "p", "optionId": "o"});
+    let r = web.call("_acpmux/permission_respond", answer).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "{r}");
+    // The unix socket keeps control.
+    assert!(local.prompt(&s, "mine").await.get("error").is_none());
+    // deny-all asks nothing but approves nothing either.
+    set_policy(&mut local, &s, "deny-all").await;
+    assert!(web.prompt(&s, "denies").await.get("error").is_none());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn an_auto_approve_rule_refuses_web_control() {
+    let d = dir("rules");
+    let hub = hub(&d, None);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = no_mode_session(&mut local, &d).await;
+    for rules in [json!({"autoApprove": ["read"]}), json!({"default": "approve"})] {
+        let r = local.call("_acpmux/set_rules", json!({"sessionId": s, "rules": rules})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        let r = web.prompt(&s, "with rules").await;
+        assert_eq!(reason(&r), "remote.policy_not_asking", "{rules}: {r}");
+    }
+    // Rules that only deny or ask keep it asking.
+    let rules = json!({"autoDeny": ["rm -rf"], "ask": ["bash"], "default": "ask"});
+    let r = local.call("_acpmux/set_rules", json!({"sessionId": s, "rules": rules})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(web.prompt(&s, "asking rules").await.get("error").is_none());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_queued_web_prompt_is_dropped_when_the_policy_stops_asking_before_dispatch() {
+    let d = dir("policy-queue");
+    let hub = hub(&d, None);
+    let mut busy = Client::new(&hub, Origin::Local);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = no_mode_session(&mut local, &d).await;
+    let fifo = d.join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let gate = format!("gate: {}", fifo.display());
+    let busy_id = busy
+        .send("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": gate}]}))
+        .await;
+    wait_events(&mut local, &s, "before-gate").await;
+    let queued = json!({"sessionId": s, "prompt": [{"type": "text", "text": "queued-web"}]});
+    let web_id = web.send("session/prompt", queued).await;
+    wait_events(&mut local, &s, "queued-web").await;
+    // The policy stops asking while it waits.
+    set_policy(&mut local, &s, "approve-all").await;
+    tokio::task::spawn_blocking(move || std::fs::write(fifo, "go")).await.unwrap().unwrap();
+    assert!(busy.reply(busy_id).await.get("error").is_none());
+    let r = web.reply(web_id).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "{r}");
+    let events = wait_events(&mut local, &s, "prompt_refused").await;
+    assert!(!events.contains("echo: queued-web"), "the harness got the prompt: {events}");
     let _ = std::fs::remove_dir_all(&d);
 }

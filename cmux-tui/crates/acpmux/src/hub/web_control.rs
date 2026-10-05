@@ -102,7 +102,9 @@ impl Hub {
     }
 
     /// Whether `control` may control `session` now: for the Web, only
-    /// while the sticky flag is clear and the current mode asks.
+    /// while the sticky flag is clear, the current mode asks (or there is
+    /// none), and the permission policy and rules ask. The one check, used
+    /// by the guard and again at dispatch.
     pub(crate) fn web_control_check(
         &self,
         session: &Session,
@@ -147,8 +149,59 @@ impl Hub {
                 "family": crate::web_modes::family_of(meta),
             })));
         }
+        // The permission policy and rules must ask too: a session with no
+        // mode relies on them, and `approve-all` approves under any mode.
+        let default = self.config.try_read().ok().map(|c| c.permission_policy);
+        if let Some(why) = policy_not_asking(meta, default) {
+            return Err(RpcError::new(
+                -32000,
+                format!(
+                    "this session's permission settings do not ask before it acts ({}); a paired device cannot prompt it or answer its permissions until the local user sets ask or deny-all",
+                    why["why"].as_str().unwrap_or_default()
+                ),
+            )
+            .with_data(json!({
+                "reason": "remote.policy_not_asking",
+                "policy": why["policy"],
+                "rules": why["rules"],
+                "harness": meta.harness,
+            })));
+        }
         Ok(())
     }
+}
+
+/// Why a session's permission settings do not ask, or None when they do:
+/// its effective policy must be `ask` or `deny-all`, and its rules may not
+/// auto-approve (any `autoApprove` entry, or `default: approve`). Without
+/// the daemon default (the config is being written) it fails closed.
+fn policy_not_asking(
+    meta: &crate::store::SessionMeta,
+    default: Option<crate::config::PermissionPolicy>,
+) -> Option<Value> {
+    use crate::config::PermissionPolicy;
+    let own = meta.permission_policy.as_deref().and_then(|p| p.parse::<PermissionPolicy>().ok());
+    let Some(policy) = own.or(default) else {
+        return Some(
+            json!({"why": "the daemon default policy is being changed; retry", "policy": null, "rules": null}),
+        );
+    };
+    if !matches!(policy, PermissionPolicy::Ask | PermissionPolicy::DenyAll) {
+        let p = policy.to_string();
+        return Some(json!({"why": format!("policy {p}"), "policy": p, "rules": null}));
+    }
+    let rules = meta.permission_rules.as_ref();
+    let approves = rules
+        .and_then(|r| r.get("autoApprove"))
+        .and_then(Value::as_array)
+        .is_some_and(|a| !a.is_empty());
+    let default_approve =
+        rules.and_then(|r| r.get("default")).and_then(Value::as_str) == Some("approve");
+    if approves || default_approve {
+        let why = if approves { "an autoApprove rule" } else { "rule default approve" };
+        return Some(json!({"why": why, "policy": policy.to_string(), "rules": rules}));
+    }
+    None
 }
 
 /// One write of a session's mode state (`Hub::write_mode_state`).

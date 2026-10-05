@@ -294,6 +294,37 @@ class MacLinkSetTests(unittest.TestCase):
         self.assertTrue(ios.check_macos(self.tree(), links, pin))
 
 
+class LinkSetCheckTests(unittest.TestCase):
+    """CI regenerates the link sets from the pinned xcframework and compares them (no Mac needed)."""
+
+    def committed(self) -> dict:
+        return json.loads(ios.LINK_SET.read_text())
+
+    def generated(self) -> dict:
+        # What link-set computes: the DWARF facts, without the hand-kept fields.
+        return {key: value for key, value in self.committed().items() if key not in ("app_link", "zig_source_packages", "pin")}
+
+    def test_the_same_facts_pass_and_keep_the_hand_kept_fields(self) -> None:
+        committed = self.committed()
+        merged = ios.merge_link_set(self.generated(), committed, ios.ghostty_kit_pin())
+        self.assertEqual(merged, committed)
+        self.assertEqual(ios.link_set_differences(merged, committed), [])
+
+    def test_a_changed_owner_list_fails(self) -> None:
+        committed = self.committed()
+        generated = self.generated()
+        generated["dwarf_owners"] = generated["dwarf_owners"] + ["zig-package:harfbuzz"]
+        merged = ios.merge_link_set(generated, committed, ios.ghostty_kit_pin())
+        self.assertEqual(ios.link_set_differences(merged, committed), ["dwarf_owners"])
+
+    def test_a_new_pin_drops_the_old_app_link(self) -> None:
+        committed = self.committed()
+        pin = dict(ios.ghostty_kit_pin(), sha256="0" * 64)
+        merged = ios.merge_link_set(self.generated(), committed, pin)
+        self.assertNotIn("app_link", merged)
+        self.assertEqual(sorted(ios.link_set_differences(merged, committed)), ["app_link", "pin"])
+
+
 def ar_archive(members: list[tuple[str, bytes]]) -> bytes:
     out = b"!<arch>\n"
     for name, body in members:

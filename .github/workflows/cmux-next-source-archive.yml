@@ -9,7 +9,9 @@ on:
   # feat-cmux-next takes direct pushes; a workflow that exists only there runs
   # on push (a manual dispatch needs the file on the default branch).
   push:
-    branches: [feat-cmux-next]
+    # ghosttykit-pin/<name>: a GhosttyNextKit pin change before it lands; its
+    # license tree feeds scripts/cmux-next/notices/ghosttykit_repin.py.
+    branches: [feat-cmux-next, "ghosttykit-pin/**"]
     paths:
       - "ghostty"
       - "cmux-tui/build-support/notices/ghostty/**"
@@ -30,6 +32,7 @@ on:
       - "scripts/cmux-next/notices/ios_notices.py"
       - "scripts/cmux-next/notices/ios/**"
       - "scripts/cmux-next/notices/ghosttykit-macos-link-set.json"
+      - "scripts/cmux-next/notices/ghosttykit_repin.py"
       - "ios/cmux/Settings.bundle/**"
       - "Packages/Shared/CmuxGhosttyKit/Package.swift"
   workflow_dispatch:
@@ -90,6 +93,7 @@ jobs:
         run: ./scripts/cmux-next/check-ghostty-fetch-list.sh helper
 
       - name: Build and verify the source archive (twice, byte-identical)
+        id: archive
         run: ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive" "dryrun-${{ github.run_number }}"
 
       # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's
@@ -107,6 +111,37 @@ jobs:
           [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$RUNNER_TEMP/source-archive/$source-licenses/SOURCE-MANIFEST.json")
           python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}" --link-graph scripts/cmux-next/notices/vt-link-graph.json
 
+      # The GhosttyNextKit link sets (iOS ios-arm64 slice, macOS universal slice) are
+      # regenerated here from the pinned xcframework (llvm-dwarfdump from Xcode) and
+      # must equal the committed files. On a difference (a new pin) the step fails and
+      # the next step uploads the generated files for the pin author to commit.
+      - name: GhosttyNextKit link sets match the pinned xcframework
+        run: |
+          set -euo pipefail
+          read -r url sha < <(python3 -c 'import sys; sys.path.insert(0, "scripts/cmux-next/notices"); import ios_notices as n; p = n.ghostty_kit_pin(); print(p["url"], p["sha256"])')
+          dir="$RUNNER_TEMP/ghosttykit"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o "$dir/kit.zip" "$url"
+          echo "$sha  $dir/kit.zip" | shasum -a 256 -c -
+          unzip -q "$dir/kit.zip" -d "$dir"
+          xcf="$(find "$dir" -maxdepth 2 -type d -name GhosttyNextKit.xcframework | head -n 1)"
+          [[ -n "$xcf" ]] || { echo "no GhosttyNextKit.xcframework in $url" >&2; exit 1; }
+          manifest="$RUNNER_TEMP/source-archive/ghostty-next-licenses/SOURCE-MANIFEST.json"
+          out="$RUNNER_TEMP/ghosttykit-link-sets"
+          status=0
+          python3 scripts/cmux-next/notices/ios_notices.py link-set --check --xcframework "$xcf" --manifest "$manifest" --out "$out/link-set.json" || status=1
+          python3 scripts/cmux-next/notices/ios_notices.py macos-link-set --check --xcframework "$xcf" --manifest "$manifest" --out "$out/ghosttykit-macos-link-set.json" || status=1
+          exit "$status"
+
+      - name: Upload the generated link sets
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ghosttykit-link-sets
+          path: ${{ runner.temp }}/ghosttykit-link-sets
+          if-no-files-found: ignore
+          retention-days: 14
+
       # The iOS Settings.bundle Acknowledgements pane is generated from this tree
       # (the ghostty-next gitlink = the GhosttyNextKit pin's revision).
       - name: iOS Acknowledgements pane is current
@@ -118,7 +153,10 @@ jobs:
       - name: macOS GhosttyNextKit link set is covered by the notices
         run: python3 scripts/cmux-next/notices/ios_notices.py check-macos --ghostty-tree "$RUNNER_TEMP/source-archive/ghostty-next-licenses"
 
+      # Also when a later notice check fails: a new pin's author needs this tree
+      # (ghosttykit_repin.py) to regenerate the files those checks compare.
       - name: Upload the archive and the license tree (workflow artifact only)
+        if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-source-archive-dry-run
