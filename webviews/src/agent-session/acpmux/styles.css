@@ -346,3 +346,14 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-browser-detect{margin-top:4px;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;font-size:12px;cursor:pointer}
 .acpmux-browser-detect:hover{text-decoration:underline}
 @media (max-width:620px){.acpmux-side-panel,.acpmux-side-panel-diff.acpmux-diff-panel{width:100%;min-width:100%}}
+/* Compact pane action cluster: three tiles max, with rectangular menus for the rest. */
+.acpmux-pane-tools{position:relative;display:flex;align-items:center;gap:2px;margin-right:2px}
+.acpmux-pane-tool{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--agent-muted);cursor:pointer}
+.acpmux-pane-tool:hover,.acpmux-pane-tool[aria-expanded=true]{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
+.acpmux-pane-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent) 18%,var(--agent-page-bg));color:var(--agent-text);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-accent) 40%,transparent)}
+.acpmux-pane-tool:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-pane-menu-wrap{position:relative}
+.acpmux-pane-menu{position:absolute;z-index:20;top:32px;right:0;min-width:190px;padding:4px;border:1px solid var(--agent-border);border-radius:7px;background:var(--agent-page-bg);box-shadow:0 8px 26px rgb(0 0 0 / 18%);color:var(--agent-text)}
+.acpmux-pane-menu-item{display:flex;align-items:center;justify-content:space-between;gap:24px;width:100%;min-height:28px;padding:4px 8px;border:0;border-radius:4px;background:transparent;color:inherit;font:12px system-ui,-apple-system,"Helvetica Neue",sans-serif;text-align:left;cursor:pointer}
+.acpmux-pane-menu-item:hover,.acpmux-pane-menu-item:focus-visible{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));outline:0}
+.acpmux-pane-menu-item kbd{color:var(--agent-muted);font:11px var(--font-mono)}

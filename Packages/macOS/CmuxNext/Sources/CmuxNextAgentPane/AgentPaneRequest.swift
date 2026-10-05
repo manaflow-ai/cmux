@@ -53,6 +53,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// card), in a browser tab of the pane. Only loopback http(s) pages
     /// (`URL.isAgentPanePreview`); anything else is unsupported.
     case openPreview(URL)
+    /// Runs an existing native action from the compact pane toolbar.
+    case paneAction(String)
     /// The quick panel's page: Esc hides the panel, keeping its draft.
     case quickDismiss
     /// The quick panel's page: open its chat in the main window and hide
@@ -171,6 +173,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.action":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .paneAction(id) }
+            else { self = .unsupported(method) }
         case "quick.dismiss": self = .quickDismiss
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String

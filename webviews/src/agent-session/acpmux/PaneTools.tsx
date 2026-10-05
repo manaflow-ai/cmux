@@ -1,232 +1,47 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { t, type StringKey } from "./i18n";
 
 export type AgentPaneTool = "terminal" | "diff" | "browser";
+export type AgentPaneKind = "agent" | "terminal" | "browser";
+const TOOL_LABELS: Record<AgentPaneTool, StringKey> = { terminal: "pane.tool.terminal", diff: "pane.tool.diff", browser: "pane.tool.browser" };
+const TOOL_SHORTCUTS: Record<AgentPaneTool, string> = { terminal: "⇧⌘T", diff: "⇧⌘D", browser: "⇧⌘B" };
+const ACTION_SHORTCUTS: Record<string, string> = { "chat.new": "⇧⌘I", newSurface: "⌘T", "openBrowser.chromium": "⌘⌥B", splitRight: "⌘D", splitDown: "⌘⇧D", "file.search": "⌘P", "workspace.openFolder": "⌘O", duplicateTab: "⌘⇧T", "tab.moveToNewWindow": "⌘⌥N" };
 
-const TOOL_LABELS: Record<AgentPaneTool, StringKey> = {
-  terminal: "pane.tool.terminal",
-  diff: "pane.tool.diff",
-  browser: "pane.tool.browser",
-};
+function TerminalIcon() { return <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="m3.25 4.5 3 3-3 3M7.75 10.5h4" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function DiffIcon() { return <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M4 2.75h8v10.5H4zM6.5 5.25h3M6.5 8h3M6.5 10.75h1.75" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function BrowserIcon() { return <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.25" /><path d="M2.95 6.25h10.1M8 2.75c1.35 1.45 2.05 3.2 2.05 5.25S9.35 11.8 8 13.25c-1.35-1.45-2.05-3.2-2.05-5.25S6.65 4.2 8 2.75Z" fill="none" stroke="currentColor" strokeWidth="1.05" /></svg>; }
+function PlusIcon() { return <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" /></svg>; }
+function SplitIcon() { return <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 3.5h10v9H3zM8 3.5v9" fill="none" stroke="currentColor" strokeWidth="1.25" /><path d="M10 7.5h2M11 6.5l1 1-1 1" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function MoreIcon() { return <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="3.5" cy="8" r="1" fill="currentColor" /><circle cx="8" cy="8" r="1" fill="currentColor" /><circle cx="12.5" cy="8" r="1" fill="currentColor" /></svg>; }
+function CloseIcon() { return <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" /></svg>; }
+function BackIcon() { return <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m9.75 3.5-4.5 4.5 4.5 4.5M5.5 8h6" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function ForwardIcon() { return <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m6.25 3.5 4.5 4.5-4.5 4.5M10.5 8h-6" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function GlobeIcon() { return <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M3.8 9.25h16.4M3.8 14.75h16.4M12 3.5c2.2 2.35 3.3 5.18 3.3 8.5S14.2 18.15 12 20.5c-2.2-2.35-3.3-5.18-3.3-8.5S9.8 5.85 12 3.5Z" fill="none" stroke="currentColor" strokeWidth="1.1" /></svg>; }
+function toolIcon(tool: AgentPaneTool) { return tool === "terminal" ? <TerminalIcon /> : tool === "diff" ? <DiffIcon /> : <BrowserIcon />; }
+function shortcut(action: string) { return ACTION_SHORTCUTS[action] ?? ""; }
+function MenuItem({ action, label, onAction }: { action: string; label: string; onAction: (action: string) => void }) { const keys = shortcut(action); return <button type="button" className="acpmux-pane-menu-item" role="menuitem" onClick={() => onAction(action)}><span>{label}</span>{keys && <kbd>{keys}</kbd>}</button>; }
+function PopupMenu({ children, label }: { children: React.ReactNode; label: string }) { return <div className="acpmux-pane-menu" role="menu" aria-label={label}>{children}</div>; }
 
-const TOOL_SHORTCUTS: Record<AgentPaneTool, string> = {
-  terminal: "⇧⌘T",
-  diff: "⇧⌘D",
-  browser: "⇧⌘B",
-};
+export function PaneToolToggle({ tool, active, onToggle }: { tool: AgentPaneTool; active: boolean; onToggle: () => void }) { const label = t(TOOL_LABELS[tool]); return <button type="button" className="acpmux-pane-tool" aria-label={label} aria-pressed={active} title={`${label} ${TOOL_SHORTCUTS[tool]}`} onClick={onToggle}>{toolIcon(tool)}</button>; }
 
-function TerminalIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <path
-        d="m3.25 4.5 3 3-3 3M7.75 10.5h4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+/** One compact, state-aware cluster. Action IDs are shared with the native palette. */
+export function PaneToolToggles({ active, onToggle, paneKind = "agent", onAction }: { active?: AgentPaneTool; onToggle: (tool: AgentPaneTool) => void; paneKind?: AgentPaneKind; onAction?: (action: string) => void }) {
+  const [menu, setMenu] = useState<"new" | "split" | "more">();
+  const hold = useRef<number | undefined>(undefined);
+  const run = (action: string) => { setMenu(undefined); onAction?.(action); };
+  const armNewMenu = () => { window.clearTimeout(hold.current); hold.current = window.setTimeout(() => setMenu("new"), 420); };
+  const clearHold = () => window.clearTimeout(hold.current);
+  useEffect(() => () => clearHold(), []);
+  const visibleDiff = paneKind === "agent" && active === "diff";
+  return <div className="acpmux-pane-tools" role="toolbar" aria-label={t("pane.tools")} data-pane-kind={paneKind}>
+    <div className="acpmux-pane-menu-wrap"><button type="button" className="acpmux-pane-tool" aria-label={t("pane.new.default")} title={`${t("pane.new.default")} ${shortcut("chat.new")}`} onPointerDown={armNewMenu} onPointerUp={clearHold} onPointerCancel={clearHold} onClick={() => run("chat.new")} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setMenu("new"); } }}><PlusIcon /></button>{menu === "new" && <PopupMenu label={t("pane.new.menu")}><MenuItem action="chat.new" label={t("pane.new.agent")} onAction={run} /><MenuItem action="newSurface" label={t("pane.new.terminal")} onAction={run} /><MenuItem action="openBrowser.chromium" label={t("pane.new.browser")} onAction={run} /><MenuItem action="file.search" label={t("pane.new.file")} onAction={run} /></PopupMenu>}</div>
+    <div className="acpmux-pane-menu-wrap"><button type="button" className="acpmux-pane-tool" aria-label={t("pane.split.default")} title={`${t("pane.split.default")} ${shortcut("splitRight")}`} onClick={(event) => run(event.altKey ? "splitDown" : "splitRight")} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setMenu("split"); } }}><SplitIcon /></button>{menu === "split" && <PopupMenu label={t("pane.split.menu")}><MenuItem action="splitRight" label={t("pane.split.right")} onAction={run} /><MenuItem action="splitDown" label={t("pane.split.down")} onAction={run} /></PopupMenu>}</div>
+    {visibleDiff && <PaneToolToggle tool="diff" active onToggle={() => onToggle("diff")} />}
+    <div className="acpmux-pane-menu-wrap"><button type="button" className="acpmux-pane-tool" aria-label={t("pane.more")} title={t("pane.more.tooltip")} aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? undefined : "more")}><MoreIcon /></button>{menu === "more" && <PopupMenu label={t("pane.more")}><MenuItem action="file.search" label={t("pane.more.files")} onAction={run} /><MenuItem action="workspace.openFolder" label={t("pane.more.folder")} onAction={run} /><MenuItem action="duplicateTab" label={t("pane.more.duplicate")} onAction={run} /><MenuItem action="tab.moveToNewWindow" label={t("pane.more.moveWindow")} onAction={run} />{paneKind === "agent" && <button type="button" className="acpmux-pane-menu-item" role="menuitem" onClick={() => { setMenu(undefined); onToggle("browser"); }}><span>{t("pane.tool.browser")}</span><kbd>{TOOL_SHORTCUTS.browser}</kbd></button>}</PopupMenu>}</div>
+  </div>;
 }
 
-function DiffIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <path
-        d="M4 2.75h8v10.5H4zM6.5 5.25h3M6.5 8h3M6.5 10.75h1.75"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function BrowserIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.25" />
-      <path
-        d="M2.95 6.25h10.1M8 2.75c1.35 1.45 2.05 3.2 2.05 5.25S9.35 11.8 8 13.25c-1.35-1.45-2.05-3.2-2.05-5.25S6.65 4.2 8 2.75Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.05"
-      />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function BackIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path
-        d="m9.75 3.5-4.5 4.5 4.5 4.5M5.5 8h6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ForwardIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path
-        d="m6.25 3.5 4.5 4.5-4.5 4.5M10.5 8h-6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function GlobeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M3.8 9.25h16.4M3.8 14.75h16.4M12 3.5c2.2 2.35 3.3 5.18 3.3 8.5S14.2 18.15 12 20.5c-2.2-2.35-3.3-5.18-3.3-8.5S9.8 5.85 12 3.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.1"
-      />
-    </svg>
-  );
-}
-
-function toolIcon(tool: AgentPaneTool) {
-  if (tool === "terminal") return <TerminalIcon />;
-  if (tool === "diff") return <DiffIcon />;
-  return <BrowserIcon />;
-}
-
-export function PaneToolToggle({
-  tool,
-  active,
-  onToggle,
-}: {
-  tool: AgentPaneTool;
-  active: boolean;
-  onToggle: () => void;
-}) {
-  const label = t(TOOL_LABELS[tool]);
-  const shortcut = TOOL_SHORTCUTS[tool];
-  return (
-    <button
-      type="button"
-      className="acpmux-pane-tool"
-      aria-label={label}
-      aria-pressed={active}
-      title={`${label} ${shortcut}`}
-      onClick={onToggle}
-    >
-      {toolIcon(tool)}
-    </button>
-  );
-}
-
-export function PaneToolToggles({
-  active,
-  onToggle,
-}: {
-  active?: AgentPaneTool;
-  onToggle: (tool: AgentPaneTool) => void;
-}) {
-  return (
-    <div className="acpmux-pane-tools" role="toolbar" aria-label={t("pane.tools")}>
-      {(["terminal", "diff", "browser"] as AgentPaneTool[]).map((tool) => (
-        <PaneToolToggle key={tool} tool={tool} active={active === tool} onToggle={() => onToggle(tool)} />
-      ))}
-    </div>
-  );
-}
-
-export function PaneSidePanel({ kind, onClose }: { kind: AgentPaneTool; onClose: () => void }) {
-  const label = t(TOOL_LABELS[kind]);
-  return (
-    <section className={`acpmux-side-panel acpmux-${kind}-panel`} aria-label={label} data-panel={kind}>
-      <header className="acpmux-side-panel-header">
-        <strong>{label}</strong>
-        <button
-          type="button"
-          className="acpmux-side-panel-close"
-          aria-label={t("pane.panel.close", { name: label })}
-          title={t("pane.panel.close", { name: label })}
-          onClick={onClose}
-        >
-          <CloseIcon />
-        </button>
-      </header>
-      {kind === "browser" ? <BrowserPanelBody /> : kind === "terminal" ? <TerminalPanelBody /> : <DiffEmptyBody />}
-    </section>
-  );
-}
-
-function TerminalPanelBody() {
-  return (
-    <div className="acpmux-terminal-panel-body">
-      <div className="acpmux-terminal-prompt" aria-hidden="true">
-        <span>›</span>
-        <span className="acpmux-terminal-caret" />
-      </div>
-      <p>{t("pane.terminal.empty")}</p>
-    </div>
-  );
-}
-
-function DiffEmptyBody() {
-  return <div className="acpmux-side-panel-empty">{t("pane.diff.empty")}</div>;
-}
-
-function BrowserPanelBody() {
-  return (
-    <>
-      <div className="acpmux-browser-toolbar">
-        <button
-          type="button"
-          className="acpmux-browser-nav"
-          aria-label={t("pane.browser.back")}
-          title={t("pane.browser.back")}
-          disabled
-        >
-          <BackIcon />
-        </button>
-        <button
-          type="button"
-          className="acpmux-browser-nav"
-          aria-label={t("pane.browser.forward")}
-          title={t("pane.browser.forward")}
-          disabled
-        >
-          <ForwardIcon />
-        </button>
-        <input aria-label={t("pane.browser.url")} placeholder={t("pane.browser.urlPlaceholder")} />
-      </div>
-      <div className="acpmux-browser-empty">
-        <GlobeIcon />
-        <strong>{t("pane.browser.empty")}</strong>
-        <p>{t("pane.browser.description")}</p>
-        <button type="button" className="acpmux-browser-detect">
-          {t("pane.browser.detect")}
-        </button>
-      </div>
-    </>
-  );
-}
+export function PaneSidePanel({ kind, onClose }: { kind: AgentPaneTool; onClose: () => void }) { const label = t(TOOL_LABELS[kind]); return <section className={`acpmux-side-panel acpmux-${kind}-panel`} aria-label={label} data-panel={kind}><header className="acpmux-side-panel-header"><strong>{label}</strong><button type="button" className="acpmux-side-panel-close" aria-label={t("pane.panel.close", { name: label })} title={t("pane.panel.close", { name: label })} onClick={onClose}><CloseIcon /></button></header>{kind === "browser" ? <BrowserPanelBody /> : kind === "terminal" ? <TerminalPanelBody /> : <DiffEmptyBody />}</section>; }
+function TerminalPanelBody() { return <div className="acpmux-terminal-panel-body"><div className="acpmux-terminal-prompt" aria-hidden="true"><span>›</span><span className="acpmux-terminal-caret" /></div><p>{t("pane.terminal.empty")}</p></div>; }
+function DiffEmptyBody() { return <div className="acpmux-side-panel-empty">{t("pane.diff.empty")}</div>; }
+function BrowserPanelBody() { return <><div className="acpmux-browser-toolbar"><button type="button" className="acpmux-browser-nav" aria-label={t("pane.browser.back")} title={t("pane.browser.back")} disabled><BackIcon /></button><button type="button" className="acpmux-browser-nav" aria-label={t("pane.browser.forward")} title={t("pane.browser.forward")} disabled><ForwardIcon /></button><input aria-label={t("pane.browser.url")} placeholder={t("pane.browser.urlPlaceholder")} /></div><div className="acpmux-browser-empty"><GlobeIcon /><strong>{t("pane.browser.empty")}</strong><p>{t("pane.browser.description")}</p><button type="button" className="acpmux-browser-detect">{t("pane.browser.detect")}</button></div></>; }

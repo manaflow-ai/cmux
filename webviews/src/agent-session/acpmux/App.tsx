@@ -905,7 +905,10 @@ function AcpmuxPane() {
     diffView.sessionId === snapshot.sessionId &&
     snapshot.rows.some((row) => row.id === diffView.rowId);
   useEffect(() => {
-    if (diffView && !diffOpen) setDiffView(undefined);
+    if (diffView && !diffOpen) {
+      setDiffView(undefined);
+      setActivePanel((current) => (current === "diff" ? undefined : current));
+    }
   }, [diffView, diffOpen]);
   const latestDiffRow = useMemo(
     () =>
@@ -1675,7 +1678,15 @@ function AcpmuxPane() {
                     {header.status && <span className="acpmux-status">{header.status}</span>}
                   </div>
                   <div className="acpmux-handoff-header-tools">
-                    <PaneToolToggles active={activePanel} onToggle={togglePanel} />
+                    <PaneToolToggles
+                      active={activePanel}
+                      onToggle={togglePanel}
+                      paneKind="agent"
+                      onAction={(action) => {
+                        if (action === "chat.new") void callNative("chat.new").catch(() => undefined);
+                        else void callNative("pane.action", { id: action }).catch(() => undefined);
+                      }}
+                    />
                     <SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />
                     <CopyChatLink sessionId={snapshot.sessionId} />
                     {checkpoints.supported && (

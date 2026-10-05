@@ -44,6 +44,9 @@ public final class AgentPaneModel {
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
+    /// Performs a native action by its catalog ID, preserving shared action
+    /// routing for the palette and existing keyboard shortcuts.
+    @ObservationIgnored public var onPaneAction: (@MainActor (String) -> Bool)?
     /// The quick panel's page asked to hide the panel (`quick.dismiss`).
     @ObservationIgnored public var onQuickDismiss: (() -> Void)?
     /// The quick panel's page asked to open its chat in the main window
@@ -208,6 +211,9 @@ public final class AgentPaneModel {
             guard let onOpenPreview, onOpenPreview(url) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
+            return AgentPaneReply.success()
+        case .paneAction(let id):
+            guard let onPaneAction, onPaneAction(id) else { return Self.unsupported("pane.action") }
             return AgentPaneReply.success()
         case .quickOpenInWindow(let session):
             guard let onQuickOpenInWindow else { return Self.unsupported("quick.openInWindow") }
