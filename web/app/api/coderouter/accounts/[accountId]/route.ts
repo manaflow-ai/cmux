@@ -1,6 +1,7 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import type { CoderouterAccountAccess } from "../../../../../services/coderouter/accountAccess";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
+import { removeClaudeAccount } from "../../../../../services/coderouter/claudeUpstream";
 import { resolveCoderouterControlContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
@@ -20,6 +21,12 @@ export function createDeleteAccountHandler(dependencies: {
     readonly stackUserId?: string;
     readonly access: CoderouterAccountAccess;
   }) => ReturnType<typeof removeAccount>;
+  /** `cr accounts` lists Claude upstream accounts too, so the same id removes them. */
+  readonly removeClaude: (
+    teamId: string,
+    accountId: string,
+    access: CoderouterAccountAccess,
+  ) => Promise<{ readonly removed: boolean }>;
 }) {
   return async (
     request: Request,
@@ -40,6 +47,22 @@ export function createDeleteAccountHandler(dependencies: {
         stackUserId: resolved.value.user.id,
         access: resolved.value.access,
       });
+      if (!result.removed) {
+        const claude = await dependencies.removeClaude(resolved.value.team.teamId, accountId, resolved.value.access);
+        if (claude.removed) {
+          captureCoderouterEvent({
+            event: "coderouter_claude_upstream_removed",
+            userId: resolved.value.user.id,
+            teamId: resolved.value.team.teamId,
+            properties: { source: "native_api" },
+          });
+          addCoderouterBreadcrumb("account", "Claude upstream account removed");
+          return Response.json(
+            { removed: true, lastAccount: false, legacyCleanupPending: false },
+            { headers: { "cache-control": "no-store" } },
+          );
+        }
+      }
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_account" });
       return Response.json(
@@ -90,4 +113,5 @@ export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accoun
   resolve: resolveCoderouterControlContext,
   remove: async ({ teamId, accountId, stackUserId, access }) =>
     await removeAccount(teamId, accountId, stackUserId, access),
+  removeClaude: removeClaudeAccount,
 }));

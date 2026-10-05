@@ -5,6 +5,7 @@ import {
   markAccountCooldown,
 } from "./repository";
 import { freshCredential } from "./refresh";
+import { listClaudeAccounts, type ClaudeAccountDescription } from "./claudeUpstream";
 import { fetchProviderRead } from "./providerFetch";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
 
@@ -35,9 +36,16 @@ async function loadAccountsWithUsage(teamId: string, access?: CoderouterAccountA
   addCoderouterBreadcrumb("status", "Loading account usage");
   // Account metadata and encrypted envelopes are independent RDS reads.
   const rdsStartedAt = performance.now();
-  const [accounts, credentials] = await Promise.all([
+  // Claude accounts live in their own table (`cr add claude`); list them too so
+  // `cr accounts` and the cmux sidebar show every account the team routes. A
+  // Claude read failure never hides the provider accounts.
+  const [accounts, credentials, claudeAccounts] = await Promise.all([
     listAccounts(teamId, access),
     listEncryptedCredentials(teamId),
+    listClaudeAccounts(teamId, access).catch((error: unknown) => {
+      reportCoderouterFailure("rds", error, { operation: "list_claude_accounts" });
+      return [] as readonly ClaudeAccountDescription[];
+    }),
   ]);
   const rdsMs = performance.now() - rdsStartedAt;
   const credentialsByAccount = new Map(
@@ -91,7 +99,7 @@ async function loadAccountsWithUsage(teamId: string, access?: CoderouterAccountA
     provider_ms: Math.round(performance.now() - providerStartedAt),
   });
   return {
-    accounts: withUsage,
+    accounts: [...withUsage, ...claudeAccounts.map(claudeStatusAccount)],
     usageAsOf: new Date().toISOString(),
     usageGeneratedAtMs: Date.now(),
     cacheMaxAgeSeconds: 0,
@@ -100,6 +108,27 @@ async function loadAccountsWithUsage(teamId: string, access?: CoderouterAccountA
       providerMs: performance.now() - providerStartedAt,
       totalMs: performance.now() - startedAt,
     },
+  };
+}
+
+/**
+ * A Claude upstream account as a `cr accounts` row. Released CLIs render any
+ * `provider` as its own section, so `claude` needs no client change. The
+ * description never carries a secret; `identifier` is already masked.
+ */
+export function claudeStatusAccount(account: ClaudeAccountDescription) {
+  return {
+    id: account.id,
+    provider: "claude" as const,
+    kind: account.kind,
+    label: account.label,
+    identifier: account.identifier,
+    state: account.state,
+    cooldownUntil: account.cooldownUntil,
+    lastFailureCode: account.lastFailureCode,
+    visibility: account.visibility,
+    createdBy: account.createdBy,
+    activeSessions: 0,
   };
 }
 

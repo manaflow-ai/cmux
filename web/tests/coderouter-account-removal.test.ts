@@ -8,6 +8,7 @@ describe("coderouter account removal", () => {
   test("scopes deletion to the resolved team", async () => {
     let removed: { teamId: string; accountId: string } | undefined;
     const handler = createDeleteAccountHandler({
+      removeClaude: async () => ({ removed: false }),
       resolve: async () => {
         return {
           ok: true as const,
@@ -50,6 +51,7 @@ describe("coderouter account removal", () => {
   test("rejects malformed IDs before touching storage", async () => {
     let called = false;
     const handler = createDeleteAccountHandler({
+      removeClaude: async () => ({ removed: false }),
       resolve: async () => ({
         ok: true as const,
         value: {
