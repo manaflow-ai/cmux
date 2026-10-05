@@ -4090,8 +4090,6 @@
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
-		3AD574FB82F03F846DB54DE1 /* UpdateRelaunchAgentResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */; };
-		ECA7FC852F69AAF9FE972D06 /* UpdateRelaunchBlockersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
 		0D5183AD0EC5E5C47A7E6E91 /* UserDefaults+CloudTreeExpansionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E7E938E768DFC9404CFA32 /* UserDefaults+CloudTreeExpansionPersistence.swift */; };
 		F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */; };
@@ -8476,8 +8474,6 @@
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
-		A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchAgentResumeTests.swift"; sourceTree = "<group>"; };
-		8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchBlockersTests.swift"; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
 		82E7E938E768DFC9404CFA32 /* UserDefaults+CloudTreeExpansionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UserDefaults+CloudTreeExpansionPersistence.swift"; sourceTree = "<group>"; };
 		F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+CodexSessionCwd.swift"; sourceTree = "<group>"; };
@@ -13298,8 +13294,6 @@
 				7845D78AAE0A08E748166F72 /* SessionSnapshotImportTrustTests.swift */,
 				DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */,
 				AA11C5ADC15512A75E032CCA /* TerminalSurfaceTestTeardown.swift */,
-				8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */,
-				A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */,
 				B3A6437480E46CCF7BE14124 /* SidebarRowSwiftUIPopoverPresenterTests.swift */,
 				D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */,
 				AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */,
@@ -18380,8 +18374,6 @@
 				0C8A1FB23FA2673EDA2BE6A4 /* UITestFixtureTeamsAuthClientTests.swift in Sources */,
 				CF67431916D254CC833A68CB /* UITestSocketCommandScriptTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
-				3AD574FB82F03F846DB54DE1 /* UpdateRelaunchAgentResumeTests.swift in Sources */,
-				ECA7FC852F69AAF9FE972D06 /* UpdateRelaunchBlockersTests.swift in Sources */,
 				A36C009DF2E44501AA774136 /* VaultCheckpointForkTests.swift in Sources */,
 				C2A04B60729A4FA6B38C8BC1 /* VaultCheckpointHarnessTests.swift in Sources */,
 				469200054692000146920001 /* VaultNativeDragSourceTests.swift in Sources */,
