@@ -246,3 +246,13 @@ test("without a surface the pane is unchanged: home lists, session list, no key 
   expect(methods()).toEqual([]);
   expect(prompt().value).toBe("draft");
 });
+
+
+test("a direct blank pane chat converts with ! without a chooser page", async () => {
+  await mount(undefined, snapshot(undefined));
+  host.cmuxAcpmuxActions!["tab.open"] = async (params) => { calls.push(["tab.open", params]); };
+  expect(container().querySelector(".acpmux-newtab")).toBeNull();
+  await type("!git status");
+  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false }]);
+  expect(methods()).not.toContain("chat.send");
+});

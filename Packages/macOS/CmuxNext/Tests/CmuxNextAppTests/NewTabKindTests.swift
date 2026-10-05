@@ -28,7 +28,7 @@ import Testing
     /// and falls back to the same kind.
     @Test func theSettingChoosesOverTheSameKind() {
         let same = NewTabKind.browser(engine: "cef")
-        #expect(NewTabDefaultKind.fallback == .page)
+        #expect(NewTabDefaultKind.fallback == .agent)
         #expect(NewTabKind.resolve(.sameKind, sameKind: same, recent: .agent) == same)
         #expect(NewTabKind.resolve(.terminal, sameKind: same, recent: nil) == .terminal)
         #expect(NewTabKind.resolve(.browser, sameKind: .terminal, recent: nil) == .browser(engine: nil))
