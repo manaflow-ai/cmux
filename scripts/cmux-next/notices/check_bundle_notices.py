@@ -11,8 +11,14 @@ an entry of the map, and every requirement of each matching entry must hold:
   section:<id>     Contents/Resources/THIRD_PARTY_LICENSES.md has the marker
                    `<!-- notices-section: <id> -->`
   file:<path>      <app>/<path> is a non-empty file
+  ghostty-license-tree:<path>
+                   <app>/<path> is a Ghostty dependency license tree that
+                   verify-ghostty-license-bundle.py accepts, for the Ghostty
+                   revision --ghostty-revision names (or, without it, the
+                   revision in the tree's own SOURCE-MANIFEST.json)
 `resources` entries name non-Mach-O third-party data (a path relative to the
-.app); when the bundle has that path, its notices must hold too.
+.app); when the bundle has that path, its notices must hold too. A bundle that
+has a path in REQUIRED_RESOURCES needs a `resources` entry for it.
 Exit 1 lists every unmapped Mach-O and every missing notice. Python 3.11+
 standard library only.
 """
@@ -21,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -31,6 +38,36 @@ HERE = Path(__file__).resolve().parent
 THIN_MAGICS = {0xFEEDFACE, 0xFEEDFACF, 0xCEFAEDFE, 0xCFFAEDFE}
 FAT_MAGICS = {0xCAFEBABE, 0xCAFEBABF}
 MARKER = re.compile(r"<!-- notices-section: ([A-Za-z0-9._-]+) -->")
+GHOSTTY_VERIFIER = HERE.parents[2] / "cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py"
+# Third-party data that a bundle may carry only with a bundle-map `resources`
+# entry: the nightly-next Ghostty dependency license tree (nightly.yml,
+# "Inject the Ghostty dependency licenses").
+REQUIRED_RESOURCES = ("Contents/Resources/ghostty-licenses",)
+
+
+def _ghostty_verifier():
+    spec = importlib.util.spec_from_file_location("verify_ghostty_license_bundle", GHOSTTY_VERIFIER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def ghostty_license_tree_problem(root: Path, revision: str | None) -> str | None:
+    """None when the tree verifies, else the verifier's reason."""
+    verifier = _ghostty_verifier()
+    if revision is None:
+        try:
+            revision = json.loads((root / "SOURCE-MANIFEST.json").read_text(encoding="utf-8")).get("ghostty_revision")
+        except (OSError, ValueError, AttributeError) as error:
+            return f"unreadable SOURCE-MANIFEST.json: {error}"
+        if not isinstance(revision, str):
+            return "SOURCE-MANIFEST.json names no ghostty_revision"
+    try:
+        verifier.verify(root, revision)
+    except (OSError, verifier.VerificationError) as error:
+        return str(error)
+    return None
 
 
 def is_macho(path: Path) -> bool:
@@ -57,10 +94,13 @@ def macho_files(app: Path) -> list[str]:
     return found
 
 
-def check(app: Path, bundle_map: dict, notices: Path | None = None) -> list[str]:
+def check(
+    app: Path, bundle_map: dict, notices: Path | None = None, ghostty_revision: str | None = None,
+) -> list[str]:
     notices = notices or app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
     sections = set(MARKER.findall(notices.read_text(encoding="utf-8"))) if notices.is_file() else set()
     errors = []
+    reasons: dict[str, str] = {}
 
     def requirement_holds(need: str, owner: str) -> bool:
         kind, _, value = need.partition(":")
@@ -70,15 +110,28 @@ def check(app: Path, bundle_map: dict, notices: Path | None = None) -> list[str]
             return value in sections
         if kind == "file":
             return _non_empty(app / value)
+        if kind == "ghostty-license-tree":
+            problem = ghostty_license_tree_problem(app / value, ghostty_revision)
+            if problem is not None:
+                reasons[need] = problem
+            return problem is None
         raise SystemExit(f"check_bundle_notices: unknown requirement {need!r} in entry {owner!r}")
 
+    def missing(owner: str, need: str) -> str:
+        reason = reasons.get(need)
+        return f"{owner}: missing notice {need}" + (f" ({reason})" if reason else "")
+
+    mapped = {entry["path"] for entry in bundle_map.get("resources", [])}
+    for path in REQUIRED_RESOURCES:
+        if (app / path).exists() and path not in mapped:
+            errors.append(f"{path}: bundled, but no bundle-map.json resources entry covers it")
     # Third-party data that is not a Mach-O (themes and similar): when the
     # bundle has the path, its notices must be there too.
     for entry in bundle_map.get("resources", []):
         if (app / entry["path"]).exists():
             for need in entry["notices"]:
                 if not requirement_holds(need, entry["path"]):
-                    errors.append(f"{entry['path']}: missing notice {need}")
+                    errors.append(missing(entry["path"], need))
     for rel in macho_files(app):
         entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
         if not entries:
@@ -87,7 +140,7 @@ def check(app: Path, bundle_map: dict, notices: Path | None = None) -> list[str]
         for entry in entries:
             for need in entry["notices"]:
                 if not requirement_holds(need, entry["path"]):
-                    errors.append(f"{rel}: missing notice {need}")
+                    errors.append(missing(rel, need))
     return errors
 
 
@@ -100,8 +153,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("app", type=Path)
     parser.add_argument("--map", type=Path, default=HERE / "bundle-map.json")
     parser.add_argument("--notices", type=Path, help="check this THIRD_PARTY_LICENSES.md instead of the bundled one (a candidate before a build)")
+    parser.add_argument("--ghostty-revision", help="the Ghostty commit the app was built from; a bundled Ghostty license tree must name it")
     args = parser.parse_args(argv)
-    errors = check(args.app, json.loads(args.map.read_text(encoding="utf-8")), args.notices)
+    errors = check(args.app, json.loads(args.map.read_text(encoding="utf-8")), args.notices, args.ghostty_revision)
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if errors:
