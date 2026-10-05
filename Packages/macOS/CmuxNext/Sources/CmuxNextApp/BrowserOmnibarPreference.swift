@@ -18,8 +18,8 @@ extension OmniboxConfiguration {
         var invalid = false
         if setting.searchEngine == "custom" {
             let custom = BrowserSearchEngine.custom(search: setting.customSearch, suggest: setting.customSuggest)
-            // Red: the fallback is silent.
-            engine = setting.customSearch.isEmpty || custom.searchURL(for: "cmux") == nil ? .google : custom
+            invalid = setting.customSearch.isEmpty || custom.searchURL(for: "cmux") == nil
+            engine = invalid ? .google : custom
         }
         let configuration = OmniboxConfiguration(searchEngine: engine, remoteSuggestions: setting.remoteSuggestions,
                                                  inlineAutocomplete: setting.inlineAutocomplete, maxRows: setting.maxRows,

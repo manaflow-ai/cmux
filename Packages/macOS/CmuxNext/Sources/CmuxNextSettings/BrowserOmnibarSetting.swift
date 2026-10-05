@@ -37,8 +37,6 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static func isSearchTemplate(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return true }
-        // Red: any page address is still accepted.
-        if BrowserNewTabPage.url(from: trimmed) != nil { return true }
         guard trimmed.contains("%s") || trimmed.contains("{searchTerms}") else { return false }
         return BrowserNewTabPage.url(from: trimmed.replacingOccurrences(of: "%s", with: "x")
             .replacingOccurrences(of: "{searchTerms}", with: "x")) != nil
