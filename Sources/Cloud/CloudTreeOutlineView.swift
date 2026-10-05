@@ -509,15 +509,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #endif
             switch node.kind {
             case .machine(let machine, _):
-                machineActions.promptRename(machine.id, machine.label)
+                machineActions.promptRename(machine)
             case .workspace(let machine, let workspace, _, _, _):
                 nodeActions.renameWorkspace(machine, workspace)
-            case .display(let resource, _, _):
-                // A double-click is already an open gesture. If the selected
-                // workspace belongs to another Cloud machine, explain the
-                // ownership boundary instead of leaving the user with a
-                // generic failed pane operation.
-                _ = nodeActions.showDisplayOpenHint(resource.id)
+            case .display:
+                // The double-click's first click already opened the display or
+                // explained the ownership boundary; a second hint would repeat it.
+                break
             default:
                 break
             }

@@ -348,7 +348,7 @@ struct CloudPortsVPNAffordanceTests {
 
     private func machineActions(upgrade: @escaping @MainActor () -> Void = {}) -> MachineRowActions {
         MachineRowActions( openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
+                    confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
             resizeMemory: { _, _ in }, promptUpgrade: upgrade)
     }
 

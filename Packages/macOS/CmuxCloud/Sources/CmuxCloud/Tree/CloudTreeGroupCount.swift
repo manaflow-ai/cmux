@@ -23,14 +23,15 @@ public struct CloudTreeGroupCount: Equatable, Sendable {
     }
 
     /// Plan usage: VoiceOver hears "1 of 50 machines", and the count turns
-    /// orange at the ceiling, where a free plan's help names the upgrade.
+    /// orange at the ceiling or a full resource pool, where a free plan's help
+    /// names the upgrade.
     /// - Parameter usage: Current machine usage and plan limits.
     public init(usage: CloudMachinesUsage) {
         self.init(
             text: usage.compactCount,
             accessibilityLabel: usage.countLabel,
             help: usage.help,
-            isWarning: usage.isAtLimit
+            isWarning: usage.isWarning
         )
     }
 

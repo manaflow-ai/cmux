@@ -10,9 +10,9 @@ struct CloudMachineMenuVerbs {
     var newWorkspace: @MainActor (String) -> Void
     var openDesktop: @MainActor (String) -> Void
     var runCommand: @MainActor (String, [String]) -> Void
-    var promptRename: @MainActor (String, String?) -> Void
+    var promptRename: @MainActor (MachineSnapshot) -> Void
     var copyToPasteboard: @MainActor (String) -> Void
-    var confirmDelete: @MainActor (String) -> Void
+    var confirmDelete: @MainActor (MachineSnapshot) -> Void
     var promptUpgrade: @MainActor () -> Void
 
     /// Connect verbs: Open Shell, New Workspace, Open Desktop, full client.
@@ -37,7 +37,7 @@ struct CloudMachineMenuVerbs {
     func manageEntries(_ machine: MachineSnapshot) -> [CloudMenuEntry] {
         let id = machine.id
         var entries = [
-            action("rename", id, String(localized: "machines.menu.rename", defaultValue: "Rename…")) { promptRename(id, machine.label) },
+            action("rename", id, String(localized: "machines.menu.rename", defaultValue: "Rename…")) { promptRename(machine) },
         ]
         if let address = machine.privateAddress {
             entries.append(action("copyIP", id, String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { copyToPasteboard(address) })
@@ -55,7 +55,7 @@ struct CloudMachineMenuVerbs {
 
     func deleteEntries(_ machine: MachineSnapshot) -> [CloudMenuEntry] {
         let id = machine.id
-        return [action("delete", id, String(localized: "machines.menu.delete", defaultValue: "Delete…")) { confirmDelete(id) }]
+        return [action("delete", id, String(localized: "machines.menu.delete", defaultValue: "Delete…")) { confirmDelete(machine) }]
     }
 
     /// The complete machine submenu used outside the sidebar, led by a status line.
