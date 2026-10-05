@@ -52,7 +52,8 @@ struct CloudTreeCreationRevealTests {
         fixture.coordinator.update(inputs: makeInputs(unprojected))
         #expect(outline.selectedRow == -1)
 
-        let machine = try #require(CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first(where: \.isMachineRow))
+        let machineCandidate = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first(where: \.isMachineRow)
+        let machine = try #require(machineCandidate)
         let machineRow = outline.row(forItem: machine)
         outline.selectRowIndexes(IndexSet(integer: machineRow), byExtendingSelection: false)
         fixture.coordinator.update(inputs: makeInputs(second))
