@@ -40,6 +40,8 @@ enum DebugShowcase {
             // Null while the store has not yet committed a new agent tab.
             "agent_tab": services.showcase.agentTabs[pane.paneKey].map(CmuxNextSettings.JSONValue.string) ?? .null,
             "feed_items": .number(Double(services.feed.model.confirmed.count)),
+            "daemon_workspaces": .number(Double(services.daemon.store.workspaces.count)),
+            "window_workspaces": .number(Double(services.windows.registry.members(of: window.state.id).count)),
             "focused": .bool(params["focus"]?.boolValue == true),
             "dense": .bool(params["dense"]?.boolValue == true),
             "scene": params["scene"] ?? .null,

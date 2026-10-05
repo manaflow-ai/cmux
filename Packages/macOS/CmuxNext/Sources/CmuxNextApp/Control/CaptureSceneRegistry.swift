@@ -79,6 +79,7 @@ final class CaptureSceneRegistry {
                 "scene": .string(definition.name),
                 "frames": frameStats,
                 "workspaces": .number(Double(services.showcase.workspaces.count)),
+                "daemon_workspaces": .number(Double(services.daemon.store.workspaces.count)),
                 "window_workspaces": .number(Double(services.windows.registry.members(of: targetWindowID).count)),
                 "agent_tabs": .number(Double(services.showcase.agentTabs.count)),
             ])
@@ -117,6 +118,7 @@ final class CaptureSceneRegistry {
         result["settled_ms"] = settled.map(JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["workspaces"] = .number(Double(services.showcase.workspaces.count))
+        result["daemon_workspaces"] = .number(Double(services.daemon.store.workspaces.count))
         result["window_workspaces"] = .number(Double(services.windows.registry.members(of: targetWindowID).count))
         result["agent_tabs"] = .number(Double(services.showcase.agentTabs.count))
         result["turn"] = turn
