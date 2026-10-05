@@ -26,9 +26,9 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId?, ownerSession? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). A tab of the session's own workspace is a valid `targetId` for the other methods except one with `ownerSession`: another running session created it, and it lists without `dataStore`. A tab of another workspace is listed but refused (`denied`): reaching it needs an attach a person grants, which cmux does not offer yet (see Guards, Authority). The `url` of a tab the session did not create (another session's or the user's) has its userinfo and credential-named query and fragment parameters reading `redacted`, as in network events. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
+| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId?, ownerSession? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the tabs of other workspaces the session may use: only tabs it created that moved there (`windowId` names the workspace). A user's tab of another workspace is not listed, and neither is its `dataStore`: reaching it needs an attach a person grants, which cmux does not offer yet (see Guards, Authority), and naming it by id fails with `denied`. A tab of the session's own workspace is a valid `targetId` for the other methods except one with `ownerSession`: another running session created it, and it lists without `dataStore`. The `url` of a tab the session did not create (another session's or the user's) has its userinfo and credential-named query and fragment parameters reading `redacted`, as in network events. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
-| `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no tab this session may drive uses fails with `invalid` |
+| `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); a store no tab this session may use has (another running session's tab, a tab of another workspace) fails with `invalid` |
 | `tabs.close` | `{ targetId, runBeforeUnload? }` | Only a tab the session created, or a user's tab of its workspace it is attached to (it drove it, for example after `tabs.use`); another fails with `denied` |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
@@ -296,7 +296,7 @@ leaving room on the paper, else `invalid` before anything is printed.
 | Method | Params |
 | --- | --- |
 | `input.setFiles` | `{ targetId, frameId, element: <agent element handle id>, files: [{ name, mimeType, base64 }] }` |
-| `filechooser.respond` | `{ targetId, chooserId, files }` or `{ ..., cancel: true }`. The files are written to a temporary directory of the session (removed when it ends) only after the driver knows the chooser is open and routed to the calling session; an answer for another session's chooser or a closed one fails with `not_found` and writes nothing. At most 256 files and 256 MiB together, with distinct names, else `invalid` and nothing is written. The session counts the files against its `fs` write budget before the call reaches the driver (one call's 256 MiB, the 2 GiB and 100,000 file changes over its life); an answer past it fails with `invalid` (`EDQUOT` or `EFBIG` in the message) and nothing is written |
+| `filechooser.respond` | `{ targetId, chooserId, files }` or `{ ..., cancel: true }`. The files are written to a temporary directory of the session (removed when it ends) only after the driver knows the chooser is open and routed to the calling session; an answer for another session's chooser or a closed one fails with `not_found` and writes nothing. Files are given only into the document that opened the chooser, checked right before the answer with child-frame loads held: a chooser whose frame shows another document since (or a tab that replaced its web view) fails with `stale`, and one whose document the authority refuses with `blocked`; nothing is written then and the chooser stays open to be cancelled (`cancel` always goes through). At most 256 files and 256 MiB together, with distinct names, else `invalid` and nothing is written. The session counts the files against its `fs` write budget before the call reaches the driver (one call's 256 MiB, the 2 GiB and 100,000 file changes over its life); an answer past it fails with `invalid` (`EDQUOT` or `EFBIG` in the message) and nothing is written |
 | `dialog.respond` | `{ targetId, dialogId, accept, promptText? }`; `blocked` (and the dialog dismissed) when the domain policy blocks the frame that opened it |
 | `download.path` | `{ downloadId }` → `{ path }` after completion |
 
@@ -375,15 +375,25 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the reason) and its frame check (the frame under the pointer, along a
   drag, the focused frame, the chooser's frame, every frame for a PDF,
   during the capture for a screenshot, the dialog's document, where its
-  script runs, or none with the reason), and whether it is trusted input
-  that holds blocked frames inert. `tab.info`, `frames.list` and
+  script runs, or none with the reason), whether it is trusted input
+  that holds blocked frames inert, and whether it leaves the page:
+  `tab.navigate`, `tab.history` and `tab.reload` (and a hibernated tab's
+  reload on wake) fail with `blocked` when the page they land on is one the
+  authority refuses as the tab's page (the domain policy, a local file
+  outside the session's directories, or a main-frame document of a local
+  file's origin); a user's tab stays where it landed. `tab.history` also
+  refuses an entry the authority refuses before going to it. `tab.info`, `frames.list` and
   `frame.ownerBox` are judged where their script runs (the frame gate) and
   answer the URL and title `tabs.list` shows; `download.path` reads the
   session's own downloads, each judged when it started; `dialog.respond`
   is judged by the dialog's document. Events go out only as
   `BrowserReplDriverEvent` cases through the delivery the table names
   (`BrowserReplEventSpec`: every attached session for a tab's lifecycle,
-  the network recipients, the sessions whose authority allows the sending
+  the network recipients whose authority allows the document that sent the
+  request (WebKit's document id on the request, matched to a frame tree
+  read; an event whose document cannot be told, or that WebKit names no
+  document for, reaches no session whose authority is active in the tab,
+  and a document load is also judged by the URL it loads), the sessions whose authority allows the sending
   document for console messages and page errors, the one routed session
   for dialogs and file choosers judged by the opening frame's document,
   the download's session judged by its source); the driver drops any other
@@ -416,10 +426,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   driver's own content world by the same evaluation that finds the focus,
   in that document (its own origin, `null` when opaque), not from
   WebKit's frame tree, which keeps naming a frame's old document after it
-  navigates. The check runs right before the
+  navigates. A document whose active element is a frame element
+  (`<iframe>`, `<frame>`, `<object>`, `<embed>`) never answers for the
+  focus: the frame inside does. The check runs right before the
   text is committed, after the wait for the editor state (a page can move
   focus during that wait), and the marked text and insert follow on the
-  same main-thread turn. A page can still move focus in its own web process
+  same main-thread turn. The check judges the web view the text goes to,
+  and the text goes to it only while the tab still shows it: a tab that
+  replaced its web view meanwhile (a web content recovery) gets nothing
+  (`stale`). A page can still move focus in its own web process
   between the check's last reply and the insert reaching that process:
   WebKit has no insert bound to an element or frame, so that cross-process
   window remains. The call also carries `secretRevision`, the secret's
@@ -1032,7 +1047,16 @@ when present.
 - `frameId` is WebKit's frame handle id (`-[WKFrameInfo _handle].frameID`);
   frames come from `-[WKWebView _frames:]`.
 - Network events come from `-[WKWebView _setResourceLoadDelegate:]`; without
-  that SPI no `request`/`response` events are sent.
+  that SPI no `request`/`response` events are sent. Each request is bound to
+  its document by `_WKResourceLoadInfo.documentID`, matched against
+  `-[WKFrameInfo _documentIdentifier]` from a frame tree read; WebKit gives
+  no initiating frame beyond that. A document the tree no longer shows by
+  the read (a frame that navigated away first, a short-lived `about:blank`
+  or `srcdoc` child) cannot be judged, so under an active policy or file
+  root its requests are dropped for that session rather than sent
+  unjudged. A document the gate read once is remembered (up to 1,024 per
+  tab), so a request's later events stay deliverable after the frame
+  navigates.
 
 ## Proposed changes (runtime)
 

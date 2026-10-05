@@ -49,12 +49,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// session's directories, whatever the policy.
     @MainActor private lazy var frameGate: BrowserReplFrameGate = {
         let gate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
-        let sessionID = self.sessionID
-        gate.localDocumentRoots = { [weak self] webView in
-            guard let self,
-                  BrowserReplTabAttachments.shared.attachment(showing: webView)?.creatorSessionID != sessionID else { return nil }
-            return self.currentFileRoots
-        }
+        gate.scope = { [weak self] webView in self?.frameGateScope(webView) }
         return gate
     }()
     /// Ties `<iframe>` elements to their child frames' ids.
@@ -219,13 +214,31 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// `panel` as the authority judges it.
     @MainActor
     private func tabFacts(_ panel: BrowserPanel) -> BrowserReplTabFacts {
+        tabFacts(panel, workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id)
+    }
+
+    /// The frame gate's scope in `webView`: this session, its directories,
+    /// and the tab that shows the web view as the authority judges it (a
+    /// web view no attached tab shows counts as a user's tab). Document
+    /// verdicts ask no tab capability, so the tab's workspace is not read.
+    @MainActor
+    private func frameGateScope(_ webView: WKWebView) -> BrowserReplFrameGate.Scope {
+        let tab = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel
+            .map { tabFacts($0, workspaceID: nil) }
+            ?? BrowserReplTabFacts(mainFrameURL: webView.url)
+        return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: tab)
+    }
+
+    /// `panel`, held by the workspace `workspaceID`, as the authority judges it.
+    @MainActor
+    private func tabFacts(_ panel: BrowserPanel, workspaceID: UUID?) -> BrowserReplTabFacts {
         let attachment = BrowserReplTabAttachments.shared.attachment(for: panel.id)
         return BrowserReplTabFacts(
             id: panel.id,
             mainFrameURL: panel.webView.url,
             creatorSessionID: attachment?.liveCreatorSessionID,
             attachedSessionIDs: Set(attachment?.sessionIDs ?? []),
-            workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id
+            workspaceID: workspaceID
         )
     }
 
@@ -401,6 +414,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     // reload; it waited for DOMContentLoaded, and `waitUntil`
                     // may ask for more within the call's timeout.
                     try await waitForLoadState(panel, Self.waitUntil(params), remainingMilliseconds: Self.remaining(Self.timeout(params), since: started))
+                    if spec.judgesLandedPage { try await checkLandedPage(panel) }
                     var result: [String: Any] = [:]
                     if let status = attachment.mainDocumentStatus { result["status"] = status }
                     guard let json = JSONSerialization.browserReplString(result.isEmpty ? nil : result as Any?) else {
@@ -453,6 +467,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     return try await handle(method: method, params: params)
                 }
             }
+            // A method that leaves the page (navigate, history, reload)
+            // fails when the page it landed on is one the authority refuses.
+            if spec.judgesLandedPage, let panel = targetPanel(params) {
+                try await checkLandedPage(panel)
+            }
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
             // Page URLs in the result (BrowserReplPageURL) become this
             // session's form of them here.
@@ -495,7 +514,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case .inputInsertText: return try await insertText(params)
         case .inputDrag: return try await drag(params)
         case .inputSetFiles: return try await setFiles(params)
-        case .fileChooserRespond: return try respondToFileChooser(params)
+        case .fileChooserRespond: return try await respondToFileChooser(params)
         case .dialogRespond: return try respondToDialog(params)
         case .downloadPath: return try await downloadPath(params)
         case .tabScreenshot: return try await screenshot(params)
@@ -609,6 +628,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func checkLocalDocumentOrigin(_ spec: BrowserReplMethodSpec, params: [String: Any]) async throws {
         guard spec.page == .tabPage, let panel = targetPanel(params) else { return }
+        try await checkLocalDocumentOrigin(panel)
+    }
+
+    /// `panel`'s main-frame document, when the authority judges its local
+    /// documents and its page is neither a web page nor a file by URL.
+    @MainActor
+    private func checkLocalDocumentOrigin(_ panel: BrowserPanel) async throws {
         let tab = tabFacts(panel)
         guard authority.judgesLocalDocuments(in: tab) else { return }
         // A web page has its own origin; a file page is judged by its path.
@@ -617,13 +643,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         try authority.verdict(BrowserReplAccess(.document(BrowserReplFrameDocument(info: main)), in: tab)).check()
     }
 
-    /// After a navigation of a tab the user owns: a page the policy blocks is
-    /// left in place (the user's tab is never navigated away) and the call fails.
+    /// After a method that leaves the page (``BrowserReplMethodSpec/judgesLandedPage``):
+    /// a page the authority refuses (the domain policy blocks it, or a local
+    /// file outside the session's directories, or a document of a local
+    /// file's origin it may not read) fails the call. A user's tab is left
+    /// where it landed, never navigated away.
     @MainActor
-    private func checkLandedPage(_ panel: BrowserPanel) throws {
-        guard let url = panel.webView.url?.absoluteString,
-              let reason = authority.verdict(BrowserReplAccess(.load(url))).reason else { return }
-        throw Self.error("blocked", "navigation to \(url) was blocked: \(reason); the tab is the user's, so it stays there and the session cannot read it")
+    private func checkLandedPage(_ panel: BrowserPanel) async throws {
+        guard let url = panel.webView.url?.absoluteString else { return }
+        try authority.landedPage(url, in: tabFacts(panel)).check()
+        try await checkLocalDocumentOrigin(panel)
     }
 
     /// The method's frame check (``BrowserReplMethodSpec/frames``) on the
@@ -634,17 +663,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func checkFrames(_ spec: BrowserReplMethodSpec, params: [String: Any]) async throws {
         switch spec.frames {
-        case .pointer, .drag, .focus, .fileChooser, .allFrames:
+        case .pointer, .drag, .focus, .allFrames:
             break
-        case .screenshot, .dialogDocument, .inFrame, .none:
+        case .screenshot, .dialogDocument, .fileChooser, .inFrame, .none:
             // A screenshot is judged during the capture, which blanks blocked
             // frames (BrowserReplFrameGate.coverBlockedFrames); a dialog's
-            // document where it is answered; script where it runs.
+            // document and a file chooser's frame where they are answered;
+            // script where it runs.
             return
         }
         guard let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
               let panel = try? reachablePanel(id), frameGate.isActive(in: panel.webView) else { return }
-        if spec.frames == .fileChooser, params["cancel"] as? Bool == true { return }
         let webView = panel.webView
         let frames = await BrowserReplFrameTree.frames(of: webView)
         switch spec.frames {
@@ -659,18 +688,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             try await frameGate.checkPointer(at: Self.dragTrail(params), in: webView, frames: frames)
         case .focus:
             try await frameGate.checkFocus(in: webView, frames: frames)
-        case .fileChooser:
-            // Files go only to the input of the chooser's own frame.
-            guard let chooserID = params["chooserId"] as? String,
-                  let frame = BrowserReplTabAttachments.shared.attachment(for: id)?.fileChooserFrame(id: chooserID, sessionID: sessionID) else {
-                return
-            }
-            try await frameGate.checkFileChooser(frame: frame, in: webView, frames: frames)
         case .allFrames:
             // A PDF is laid out for print; its frames' boxes cannot be
             // blanked, so any blocked frame refuses it.
             try frameGate.checkCapture(in: webView, frames: frames)
-        case .screenshot, .dialogDocument, .inFrame, .none:
+        case .screenshot, .dialogDocument, .fileChooser, .inFrame, .none:
             return
         }
     }
@@ -768,13 +790,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func otherSessionOwning(_ id: UUID) -> String? {
         BrowserReplTabAttachments.shared.attachment(for: id)?.ownerRefusing(sessionID)
-    }
-
-    /// The name of the live session other than this one that created tab
-    /// `id`, for `tabs.list` (`ownerSession`).
-    @MainActor
-    private func ownerSessionName(_ id: UUID) -> String? {
-        otherSessionOwning(id).map { BrowserReplSessionKey(instanceID: $0)?.name ?? $0 }
     }
 
     /// Every workspace of every window, the session's own first.
@@ -1029,55 +1044,39 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return row
     }
 
+    /// `tabs.list`: the tabs of the session's workspace, in window order;
+    /// with `all`, then the tabs of other workspaces the authority lists
+    /// (``BrowserReplDocumentAuthority/listing(of:)``): only tabs the
+    /// session created that moved there. A user's tab of another workspace
+    /// is not listed, and neither is its data store: reaching it needs an
+    /// attach a person grants, which cmux does not offer yet.
     @MainActor
     private func listTabs(all: Bool = false) throws -> [[String: Any]] {
         let workspace = try workspace()
         let panels = try browserPanels()
-        if all {
-            // The session's own workspace first, then every other workspace.
-            let own = try listTabs()
-            var others: [[String: Any]] = []
-            for other in allWorkspaces() where other.id != workspace.id {
-                let deferred = Self.deferredTabRows(other)
-                for id in other.orderedPanelIds {
-                    if let row = deferred[id] {
-                        others.append(row)
-                    } else if let panel = other.panels[id] as? BrowserPanel {
-                        var row: [String: Any] = [
-                            "targetId": panel.id.uuidString,
-                            "title": Self.title(panel),
-                            "url": Self.url(panel),
-                            "active": false,
-                            "windowId": other.id.uuidString,
-                            "state": tabCondition(panel).state.rawValue,
-                        ]
-                        // Another live session's tab lists with its owner and
-                        // without its data store; this session cannot use it.
-                        if let owner = ownerSessionName(panel.id) {
-                            row["ownerSession"] = owner
-                        } else {
-                            row["dataStore"] = Self.dataStoreID(panel.webView.configuration.websiteDataStore)
-                        }
-                        others.append(row)
-                    }
-                }
-            }
-            return own + others
-        }
+        let authority = self.authority
         let active = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first { $0.id == workspace.focusedPanelId }
-        let deferred = Self.deferredTabRows(workspace)
-        guard deferred.isEmpty else {
-            // A relaunch's not-yet-loaded tabs list in their places, hibernated.
-            let live = Dictionary(uniqueKeysWithValues: listTabsLoaded(panels, workspace: workspace, active: active).map { ($0["targetId"] as? String ?? "", $0) })
-            return workspace.orderedPanelIds.compactMap { live[$0.uuidString] ?? deferred[$0] }
+        var rows = listedRows(workspace, active: active, authority: authority)
+        if all {
+            for other in allWorkspaces() where other.id != workspace.id {
+                rows += listedRows(other, active: nil, authority: authority)
+            }
         }
-        return listTabsLoaded(panels, workspace: workspace, active: active)
+        return rows
     }
 
+    /// The rows of `workspace`'s tabs the authority lists, in window order.
+    /// A relaunch's not-yet-loaded tabs list in their places, hibernated.
     @MainActor
-    private func listTabsLoaded(_ panels: [BrowserPanel], workspace: Workspace, active: BrowserPanel?) -> [[String: Any]] {
-        panels.map { panel in
+    private func listedRows(_ workspace: Workspace, active: BrowserPanel?, authority: BrowserReplDocumentAuthority) -> [[String: Any]] {
+        let deferred = Self.deferredTabRows(workspace)
+        return workspace.orderedPanelIds.compactMap { id in
+            if let row = deferred[id] {
+                // A tab a relaunch restored is the user's.
+                return authority.listing(of: BrowserReplTabFacts(id: id, workspaceID: workspace.id)) == .hidden ? nil : row
+            }
+            guard let panel = workspace.panels[id] as? BrowserPanel else { return nil }
             var entry: [String: Any] = [
                 "targetId": panel.id.uuidString,
                 "title": Self.title(panel),
@@ -1086,9 +1085,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "windowId": workspace.id.uuidString,
                 "state": tabCondition(panel).state.rawValue,
             ]
-            if let owner = ownerSessionName(panel.id) {
-                entry["ownerSession"] = owner
-            } else {
+            switch authority.listing(of: tabFacts(panel, workspaceID: workspace.id)) {
+            case .hidden:
+                return nil
+            case .ownedByAnotherSession(let owner):
+                // Listed with its owner and without its data store; this
+                // session cannot use it.
+                entry["ownerSession"] = BrowserReplSessionKey(instanceID: owner)?.name ?? owner
+            case .usable:
                 entry["dataStore"] = Self.dataStoreID(panel.webView.configuration.websiteDataStore)
             }
             if let opener = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.openerTargetID {
@@ -1154,6 +1158,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "waitUntil": "commit",
                 "timeoutMs": params["timeoutMs"] ?? 30_000,
             ])
+            try await checkLandedPage(panel)
         }
         return ["targetId": panel.id.uuidString]
     }
@@ -1174,8 +1179,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// The store and profile `tabs.open` uses: the session's proxy store
-    /// (or the default profile's) without `dataStore`, else the store a
-    /// session-reachable tab with that id uses, and that tab's profile.
+    /// (or the default profile's) without `dataStore`, else the store a tab
+    /// the authority lets this session use has with that id
+    /// (``BrowserReplDocumentAuthority/dataStore(_:among:)``), and that
+    /// tab's profile: another live session's private or proxy store stays
+    /// its own, and another workspace's private profile store stays there.
     @MainActor
     private func dataStoreForNewTab(_ raw: Any?) throws -> (WKWebsiteDataStore?, UUID?) {
         guard let raw else { return (proxyDataStore, nil) }
@@ -1183,11 +1191,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "tabs.open: dataStore must be a string from tabs.list or tabs.dataStore")
         }
         if let proxyDataStore, Self.dataStoreID(proxyDataStore) == id { return (proxyDataStore, nil) }
-        // Only a store a tab this session may drive uses: another live
-        // session's private or proxy store stays its own.
-        if let panel = allBrowserPanels().map({ $0.panel }).first(where: {
-            otherSessionOwning($0.id) == nil && Self.dataStoreID($0.webView.configuration.websiteDataStore) == id
-        }) {
+        let candidates = allBrowserPanels().map { entry in
+            BrowserReplDataStoreCandidate(
+                tab: tabFacts(entry.panel, workspaceID: entry.workspace.id),
+                storeID: Self.dataStoreID(entry.panel.webView.configuration.websiteDataStore),
+                store: entry.panel
+            )
+        }
+        if let panel = authority.dataStore(id, among: candidates) {
             return (panel.webView.configuration.websiteDataStore, panel.profileID)
         }
         let defaultStore = try cookieTab([:]).store
@@ -1310,7 +1321,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             Self.waitUntil(params),
             remainingMilliseconds: Self.remaining(timeout, since: started)
         )
-        try checkLandedPage(panel)
         var result: [String: Any] = ["url": panel.webView.url?.absoluteString ?? raw]
         if let status = attachment(panel).mainDocumentStatus { result["status"] = status }
         return result
@@ -1346,6 +1356,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if delta < 0, item.url.absoluteString == "about:blank", webView.backForwardList.backList.count == 1 {
             return nil
         }
+        // An entry the authority refuses is not gone to: the user's tab
+        // stays where it is. The page it lands on is judged again after
+        // (BrowserReplMethodSpec.judgesLandedPage): a redirect can differ.
+        try authority.landedPage(item.url.absoluteString, in: tabFacts(panel)).check()
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
         let outcome = try await attachment(panel).withInput(sessionID: sessionID) {
@@ -2598,14 +2612,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // can move focus. What remains is the cross-process gap between the
         // check's last reply and the insert reaching the web process.
         let sessionID = self.sessionID
-        let checkTarget: @MainActor @Sendable () async throws -> Void = {
+        // The check judges the web view the text goes to (`webView`, the
+        // one the input captured), never the panel's current one, and the
+        // commit types only while the panel still shows it.
+        let checkTarget: @MainActor @Sendable (WKWebView) async throws -> Void = { webView in
             guard let name = params["secretName"] as? String else { return }
-            let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+            let frames = await BrowserReplFrameTree.frames(of: webView)
             let rawDomains = params["secretDomains"] as? [[String: Any]] ?? []
             try await BrowserReplSecretGuard.checkSecretTarget(
                 name: name,
                 domains: rawDomains,
-                webView: panel.webView,
+                webView: webView,
                 frames: frames
             )
             // The agent may have deleted or set the secret again since the
@@ -2632,7 +2649,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let world = sessionWorld.agent
         try await withWindow(panel) { webView, _ in
-            try await BrowserReplNativeInput.insertText(text, into: webView, world: world, checkTarget: checkTarget)
+            try await BrowserReplNativeInput.insertText(
+                text,
+                into: webView,
+                world: world,
+                isCurrent: { [weak panel] in panel?.webView === webView },
+                checkTarget: checkTarget
+            )
             await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
@@ -2731,31 +2754,48 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
+    /// `filechooser.respond`. A cancel always goes through. Files go only
+    /// to the session the chooser was routed to, and only into the document
+    /// that opened it, judged right before the answer
+    /// (``BrowserReplMethodSpec/Frames/fileChooser``): with child-frame
+    /// loads held, a fresh frame tree must still show that document in the
+    /// chooser's frame (else `stale`) and the authority must allow it (else
+    /// `blocked`); the chooser stays open to be cancelled. The files are
+    /// staged and the answer sent on the main-actor turn of the check's
+    /// last reply, so nothing in this process runs in between; nothing is
+    /// written to disk before the check passes.
     @MainActor
-    private func respondToFileChooser(_ params: [String: Any]) throws -> Any? {
+    private func respondToFileChooser(_ params: [String: Any]) async throws -> Any? {
         let panel = try panel(params)
         guard let id = params["chooserId"] as? String else {
             throw Self.error("invalid", "chooserId is required")
         }
         let attachment = attachment(panel)
         let gone = Self.error("not_found", "File chooser \(id) is gone")
-        var urls: [URL]?
-        if params["cancel"] as? Bool != true {
+        if params["cancel"] as? Bool == true {
+            guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: nil) else { throw gone }
+            return nil
+        }
+        guard let frame = attachment.fileChooserFrame(id: id, sessionID: sessionID) else { throw gone }
+        let webView = panel.webView
+        try await frameGate.loadHold.holding(webView) {
+            let frames = await BrowserReplFrameTree.frames(of: webView)
+            try await frameGate.checkFileChooser(frame: frame, in: webView, frames: frames)
+            guard panel.webView === webView else {
+                throw Self.error("stale", "The tab replaced its web view while the file chooser's frame was checked; it may only be cancelled")
+            }
             // Only the session the chooser was routed to may answer it, and
-            // nothing is written to disk before that is known (nor past the
-            // staging bounds). This runs in one main-actor turn, so the
-            // chooser cannot go between the check and the answer.
+            // nothing is written past the staging bounds. This runs in one
+            // main-actor turn, so the chooser cannot go between the check
+            // and the answer.
             let staged = try BrowserReplUploadStaging(parent: FileManager.default.temporaryDirectory).stage(
                 params["files"] as? [[String: Any]] ?? []
             ) {
-                attachment.fileChooserFrame(id: id, sessionID: sessionID) != nil
+                attachment.fileChooserFrame(id: id, sessionID: sessionID) === frame
             }
             guard let staged else { throw gone }
             fileChooserDirectories.append(staged.directory)
-            urls = staged.urls
-        }
-        guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
-            throw gone
+            guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: staged.urls) else { throw gone }
         }
         return nil
     }

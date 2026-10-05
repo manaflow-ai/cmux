@@ -136,6 +136,14 @@ public struct BrowserReplDocumentAuthority: Sendable {
         self.workspaceID = workspaceID
     }
 
+    /// An authority that judges documents, URLs and loads by `policy`
+    /// alone, for no session's tab: with no tab and no directories, no
+    /// verdict it gives asks who the session is (only a tab capability
+    /// does, and a check without a tab has none).
+    public static func judging(_ policy: BrowserReplDomainPolicy) -> BrowserReplDocumentAuthority {
+        BrowserReplDocumentAuthority(sessionID: "", policy: policy)
+    }
+
     /// Whether the authority judges local documents (``BrowserReplDocumentSubject/document(_:)``)
     /// in `tab`: a tab the session did not create whose main frame does not
     /// show a web page. A tab the session created keeps other files out
@@ -226,6 +234,79 @@ public struct BrowserReplDocumentAuthority: Sendable {
     static func describeSession(_ instanceID: String) -> String {
         guard let key = BrowserReplSessionKey(instanceID: instanceID) else { return "\"\(instanceID)\"" }
         return "\"\(key.name)\" (workspace \(key.workspaceID.uuidString))"
+    }
+}
+
+/// How `tabs.list` shows a tab to a session (``BrowserReplDocumentAuthority/listing(of:)``).
+public enum BrowserReplTabListing: Sendable, Equatable {
+    /// The session may use the tab: listed with its data store.
+    case usable
+    /// Another running session created the tab: listed with that session's
+    /// instance id, without its data store, and not usable.
+    case ownedByAnotherSession(String)
+    /// Not listed.
+    case hidden
+}
+
+/// A tab whose data store `tabs.open({ dataStore })` may name: the tab as
+/// the authority judges it and the id of the store it uses.
+public struct BrowserReplDataStoreCandidate<Store> {
+    public var tab: BrowserReplTabFacts
+    public var storeID: String
+    public var store: Store
+
+    public init(tab: BrowserReplTabFacts, storeID: String, store: Store) {
+        self.tab = tab
+        self.storeID = storeID
+        self.store = store
+    }
+}
+
+extension BrowserReplDocumentAuthority {
+    /// How `tabs.list` shows `tab` to the session: a tab it may use
+    /// (``BrowserReplTabCapability/use``) with its data store; another
+    /// running session's tab of the session's workspace by that session,
+    /// without its store; any other tab not at all. A tab of another
+    /// workspace is not listed (a person must grant one, and cmux has no
+    /// such grant yet), so neither is its profile's store.
+    public func listing(of tab: BrowserReplTabFacts) -> BrowserReplTabListing {
+        if verdict(BrowserReplAccess(in: tab, capability: .use)) == .allowed { return .usable }
+        if let owner = tab.creatorSessionID, owner != sessionID, isInWorkspace(tab) { return .ownedByAnotherSession(owner) }
+        return .hidden
+    }
+
+    /// The store of the first candidate whose store is `id` and whose tab
+    /// the session may use (``BrowserReplTabCapability/use``), or nil: a
+    /// store reaches a session only through a tab it may drive, never one
+    /// of another workspace or another running session.
+    public func dataStore<Store>(_ id: String, among candidates: [BrowserReplDataStoreCandidate<Store>]) -> Store? {
+        candidates.first { candidate in
+            candidate.storeID == id && verdict(BrowserReplAccess(in: candidate.tab, capability: .use)) == .allowed
+        }?.store
+    }
+
+    /// The verdict on the page `tab` landed on after a navigation, a
+    /// history step or a reload the session started
+    /// (``BrowserReplMethodSpec/judgesLandedPage``): judged as the tab's page
+    /// (``BrowserReplDocumentSubject/tabPage(_:)``), so a local file outside
+    /// the session's directories is refused whatever the policy. A user's
+    /// tab is never navigated away for it; the call fails.
+    public func landedPage(_ url: String, in tab: BrowserReplTabFacts?) -> BrowserReplVerdict {
+        guard let refusal = verdict(BrowserReplAccess(.tabPage(url), in: tab)).refusal else { return .allowed }
+        let isCreator = tab?.creatorSessionID == sessionID
+        let tail = isCreator ? "" : "; the tab is the user's, so it stays there and the session cannot read it"
+        return .refused(BrowserReplRefusal(
+            code: refusal.code,
+            reason: refusal.reason,
+            message: "navigation to \(url) was blocked: \(refusal.reason)\(tail)"
+        ))
+    }
+
+    /// Whether `tab` is in the session's workspace (always, when the
+    /// workspace is not known here).
+    private func isInWorkspace(_ tab: BrowserReplTabFacts) -> Bool {
+        guard let workspaceID else { return true }
+        return tab.workspaceID == workspaceID
     }
 }
 

@@ -12,7 +12,9 @@ import WebKit
 /// driver then reports no network events rather than injecting page hooks.
 @MainActor
 final class BrowserReplResourceLoadObserver: NSObject {
-    typealias Emit = (_ event: String, _ payload: [String: Any]) -> Void
+    /// `sender` names the document the request belongs to, which the
+    /// network gate judges (``BrowserReplNetworkGate``).
+    typealias Emit = (_ event: String, _ payload: [String: Any], _ sender: BrowserReplNetworkSender) -> Void
 
     private let emit: Emit
     private var requests = BrowserReplUnfinishedLoads<[String: Any]>()
@@ -66,7 +68,7 @@ final class BrowserReplResourceLoadObserver: NSObject {
         requests.start(id, payload, bytes: Self.size(of: payload))
         inflightCount += 1
         onInflightChange?(inflightCount)
-        emit("request", payload)
+        emit("request", payload, Self.sender(resourceLoad, payload: payload))
     }
 
     @objc(webView:resourceLoad:didReceiveResponse:)
@@ -80,7 +82,7 @@ final class BrowserReplResourceLoadObserver: NSObject {
             }
         }
         requests.update(id, payload, bytes: Self.size(of: payload))
-        emit("response", payload)
+        emit("response", payload, Self.sender(resourceLoad, payload: payload))
     }
 
     @objc(webView:resourceLoad:didCompleteWithError:response:)
@@ -105,9 +107,9 @@ final class BrowserReplResourceLoadObserver: NSObject {
         onInflightChange?(inflightCount)
         if let error {
             payload["failure"] = error.localizedDescription
-            emit("requestfailed", payload)
+            emit("requestfailed", payload, Self.sender(resourceLoad, payload: payload))
         } else {
-            emit("requestfinished", payload)
+            emit("requestfinished", payload, Self.sender(resourceLoad, payload: payload))
         }
     }
 
@@ -121,6 +123,19 @@ final class BrowserReplResourceLoadObserver: NSObject {
             }
             return total + 8
         }
+    }
+
+    /// The document the request belongs to, by WebKit's id
+    /// (`_WKResourceLoadInfo.documentID`), and for a document load the URL
+    /// it loads. Without the id the request cannot be judged, and a session
+    /// whose authority is active in the tab does not get it.
+    private static func sender(_ resourceLoad: NSObject, payload: [String: Any]) -> BrowserReplNetworkSender {
+        var documentID: String?
+        if resourceLoad.responds(to: NSSelectorFromString("documentID")) {
+            documentID = (resourceLoad.value(forKey: "documentID") as? UUID)?.uuidString
+        }
+        let loadsDocument = payload["resourceType"] as? String == "document" ? payload["url"] as? String : nil
+        return BrowserReplNetworkSender(documentID: documentID, loadsDocument: loadsDocument)
     }
 
     private static func loadID(_ resourceLoad: NSObject) -> UInt64 {

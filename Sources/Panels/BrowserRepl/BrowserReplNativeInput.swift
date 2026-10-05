@@ -138,16 +138,22 @@ enum BrowserReplNativeInput {
     /// element, and then nothing is inserted.
     /// `world` is the agent world of the session that types: the focus is
     /// read there, where closed shadow roots are visible.
+    ///
+    /// `checkTarget` gets the web view the text goes to, and judges that
+    /// one; `isCurrent` says whether the tab still shows it, asked on the
+    /// commit's turn after the check (a tab that replaced its web view
+    /// meanwhile gets nothing, `stale`).
     static func insertText(
         _ text: String,
         into webView: WKWebView,
         world: WKContentWorld,
         stateTimeout: Duration = .milliseconds(500),
-        checkTarget: @MainActor @Sendable () async throws -> Void = {}
+        isCurrent: @escaping @MainActor () -> Bool = { true },
+        checkTarget: @MainActor @Sendable (WKWebView) async throws -> Void = { _ in }
     ) async throws {
         guard let client = webView as? any NSTextInputClient else { return }
-        let target = WebViewTextTarget(webView: webView, client: client, world: world, stateTimeout: stateTimeout)
-        try await target.commit(text, checkTarget: checkTarget)
+        let target = WebViewTextTarget(webView: webView, client: client, world: world, stateTimeout: stateTimeout, isCurrent: isCurrent)
+        try await target.commit(text) { try await checkTarget(webView) }
     }
 
     /// A web view's text input client as `commit(_:checkTarget:)` drives it.
@@ -157,16 +163,20 @@ enum BrowserReplNativeInput {
         let client: any NSTextInputClient
         let world: WKContentWorld
         let stateTimeout: Duration
+        private let isCurrentWebView: @MainActor () -> Bool
         private let noReplacement = NSRange(location: NSNotFound, length: 0)
 
-        init(webView: WKWebView, client: any NSTextInputClient, world: WKContentWorld, stateTimeout: Duration) {
+        init(webView: WKWebView, client: any NSTextInputClient, world: WKContentWorld, stateTimeout: Duration, isCurrent: @escaping @MainActor () -> Bool) {
             self.webView = webView
             self.client = client
             self.world = world
             self.stateTimeout = stateTimeout
+            isCurrentWebView = isCurrent
         }
 
         var hasMarkedText: Bool { client.hasMarkedText() }
+
+        var isCurrent: Bool { isCurrentWebView() }
 
         func prepareComposition() async -> Bool {
             guard await BrowserReplNativeInput.focusIsRichTextEditor(webView, world: world) else { return false }

@@ -76,7 +76,10 @@ public struct BrowserReplMethodSpec: Sendable, Equatable {
         case drag
         /// The frame that holds the focus.
         case focus
-        /// The chooser's own frame (a `cancel` answer passes).
+        /// The chooser's own frame, judged at the answer (a `cancel` answer
+        /// passes): it must still show the document that opened the
+        /// chooser, and the authority must allow it, checked right before
+        /// the answer on the turn that sends it.
         case fileChooser
         /// Judged during the capture, which blanks or refuses blocked frames.
         case screenshot
@@ -97,12 +100,16 @@ public struct BrowserReplMethodSpec: Sendable, Equatable {
     /// Trusted input for the whole tab: blocked frames are inert while it
     /// is checked and in flight (``BrowserReplFrameGate/guardingInput(in:frames:checkFocusAfter:_:)``).
     public var guardsInput: Bool
+    /// The method leaves the page: the page the tab lands on is judged
+    /// after it (``BrowserReplDocumentAuthority/landedPage(_:in:)``).
+    public var judgesLandedPage: Bool
 
-    public init(target: Target, page: Page, frames: Frames, guardsInput: Bool = false) {
+    public init(target: Target, page: Page, frames: Frames, guardsInput: Bool = false, judgesLandedPage: Bool = false) {
         self.target = target
         self.page = page
         self.frames = frames
         self.guardsInput = guardsInput
+        self.judgesLandedPage = judgesLandedPage
     }
 
     /// The tab capability the method needs, or nil when it takes no tab.
@@ -151,10 +158,11 @@ extension BrowserReplDriverMethod {
             return .init(target: .none(Self.noTabReason), page: .none(Self.noTabReason), frames: .none(Self.noTabReason))
         case .tabNavigate:
             return .init(target: .tab(.use), page: .loadURL,
-                         frames: .none("leaves the page; a user's tab that lands on a blocked page fails the call (the landed page is judged)"))
+                         frames: .none("leaves the page; a user's tab that lands on a blocked page fails the call (the landed page is judged)"),
+                         judgesLandedPage: true)
         case .tabHistory, .tabReload:
             return .init(target: .tab(.use), page: .none("leaves the page; the page it lands on is judged like a navigation's"),
-                         frames: .none("leaves the page"))
+                         frames: .none("leaves the page"), judgesLandedPage: true)
         case .tabInfo:
             return .init(target: .tab(.use), page: .none("answers the URL and title tabs.list shows from native state"),
                          frames: .inFrame("its live read of the main frame runs through the frame gate"))
@@ -234,7 +242,10 @@ public struct BrowserReplEventSpec: Sendable, Equatable {
         /// opened for). The reason.
         case oneSession(String)
         /// The sessions the network event belongs to
-        /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``),
+        /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``)
+        /// whose authority allows the document that sent the request
+        /// (``BrowserReplNetworkGate``: an event whose document cannot be
+        /// told reaches no session whose authority is active in the tab),
         /// credentials only for the tab's creator.
         case network
         /// The sessions whose authority allows the frame document that sent
@@ -245,6 +256,29 @@ public struct BrowserReplEventSpec: Sendable, Equatable {
         case routedFromDocument
         /// The session the download is routed to, judged by its source
         /// (every hop and its initiator, ``BrowserReplDownloadSource``).
+        case download
+
+        /// The path this delivery takes.
+        public var route: Route {
+            switch self {
+            case .everyAttached: return .everyAttached
+            case .oneSession: return .oneSession
+            case .network: return .network
+            case .fromDocument: return .fromDocument
+            case .routedFromDocument: return .routedFromDocument
+            case .download: return .download
+            }
+        }
+    }
+
+    /// A delivery path, without the table's reason: what a sending call
+    /// site says it does (``BrowserReplDriverEvent/isDelivered(through:)``).
+    public enum Route: Sendable, Equatable, CaseIterable {
+        case everyAttached
+        case oneSession
+        case network
+        case fromDocument
+        case routedFromDocument
         case download
     }
 
@@ -281,15 +315,9 @@ extension BrowserReplDriverEvent {
         }
     }
 
-    /// Whether this event may be sent through a path that delivers it as
-    /// `delivery`: a path that does not match the table drops it.
-    public func isDelivered(as delivery: BrowserReplEventSpec.Delivery) -> Bool {
-        switch (spec.delivery, delivery) {
-        case (.everyAttached, .everyAttached), (.oneSession, .oneSession), (.network, .network),
-             (.fromDocument, .fromDocument), (.routedFromDocument, .routedFromDocument), (.download, .download):
-            return true
-        default:
-            return false
-        }
+    /// Whether this event may be sent through `route`: a path that does not
+    /// match the table's delivery drops it.
+    public func isDelivered(through route: BrowserReplEventSpec.Route) -> Bool {
+        spec.delivery.route == route
     }
 }

@@ -599,10 +599,10 @@
 
     async function pageById(id) {
       if (id instanceof core.Page) return id;
-      // A tab of the session's own workspace that tabs.list({ all: true })
-      // lists can be attached, except one another running session opened;
-      // the driver refuses those, and tabs of other workspaces (a person
-      // must grant those, and cmux has no such grant yet).
+      // A tab tabs.list({ all: true }) lists can be attached, except one
+      // another running session opened; the driver refuses those. A user's
+      // tab of another workspace is not listed (a person must grant one,
+      // and cmux has no such grant yet).
       const list = await session.call("tabs.list", { all: true });
       const row = list.find((t) => t.targetId === String(id));
       if (!row) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
@@ -615,10 +615,10 @@
     session.exporter = createExporter({ fetch: fetchWithCookies, fs, path, host, Buffer });
 
     const tabs = {
-      // `{ all: true }` also lists browser tabs in the user's other
-      // workspaces and windows; tabs.use(id) attaches one of the session's
-      // own workspace (the driver refuses another workspace's), but not one
-      // another running session opened (`ownedBy` names that session).
+      // `{ all: true }` also lists the session's own tabs that moved to
+      // another workspace (never a user's tab there); tabs.use(id) attaches
+      // a listed tab, but not one another running session opened (`ownedBy`
+      // names that session).
       async list(options = {}) {
         const list = await session.call("tabs.list", options && options.all ? { all: true } : {});
         const current = state.current && state.current._targetId;

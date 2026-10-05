@@ -190,6 +190,21 @@ extension Dictionary where Key == String, Value == String {
 /// A tab a session created is that session's alone while it lives: no other
 /// session may drive it (``ownerRefusing(_:)``). Network events go only to
 /// the sessions they belong to (``networkRecipients(event:requestID:)``).
+/// A link activation in a tab, as the navigation decision sees it
+/// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``).
+public struct BrowserReplLinkActivation: Sendable, Equatable {
+    /// The tab is shown and focused in the key window.
+    public var userIsWorkingInTab: Bool
+    /// WebKit marks the navigation as started by a user gesture
+    /// (`-[WKNavigationAction _isUserInitiated]`); false when it cannot say.
+    public var isUserInitiated: Bool
+
+    public init(userIsWorkingInTab: Bool, isUserInitiated: Bool) {
+        self.userIsWorkingInTab = userIsWorkingInTab
+        self.isUserInitiated = isUserInitiated
+    }
+}
+
 public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// The attached session that created the tab, if any.
     public private(set) var creatorSessionID: String?
@@ -199,6 +214,9 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     private var handlerOrder: [String] = []
     /// Sessions whose input the page is handling, latest last.
     private var inputSessionIDs: [String] = []
+    /// When a session's input last ended
+    /// (``handsLinkToExternalBrowser(_:now:)``).
+    private var lastInputEnded: ContinuousClock.Instant?
     /// The sessions each open request's events go to, oldest request first.
     private var requestRecipients: [TrackedRequest] = []
     private struct TrackedRequest: Sendable, Equatable {
@@ -319,22 +337,35 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         return inputSessionIDs.contains { $0 != first }
     }
 
+    /// How long a page may still use the gesture a session's input gave it
+    /// after the input ends: WebKit lets a page use a gesture for up to 10 s
+    /// (a fetch started in it; measured on macOS 27.0, 26A428), plus a margin.
+    public static let agentGestureLingering: Duration = .seconds(11)
+
     /// Whether a link activated in the tab may go to the user's configured
     /// external browser (a rule that opens matching links with
-    /// `NSWorkspace`, outside the tab and its domain policy). An agent's
+    /// `NSWorkspace`, outside the tab and its domain policy). The
+    /// navigation decision (`BrowserReplNavigationGuard`) asks it for every
+    /// navigation and window of a tab a session drives. An agent's
     /// synthesized click is a link activation to WebKit, and a page
-    /// activates links itself (`a.click()`), so only a user's tab the user
-    /// is working in (`userIsWorkingInTab`: shown and focused in the key
-    /// window), with no session's input in flight, hands one off. Any other
-    /// activation loads in the tab, under the usual guards.
-    public func handsLinksToExternalBrowser(userIsWorkingInTab: Bool) -> Bool {
-        !isSessionOwned && inputSessionIDs.isEmpty && userIsWorkingInTab
+    /// activates links itself (`a.click()`, from its own script or from
+    /// agent-world code a session ran), so only a user's tab the user is
+    /// working in (shown and focused in the key window) hands one off, and
+    /// only one WebKit marks as a user gesture, while no session's input is
+    /// in flight and none ended within ``agentGestureLingering`` (the page
+    /// could still use that input's gesture). Any other activation loads in
+    /// the tab, under the usual guards.
+    public func handsLinkToExternalBrowser(_ activation: BrowserReplLinkActivation, now: ContinuousClock.Instant) -> Bool {
+        guard !isSessionOwned, inputSessionIDs.isEmpty, activation.userIsWorkingInTab, activation.isUserInitiated else { return false }
+        guard let lastInputEnded else { return true }
+        return lastInputEnded.duration(to: now) >= Self.agentGestureLingering
     }
 
-    /// Ends one ``beginInput(sessionID:)``.
-    public mutating func endInput(sessionID: String) {
+    /// Ends one ``beginInput(sessionID:)`` at `now`.
+    public mutating func endInput(sessionID: String, at now: ContinuousClock.Instant = .now) {
         if let index = inputSessionIDs.lastIndex(of: sessionID) {
             inputSessionIDs.remove(at: index)
+            lastInputEnded = now
         }
     }
 

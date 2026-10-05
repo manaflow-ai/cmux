@@ -338,12 +338,17 @@ final class BrowserReplTabAttachment {
 
     /// Whether a link activated in this tab may go to the user's configured
     /// external browser
-    /// (``BrowserReplTabOwnership/handsLinksToExternalBrowser(userIsWorkingInTab:)``):
-    /// always in a tab no session drives; in one a session drives, only a
-    /// user's tab the user is working in, while no session's input runs.
-    var handsLinksToExternalBrowser: Bool {
+    /// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``):
+    /// always in a tab no session drives; in one a session drives, only an
+    /// activation WebKit marks as the user's gesture in a user's tab the
+    /// user is working in, while no session's input runs or may still lend
+    /// the page its gesture.
+    func handsLinkToExternalBrowser(isUserInitiated: Bool) -> Bool {
         guard isAttached else { return true }
-        return ownership.handsLinksToExternalBrowser(userIsWorkingInTab: !opensPopupsInBackground)
+        return ownership.handsLinkToExternalBrowser(
+            BrowserReplLinkActivation(userIsWorkingInTab: !opensPopupsInBackground, isUserInitiated: isUserInitiated),
+            now: .now
+        )
     }
 
     /// The attached session whose input the page is handling now, if
@@ -846,7 +851,7 @@ final class BrowserReplTabAttachment {
     /// Sends an event to every attached session, when the guard table
     /// delivers it that way (``BrowserReplEventSpec/Delivery/everyAttached(_:)``).
     func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any]) {
-        guard event.isDelivered(as: .everyAttached("")) else { return }
+        guard event.isDelivered(through: .everyAttached) else { return }
         var body = payload
         body["targetId"] = targetID
         for sink in sinks.values { sink(event.rawValue, body) }
@@ -877,7 +882,7 @@ final class BrowserReplTabAttachment {
     /// sessions whose authority allows that document
     /// (``BrowserReplPageTelemetry``).
     private func emitTelemetry(_ event: BrowserReplDriverEvent, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
-        guard event.isDelivered(as: .fromDocument) else { return }
+        guard event.isDelivered(through: .fromDocument) else { return }
         var body = payload
         body["targetId"] = targetID
         let recipients = BrowserReplPageTelemetry().recipients(of: document, in: authorityFacts, among: Array(sinks.keys)) {
@@ -887,12 +892,14 @@ final class BrowserReplTabAttachment {
     }
 
     /// Sends a network event only to the sessions it belongs to
-    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``).
+    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``)
+    /// whose authority allows the document that sent the request
+    /// (``BrowserReplNetworkGate``, the table's ``BrowserReplEventSpec/Delivery/network``).
     /// Its URL and headers are the page's (``BrowserReplPageURL``,
     /// ``BrowserReplPageHeaders``): only the tab's live creator reads their
     /// credentials.
-    private func emitNetwork(_ name: String, _ payload: [String: Any]) {
-        guard let event = BrowserReplDriverEvent(rawValue: name), event.isDelivered(as: .network) else { return }
+    private func emitNetwork(_ name: String, _ payload: [String: Any], from sender: BrowserReplNetworkSender) {
+        guard let event = BrowserReplDriverEvent(rawValue: name), event.isDelivered(through: .network) else { return }
         let requestID = payload["requestId"] as? String ?? ""
         var body = payload
         body["targetId"] = targetID
@@ -900,10 +907,31 @@ final class BrowserReplTabAttachment {
         if let headers = payload["headers"] as? [String: String] {
             body["headers"] = BrowserReplPageHeaders(headers, creator: liveCreator)
         }
-        for recipient in ownership.networkRecipients(event: name, requestID: requestID) {
-            sinks[recipient.sessionID]?(name, body)
-        }
+        let recipients = ownership.networkRecipients(event: name, requestID: requestID).map(\.sessionID)
+        networkGate.send(NetworkEvent(name: name, body: body), from: sender, to: recipients)
     }
+
+    /// A network event on its way through ``networkGate``.
+    private struct NetworkEvent {
+        let name: String
+        let body: [String: Any]
+    }
+
+    /// Judges each network event by the document that sent it, in order,
+    /// reading the tab's frame tree for a document it does not know yet.
+    private lazy var networkGate = BrowserReplNetworkGate<NetworkEvent>(
+        tab: { [weak self] in self?.authorityFacts },
+        authority: { BrowserReplTabAttachment.authority(for: $0) },
+        readDocuments: { [weak self] in
+            guard let webView = self?.panel?.webView else { return [:] }
+            let frames = await BrowserReplFrameTree.frames(of: webView)
+            return BrowserReplFrameDocument.byDocumentID(frames, in: webView)
+        },
+        deliver: { [weak self] event, sessionIDs in
+            guard let self else { return }
+            for sessionID in sessionIDs { self.sinks[sessionID]?(event.name, event.body) }
+        }
+    )
 
     /// The session that created the tab while it stays attached; `nil` for
     /// a user's tab.
@@ -921,7 +949,7 @@ final class BrowserReplTabAttachment {
     /// session it was routed to, when the guard table routes it
     /// (``BrowserReplEventSpec/Delivery``).
     private func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any], to sessionID: String) {
-        guard event.isDelivered(as: .routedFromDocument) || event.isDelivered(as: .download) else { return }
+        guard event.isDelivered(through: .routedFromDocument) || event.isDelivered(through: .download) else { return }
         var body = payload
         body["targetId"] = targetID
         sinks[sessionID]?(event.rawValue, body)
@@ -946,7 +974,7 @@ final class BrowserReplTabAttachment {
         hasInstrumentedWebView = true
         instrumentedWebView = webView
         if isReplacement { emit(.tabReplaced, [:]) }
-        let observer = BrowserReplResourceLoadObserver { [weak self] event, payload in
+        let observer = BrowserReplResourceLoadObserver { [weak self] event, payload, sender in
             guard let self else { return }
             if event == "request" { self.requestGeneration += 1 }
             if event == "response", payload["resourceType"] as? String == "document",
@@ -954,7 +982,7 @@ final class BrowserReplTabAttachment {
                let status = payload["status"] as? Int {
                 self.mainDocumentStatus = status
             }
-            self.emitNetwork(event, payload)
+            self.emitNetwork(event, payload, from: sender)
         }
         observer.onInflightChange = { [weak self] count in
             guard let self, count == 0 else { return }
@@ -1276,7 +1304,7 @@ final class BrowserReplTabAttachment {
             "url": pageURL(url.absoluteString),
         ]
         if forInputSession != nil { payload["userOwned"] = true }
-        guard BrowserReplDriverEvent.tabCreated.isDelivered(as: .oneSession("")) else { return }
+        guard BrowserReplDriverEvent.tabCreated.isDelivered(through: .oneSession) else { return }
         for sink in recipients.values {
             sink(BrowserReplDriverEvent.tabCreated.rawValue, payload)
         }
@@ -1470,7 +1498,7 @@ final class BrowserReplTabAttachment {
             // gets the URLs as written (the reason names the refused hop),
             // the others their credential values replaced.
             for (sessionID, sink) in sinks {
-                guard BrowserReplDriverEvent.navigationBlocked.isDelivered(as: .everyAttached("")) else { continue }
+                guard BrowserReplDriverEvent.navigationBlocked.isDelivered(through: .everyAttached) else { continue }
                 sink(BrowserReplDriverEvent.navigationBlocked.rawValue, [
                     "url": pageURL(url?.absoluteString ?? ""),
                     "reason": refusal.reason(seesCredentials: isLiveCreator(sessionID)),

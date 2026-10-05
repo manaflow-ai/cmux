@@ -98,6 +98,20 @@ final class BrowserReplNavigationGuard {
         board.whenRulesSettle(sessionID: sessionID) { _ in body() }
     }
 
+    /// Whether `action`, a navigation or window of `panelID`, may go to the
+    /// user's configured external browser instead of loading in the tab
+    /// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``):
+    /// always for a tab no session drives. In a tab a session drives, the
+    /// page's own link activations (`a.click()`, agent-world code) and those
+    /// a session's input set off load in the tab under its guards; only one
+    /// WebKit marks as the user's gesture (`_isUserInitiated`, read as false
+    /// where WebKit cannot say) leaves it. Both the navigation delegate and
+    /// the window delegate ask this one decision.
+    func handsLinkToExternalBrowser(panelID: UUID, action: WKNavigationAction) -> Bool {
+        guard let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID) else { return true }
+        return attachment.handsLinkToExternalBrowser(isUserInitiated: action.browserReplIsUserInitiated)
+    }
+
     typealias PopupRoute = BrowserReplPopupRoute
 
     /// Routes a window the page in `panelID` opens (``BrowserReplPopupRoute``).
@@ -114,6 +128,18 @@ final class BrowserReplNavigationGuard {
             allowlist: BrowserURLAllowlistPolicy(defaults: .standard),
             opener: opener
         )
+    }
+}
+
+extension WKNavigationAction {
+    /// Whether WebKit marks the navigation as started by a user gesture
+    /// (`-[WKNavigationAction _isUserInitiated]`); false where WebKit does
+    /// not say, so an unknown activation is never taken for the user's.
+    @MainActor
+    var browserReplIsUserInitiated: Bool {
+        let selector = NSSelectorFromString("_isUserInitiated")
+        guard responds(to: selector) else { return false }
+        return (value(forKey: "_isUserInitiated") as? Bool) ?? false
     }
 }
 

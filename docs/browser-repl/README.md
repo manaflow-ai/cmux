@@ -40,7 +40,7 @@ reference ([parity-report.md](parity-report.md)).
 | Global | Purpose |
 | --- | --- |
 | `page` | The current tab, a Playwright `Page`. |
-| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current, state }` without attaching or waking a tab (`state`: see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)); `list({ all: true })` adds tabs in the user's other workspaces and windows; `use(id)` attaches a tab of the session's own workspace, except one another running session opened (listed with `ownedBy`; see [Sessions and tabs](#sessions-and-tabs)). A tab of another workspace is refused (`denied`): it needs an attach a person grants, which cmux does not offer yet. `tabs.close`/`page.close()` closes only tabs the session opened and user tabs it attached. `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
+| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current, state }` without attaching or waking a tab (`state`: see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)); `list({ all: true })` adds the session's own tabs that moved to another workspace (a user's tab of another workspace is not listed, and neither is its profile's data store); `use(id)` attaches a tab of the session's own workspace, except one another running session opened (listed with `ownedBy`; see [Sessions and tabs](#sessions-and-tabs)). A tab of another workspace is refused (`denied`): it needs an attach a person grants, which cmux does not offer yet. `tabs.close`/`page.close()` closes only tabs the session opened and user tabs it attached. `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies (`credentials`: `"include"` by default, `"same-origin"`, `"omit"`). The domain policy is checked on every redirect hop; a request body over 64 MiB fails, a response body over 64 MiB fails (download it in a tab instead), as does one past the 128 MiB a session's fetches may hold at once; a fetch fails after 10 minutes; past 256 queued fetches a new one fails at once. |
@@ -528,10 +528,13 @@ rest. Measurements: [performance.md](performance.md).
   tab, never as a key window over the user's work (a page that opens one
   after an `await` in the agent's click lands here). A link that matches a
   configured external-browser rule leaves cmux for the system browser only
-  when the user activated it in a user's tab they are working in, with no
-  session's input in flight; an agent's click, or the page's own link
-  activation, in a tab sessions drive (and any link in a tab a session
-  created) loads in the tab instead, under its guards.
+  when the user activated it in a user's tab they are working in: WebKit
+  marks the navigation as a user gesture (`_isUserInitiated`), no
+  session's input is in flight, and none ended in the last 11 s (a page can
+  use an input's gesture that long). An agent's click, the page's own link
+  activation (`a.click()`, also from agent-world code), or one in the 11 s
+  after a session's input, in a tab sessions drive (and any link in a tab a
+  session created) loads in the tab instead, under its guards.
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (the console messages and
   page errors of a main frame the policy blocks do not reach the session

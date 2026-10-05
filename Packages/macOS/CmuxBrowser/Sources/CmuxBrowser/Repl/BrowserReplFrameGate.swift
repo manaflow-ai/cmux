@@ -279,40 +279,47 @@ extension BrowserReplDomainPolicy {
 public final class BrowserReplFrameGate {
     /// The session's policy; only the native session sets it.
     public var policy = BrowserReplDomainPolicy()
-    /// For a tab the session did not create, the directories whose local
-    /// files the session may read (its working and temporary directories);
-    /// nil for the session's own tabs, whose content rules and navigation
-    /// checks keep other files out. Set by the driver.
-    ///
-    /// In such a tab a frame that shows any other local document (a file
-    /// outside the directories, or a document of a local file's origin
-    /// under another URL, whose file cannot be told) is judged like a frame
-    /// the policy blocks, whatever the policy
-    /// (``BrowserReplFileSandbox/localPageRefusal(url:documentOrigin:roots:)``):
-    /// a user's tab on a local page inside the directories may show such
-    /// files in its child frames. Only a local document can show a local
-    /// file in a frame, so a tab whose main frame shows a web page
-    /// (`http`, `https`) is left to the policy alone.
-    public var localDocumentRoots: @MainActor (WKWebView) -> [String]? = { _ in nil }
+    /// Whom the gate judges for in one web view: the session, its
+    /// directories and the tab as the authority sees it.
+    public struct Scope: Sendable, Equatable {
+        /// The session the gate serves.
+        public var sessionID: String
+        /// The session's working and temporary directories (canonical), the
+        /// only ones a tab it did not create may show local files from;
+        /// nil when not known, and then local files are not judged.
+        public var fileRoots: [String]?
+        /// The tab that shows the web view (its creator, main-frame URL,
+        /// attached sessions), as ``BrowserReplDocumentAuthority`` judges it.
+        public var tab: BrowserReplTabFacts
 
-    /// The authority that judges `webView`'s documents, and the tab as it
-    /// needs it: the gate's policy, and the session's directories when
-    /// ``localDocumentRoots`` names them for this tab (a tab the session did
-    /// not create). The gate decides nothing itself.
-    private func authority(in webView: WKWebView) -> (BrowserReplDocumentAuthority, BrowserReplTabFacts) {
-        let roots = localDocumentRoots(webView)
-        let authority = BrowserReplDocumentAuthority(sessionID: Self.gateSession, policy: policy, fileRoots: roots)
-        // `localDocumentRoots` answers nil for the session's own tab: such a
-        // tab is the gate session's, and its local documents are not judged.
-        let tab = BrowserReplTabFacts(mainFrameURL: webView.url, creatorSessionID: roots == nil ? Self.gateSession : nil)
-        return (authority, tab)
+        public init(sessionID: String, fileRoots: [String]?, tab: BrowserReplTabFacts) {
+            self.sessionID = sessionID
+            self.fileRoots = fileRoots
+            self.tab = tab
+        }
     }
 
-    /// The session the gate's authority speaks for; the gate serves one.
-    private static let gateSession = "frame-gate"
+    /// The scope of `webView`, from the real tab facts; set by the driver.
+    /// In a tab the session did not create whose main frame does not show
+    /// a web page, a frame that shows a local document outside the
+    /// session's directories (a file outside them, or a document of a local
+    /// file's origin under another URL, whose file cannot be told) is judged
+    /// like a frame the policy blocks, whatever the policy
+    /// (``BrowserReplDocumentAuthority/judgesLocalDocuments(in:)``). Without
+    /// a scope (a gate made for one check of a session's own tab) the gate
+    /// judges by ``policy`` alone, in no tab.
+    public var scope: @MainActor (WKWebView) -> Scope? = { _ in nil }
+
+    /// The authority that judges `webView`'s documents, and the tab as it
+    /// needs it: the gate's policy, with the session, its directories and
+    /// the tab from ``scope``. The gate decides nothing itself.
+    private func authority(in webView: WKWebView) -> (BrowserReplDocumentAuthority, BrowserReplTabFacts?) {
+        guard let scope = scope(webView) else { return (.judging(policy), nil) }
+        return (BrowserReplDocumentAuthority(sessionID: scope.sessionID, policy: policy, fileRoots: scope.fileRoots), scope.tab)
+    }
 
     /// Whether the gate judges `webView`'s frames: a domain policy is in
-    /// force, or its local documents are judged (``localDocumentRoots``).
+    /// force, or its local documents are judged (``scope``).
     public func isActive(in webView: WKWebView) -> Bool {
         let (authority, tab) = authority(in: webView)
         return authority.isActive(in: tab)
@@ -367,7 +374,7 @@ public final class BrowserReplFrameGate {
     private var known: [Key: BrowserReplFrameDocument] = [:]
     /// Holds back child-frame loads while guarded input or a capture is in
     /// flight; the navigation delegate honors it.
-    let loadHold: BrowserReplSubframeLoadHold
+    public let loadHold: BrowserReplSubframeLoadHold
 
     private struct Key: Hashable {
         let webView: ObjectIdentifier
@@ -940,14 +947,6 @@ public final class BrowserReplFrameGate {
     /// Other frames of the tab do not matter; the files go only to that
     /// frame's input.
     public func checkFileChooser(frame info: WKFrameInfo, in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
-        guard isActive(in: webView) else { return }
-        let refusal = { (shown: String, reason: String) in
-            BrowserReplDriverError(code: "blocked", message: "The file chooser opened in a frame showing \(shown), which the domain policy blocks: \(reason); it may only be cancelled")
-        }
-        let recorded = BrowserReplFrameDocument(info: info)
-        if let reason = blockReason(recorded, in: webView) {
-            throw refusal(recorded.origin ?? recorded.place, reason)
-        }
         let frame: BrowserReplFrame?
         if info.isMainFrame {
             frame = frames.first
@@ -958,7 +957,33 @@ public final class BrowserReplFrameGate {
         guard let frame else {
             throw BrowserReplDriverError(code: "stale", message: "The frame the file chooser opened in is gone or cannot be read, so the document it shows cannot be checked against the domain policy; it may only be cancelled")
         }
+        // The chooser belongs to the document that opened it: a frame that
+        // shows another one since gets no files, whatever its verdict.
+        guard let current = frame.info, Self.isSameDocument(info, current) else {
+            throw BrowserReplDriverError(code: "stale", message: "The frame the file chooser opened in shows another document since, so the files would go to a page that did not ask for them; it may only be cancelled")
+        }
+        guard isActive(in: webView) else { return }
+        let recorded = BrowserReplFrameDocument(info: info)
+        if let reason = blockReason(recorded, in: webView) {
+            throw BrowserReplDriverError(code: "blocked", message: "The file chooser opened in a frame showing \(recorded.origin ?? recorded.place), which the domain policy blocks: \(reason); it may only be cancelled")
+        }
         try await authorize(frame, in: webView)
+    }
+
+    /// Whether two of WebKit's records of one frame name the same document:
+    /// by WebKit's document id (`_documentIdentifier`) when both carry one,
+    /// else by URL and origin.
+    static func isSameDocument(_ lhs: WKFrameInfo, _ rhs: WKFrameInfo) -> Bool {
+        if let left = documentID(of: lhs), let right = documentID(of: rhs) { return left == right }
+        return lhs.request.url == rhs.request.url && BrowserReplFrameDocument(info: lhs) == BrowserReplFrameDocument(info: rhs)
+    }
+
+    /// WebKit's id of the document `info` recorded
+    /// (`-[WKFrameInfo _documentIdentifier]`), or nil where WebKit has none.
+    public static func documentID(of info: WKFrameInfo) -> String? {
+        let selector = NSSelectorFromString("_documentIdentifier")
+        guard info.responds(to: selector) else { return nil }
+        return (info.value(forKey: "_documentIdentifier") as? UUID)?.uuidString
     }
 
     /// The frames whose recorded documents the policy blocks.
@@ -1185,11 +1210,24 @@ public final class BrowserReplFrameGate {
     return { tampered };
     """
 
+    /// A JavaScript expression: whether the element in `variable` is one
+    /// that holds a child browsing context (`<iframe>`, `<frame>`,
+    /// `<object>`, `<embed>`), so the focus it has is in that frame. Every
+    /// focus check (the gate's, the secret target's) uses this one list.
+    /// String comparisons only: it runs in a world agent code cannot reach,
+    /// and needs no global it could replace.
+    public static func frameElementTest(_ variable: String) -> String {
+        "(!!\(variable) && (" + frameElementTags.map { "\(variable).tagName === \"\($0)\"" }.joined(separator: " || ") + "))"
+    }
+
+    /// The elements that hold a child browsing context.
+    static let frameElementTags = ["IFRAME", "FRAME", "OBJECT", "EMBED"]
+
     /// The frame's focus, and its own position in its parent's
     /// `window.frames` (-1 in a shadow tree) with that list's length.
     private static let focusSource = """
     const e = document.activeElement;
-    const inner = !!e && (e.tagName === "IFRAME" || e.tagName === "FRAME" || e.tagName === "OBJECT");
+    const inner = \(frameElementTest("e"));
     const p = window.parent;
     let position = -1;
     const length = p === window ? 0 : p.length;
@@ -1205,7 +1243,7 @@ public final class BrowserReplFrameGate {
     private static let ownerFocusSource = """
     let e = document.activeElement;
     while (e && e.shadowRoot && e.shadowRoot.activeElement) e = e.shadowRoot.activeElement;
-    if (!e || !(e.tagName === "IFRAME" || e.tagName === "FRAME" || e.tagName === "OBJECT" || e.tagName === "EMBED")) return false;
+    if (!\(frameElementTest("e"))) return false;
     if (window.frames.length !== length) return null;
     const w = e.contentWindow;
     if (index >= 0) return !!w && w === window.frames[index];

@@ -122,4 +122,37 @@ struct BrowserReplSecretTargetTests {
         }
         #expect(error??.code == "stale", "a focus probe that did not answer hung or passed: \(String(describing: error))")
     }
+    /// An `<object>` or `<embed>` holds a browsing context like an
+    /// `<iframe>`: while focus is in it, the parent's active element is the
+    /// object, and the parent must not answer for that focus with its own
+    /// origin. Here the tree was read before the embedded frame existed, so
+    /// only the parent is asked.
+    @Test(arguments: ["object", "embed"])
+    func anObjectOrEmbedThatHoldsTheFocusIsNotTheParentsField(_ tag: String) async throws {
+        let field = #"<input id=f><script>document.getElementById('f').focus(); webkit.messageHandlers.frame.postMessage('child')</script>"#
+        let source = "data:text/html," + (field.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
+        let element = tag == "object"
+            ? #"<object type="text/html" data="\#(source)" width=300 height=100></object>"#
+            : #"<embed type="text/html" src="\#(source)" width=300 height=100>"#
+        let webView = await load(element + #"<script>webkit.messageHandlers.frame.postMessage('main')</script>"#, posting: ["main", "child"])
+        let main = try #require(frames.infos["main"])
+        // A web view outside a window has no focused frame, so the parent
+        // moves its focus to the element that holds the field's frame, as
+        // a click into that frame does.
+        let tagName = try await webView.callAsyncJavaScript(
+            "const e = document.querySelector('\(tag)'); e.tabIndex = 0; e.focus(); return document.activeElement.tagName",
+            contentWorld: .page
+        ) as? String
+        try #require(tagName == tag.uppercased(), "focus did not move into the \(tag)'s frame (\(tagName ?? "nil"))")
+        var target = try target()
+        // Any element but the body counts as this document's focus.
+        target.focusProbe = "const el = document.activeElement; return !!el && el !== document.body && el !== document.documentElement;"
+        var refused: BrowserReplDriverError?
+        do {
+            try await target.check(in: webView, frames: [frame("1", main, parent: nil)])
+        } catch let error as BrowserReplDriverError {
+            refused = error
+        }
+        #expect(refused?.code == "invalid", "the secret went to the field inside the \(tag), judged by the parent's origin")
+    }
 }
