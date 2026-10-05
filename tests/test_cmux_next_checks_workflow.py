@@ -220,6 +220,17 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
 
+    def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
+        for filename, job_id in (("cmux-next.yml", "push-head-preflight"),
+                                 ("cmux-tui-artifacts.yml", "tree-preflight")):
+            document = yaml.safe_load((WORKFLOW.parent / filename).read_text())
+            script = document["jobs"][job_id]["steps"][-1]["run"]
+            with self.subTest(workflow=filename):
+                self.assertIn("Authorization: Basic", script)
+                self.assertIn("x-access-token:%s", script)
+                self.assertIn("timeout 15 git", script)
+                self.assertNotIn("Authorization: Bearer", script)
+
 
 class PushPreflightBehavior(unittest.TestCase):
     """Execute the workflow shell with bounded fake network and git responses."""
