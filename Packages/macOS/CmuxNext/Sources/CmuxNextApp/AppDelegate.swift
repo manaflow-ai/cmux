@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -92,6 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cost (a launcher panel opens in one frame), without
         // delaying that frame.
         launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
+        // Temporary download files a crash left in an earlier run (only the
+        // recorded ones; the record is read and the files deleted off the
+        // main actor). Downloads of this run are never touched.
+        launchSettle.whenSettled { BrowserDownloadTempFiles.shared.cleanUpLeftovers() }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
