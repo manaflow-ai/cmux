@@ -8,13 +8,19 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use cmux_rd_proto::{InputEvent, InputPacket};
+use cmux_rd_proto::{
+    HEADER_LEN, INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC,
+};
 
 /// How many packets carry one event at most.
 pub const MAX_SENDS: u8 = 3;
 
 /// Most events in one packet.
 pub const MAX_EVENTS_PER_PACKET: usize = 32;
+
+/// Largest input packet payload: a packet fits the smallest session
+/// datagram (`MAX_DATAGRAM_VPC`) after the header, whatever the path.
+pub const MAX_PACKET_PAYLOAD: usize = MAX_DATAGRAM_VPC - HEADER_LEN;
 
 #[derive(Debug, Clone)]
 struct Outgoing {
@@ -44,6 +50,16 @@ impl InputSender {
         seq
     }
 
+    /// True when no event waits for an acknowledgement or a resend.
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    /// True when an event was queued but never put in a packet.
+    pub fn has_unsent(&self) -> bool {
+        self.queue.iter().any(|o| o.sends == 0)
+    }
+
     /// Drops events the host applied (`applied` = newest applied sequence).
     pub fn ack(&mut self, applied: u32) {
         while self.base <= applied && !self.queue.is_empty() {
@@ -52,9 +68,13 @@ impl InputSender {
         }
     }
 
-    /// The next packet: the run of unacknowledged events that still have sends
-    /// left, starting at the oldest such event. Events that used all sends are
-    /// dropped from the front (the host skips the gap after its timeout).
+    /// The next packet: a run of consecutive unacknowledged events of at most
+    /// [`MAX_EVENTS_PER_PACKET`] events and [`MAX_PACKET_PAYLOAD`] bytes
+    /// (always at least one event). The run starts at the oldest event, so
+    /// older events ride along with new ones; when that run cannot reach the
+    /// first never-sent event, it starts at that event instead, so new input
+    /// is never held behind repeats. Events that used all sends are dropped
+    /// from the front (the host skips the gap after its timeout).
     pub fn packet(&mut self) -> Option<InputPacket> {
         while self.queue.front().is_some_and(|o| o.sends >= MAX_SENDS && !is_release(&o.event)) {
             self.queue.pop_front();
@@ -63,13 +83,38 @@ impl InputSender {
         if self.queue.is_empty() {
             return None;
         }
-        let first_seq = self.base;
-        let mut events = Vec::new();
-        for out in self.queue.iter_mut().take(MAX_EVENTS_PER_PACKET) {
-            out.sends += 1;
-            events.push(out.event.clone());
-        }
+        let start = match self.queue.iter().position(|o| o.sends == 0) {
+            Some(unsent) if self.window_len(0) <= unsent => unsent,
+            _ => 0,
+        };
+        let len = self.window_len(start);
+        let first_seq = self.base.wrapping_add(start as u32);
+        let events = self
+            .queue
+            .iter_mut()
+            .skip(start)
+            .take(len)
+            .map(|out| {
+                out.sends += 1;
+                out.event.clone()
+            })
+            .collect();
         Some(InputPacket { first_seq, events })
+    }
+
+    /// How many events from queue position `start` fit one packet (at least one).
+    fn window_len(&self, start: usize) -> usize {
+        let mut bytes = INPUT_PACKET_PREFIX_LEN;
+        let mut n = 0;
+        for out in self.queue.iter().skip(start).take(MAX_EVENTS_PER_PACKET) {
+            let len = out.event.encoded_len();
+            if n > 0 && bytes + len > MAX_PACKET_PAYLOAD {
+                break;
+            }
+            bytes += len;
+            n += 1;
+        }
+        n
     }
 }
 

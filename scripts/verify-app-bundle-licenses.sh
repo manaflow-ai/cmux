@@ -43,6 +43,13 @@ if [[ ! -s "$BUNDLED_THIRD_PARTY" ]]; then
   exit 1
 fi
 
+# The Rust and Zig standard library notices must match this checkout's
+# toolchain pins (rust-toolchain.toml files, Ghostty minimum_zig_version).
+if ! python3 "$ROOT_DIR/cmux-tui/build-support/notices/toolchains/toolchain_notices.py" check-repo --repo "$ROOT_DIR"; then
+  echo "error: the Rust or Zig standard library notices do not match the toolchain pins" >&2
+  exit 1
+fi
+
 # Every Mach-O in the bundle must map to its notices (scripts/cmux-next/notices/bundle-map.json).
 # A bundled Ghostty license tree must name the Ghostty revision of this checkout.
 check_args=()

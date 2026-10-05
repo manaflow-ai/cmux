@@ -673,6 +673,24 @@ jobs:
           name: cmux-tui-x86_64-pc-windows-gnu
           path: dist/binaries
 
+      # THIRD_PARTY_LICENSES.md for each platform package and wheel: the exact
+      # target's Rust crates, Rust std, Zig, libghostty-vt's linked packages and
+      # (Linux) musl. Windows is refused until mingw-w64 is reviewed, so an
+      # include_windows package build fails closed.
+      - name: Generate third-party notices for each package target
+        run: |
+          python3 cmux-tui/dist/scripts/package_notices.py generate \
+            --out-dir dist/package-notices \
+            --source-tag "$(git rev-parse HEAD)" \
+            --cache "$RUNNER_TEMP/cmux-notices"
+
+      - name: Upload the third-party notices
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-notices
+          path: dist/package-notices
+          if-no-files-found: error
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
@@ -684,6 +702,7 @@ jobs:
             --version "$NPM_VERSION" \
             --build-commit "$(git rev-parse HEAD)" \
             ${{ inputs.include_windows && '--include-windows' || '' }} \
+            --notices-dir dist/package-notices \
             --out dist/npm-packages
 
       - name: Build PyPI wheels
@@ -692,6 +711,7 @@ jobs:
           python3 cmux-tui/dist/scripts/package_pypi.py \
             --binaries-dir dist/binaries \
             --version "$PYPI_VERSION" \
+            --notices-dir dist/package-notices \
             --out dist/pypi-wheels
 
       - name: Smoke verify npm packages
@@ -709,6 +729,7 @@ jobs:
           contract_args=(
             --npm-packages dist/npm-packages
             --version "$NPM_VERSION"
+            --notices-dir dist/package-notices
             --install-npm-package "$install_target"
             --install-npm-relay-package "$relay_install_target"
           )
@@ -784,7 +805,8 @@ jobs:
           set -euo pipefail
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --pypi-wheels dist/pypi-wheels \
-            --version "$PYPI_VERSION"
+            --version "$PYPI_VERSION" \
+            --notices-dir dist/package-notices
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
           done

@@ -992,7 +992,7 @@ jobs:
           source="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p' | awk '{print $1}')"
           manifests=(--license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json")
           [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$out/$source-licenses/SOURCE-MANIFEST.json")
-          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}"
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}" --link-graph scripts/cmux-next/notices/vt-link-graph.json
 
       - name: Upload the cmux-next source archive
         if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
@@ -2203,6 +2203,7 @@ jobs:
             --immutable "nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
             --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \

@@ -166,6 +166,10 @@ class SourceArchiveRetentionTests(unittest.TestCase):
         self.assertTrue(MODULE.is_source_archive("cmux-next-source-1234.tar.gz"))
         self.assertFalse(MODULE.is_source_archive("cmux-next-macos-1234.dmg"))
 
+    def test_the_daemon_notice_is_an_asset_of_its_build(self) -> None:
+        # cmuxd-remote-THIRD_PARTY_LICENSES-<build>.txt goes with its binaries.
+        self.assertEqual(MODULE.extract_build("cmuxd-remote-THIRD_PARTY_LICENSES-1234.txt", self.PATTERNS), 1234)
+
     def test_pruned_build_takes_its_source_archive_and_kept_builds_keep_theirs(self) -> None:
         deleted = {asset.name for asset in self.plan(next_release([1, 2, 3]), keep_builds=2)}
         self.assertIn("cmux-next-source-1.tar.gz", deleted)
