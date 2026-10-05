@@ -4,7 +4,7 @@
     {
       "path": "Contents/MacOS/cmux",
       "what": "the app: Swift packages, GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Release merges Iroh.framework's Rust code here: rustc 1.91.0 std), Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library"]
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",

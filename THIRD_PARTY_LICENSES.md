@@ -160,6 +160,15 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
+<!-- notices-section: manual-freetype -->
+## FreeType
+
+GhosttyNextKit (Ghostty's terminal library in this app) statically links FreeType for font rendering. This app uses FreeType under the FreeType License (FTL); FreeType's LICENSE.TXT is in `Contents/Resources/ghostty-next-licenses/`. The FTL asks binary distributions to credit the FreeType Project:
+
+This software is based in part on the work of the FreeType Team (FreeType 2.13.2, https://freetype.org). Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org).  All rights reserved.
+
+---
+
 <!-- notices-section: manual-cmux-cua-engine -->
 ## cmux-cua engine
 

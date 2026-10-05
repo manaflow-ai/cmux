@@ -32,6 +32,10 @@ reviewed text; `zig-std` needs the Zig text. `toolchain_notices.py check-repo`
 `rust-toolchain.toml` channel or a Ghostty `minimum_zig_version` no longer
 matches, so a toolchain bump stops until its text is reviewed.
 
+FreeType: the macos slice links FreeType, so hand-written.md's `FreeType` section holds the
+FreeType License credit; `ios_notices.py check-macos` (source-archive CI, with the license
+tree) fails when it does not name the FreeType version of the pinned tree (`FREETYPE_YEARS`).
+
 musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
 app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
 section, checked by `ios_notices.py check-repo`; the pane takes the reviewed file of
