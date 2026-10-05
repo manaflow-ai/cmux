@@ -36,7 +36,8 @@ struct DevicePresenceWireTests {
 
     @Test("My Devices subscribes to the signed-in user's devices, not the selected team's")
     func subscribesToAccountScopedPresence() throws {
-        let url = try #require(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: try #require(URL(string: "https://presence.example.test/base/"))))
+        let serviceBaseURL = try #require(URL(string: "https://presence.example.test/base/"))
+        let url = try #require(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: serviceBaseURL))
         let comps = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
         #expect(comps.scheme == "wss")
         #expect(comps.path == "/base/v1/presence/subscribe")
