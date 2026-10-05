@@ -91,7 +91,7 @@ files are in `manifest.json`'s `repl` list after `api.js`, which builds
 //   cmux browser repl --session mail
 const hits = await sites.gmail.search("from:bob has:attachment newer_than:7d");
 const thread = await sites.gmail.thread(hits[0].threadId);
-const draft = await sites.gmail.send({ threadId: hits[0].threadId, body: "Thanks, looks good." });
+const draft = await sites.gmail.send({ to: thread.messages[0].from.email, subject: "Re: " + thread.subject, body: "Thanks, looks good." });
 draft.preview; // show it to the user; on approval:
 await sites.gmail.send(draft.id, { confirm: true });
 ```
@@ -148,7 +148,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `draft_mismatch`, `draft_used`, `draft_expired`, `draft_changed`,
 `account_mismatch`, `account_unverified`, `target_mismatch`,
 `target_unverified`, `content_mismatch`, `content_unverified`,
-`commit_unverified`, `account_changed`, `account_unknown`, `tool_changed`,
+`commit_unverified`, `reply_unverified`, `account_changed`, `account_unknown`, `tool_changed`,
 `page_changed`, `origin_changed`, `write_requires_draft`, `unsupported`.
 
 | Method | Mechanism | Kind |
@@ -159,7 +159,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
-| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) checked against the draft, and for a new message the subject (`target_mismatch` or `content_mismatch` on any difference, `*_unverified` for a field it cannot read); a reply's rows are those its draft read from Gmail's reply composer, so a changed Reply-To or Cc sends nothing, and a reply composer whose To row cannot be read, or that holds a chip outside its rows, fails closed with `target_unverified` at the draft and at Send; `to`, `cc` and `bcc` cannot be set on a reply; the page's account (Google's account list for its `/u/` index, which its title and account button must name) checked against the drafted account id and email, Send, wait for "Message sent" and the undo window | write [9], [14] |
+| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) checked against the draft, and for a new message the subject (`target_mismatch` or `content_mismatch` on any difference, `*_unverified` for a field it cannot read); a reply's rows are those its draft read from Gmail's reply composer, so a changed Reply-To or Cc sends nothing, and a reply composer whose To row cannot be read, or that holds a chip outside its rows, fails closed with `target_unverified` at the draft and at Send; `to`, `cc` and `bcc` cannot be set on a reply; confirmed replies are off in source (`reply_unverified`, nothing sent; the draft still shows the recipients) until a live check, drafts only, shows that the previewed To, Cc and Bcc are the ones Gmail's own reply composer addresses (decision 12); the page's account (Google's account list for its `/u/` index, which its title and account button must name) checked against the drafted account id and email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
 | `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked as for Gmail, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's; location and description with whitespace collapsed; the recurrence menu's words against the drafted rule: "Does not repeat" without one, else its frequency and interval, `COUNT` and whether it has an `UNTIL`; the guests, organizer aside), failing with `target_mismatch` or `content_mismatch` (`*_unverified` for a field it cannot read) and saving nothing on any difference or a field it cannot read; Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
@@ -345,6 +345,13 @@ These are not implemented and need a decision:
 11. **Reference A's own platform.** `referenceA.settings`, `projects`, `routines` and
     `channels` manage reference A, not a browser; the cmux counterparts are app
     settings and workspaces.
+12. **Gmail replies.** A reply draft shows the To, Cc and Bcc read from
+    Gmail's reply composer, and the confirmation reads them back right
+    before Send, but the composer markup it reads has only mock coverage.
+    Confirmed replies stay off (`REPLIES_VERIFIED` in `sites/gmail.js`)
+    until a live check on a signed-in profile, drafts only, shows the
+    previewed recipients equal Gmail's for Reply, Reply all and a sender's
+    Reply-To.
 
 `tests/browser-parity/capabilities.json` (`sites`) maps every reference A site
 global and method and every reference B site capability

@@ -11,6 +11,17 @@
   const core = root.CmuxBrowserRepl.core;
   const { URL, URLSearchParams } = core;
   const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//, /\/gmail\/about/];
+  // Confirmed replies are off until a live check passes (decisions.md,
+  // "Gmail replies"): reply drafts made on a signed-in profile, never
+  // confirmed, whose previewed To, Cc and Bcc equal what Gmail's own reply
+  // composer addresses. Set this to true in source when that check
+  // passes. Until then a reply draft shows its recipients and its
+  // confirmation sends nothing (reply_unverified). Tests of the reply path
+  // turn replies on with S.shared.gmailReplies = { verified: true }; the
+  // app deletes the runtime namespace before any cell runs, so a cell
+  // cannot.
+  const REPLIES_VERIFIED = false;
+  const repliesOn = () => REPLIES_VERIFIED || !!(S.shared.gmailReplies && S.shared.gmailReplies.verified === true);
 
   function readList(arg) {
     const mains = [...document.querySelectorAll('div[role="main"]')];
@@ -241,6 +252,7 @@
       }
 
       async function sendNow(msg, c) {
+        if (msg.threadId && !repliesOn()) throw new S.SiteError("reply_unverified", "gmail.send: replies are off until a live check shows that the recipients a reply draft previews are the ones Gmail's reply composer addresses; nothing was sent. Reply in Gmail itself, or send a new message with explicit recipients");
         if (msg.threadId) {
           const key = threadKey(msg.threadId);
           return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
@@ -328,7 +340,7 @@
             const set = (list) => addresses(list).sort();
             return {
               category: "[9] representational communication; [14] transmits data to the recipients",
-              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} to ${everyone} as ${who.email} (u/${msg.uid})` : `Email to ${everyone} from ${who.email} (u/${msg.uid}): "${msg.subject}"`,
+              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} to ${everyone} as ${who.email} (u/${msg.uid})${repliesOn() ? "" : "; confirming it sends nothing until replies pass their live check (reply_unverified)"}` : `Email to ${everyone} from ${who.email} (u/${msg.uid}): "${msg.subject}"`,
               account: { account: msg.uid, accountEmail: who.email, accountId: who.id },
               target: msg.threadId ? { threadId: msg.threadId, messageIds: msg.messageIds, to: msg.to, cc: msg.cc, bcc: msg.bcc } : { to: msg.to, cc: msg.cc, bcc: msg.bcc },
               content: msg.threadId ? { replyAll: msg.replyAll, body: msg.body } : { subject: msg.subject, body: msg.body },
