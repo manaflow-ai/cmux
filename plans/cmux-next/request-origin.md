@@ -77,12 +77,42 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
   `origin.forbidden {required: "agent", derived: "page"}`, except `identify` and a late
   `client-hello` (window_closed). Pages speak only v2 through the relay.
 - `terminal.renderer_grant.create` is refused for origin `page` and on every page_relay request,
-  a confirmed-user claim included (the grant would reach page JS). The legacy
+  a confirmed-user claim included (the grant would reach page JS); see "Page access". The legacy
   `mint-terminal-renderer*` commands and the v2 operation also need a local Unix connection.
 - Same-peer key for origin.confirmation.issue: peer_key above.
 - Capability `origin-claim-v1` = client-hello step 1 + the `origin` envelope field + the issue
   operation. Clients use them only when it is advertised; otherwise the relay behaves as today
   and logs that page calls are not narrowed.
+
+## Page access (coordinator decision 2026-10-04, page default deny)
+
+Origin `page` is refused (`origin.forbidden`, details `{required: "agent", derived: "page"}`) for
+every operation below, on every request of a page_relay connection (a confirmed-user claim
+included: the result still reaches page JS) and on any connection that narrows itself to `page`.
+The rule lives in `cmux-tui-core/src/request_origin/page_access.rs`. Its match names every catalog
+operation, so a new operation does not compile until it is classified. The legacy path is already
+closed: a page_relay connection refuses every non-v2 line, and legacy lines carry no origin claim.
+
+- Terminal input: `terminal.input.write`, `terminal.input.keys`, `terminal.input.mouse`,
+  `terminal.input.focus`, `pane.run`, `workspace.run`, `sidebar_view.input`, `browser.input.text`,
+  `browser.input.key`, `browser.input.mouse`, `browser.input.wheel`.
+- Screen, history and process reads: `terminal.screen.read`, `terminal.history.read`,
+  `terminal.history.clear`, `terminal.output_read`, `terminal.state.read`, `terminal.copy`,
+  `terminal.wait`, `terminal.wait_exit`, `terminal.process.get`.
+- Attach and detach: `terminal.attach`, `terminal.viewer.resize`, `terminal.viewer.release`,
+  `terminal.viewport.scroll`, `browser.attach`, `browser.viewer.resize`, `browser.viewer.release`,
+  `sidebar_view.attach`, `client.detach`.
+- Renderer: `terminal.renderer_grant.create`.
+- File system: every `git.*` operation, `session.journal.hook.put` (its manifest runs a command),
+  and `pane.create`, `pane.split`, `tab.create_terminal` when `cwd` is present (R5 parity).
+
+Allow list: EMPTY. The page relay (`DaemonPageRelay`) carries only the History page's
+`cmux.history.*` and the App Store page's `cmux.apps.*`; `PageDescriptor.admits` keeps every page
+inside its own namespaces, and no page namespace maps to a denied operation. The diff, markdown,
+agent, settings, coderouter, cloud, passwords, keybindings, changelog and icon picker pages use
+Swift providers, not the daemon relay. A future entry needs a shipped page, a rule that scopes it
+to that page's own object (no rule exists today for "the terminal this page was opened for": a
+page relay connection is one per app, not one per page), and its own allowed and refused tests.
 
 ## Red tests (first commit)
 
