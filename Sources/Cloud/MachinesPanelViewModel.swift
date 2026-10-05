@@ -16,6 +16,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// A rename keeps the Cloud Machines section visibly refreshing while its
     /// optimistic label is waiting for the command completion callback.
     @Published private(set) var isRenamingMachine = false
+    /// Labels submitted by the user remain over the sidebar projection until
+    /// an authoritative list response confirms the same value.
+    private var optimisticLabels: [String: String] = [:]
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
     /// Classified list failure for the matching sign-in, plan, or retry presentation.
@@ -398,12 +401,33 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Projects a submitted label into the sidebar immediately. The next
     /// authoritative list refresh replaces it if the command was rejected.
     func beginOptimisticRename(id: String, label: String?) {
+        optimisticLabels[id] = label ?? ""
         machines = MachineSnapshotBuilder.applyingLabel(to: machines, machineID: id, label: label)
         isRenamingMachine = true
+        // Catalog-only machines are rendered by `sidebarMachines`, so notify
+        // those readers even when the list response does not contain this id.
+        objectWillChange.send()
     }
 
     func finishOptimisticRename() {
         isRenamingMachine = false
+    }
+
+    func applyingOptimisticLabels(to snapshots: [MachineSnapshot]) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            guard let encoded = optimisticLabels[snapshot.id] else { return snapshot }
+            var next = snapshot
+            next.label = encoded.isEmpty ? nil : encoded
+            return next
+        }
+    }
+
+    private func reconcileOptimisticLabels(with authoritative: [MachineSnapshot]) {
+        for snapshot in authoritative {
+            guard let encoded = optimisticLabels[snapshot.id] else { continue }
+            let expected = encoded.isEmpty ? nil : encoded
+            if snapshot.label == expected { optimisticLabels.removeValue(forKey: snapshot.id) }
+        }
     }
 
     func optimisticallyRenameMachine(id: String, label: String?) {
@@ -541,6 +565,7 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshGeneration &+= 1
         isLoading = false
         isRenamingMachine = false
+        optimisticLabels.removeAll()
         isRecoveringList = false
         statsTask?.cancel(); statsTask = nil; statsID = nil
         usageTask?.cancel(); usageTask = nil
@@ -581,6 +606,8 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            reconcileOptimisticLabels(with: snapshots)
+            snapshots = applyingOptimisticLabels(to: snapshots)
             // The authoritative fleet plus catalog-only rows is the complete
             // visible set: a pin whose machine is gone from both is pruned.
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
