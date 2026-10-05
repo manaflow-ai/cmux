@@ -12950,7 +12950,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 unreadSource: sidebarUnread,
-                actionHandler: { handleCMUXSidebarExtensionAction($0) },
+                actionHandler: { await handleCMUXSidebarExtensionAction($0) },
                 onUseDefaultSidebar: {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
@@ -13339,12 +13339,14 @@ struct VerticalTabsSidebar: View, Equatable {
     }
     private func handleCMUXSidebarExtensionAction(
         _ action: CmuxSidebarAction
-    ) -> CmuxSidebarActionResult {
+    ) async -> CmuxSidebarActionResult {
         if let result = SidebarExtensionManagementCoordinator(
             tabManager: tabManager,
             notificationStore: notificationStore
         ).perform(action) { return result }
         switch action {
+        case .analyzeWorkspaceContexts(let workspaceIDs):
+            return await tabManager.sidebarOrganizationCoordinator.analyze(tabManager: tabManager, workspaceIDs: workspaceIDs)
         case .createWorkspace(let title, let workingDirectory, let select):
             guard let workspace = tabManager.addWorkspaceIfActive(
                 title: title,

@@ -74,12 +74,16 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     case reorderWorkspace
     /// Edit revision-guarded project metadata, analyze proposals, reject tags, and undo.
     case editWorkspaceContext
+    /// Run the native local classifier and retain reviewable project proposals.
+    case analyzeWorkspaceContext
     /// Bind an explicitly supplied session to an exact live process generation.
     case bindAgentSession
 
     /// The API required to interpret this declared capability.
     var minimumAPIVersion: CmuxExtensionAPIVersion {
         switch self {
+        case .analyzeWorkspaceContext:
+            return .sidebarV2_3
         case .editWorkspaceContext, .bindAgentSession:
             return .sidebarV2_2
         case .renameWorkspace, .renameSurface, .renameWorkspaceGroup, .createWorkspaceGroup, .pinWorkspace,

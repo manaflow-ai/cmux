@@ -14,7 +14,7 @@ struct SidebarManagementContractTests {
         let snapshot = Self.snapshot()
         let restored = try CmuxSidebarXPCCodec.decodeSnapshot(CmuxSidebarXPCCodec.encodeSnapshot(snapshot))
         #expect(restored == snapshot)
-        #expect(restored.apiVersion == .sidebarV2_2)
+        #expect(restored.apiVersion == .sidebarV2_3)
         #expect(restored.workspaceGroups.first?.workspaceIDs == [Self.workspaceID])
         #expect(restored.workspaces.first?.surfaces.first?.runtime?.processGeneration == 7)
     }
@@ -100,9 +100,9 @@ struct SidebarManagementContractTests {
             readScopes: [.workspaceGroups, .agentRuntime],
             actionScopes: [.renameWorkspace, .deleteWorkspaceGroup, .closeWorkspace]
         )
-        #expect(modern.minimumAPIVersion == .sidebarV2_2)
+        #expect(modern.minimumAPIVersion == .sidebarV2_3)
         try validateSidebarManifest(modern)
-        #expect(throws: CmuxExtensionValidationError.unsupportedAPIVersion(requested: .sidebarV2_2, supported: .sidebarV2)) {
+        #expect(throws: CmuxExtensionValidationError.unsupportedAPIVersion(requested: .sidebarV2_3, supported: .sidebarV2)) {
             try validateSidebarManifest(modern, supportedAPIVersion: .sidebarV2)
         }
         let legacy = CmuxExtensionManifest(
@@ -136,7 +136,7 @@ struct SidebarManagementContractTests {
     func missingManifestVersionDefaultsToModernContractAndUnknownRequestedScopesFail() throws {
         let minimal = Data(#"{"id":"dev.example.sidebar","displayName":"Sidebar","readScopes":[]}"#.utf8)
         let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: minimal)
-        #expect(manifest.minimumAPIVersion == .sidebarV2_2)
+        #expect(manifest.minimumAPIVersion == .sidebarV2_3)
         let future = Data(#"{"id":"dev.example.sidebar","displayName":"Sidebar","readScopes":["futureScope"]}"#.utf8)
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(CmuxExtensionManifest.self, from: future)

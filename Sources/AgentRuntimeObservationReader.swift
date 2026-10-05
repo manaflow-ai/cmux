@@ -40,7 +40,7 @@ struct AgentRuntimeObservationReader {
                 }
             }
         }
-        return ["schema_version": 1, "api_version": "2.2", "observations": rows, "truncated": truncated]
+        return ["schema_version": 1, "api_version": "2.3", "observations": rows, "truncated": truncated]
     }
 
     private func matchesGeneration(_ identity: AgentPIDProcessIdentity?, expected: UInt64) -> Bool {

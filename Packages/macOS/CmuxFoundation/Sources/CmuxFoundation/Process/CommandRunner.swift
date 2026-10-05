@@ -26,21 +26,25 @@ public struct CommandRunner: CommandRunning, Sendable {
 
     // Environment is Apple-documented value-like once copied; stored as an immutable
     // dictionary so the struct stays Sendable.
+    private let maximumCaptureBytes: Int?
     private let environment: [String: String]
     private let bundledBinPath: String?
     private let fallbackSearchDirectories: [String]
 
     /// Creates a command runner.
     /// - Parameters:
+    ///   - maximumCaptureBytes: Per-stream memory limit; nil preserves unlimited legacy capture.
     ///   - environment: The environment whose `PATH` is searched; defaults to the process environment.
     ///   - bundledBinPath: An extra directory searched ahead of the fallbacks (the app's
     ///     bundled CLI directory); defaults to `Bundle.main`'s `Contents/Resources/bin`.
     ///   - fallbackSearchDirectories: Directories searched after `PATH` and the bundled bin.
     public init(
+        maximumCaptureBytes: Int? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
         fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories
     ) {
+        self.maximumCaptureBytes = maximumCaptureBytes.map { max(1, $0) }
         self.environment = environment
         self.bundledBinPath = bundledBinPath
         self.fallbackSearchDirectories = fallbackSearchDirectories
@@ -81,7 +85,8 @@ public struct CommandRunner: CommandRunning, Sendable {
             let execution = try CommandExecution(
                 executableURL: executableURL,
                 arguments: resolvedArguments,
-                currentDirectoryURL: URL(fileURLWithPath: directory)
+                currentDirectoryURL: URL(fileURLWithPath: directory),
+                maximumCaptureBytes: maximumCaptureBytes
             )
             return await execution.run(timeout: timeout)
         } catch {

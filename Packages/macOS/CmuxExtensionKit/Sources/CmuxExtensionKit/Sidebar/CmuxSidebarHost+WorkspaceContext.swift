@@ -1,6 +1,13 @@
 import Foundation
 
 extension CmuxSidebarHost {
+    /// Analyzes the complete native inventory without requiring the containing application.
+    /// - Parameter workspaceIDs: Exact native workspace IDs, or nil for the complete window.
+    /// - Throws: ``CmuxSidebarActionError`` on rejection, stale context, or cancellation.
+    public func analyzeWorkspaceContexts(workspaceIDs: [UUID]? = nil) async throws {
+        try await send(.analyzeWorkspaceContexts(workspaceIDs: workspaceIDs))
+    }
+
     /// Applies one manual context edit to the exact workspace and revision.
     /// - Parameters:
     ///   - workspaceID: Workspace identity from the latest snapshot.

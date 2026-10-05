@@ -12,7 +12,7 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     public var workspaceGroups: [CmuxSidebarWorkspaceGroup]
 
     public init(
-        apiVersion: CmuxExtensionAPIVersion = .sidebarV2_2,
+        apiVersion: CmuxExtensionAPIVersion = .sidebarV2_3,
         sequence: UInt64,
         windowID: UUID? = nil,
         selectedWorkspaceID: UUID?,

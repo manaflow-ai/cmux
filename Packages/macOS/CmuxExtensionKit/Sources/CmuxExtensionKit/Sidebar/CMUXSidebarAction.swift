@@ -59,6 +59,9 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     /// Moves a workspace before another workspace, or to the end when nil.
     case moveWorkspace(workspaceID: UUID, beforeWorkspaceID: UUID?)
 
+    /// Analyzes all native workspaces or exact targets, retaining proposals for explicit review.
+    case analyzeWorkspaceContexts(workspaceIDs: [UUID]?)
+
     /// Applies one deliberate metadata mutation to the exact native revision.
     case mutateWorkspaceContext(workspaceID: UUID, expectedRevision: UInt64, mutation: CmuxSidebarWorkspaceContextMutation)
     /// Persists an analyzed proposal without accepting its metadata.
@@ -128,6 +131,8 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
             return [.colorWorkspace]
         case .moveWorkspace:
             return [.reorderWorkspace]
+        case .analyzeWorkspaceContexts:
+            return [.analyzeWorkspaceContext]
         case .mutateWorkspaceContext, .storeWorkspaceContextProposal:
             return [.editWorkspaceContext]
         case .applyWorkspaceContextProposal(_, _, _, _, let acceptTitle, _):

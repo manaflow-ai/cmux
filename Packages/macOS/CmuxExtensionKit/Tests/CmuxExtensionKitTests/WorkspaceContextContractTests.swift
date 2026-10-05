@@ -11,7 +11,7 @@ struct WorkspaceContextContractTests {
         let workspace = CmuxSidebarWorkspace(id: UUID(), title: "Current name", context: context)
         let snapshot = CmuxSidebarSnapshot(sequence: 20, selectedWorkspaceID: workspace.id, workspaces: [workspace])
         let wire = try CmuxSidebarXPCCodec.decodeSnapshot(CmuxSidebarXPCCodec.encodeSnapshot(snapshot))
-        #expect(wire.apiVersion == .sidebarV2_2)
+        #expect(wire.apiVersion == .sidebarV2_3)
         #expect(wire.workspaces.first?.context == context)
         #expect(wire.filtered(for: [.workspaceMetadata]).workspaces.first?.context == nil)
         #expect(wire.filtered(for: [.workspaceMetadata, .workspaceContext]).workspaces.first?.context == context)
@@ -68,7 +68,7 @@ struct WorkspaceContextContractTests {
     func contextManifestRequiresAPITwoPointTwo() throws {
         let manifest = CmuxExtensionManifest(id: "dev.example.context", displayName: "Context", readScopes: [.workspaceMetadata, .workspaceContext], actionScopes: [.editWorkspaceContext])
         try validateSidebarManifest(manifest)
-        #expect(throws: CmuxExtensionValidationError.unsupportedAPIVersion(requested: .sidebarV2_2, supported: .sidebarV2_1)) {
+        #expect(throws: CmuxExtensionValidationError.unsupportedAPIVersion(requested: .sidebarV2_3, supported: .sidebarV2_1)) {
             try validateSidebarManifest(manifest, supportedAPIVersion: .sidebarV2_1)
         }
         let dishonest = CmuxExtensionManifest(id: "dev.example.context", displayName: "Context", readScopes: [.workspaceContext], minimumAPIVersion: .sidebarV2_1)
@@ -114,6 +114,30 @@ struct WorkspaceContextContractTests {
             .applyWorkspaceContextProposal(workspaceID: id, expectedRevision: 1, proposalID: proposal.id, tagIDs: ["topic:printing"], acceptTitle: false, acceptSummary: true),
             .undoWorkspaceContext(workspaceID: id, expectedRevision: 2)
         ])
+    }
+
+    @Test
+    @MainActor
+    func nativeAnalysisUsesItsOwnPermissionAndAPIVersion() async throws {
+        let id = UUID()
+        let manifest = CmuxExtensionManifest(id: "dev.example.analysis", displayName: "Analysis",
+            actionScopes: [.analyzeWorkspaceContext], minimumAPIVersion: .sidebarV2_3)
+        try validateSidebarManifest(manifest)
+        let older = CmuxExtensionManifest(id: "dev.example.analysis", displayName: "Analysis",
+            actionScopes: [.analyzeWorkspaceContext], minimumAPIVersion: .sidebarV2_2)
+        #expect(throws: CmuxExtensionValidationError.scopeRequiresAPIVersion(
+            scope: "analyzeWorkspaceContext", required: .sidebarV2_3, declared: .sidebarV2_2)) {
+            try validateSidebarManifest(older)
+        }
+        var received: [CmuxSidebarAction] = []
+        let host = CmuxSidebarHost(performAction: { action, reply in received.append(action); reply(.accepted) })
+        try await host.analyzeWorkspaceContexts(workspaceIDs: [id])
+        try await host.analyzeWorkspaceContexts()
+        #expect(received == [.analyzeWorkspaceContexts(workspaceIDs: [id]), .analyzeWorkspaceContexts(workspaceIDs: nil)])
+        for action in received {
+            #expect(action.requiredScopes == [.analyzeWorkspaceContext])
+            #expect(try CmuxSidebarXPCCodec.decodeAction(CmuxSidebarXPCCodec.encodeAction(action)) == action)
+        }
     }
 
     private static func proposal() -> CmuxSidebarWorkspaceContextProposal {

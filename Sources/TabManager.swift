@@ -545,6 +545,7 @@ class TabManager: ObservableObject {
     let pullRequestProbing: any PullRequestProbing
     /// GitHub transport state injected process-wide by the app composition root.
     /// The fallback initializer is retained for isolated `TabManager` tests.
+    let sidebarOrganizationCoordinator: SidebarOrganizationCoordinator
     let pullRequestProbeService: PullRequestProbeService
 
     private let managedDevicePolicy: ManagedDevicePolicy
@@ -570,6 +571,7 @@ class TabManager: ObservableObject {
         createInitialWorkspace: Bool = true,
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         commandRunner: any CommandRunning = CommandRunner(),
+        organizationService: any SidebarOrganizationAnalyzing = SidebarOrganizationService(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         pullRequestProbeService: PullRequestProbeService? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
@@ -596,6 +598,7 @@ class TabManager: ObservableObject {
         cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
+        self.sidebarOrganizationCoordinator = SidebarOrganizationCoordinator(service: organizationService)
         self.managedDevicePolicy = managedDevicePolicy
         self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings

@@ -143,6 +143,9 @@ extension TerminalController {
                 if Self.isBrowserReplMethod(authorizedRequest.method) {
                     return await self.v2BrowserReplResponse(request: authorizedRequest)
                 }
+                if ["workspace.context.export", "workspace.context.import"].contains(authorizedRequest.method) {
+                    return await self.workspaceOrganizationResponse(authorizedRequest)
+                }
                 if authorizedRequest.method == "surface.sync_codex_native_title" {
                     return try await self.v2MainAsync {
                         self.v2Result(

@@ -252,6 +252,7 @@ extension TerminalController {
             "workspace.group.action",
             "workspace.action",
             "extension.sidebar.snapshot",
+            "workspace.context.export", "workspace.context.import",
             "workspace.next",
             "workspace.previous",
             "workspace.last",

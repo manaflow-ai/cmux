@@ -52,17 +52,15 @@ struct SSHPTYReplayOutputFilterClipboardTests {
 
     @Test("replayed OSC 52 clipboard writes and neighbouring output stay byte-identical")
     func preservesClipboardWrites() {
-        let replay = Data(
-            (
-                "before\n" +
-                "\u{1B}]52;c;aGVsbG8=\u{07}" +
-                "\u{1B}]52;s0;d29ybGQ/\u{1B}\\" +
-                "\u{1B}]52;c;\u{07}" +
-                "\u{1B}]52;c;?extra\u{07}" +
-                "\u{1B}]2;title?\u{07}" +
-                "after\n"
-            ).utf8
-        )
+        let replay = Data([
+            "before\n",
+            "\u{1B}]52;c;aGVsbG8=\u{07}",
+            "\u{1B}]52;s0;d29ybGQ/\u{1B}\\",
+            "\u{1B}]52;c;\u{07}",
+            "\u{1B}]52;c;?extra\u{07}",
+            "\u{1B}]2;title?\u{07}",
+            "after\n",
+        ].joined().utf8)
         var filter = SSHPTYReplayOutputFilter(replayBytes: replay.count)
         var output = Data()
         for byte in replay {

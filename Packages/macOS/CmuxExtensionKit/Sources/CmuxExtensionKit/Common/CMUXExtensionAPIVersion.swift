@@ -17,6 +17,9 @@ public struct CmuxExtensionAPIVersion: Codable, Comparable, Equatable, Sendable 
     /// Sidebar API with revision-guarded, host-owned project context.
     public static let sidebarV2_2 = CmuxExtensionAPIVersion(major: 2, minor: 2)
 
+    /// Sidebar API with native organization independent of a containing app.
+    public static let sidebarV2_3 = CmuxExtensionAPIVersion(major: 2, minor: 3)
+
     public static func < (lhs: CmuxExtensionAPIVersion, rhs: CmuxExtensionAPIVersion) -> Bool {
         if lhs.major != rhs.major { return lhs.major < rhs.major }
         return lhs.minor < rhs.minor
