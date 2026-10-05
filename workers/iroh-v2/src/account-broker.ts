@@ -268,7 +268,12 @@ export class AccountBroker {
     let lastRecordId: string | null = null;
     for (const { row, record } of ordered) {
       const descriptor = record.device.descriptor;
-      const listed = row.installationKey !== self && descriptor.identity.appNamespace === namespace
+      // A row is listed only while its team still holds a current authority
+      // lease for this user: a Mac that stopped refreshing that team (for
+      // example after returning to another team without republishing) must
+      // not keep advertising a stale endpoint over its live one.
+      const leased = record.authorityExpiresAt !== null && record.authorityExpiresAt > now;
+      const listed = leased && row.installationKey !== self && descriptor.identity.appNamespace === namespace
         && descriptor.metadata.capabilities.includes(MAC_HOST_CAPABILITY);
       // Same predicates as the team directory's Mac inbound rule, without the
       // team: opted-in host, same user (this object), namespace and build,

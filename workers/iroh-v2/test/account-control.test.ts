@@ -140,13 +140,13 @@ test("revoked and rekeyed rows drop on read; withdraw works even after revocatio
   const c = descriptor(cKey!, identity("team-y", "user-u", "mac-c"), "mac", HOST);
   const aRecord = w.x.enroll(a, NOW - 100); w.x.enroll(b, NOW - 100); w.y.enroll(c, NOW - 100);
   w.x.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  w.y.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
   const broker = w.account("user-u");
   for (const [key, device] of [[aKey!, a], [bKey!, b], [cKey!, c]] as const) await call(broker, key, device, "account.publish.v1");
   w.x.store.revokeDevice(aRecord.deviceRecordId, NOW, "user-u");
   const seen = directoryOf((await call(broker, bKey!, b, "account.directory.v1")).response);
   expect(seen.macs.map(mac => mac.descriptor.identity.deviceId)).toEqual(["mac-c"]);
-  // mac-c's team has no authority lease for user-u: listed outbound, not admitted inbound.
-  expect(seen.inboundMacs).toEqual([]);
+  expect(seen.inboundMacs.map(peer => peer.device.descriptor.identity.deviceId)).toEqual(["mac-c"]);
   await expect(call(broker, aKey!, a, "account.publish.v1")).rejects.toMatchObject({ code: "device_revoked" });
   const withdrawn = await call(broker, cKey!, c, "account.withdraw.v1");
   expect(withdrawn.response.schemaId).toBe("account.withdrawn.v1");
@@ -159,6 +159,7 @@ test("a row whose team record was rekeyed is dropped on read and the old key can
   const oldA = descriptor(oldKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
   const b = descriptor(bKey!, identity("team-y", "user-u", "mac-b"), "mac", HOST);
   w.x.enroll(oldA, NOW - 100); w.y.enroll(b, NOW - 100);
+  w.x.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
   const broker = w.account("user-u");
   await call(broker, oldKey!, oldA, "account.publish.v1");
   await call(broker, bKey!, b, "account.publish.v1");
@@ -209,10 +210,11 @@ test("namespace, build tag and lease gate inbound admission", async () => {
   expect(seen.inboundMacs.map(peer => peer.device.descriptor.identity.deviceId)).toEqual(["same"]);
   // A requester without mac-host never receives inbound admissions.
   expect(directoryOf((await call(broker, sameKey!, same, "account.directory.v1")).response).inboundMacs).toEqual([]);
-  // Lease lapses in team-y: still listed outbound, no longer admitted.
+  // Lease lapses in team-y: neither listed nor admitted.
   w.setClock(NOW + 700);
   const later = directoryOf((await call(broker, hostKey!, host, "account.directory.v1", NOW + 700)).response);
   expect(later.inboundMacs).toEqual([]);
+  expect(later.macs).toEqual([]);
 });
 
 test("proofs: replayed nonces and team-purpose signatures are rejected", async () => {
