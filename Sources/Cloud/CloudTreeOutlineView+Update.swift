@@ -69,13 +69,15 @@ extension CloudTreeOutlineView.Coordinator {
         let focusedSelectionChanged = focusedSelection != lastFocusedCloudWorkspace
         if focusedSelectionChanged {
             lastFocusedCloudWorkspace = focusedSelection
-            if let resolvedNodeID {
-                selectedNodeID = resolvedNodeID
-            }
+            selectedNodeID = resolvedNodeID
         }
         apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes))
-        guard focusedSelectionChanged, let resolvedNodeID else { return }
-        selectFocusedCloudWorkspaceRow(resolvedNodeID)
+        guard focusedSelectionChanged else { return }
+        if let resolvedNodeID {
+            selectFocusedCloudWorkspaceRow(resolvedNodeID)
+        } else if let outlineView {
+            withProgrammaticUpdate { outlineView.deselectAll(nil) }
+        }
     }
 
     private func selectFocusedCloudWorkspaceRow(_ nodeID: String) {

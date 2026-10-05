@@ -21,6 +21,7 @@ struct CloudTreeCreationRevealTests {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let first = UUID(), second = UUID()
+        let unprojected = UUID()
         var snapshot = fixture.snapshot()
         snapshot.projections = snapshot.resources.enumerated().map { index, resource in
             let remoteWorkspaceID = "ws_\(index + 1)"
@@ -36,6 +37,7 @@ struct CloudTreeCreationRevealTests {
                 localWorkspaces: [
                     .init(id: first, title: "first", isSelected: focused == first),
                     .init(id: second, title: "second", isSelected: focused == second),
+                    .init(id: unprojected, title: "unprojected", isSelected: focused == unprojected),
                 ], source: .cloud
             )
         }
@@ -46,6 +48,9 @@ struct CloudTreeCreationRevealTests {
 
         fixture.coordinator.update(inputs: makeInputs(second))
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == fixture.folderID("ws_2"))
+
+        fixture.coordinator.update(inputs: makeInputs(unprojected))
+        #expect(outline.selectedRow == -1)
 
         let machine = try #require(CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first(where: \.isMachineRow))
         let machineRow = outline.row(forItem: machine)
