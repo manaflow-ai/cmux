@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 30c200162c793bdda767ca55c44b939a784bb66eceabba2b34b2eac237485988. */
+/* cmux-tui mux protocol 12, IR 85c12d35a3dfe000c082760b1ccbb6a8e3eb30a8387faac01c6cb1344e09b11b. */
 
 
 import type * as T from "./types.js";
@@ -67,11 +67,26 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
+  "snapshot_local_history"?: boolean;
   "snapshot_version"?: (number) | null;
   "surface"?: (T.Id) | null;
   "viewer_backlog_bytes"?: (bigint) | null;
 }
 export type AttachSurfaceResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface BindConversationTabSessionRequest extends CmuxRequestBase {
+  cmd: "bind-conversation-tab-session";
+  /** The tab's current session, or null for a tab without one; the bind applies only when it matches. */
+  "expected_session": (string) | null;
+  "session": string;
+  "surface": T.Id;
+}
+export type BindConversationTabSessionResult = {
+  "conversation": T.ConversationTabRecord;
+  "replayed": boolean;
+  "surface": T.Id;
+};
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserActivateRequest extends CmuxRequestBase {
@@ -278,6 +293,8 @@ export interface CloseTabsRequest extends CmuxRequestBase {
   "expected_revision"?: (bigint) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
+  /** The close is not recorded in the closed history (session_end). */
+  "reason"?: (T.CloseReason) | null;
   "surfaces": Array<T.TabRef>;
   "transaction"?: (string) | null;
 }
@@ -1127,11 +1144,12 @@ export type NewBrowserTabResult = T.SurfaceResult;
 /** Protocol v12; authority: control. */
 export interface NewConversationTabRequest extends CmuxRequestBase {
   cmd: "new-conversation-tab";
+  "agent_session"?: (T.AgentSessionSource) | null;
   "cols"?: (number) | null;
-  "conversation": string;
+  "conversation"?: (string) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
-  "owner": string;
+  "owner"?: (string) | null;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
   "workspace"?: (T.Id) | null;
@@ -1212,12 +1230,15 @@ export interface NewScreenRequest extends CmuxRequestBase {
   "color"?: (string) | null;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
   "group"?: (string) | null;
   "icon"?: (string) | null;
   "index"?: (bigint) | null;
   "pinned"?: (boolean) | null;
   "rows"?: (number) | null;
   "screen_name"?: (string) | null;
+  "shell_args"?: (Array<string>) | null;
+  "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
 }
 export type NewScreenResult = T.SurfaceResult;
@@ -2123,6 +2144,7 @@ export type CmuxRequest =
   | AddTabsToTabGroupRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
+  | BindConversationTabSessionRequest
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
@@ -2384,6 +2406,14 @@ export interface CmuxCommandDefinitionMap {
     since: 5;
     capability: null;
     stream: "attach";
+  };
+  "bind-conversation-tab-session": {
+    request: BindConversationTabSessionRequest;
+    result: BindConversationTabSessionResult;
+    authority: "control";
+    since: 12;
+    capability: "agent-session-tabs-v1";
+    stream: null;
   };
   "browser-activate": {
     request: BrowserActivateRequest;

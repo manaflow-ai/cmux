@@ -5,7 +5,8 @@
 /// fills (an extension is the profile's password manager, or the person
 /// turned autofill off); otherwise Chromium's default, fill. Every caller of
 /// the fork's per-tab switch (`cmux_tab_set_password_fill`) goes through it.
-public nonisolated enum PasswordFillPolicy {
+public nonisolated struct PasswordFillPolicy {
+    public nonisolated init() {}
     public static func fills(agentDriven: Bool, profileAllows: Bool) -> Bool {
         !agentDriven && profileAllows
     }

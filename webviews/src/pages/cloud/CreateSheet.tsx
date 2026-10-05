@@ -108,7 +108,12 @@ export function CreateSheet({
             })}
           </p>
         )}
-        {draft.refusal && <PlanNotice store={store} refusal={draft.refusal} strings={strings} />}
+        {draft.refusal && <PlanNotice refusal={draft.refusal} strings={strings} />}
+        {draft.blocked === "no_snapshot_configured" && (
+          <p className="cloud-sheet-error cloud-create-blocked" role="alert">
+            {t(L.noSnapshotConfigured)}
+          </p>
+        )}
         {draft.error && (
           <p className="cloud-sheet-error" role="alert">
             {t(L.actionFailed)} <span className="cloud-error-detail">{draft.error}</span>

@@ -101,12 +101,15 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+mod app_trust;
+pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;
 mod origin_gate;
 mod pending_handoff;
+mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
@@ -114,12 +117,14 @@ mod capabilities;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
 use capabilities::identify_capabilities;
+mod close_tabs_command;
 mod cloud_conversations;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
+mod new_screen;
 mod personal;
 mod raw_tab;
 #[cfg(unix)]
@@ -329,6 +334,9 @@ pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
 /// adds no integration of its own.
 pub const TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY: &str =
     "terminal-frontend-shell-integration-v1";
+/// `env`, `terminal_id` and `shell_args` on `new-screen`, and `terminal_id`
+/// in its result.
+pub const SCREEN_TERMINAL_ENV_CAPABILITY: &str = "screen-terminal-env-v1";
 /// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`, `daemon`) on
 /// `notify`, the `notification` event, the tab marker and `list-notifications`; the daemon
 /// posts OSC 9, OSC 777 and OSC 99 from every terminal's output as `terminal`.
@@ -1399,8 +1407,9 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
-    /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
+    /// `conversation-tabs-v1`, `agent-session-tabs-v1` (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
+    BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
@@ -1570,29 +1579,7 @@ enum Command {
         mutation: MutationRequest,
     },
     /// New screen in a workspace (default: the active one).
-    NewScreen {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// The new screen's name (`name` would name its terminal).
-        #[serde(default)]
-        screen_name: Option<String>,
-        #[serde(default)]
-        color: Option<String>,
-        #[serde(default)]
-        icon: Option<String>,
-        #[serde(default)]
-        pinned: Option<bool>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        group: Option<String>,
-    },
+    NewScreen(new_screen::NewScreenParams),
     /// Set or clear a screen's color and icon (JSON null clears).
     SetScreenMetadata {
         screen: ScreenId,
@@ -2223,6 +2210,9 @@ enum Command {
         end_terminals: bool,
         #[serde(default)]
         transaction: Option<String>,
+        /// `close-reason-v1`: `session_end` keeps the close out of closed history.
+        #[serde(default)]
+        reason: Option<crate::mux::CloseReason>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3648,8 +3638,8 @@ struct MessageWriter {
     wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
     /// Fired when the writer closes, so stream loops block instead of polling `is_open`.
     closed: InterruptSet,
-    /// Negotiated `conversation-tabs-v1` (server/conversation_tabs_wire.rs).
-    conversation_tabs: Arc<AtomicBool>,
+    /// Negotiated conversation tab capabilities (server/conversation_tabs_wire.rs).
+    conversation_tabs: Arc<conversation_tabs_wire::NegotiatedTabs>,
 }
 
 impl MessageWriter {
@@ -3675,7 +3665,7 @@ impl MessageWriter {
             render_service,
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
             closed: InterruptSet::default(),
-            conversation_tabs: Arc::new(AtomicBool::new(false)),
+            conversation_tabs: Arc::default(),
         }
     }
 
@@ -5212,6 +5202,7 @@ pub(crate) struct ClientRegistry {
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
     origin_clock: crate::request_origin::OriginClock,
+    app_trust: app_trust::AppTrust,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5228,6 +5219,7 @@ impl ClientRegistry {
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             origin_clock: Default::default(),
+            app_trust: app_trust::AppTrust::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -5292,15 +5284,6 @@ impl ClientRegistry {
             self.state.lock().unwrap().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
         )
-    }
-
-    fn is_unix(&self, client: u64) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .clients
-            .get(&client)
-            .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
     }
 
     fn install_resource_stream(
@@ -5480,8 +5463,7 @@ impl ClientRegistry {
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
                     || capability == LOOPBACK_FORWARD_CAPABILITY
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
-                    || capability
-                        == crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY
+                    || conversation_tabs_wire::negotiable(capability)
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
@@ -6282,7 +6264,9 @@ impl ClientRegistry {
         self.url_opens.disconnect(client);
         self.loopback.disconnect(client);
         self.apps.disconnect(client);
-        let mut state = self.state.lock().unwrap();
+        // Safety: a removal never grants access; on a poisoned registry the
+        // record still goes, so a fail-closed close never panics here.
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
@@ -7865,7 +7849,7 @@ fn handle_resource_connection_control(
             resource_browser_viewer_release(mux, client, request)
         }
         ResourceOperation::TerminalRendererGrantCreate => {
-            resource_terminal_renderer_grant(mux, request)
+            renderer_grant::create(mux, client, request)
         }
         operation => unreachable!("connection handler received {operation:?}"),
     }
@@ -8446,25 +8430,6 @@ fn resource_browser_viewer_release(
         request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
     let outcome = release_resource_view(mux, client, surface.id, lease, "browser.viewer.release")?;
     Ok(json!({"outcome":outcome}))
-}
-
-fn resource_terminal_renderer_grant(
-    mux: &Mux,
-    request: &crate::resource_router::ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let operation = "terminal.renderer_grant.create";
-    let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let ttl_ms = request.fields.get("ttl_ms").and_then(Value::as_u64).unwrap_or(30_000);
-    let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms)).map_err(|error| {
-        ResourceError::operation_failed(operation, error.to_string(), json!({}))
-    })?;
-    Ok(json!({
-        "endpoint":grant.endpoint,
-        "terminal_id":terminal_id,
-        "token":grant.token,
-        "rights":["render"],
-        "ttl_ms":u32::try_from(ttl_ms).expect("catalog validates renderer grant TTL"),
-    }))
 }
 
 fn prepare_resource_client_detach(
@@ -10564,8 +10529,7 @@ fn handle_request_with_cancellation(
         _ => None,
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
-    let mut reason = None;
-    let mut retryable = None;
+    let (mut reason, mut retryable, mut details) = (None, None, None);
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -10579,6 +10543,7 @@ fn handle_request_with_cancellation(
             reason = conversations::error_reason(&error)
                 .or_else(|| cloud_conversations::error_reason(&error));
             retryable = cloud_conversations::error_retryable(&error);
+            details = renderer_grant::error_details(&error);
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
@@ -10593,8 +10558,9 @@ fn handle_request_with_cancellation(
         }
     };
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
+    let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = responses::send_response_with_details(writer, response, reason, retryable);
+    let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
@@ -12721,21 +12687,6 @@ fn handle_command(
     handle_command_with_cancellation(mux, client, cmd, writer, None)
 }
 
-fn terminal_renderer_grant_json(
-    grant: crate::terminal_host_runtime::RendererGrant,
-    ttl_ms: u64,
-) -> Value {
-    json!({
-        "endpoint": grant.endpoint,
-        "terminal_id": grant.terminal_id,
-        "incarnation": grant.incarnation,
-        "token": grant.token,
-        "rights": grant.rights.bits(),
-        "protocol_version": grant.protocol_version,
-        "ttl_ms": ttl_ms,
-    })
-}
-
 fn handle_command_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
@@ -13466,20 +13417,10 @@ fn handle_command_with_cancellation(
         }
         Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
         Command::MintTerminalRenderer { surface, ttl_ms } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
-            Ok(terminal_renderer_grant_json(grant, ttl_ms))
+            renderer_grant::mint_by_surface(mux, client, surface, ttl_ms)
         }
         Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
-            let terminal = TerminalPublicId::parse(terminal)?;
-            let surface = mux
-                .resource_surface_for_terminal(&terminal)
-                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
-            Ok(terminal_renderer_grant_json(grant, ttl_ms))
+            renderer_grant::mint_by_terminal(mux, client, terminal, ttl_ms)
         }
         Command::ResolveTerminal { terminal_id } => {
             let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {
@@ -13573,9 +13514,8 @@ fn handle_command_with_cancellation(
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewConversationTab(params) => {
-            conversation_tabs_wire::new_conversation_tab(mux, params)
-        }
+        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, params),
+        Command::BindConversationTabSession(params) => conversation_tabs_wire::bind(mux, params),
         Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
@@ -13912,23 +13852,7 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen {
-            workspace,
-            cols,
-            rows,
-            cwd,
-            screen_name,
-            color,
-            icon,
-            pinned,
-            index,
-            group,
-        } => {
-            let spec = crate::ScreenSpec { name: screen_name, color, icon, pinned, index, group };
-            let (surface, screen) =
-                mux.new_screen_with_spec(workspace, cwd, optional_surface_size(cols, rows), spec)?;
-            Ok(json!({ "surface": surface.id, "screen": screen }))
-        }
+        Command::NewScreen(params) => new_screen::new_screen(mux, client, params),
         Command::SetScreenMetadata { screen, color, icon } => {
             let changed = mux.set_screen_metadata(screen, color, icon)?;
             let presentation = mux.presentation_snapshot();
@@ -14775,29 +14699,8 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::CloseTabs { surfaces, end_terminals, transaction, mutation } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let workspace_mutation = workspace_mutation(&mutation)?;
-            anyhow::ensure!(
-                mutation.expected_generation.is_none() && mutation.expected_revision.is_none(),
-                "close-tabs does not take expected_generation or expected_revision"
-            );
-            anyhow::ensure!(
-                surfaces.len() <= MAX_CLOSE_TABS_SURFACES,
-                "close-tabs takes at most {MAX_CLOSE_TABS_SURFACES} surfaces"
-            );
-            let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome = mux.close_tabs(surfaces, end_terminals, &workspace_mutation)?;
-            let mut reply = json!({
-                "closed": outcome.closed(),
-                "terminals": batch_close_terminals_json(&outcome),
-                "resource_revision": outcome.resource_revision,
-                "replayed": outcome.replayed,
-            });
-            if let Some(transaction) = transaction {
-                reply["transaction"] = json!(transaction);
-            }
-            Ok(reply)
+        Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
+            close_tabs_command::run(mux, &surfaces, end_terminals, transaction, reason, &mutation)
         }
         // With `end_terminals` the result shapes stay those of the plain
         // closes; the ended terminals show in the terminal and resource streams.

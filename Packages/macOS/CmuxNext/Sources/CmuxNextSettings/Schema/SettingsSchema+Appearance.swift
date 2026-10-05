@@ -113,6 +113,12 @@ nonisolated enum AppearanceSettingsSchema {
                 default: nil, defaultLabel: densityDefault,
                 keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "chromeFontSize"]
             ),
+            metric(.sidebarWidth, SettingsText.keyed("settings.appearance.sidebarWidth", "Sidebar Width"), look, densityDefault,
+                   keywords: ["sidebar", "width", "size", "sidebarWidth"]),
+            metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
+                   keywords: ["column", "gap", "spacing", "columnGap"]),
+            metric(.titlebarHeight, SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"), look, densityDefault,
+                   keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]),
             SettingDescriptor(
                 BordersSetting.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.borders", "Borders"),
@@ -250,5 +256,16 @@ nonisolated enum AppearanceSettingsSchema {
 
     private static func appearancePoints(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
         SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: step, unit: .points, placeholder: placeholder)
+    }
+
+    /// An `appearance.metrics.*` size row: its default is the density's (the compact one is the
+    /// placeholder). cmux-next and cmux-browser read it.
+    private static func metric(_ metric: LayoutMetricSetting, _ title: SettingText, _ group: SettingText, _ densityDefault: SettingText,
+                               keywords: [String]) -> SettingDescriptor {
+        SettingDescriptor(
+            metric.configPath, section: .appearance, group: group, title: title,
+            kind: .number(SettingNumber(metric.range, step: 1, unit: .points, placeholder: metric.compact)),
+            default: nil, defaultLabel: densityDefault, keywords: keywords
+        ).consumed(by: [.cmuxNext, .cmuxBrowser])
     }
 }

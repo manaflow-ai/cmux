@@ -76,6 +76,7 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
 #[cfg(test)]
@@ -562,9 +563,9 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
-    /// Private launch contract of `local_owner`: a descriptor to write one
-    /// byte to once this headless owner accepts clients.
+    /// Private launch contract of `local_owner`: readiness and install key pipes.
     owner_ready_fd: Option<i32>,
+    owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
 }
 
@@ -674,6 +675,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_host_fg: None,
         owner_host_bg: None,
         owner_ready_fd: None,
+        owner_install_key_fd: None,
         terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
@@ -925,12 +927,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
-            local_owner::OWNER_READY_FD_ARG => {
-                let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
-                let fd = local_owner::claim_ready_fd(&value)?;
-                if out.owner_ready_fd.replace(fd).is_some() {
-                    return Err(format!("{arg} may be supplied only once"));
-                }
+            local_owner::OWNER_READY_FD_ARG | local_owner::OWNER_INSTALL_KEY_FD_ARG => {
+                local_owner::claim_fd_arg(&arg, args.next(), &mut out)?;
             }
             // Private launch contract used by cmux-browser. It configures
             // Vercel agent-browser to attach through the local provider
@@ -1425,6 +1423,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--owner-host-fg",
     "--owner-host-bg",
     local_owner::OWNER_READY_FD_ARG,
+    local_owner::OWNER_INSTALL_KEY_FD_ARG,
 ];
 
 /// Return the first argument after a startup option and its value.
@@ -1617,8 +1616,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() -> std::process::ExitCode {
-    // One binary ships as `cmux` (this CLI and mux) and as `acpmux` through a
-    // symlink, so both always have the same version.
+    // SAFETY: the first statement of main: no other thread runs yet (G4).
+    unsafe { startup_env::take_link_token_from_env() };
+    // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
         .next()
@@ -1637,9 +1637,8 @@ fn main() -> std::process::ExitCode {
         return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
     }
     run_main();
-    // Reached only by the normal return paths, which never call
-    // client_log::exit; flush so the last queued records (final status,
-    // shutdown diagnostics) reach the client log on every platform.
+    // Reached only by the normal return paths (never client_log::exit): flush
+    // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
 }
@@ -1654,31 +1653,9 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
-/// Read the Cloud template settings and remove them from this process's
-/// environment, so no terminal host, shell, agent, or plugin it spawns
-/// inherits them. Must run before any thread starts.
-fn take_cloud_template_env() {
-    const KEYS: [&str; 3] = [
-        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
-        "CMUX_TUI_TEMPLATE_BOUND_FILE",
-        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
-    ];
-    let settings = CloudTemplateEnv {
-        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
-        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
-        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
-    };
-    for key in KEYS {
-        // SAFETY: called first in run_main, before this process starts any
-        // thread, so no other thread can read the environment concurrently.
-        unsafe { std::env::remove_var(key) };
-    }
-    let _ = CLOUD_TEMPLATE_ENV.set(settings);
-}
-
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
-    take_cloud_template_env();
+    startup_env::take_cloud_template_env();
     // The pane's `claude` shim lands here. Dispatch before the signal
     // handlers and argv decoding: the wrapper execs Claude with arguments
     // that need not be UTF-8 or valid cmux-tui flags.
@@ -2225,9 +2202,7 @@ fn run_server(
     // `claude` resolves to a shim that adds the session's agent hooks, even
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
-    if let Some(path) = claude_wrapper::pane_path() {
-        surface_options.extra_env.push(("PATH".into(), path));
-    }
+    claude_wrapper::configure_pane_path(&mut surface_options);
 
     let state_root = if args.ephemeral {
         None
@@ -2303,6 +2278,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    local_owner::install_key_from_fd(&mux, args.owner_install_key_fd);
     // Headless sessions have no host terminal to query. The first
     // interactive client may provide a private host-color handoff; use it
     // only to fill unspecified config values before any surface is created.
@@ -2792,6 +2768,7 @@ fn start_detached_owner_session(
         term: Some(owner_term),
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
+        install_key: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {

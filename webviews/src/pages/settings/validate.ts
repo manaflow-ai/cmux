@@ -100,5 +100,16 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return inDomain(domains?.font_families, value) ? null : "unknown font family";
     case "sound":
       return inDomain(domains?.sounds, value) ? null : "unknown sound";
+    case "number_list":
+      return Array.isArray(value) && value.every((item) => inRange(row, item))
+        ? null
+        : `expected a list of numbers from ${row.range?.min} to ${row.range?.max}`;
+    case "string_map":
+      return typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.values(value).every((item) => typeof item === "string")
+        ? null
+        : "expected an object of strings";
   }
 }

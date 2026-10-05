@@ -61,6 +61,8 @@ export type HostLists = {
   settings_file?: string | null;
   /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
   backdrops?: Array<{ id: string; title: string; attribution: string }>;
+  /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
+  derived?: Record<string, number>;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -127,6 +129,8 @@ export type SettingsOps = {
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** Native: the buttons at the end of a section (registry titles, localized by the app). */
+  "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
   "cmux.settings.file.reveal": [Record<string, never>, unknown];
   /** Native: show `value` live while a gesture runs; never written. */

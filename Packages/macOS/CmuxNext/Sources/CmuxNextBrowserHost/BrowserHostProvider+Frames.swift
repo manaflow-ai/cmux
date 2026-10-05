@@ -18,6 +18,8 @@ extension BrowserHostProvider {
             relayToBrowser(targetID, message)
         case .lease(let targetID, let lease):
             leaseChanged(targetID, lease)
+        case .input(let event):
+            notifyInput(event)
         case .hello, .helloAck, .result, .event, .userInput, .tabAccess, .unknown:
             // Frames the host never sends, a repeated ack, or a newer host's frame.
             break
@@ -71,6 +73,6 @@ extension BrowserHostProvider {
         let old = leases[targetID]
         leases[targetID] = lease
         if lease != nil, old == nil { marking?.agentWillDrive(targetID: targetID) }
-        if old != lease { onLeaseChange?(targetID, lease) }
+        if old != lease { notifyLease(targetID, lease) }
     }
 }

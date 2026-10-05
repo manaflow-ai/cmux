@@ -99,13 +99,15 @@ export interface InstallClaims {
   readonly email_domain?: string
   /** A chief of the user this token acts as (claim `agt`); confirmed by UserDO on every request. */
   readonly agent?: string
+  /** A VM install (kind vm): claim `vm`, so every entry point refuses it except the cloud.vm.* ops. */
+  readonly vm?: true
 }
 
 export const mintAccessToken = async (env: Env, c: InstallClaims) => {
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + ACCESS_TOKEN_TTL_SECONDS
-  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}) })
+  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}) })
     .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
     .setIssuer(issuer(env))
     .setAudience("api")
@@ -124,7 +126,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant, exp, sso_team, edom, agt } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown }
+    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
     return {
       kind: "install",
@@ -136,7 +138,8 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       ...(typeof exp === "number" ? { expires_at: exp * 1000 } : {}),
       ...(typeof sso_team === "string" ? { sso_team } : {}),
       ...(typeof edom === "string" ? { email_domain: edom } : {}),
-      ...(typeof agt === "string" ? { agent: agt } : {})
+      ...(typeof agt === "string" ? { agent: agt } : {}),
+      ...(vm === true ? { install_kind: "vm" } : {})
     }
   } catch {
     return undefined
@@ -148,7 +151,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
  * active and what its grant allows, and carries the classes on the principal.
  * Undefined means refuse (revoked, unknown, or expired grant).
  */
-type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean } | { ok: false }
+type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }
 
 /**
  * Instant revocation (Lawrence Q2): every request of an install asks its UserDO, which answers from
@@ -177,7 +180,9 @@ export const withGrantClasses = async (env: Env, p: Principal): Promise<Principa
   if (p.kind === "session") return p
   if (!p.user || !p.install || !p.grant) return undefined
   const r = await askGrant(env, p.user, p.install, p.grant, p.agent)
-  return r.ok ? { ...p, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified } : undefined
+  if (!r.ok) return undefined
+  const { bound_machine: _ignored, ...base } = p
+  return { ...base, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified, ...(r.bound_machine ? { bound_machine: r.bound_machine } : {}) }
 }
 
 /** Resolves the bearer token: our install JWT, else a Stack session token. */

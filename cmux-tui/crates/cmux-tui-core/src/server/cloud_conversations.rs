@@ -274,6 +274,7 @@ fn send(writer: &MessageWriter, id: Option<Value>, result: anyhow::Result<Value>
             },
             error_reason(&error),
             error_retryable(&error),
+            None,
         ),
     }
 }

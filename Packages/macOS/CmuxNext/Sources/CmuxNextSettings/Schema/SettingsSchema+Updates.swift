@@ -1,8 +1,9 @@
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum UpdateSettingsSchema {
     /// Automatic updates under General (R114): every step of checking,
     /// downloading and installing is a row; the defaults keep cmux current
     /// with no clicks beyond the one that relaunches.
-    static var updates: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.updates", "Updates")
         let defaults = UpdatesSettings()
         return [
@@ -77,6 +78,28 @@ extension SettingsSchema {
                 help: SettingsText.keyed("settings.updates.quietHours.help", "No update card between these times."),
                 kind: .timeRange, default: nil, defaultLabel: SettingsText.keyed("settings.choice.off", "Off"),
                 keywords: ["update", "quiet", "do not disturb"]
+            ),
+        ]
+    }
+
+    /// The cmux announcement cards (R114).
+    static var announcements: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.announcements", "Announcements")
+        let defaults = AnnouncementsSettings()
+        return [
+            SettingDescriptor(
+                AnnouncementsSettings.enabledPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.announcements.enabled", "Show Announcements"),
+                help: SettingsText.keyed("settings.announcements.enabled.help",
+                                        "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar."),
+                kind: .toggle, default: .bool(defaults.enabled), keywords: ["announcements", "news", "cards", "whats new"]
+            ),
+            SettingDescriptor(
+                AnnouncementsSettings.fetchPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.announcements.fetch", "Download Announcements"),
+                help: SettingsText.keyed("settings.announcements.fetch.help",
+                                        "Off: cmux never asks the network for announcements. The request carries no identifiers."),
+                kind: .toggle, default: .bool(defaults.fetch), keywords: ["announcements", "privacy", "offline", "network"]
             ),
         ]
     }

@@ -57,6 +57,8 @@ public final class BrowserChromeView: NSView {
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
     private var reportedHeader: CGFloat = -1
+    /// The band under the toolbar rows for the pane's tab strip (R109).
+    let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
@@ -184,6 +186,7 @@ public final class BrowserChromeView: NSView {
         addSubview(toolbar)
         addSubview(separator)
         installAccessoryBar(below: separator)
+        installHeaderBand(below: accessoryBar)
         addSubview(progressLine)
         pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
         addSubview(promptBar)
@@ -233,7 +236,9 @@ public final class BrowserChromeView: NSView {
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
             density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
-            contentContainer.topAnchor.constraint(equalTo: accessoryBar.bottomAnchor),
+            // The page starts under the header band (empty unless the pane's
+            // tab bar sits below the toolbar, R109).
+            contentContainer.topAnchor.constraint(equalTo: headerBand.guide.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),

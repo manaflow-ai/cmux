@@ -35,7 +35,7 @@ struct DebugWindowSnapshotTests {
         }
     }
 
-    @Test func aStandaloneWindowRendersItsTrafficLights() throws {
+    @Test(.requiresGUISession) func aStandaloneWindowRendersItsTrafficLights() throws {
         let services = ActionBindingCoverageTests.boundServices()
         let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 320, height: 200),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)

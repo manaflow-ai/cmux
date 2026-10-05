@@ -107,19 +107,17 @@ pub struct ProviderClaim {
     /// The connection is bound to an agent (its conversation principal is
     /// not the local user).
     pub agent: bool,
-    /// The connection is the hosting app by the evidence the caller's check
-    /// accepts: the verified app for origin `user`; for provider registration
-    /// also a declared `set-client-info` kind `app` (until P8).
-    pub app_kind: bool,
+    /// The connection proved it is the cmux app (`verified_app`: install-key
+    /// hello or the app's code signature, server/app_trust.rs). A
+    /// self-declared `set-client-info` kind never sets it.
+    pub verified_app: bool,
 }
 
 /// Whether the connection is the hosting cmux app: the one check behind
 /// `apps-provider-register` and behind origin `user` on every `apps-*`
-/// command. Today: not an agent connection, and kind `app` (self-declared).
-/// The daemon's peer code-signature check (audit token and team id) replaces
-/// the body of this function; callers do not change.
+/// command. Not an agent connection, and a verified app connection.
 pub fn hosting_app_connection(claim: &ProviderClaim) -> bool {
-    !claim.agent && claim.app_kind
+    !claim.agent && claim.verified_app
 }
 
 /// Admits a request's `origin`. Origin `user` (installs, grants, gestures)
@@ -133,16 +131,15 @@ pub fn admit_origin(origin: Origin, claim: &ProviderClaim) -> Result<(), ApiErro
     let why = if claim.agent {
         "an agent connection cannot act with origin user"
     } else {
-        "only the verified cmux app can act with origin user"
+        "only the verified cmux app connection can act with origin user"
     };
     Err(ApiError::new("apps.origin_forbidden", why))
 }
 
 impl Supervisor {
     /// `apps-provider-register`. Two gates (app platform lead, 2026-10-03):
-    /// an agent connection is refused outright (the real barrier against an
-    /// agent in a pane), and the connection must have declared kind `app`
-    /// (self-declared; see the residual risk in app-op-routing.md).
+    /// an agent connection is refused outright, and the connection must be
+    /// the verified app (install-key hello or code signature; P8 3b-2).
     pub fn register_provider(
         &self,
         client: u64,
@@ -153,7 +150,7 @@ impl Supervisor {
             let why = if claim.agent {
                 "agent connections cannot provide app ops"
             } else {
-                "only the cmux app (set-client-info kind app) can provide app ops"
+                "only the verified cmux app connection can provide app ops"
             };
             return Err(ApiError::new("apps.provider.forbidden", why));
         }

@@ -101,6 +101,14 @@ struct PageFactory {
         }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        let registry = services.registry
+        provider.sectionActions = { section in
+            .array(SettingsSchema.actions(in: section).compactMap { id in
+                guard let descriptor = registry.descriptor(for: id) else { return nil }
+                return ["id": .string(id.rawValue), "title": .string(descriptor.title),
+                        "enabled": .bool(registry.isAvailable(id))]
+            })
+        }
         provider.pickFolders = { [weak services] in
             guard let urls = await services?.viewers.picker.open(.init(choose: .folders, allowsMultiple: true)) else { return nil }
             let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
@@ -112,7 +120,8 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .settings, routes: routes, route: route,
+        // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
+        let page = PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
                                dynamicResources: SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices))
         native.anchor = { [weak page] in page }
         return page

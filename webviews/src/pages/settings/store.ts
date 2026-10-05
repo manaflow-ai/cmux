@@ -54,7 +54,7 @@ export type SettingsState = {
 export type WriteResult = { ok: true } | { ok: false; error: WireError };
 
 /** Where the page opens things it does not edit itself (catalog actions). */
-export type NativeTarget = "cmuxJSON" | "section";
+export type NativeTarget = "cmuxJSON";
 
 const emptyDomains: Domains = { themes: [], font_families: [], sounds: [] };
 
@@ -126,6 +126,17 @@ export class SettingsStore {
   async acceptsTheme(text: string): Promise<boolean> {
     const reply = await this.request("cmux.settings.theme.accepts", { text });
     return reply.ok && reply.value.accepts;
+  }
+
+  /** The section's action buttons; empty when the host has none. */
+  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+    const reply = await this.request("cmux.settings.section.actions", { section });
+    return reply.ok ? reply.value : [];
+  }
+
+  /** Runs a section button (a registry action; the host allows only the sections' own). */
+  runSectionAction(id: string): void {
+    void this.request("cmux.app.action.run", { action: id });
   }
 
   /** Opens the cmux picker for the folder list `key`; the host writes the chosen folders. */
@@ -236,12 +247,9 @@ export class SettingsStore {
     void this.request("cmux.settings.preview.end", { key });
   }
 
-  openNative(target: NativeTarget, section?: string): void {
-    const params =
-      target === "cmuxJSON"
-        ? { action: "palette.openCmuxSettingsFile" }
-        : { action: "openSettings", args: section ? { section } : {} };
-    void this.request("cmux.app.action.run", params);
+  /** Opens cmux.json in the editor (the palette's action). The Swift Settings window is gone (R82). */
+  openNative(_target: NativeTarget): void {
+    void this.request("cmux.app.action.run", { action: "palette.openCmuxSettingsFile" });
   }
 
   playSound(name: string): void {

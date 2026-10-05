@@ -412,6 +412,11 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
+    /// `webRoots`: folders a remote (Web) connection may use as a session's
+    /// cwd or extra directory, besides the known projects (the cwds of local
+    /// sessions). Written in config.json, never over a WebSocket.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web_roots: Vec<String>,
     /// `pool`: hidden pre-created sessions that make a harness switch
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]

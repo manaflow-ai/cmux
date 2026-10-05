@@ -3,7 +3,8 @@ import CoreGraphics
 
 /// `sidebar.border` (on/off) and `sidebar.borderWidth` (points, 0.5 to 4;
 /// unset is the divider hairline). A bad value is skipped with a diagnostic.
-public nonisolated enum SidebarBorderSetting {
+public nonisolated struct SidebarBorderSetting {
+    public nonisolated init() {}
     public static let borderPath = ["sidebar", "border"]
     public static let widthPath = ["sidebar", "borderWidth"]
 

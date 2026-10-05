@@ -23,12 +23,17 @@ extension SettingsSchema {
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
+        // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
+        // (a separate process is never `user`), for example the sidebar width after a resize.
+        .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
+        .union(BrowserAppSettingsSchema.descriptors.map(\.id))
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition",
+        "tabs.barPosition", "tabs.barOrder",
         "navigation.historyScope",
         "sidebar.minimalMode",
         "sidebar.side",
@@ -124,6 +129,7 @@ extension SettingsSchema {
         "labs.previewFeatures",
         "updates.notify",
         "updates.quietHours",
+        "announcements.enabled",
     ]
 
     /// Keys an agent may not set or reset, with the reason.
@@ -142,6 +148,7 @@ extension SettingsSchema {
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
+        "announcements.fetch": .network,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

@@ -16,7 +16,6 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-import textwrap
 import unittest
 
 sys.dont_write_bytecode = True
@@ -31,19 +30,29 @@ def sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+# Fixture license texts carry the phrases license_match.py looks for.
+MIT_SIG = (
+    "Permission is hereby granted, free of charge, to any person obtaining a copy. "
+    "The above copyright notice and this permission notice shall be included. MIT text "
+)
+APACHE_SIG = (
+    "Apache License Version 2.0 TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION "
+    "Grant of Copyright License. Apache text "
+)
+
 # name, version, license, extra manifest text, license files, source
 REGISTRY = [
-    ("lib", "1.0.0", "MIT", "", {"LICENSE-MIT": "MIT text lib\n"}, CRATES_IO),
-    ("opt", "1.0.0", "Apache-2.0", "", {"LICENSE": "Apache text opt\n"}, CRATES_IO),
-    ("unixonly", "1.0.0", "MIT", "", {"LICENSE": "MIT text unixonly\n"}, CRATES_IO),
-    ("winonly", "1.0.0", "MIT", "", {"LICENSE": "MIT text winonly\n"}, CRATES_IO),
-    ("devonly", "1.0.0", "MIT", "", {"LICENSE": "MIT text devonly\n"}, CRATES_IO),
-    ("buildonly", "1.0.0", "MIT", "", {"LICENSE": "MIT text buildonly\n"}, CRATES_IO),
-    ("macro", "1.0.0", "MIT", "[lib]\nproc-macro = true\n[dependencies]\nmacrodep = \"1\"\n", {"LICENSE": "MIT text macro\n"}, CRATES_IO),
-    ("macrodep", "1.0.0", "MIT", "", {"LICENSE": "MIT text macrodep\n"}, CRATES_IO),
-    ("triple", "2.0.0", "MIT/Apache-2.0", "", {"COPYRIGHT": "triple copyright\n", "LICENSE-MIT": "MIT text lib\n"}, CRATES_IO),
+    ("lib", "1.0.0", "MIT", "", {"LICENSE-MIT": MIT_SIG + "lib\n"}, CRATES_IO),
+    ("opt", "1.0.0", "Apache-2.0", "", {"LICENSE": APACHE_SIG + "opt\n"}, CRATES_IO),
+    ("unixonly", "1.0.0", "MIT", "", {"LICENSE": MIT_SIG + "unixonly\n"}, CRATES_IO),
+    ("winonly", "1.0.0", "MIT", "", {"LICENSE": MIT_SIG + "winonly\n"}, CRATES_IO),
+    ("devonly", "1.0.0", "MIT", "", {"LICENSE": MIT_SIG + "devonly\n"}, CRATES_IO),
+    ("buildonly", "1.0.0", "MIT", "", {"LICENSE": MIT_SIG + "buildonly\n"}, CRATES_IO),
+    ("macro", "1.0.0", "MIT", "[lib]\nproc-macro = true\n[dependencies]\nmacrodep = \"1\"\n", {"LICENSE": MIT_SIG + "macro\n"}, CRATES_IO),
+    ("macrodep", "1.0.0", "MIT", "", {"LICENSE": MIT_SIG + "macrodep\n"}, CRATES_IO),
+    ("triple", "2.0.0", "MIT/Apache-2.0", "", {"COPYRIGHT": "triple copyright\n", "LICENSE-MIT": MIT_SIG + "lib\n"}, CRATES_IO),
     ("nolicense", "0.1.0", None, "", {"COPYING": "custom terms nolicense\n"}, CRATES_IO),
-    ("gitdep", "0.3.0", "MIT", "", {"LICENSE": "MIT text gitdep\n"}, GIT),
+    ("gitdep", "0.3.0", "MIT", "", {"LICENSE": MIT_SIG + "gitdep\n"}, GIT),
 ]
 
 APP_MANIFEST = """\
@@ -124,11 +133,11 @@ class Fixture:
         path.write_text(json.dumps(self.reviewed_data))
         return path
 
-    def args(self, *extra: str, fmt: str = "spdx-json") -> list[str]:
+    def args(self, *extra: str, fmt: str = "spdx-json", targets: tuple[str, ...] = ("aarch64-apple-darwin",)) -> list[str]:
         return [
             "--lock", str(self.lock),
             "--root", "app",
-            "--target", "aarch64-apple-darwin",
+            *[arg for t in targets for arg in ("--target", t)],
             "--sources", str(self.vendor),
             "--workspace", str(self.ws),
             "--first-party", "crates/*",
@@ -167,10 +176,10 @@ class RustNoticesTest(unittest.TestCase):
             os.environ["CARGO_HOME"] = self._env
         self._tmp.cleanup()
 
-    def generate(self, name: str, *extra: str, fmt: str = "spdx-json") -> tuple[int, str, Path, Path]:
+    def generate(self, name: str, *extra: str, fmt: str = "spdx-json", targets: tuple[str, ...] = ("aarch64-apple-darwin",)) -> tuple[int, str, Path, Path]:
         out = self.tmp / name / "out"
         files = self.tmp / name / "files"
-        code, err = run(self.fx.args("--out", str(out), "--files-out", str(files), *extra, fmt=fmt))
+        code, err = run(self.fx.args("--out", str(out), "--files-out", str(files), *extra, fmt=fmt, targets=targets))
         return code, err, out, files
 
     def spdx(self, name: str = "spdx") -> dict:
@@ -188,10 +197,16 @@ class RustNoticesTest(unittest.TestCase):
         )
 
     def test_linux_target_drops_the_not_linux_cfg(self) -> None:
-        code, err, out, _ = self.generate("linux", "--target", "x86_64-unknown-linux-gnu")
+        code, err, out, _ = self.generate("linux", targets=("x86_64-unknown-linux-gnu",))
         self.assertEqual(code, 0, err)
         names = {p["name"] for p in json.loads(out.read_text())["packages"]}
         self.assertNotIn("cmux-tui-rust-unixonly", names)
+
+    def test_several_targets_give_the_union(self) -> None:
+        code, err, out, _ = self.generate("union", targets=("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin"))
+        self.assertEqual(code, 0, err)
+        names = {p["name"] for p in json.loads(out.read_text())["packages"]}
+        self.assertTrue({"cmux-tui-rust-unixonly", "cmux-tui-rust-winonly"} <= names, names)
 
     def test_cargo_tree_narrows_and_must_be_a_subset(self) -> None:
         exact = self.tmp / "tree.txt"
@@ -206,6 +221,11 @@ class RustNoticesTest(unittest.TestCase):
         self.assertIn("devonly 1.0.0", err)
 
     # Determinism ----------------------------------------------------------------
+
+    def test_markdown_header_names_every_target(self) -> None:
+        code, err, out, _ = self.generate("hdr", fmt="markdown", targets=("aarch64-apple-darwin", "x86_64-apple-darwin"))
+        self.assertEqual(code, 0, err)
+        self.assertIn("targets: aarch64-apple-darwin, x86_64-apple-darwin;", out.read_text())
 
     def test_two_runs_are_byte_equal(self) -> None:
         for fmt in ("spdx-json", "markdown"):
@@ -261,6 +281,18 @@ class RustNoticesTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("BSD-3-Clause", err)
 
+    def test_target_cfg_follows_rustc(self) -> None:
+        # rustc --print cfg: gnullvm is target_env="gnu" with target_abi="llvm".
+        from cargo_inputs import eval_cfg, target_info
+        info = target_info("x86_64-pc-windows-gnullvm")
+        self.assertEqual((info["target_env"], info["target_abi"], info["target_os"]), ("gnu", "llvm", "windows"))
+        self.assertTrue(eval_cfg('cfg(target_env = "gnu")', info))
+        self.assertFalse(eval_cfg('cfg(target_env = "gnullvm")', info))
+        self.assertTrue(eval_cfg('cfg(all(windows, target_abi = "llvm"))', info))
+        self.assertEqual(target_info("aarch64-apple-darwin")["target_env"], "")
+        with self.assertRaises(rust_notices.NoticeError):
+            target_info("riscv64gc-unknown-none-elf")
+
     def test_or_alternatives(self) -> None:
         cases = {
             "MIT OR Apache-2.0 OR LGPL-2.1-or-later": ["MIT", "Apache-2.0", "LGPL-2.1-or-later"],
@@ -279,11 +311,30 @@ class RustNoticesTest(unittest.TestCase):
             self.assertIn(election["concluded"], rust_notices.or_alternatives(election["declared"]), key)
         for key, text in reviewed.texts.items():
             self.assertTrue(text.get("reason"), key)
-            self.assertTrue((reviewed.base / text["file"]).is_file(), key)
+            self.assertTrue(text["files"], key)
+            for entry in text["files"]:
+                data = (reviewed.base / entry["file"]).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), entry["sha256"], key)
+                self.assertRegex(entry["source"], r"^https://raw\.githubusercontent\.com/[^/]+/[^/]+/[0-9a-f]{40}/", key)
 
     def test_reviewed_rejects_unknown_keys(self) -> None:
         self.fx.reviewed_data["overrides"] = {}
         self.assertEqual(self.generate("unknown")[0], 1)
+
+    def test_git_crate_in_a_workspace_uses_the_checkout_license_and_workspace_fields(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.fx.vendor / "gitdep-0.3.0")
+        checkout = self.fx.cargo_home / "git" / "checkouts" / "gitdep-1a2b3c" / "0123456"
+        (checkout / "crates" / "gitdep").mkdir(parents=True)
+        (checkout / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n[workspace.package]\nversion = "0.3.0"\nlicense = "MIT"\n')
+        (checkout / "crates" / "gitdep" / "Cargo.toml").write_text('[package]\nname = "gitdep"\nversion.workspace = true\nlicense.workspace = true\n')
+        (checkout / "LICENSE-MIT").write_text(MIT_SIG + "gitdep repository\n")
+        code, err, out, files = self.generate("git")
+        self.assertEqual(code, 0, err)
+        gitdep = next(p for p in json.loads(out.read_text())["packages"] if p["name"] == "cmux-tui-rust-gitdep")
+        self.assertEqual(gitdep["licenseDeclared"], "MIT")
+        self.assertEqual(tree(files)["gitdep-0.3.0/repository-LICENSE-MIT"], (MIT_SIG + "gitdep repository\n").encode())
 
     # Texts ----------------------------------------------------------------------
 
@@ -292,6 +343,17 @@ class RustNoticesTest(unittest.TestCase):
         code, err, _, _ = self.generate("missing")
         self.assertEqual(code, 1)
         self.assertIn("lib 1.0.0", err)
+
+    def test_a_license_file_that_does_not_match_the_expression_fails(self) -> None:
+        # iroh 1.0.3: "MIT OR Apache-2.0" with only LICENSE-BSD3 shipped.
+        (self.fx.vendor / "lib-1.0.0" / "LICENSE-MIT").write_text(
+            "Redistribution and use in source and binary forms, with or without modification. "
+            "Redistributions of source code must retain the above copyright notice. Neither the name.\n"
+        )
+        code, err, _, _ = self.generate("bsd-only")
+        self.assertEqual(code, 1)
+        self.assertIn("lib 1.0.0", err)
+        self.assertIn("do not satisfy 'MIT'", err)
 
     def test_files_are_verbatim_and_spdx_points_at_them(self) -> None:
         code, err, out, files = self.generate("files")
@@ -310,12 +372,17 @@ class RustNoticesTest(unittest.TestCase):
         (self.fx.root / "texts").mkdir()
         (self.fx.root / "texts" / "opt-NOTICE.txt").write_text("reviewed opt text\n")
         self.fx.reviewed_data["extra_license_files"] = {"lib": ["AUTHORS"]}
-        self.fx.reviewed_data["license_texts"] = {"opt 1.0.0": {"reason": "fixture", "file": "texts/opt-NOTICE.txt"}}
+        entry = {"file": "texts/opt-NOTICE.txt", "source": "https://example.invalid/opt@abc/NOTICE", "sha256": sha("reviewed opt text\n")}
+        self.fx.reviewed_data["license_texts"] = {"opt 1.0.0": {"reason": "fixture", "files": [entry]}}
         code, err, _, files = self.generate("reviewed")
         self.assertEqual(code, 0, err)
         written = tree(files)
         self.assertEqual(written["lib-1.0.0/AUTHORS"], b"lib authors\n")
         self.assertEqual(written["opt-1.0.0/reviewed-opt-NOTICE.txt"], b"reviewed opt text\n")
+        entry["sha256"] = "0" * 64
+        code, err, _, _ = self.generate("reviewed-bad-sum")
+        self.assertEqual(code, 1)
+        self.assertIn("does not match its sha256", err)
 
     def test_non_utf8_text_fails_instead_of_being_rewritten(self) -> None:
         (self.fx.vendor / "lib-1.0.0" / "LICENSE-MIT").write_bytes(b"caf\xe9\n")
@@ -350,6 +417,24 @@ class RustNoticesTest(unittest.TestCase):
         ids = [p["SPDXID"] for p in doc["packages"]] + [f["SPDXID"] for f in doc["files"]]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(doc["creationInfo"]["created"], "1970-01-01T00:00:00Z")
+
+    def test_repo_root_sets_first_party_paths(self) -> None:
+        argv = self.fx.args("--out", str(self.tmp / "rr.json"))
+        index = argv.index("--first-party")
+        argv[index + 1] = "ws/crates/*"
+        code, err = run([*argv, "--repo-root", str(self.fx.root)])
+        self.assertEqual(code, 0, err)
+        app = next(p for p in json.loads((self.tmp / "rr.json").read_text())["packages"] if p["name"] == "cmux-tui-rust-app")
+        self.assertEqual(app["downloadLocation"], "https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-b8feb806d6e/ws/crates/app")
+
+    def test_path_download_names_third_party_path_packages(self) -> None:
+        (self.fx.ws / "crates/app/LICENSE").write_text("GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007. third-party app license\n")
+        argv = self.fx.args("--out", str(self.tmp / "pd.json"), "--path-download", "git+https://example.invalid/ws@abc")
+        argv[argv.index("--first-party") + 1] = "nothing/*"
+        code, err = run(argv)
+        self.assertEqual(code, 0, err)
+        app = next(p for p in json.loads((self.tmp / "pd.json").read_text())["packages"] if p["name"] == "cmux-tui-rust-app")
+        self.assertEqual(app["downloadLocation"], "git+https://example.invalid/ws@abc")
 
     def test_extracted_texts_only_for_licenseref(self) -> None:
         doc = self.spdx()

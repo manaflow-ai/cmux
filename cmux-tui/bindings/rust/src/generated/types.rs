@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 30c200162c793bdda767ca55c44b939a784bb66eceabba2b34b2eac237485988.
+// cmux-tui mux protocol 12, IR 85c12d35a3dfe000c082760b1ccbb6a8e3eb30a8387faac01c6cb1344e09b11b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -38,6 +38,22 @@ pub enum AgentReportSource {
     Socket,
     #[serde(rename = "hook")]
     Hook,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionSource {
+    /// The agent kind the chat was started with.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub harness: Optional<String>,
+    /// install: and the stable install id of the machine whose acpmux runs the session.
+    pub host: String,
+    /// Display name of the host machine: 1 to 255 bytes, no control characters.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub host_name: Optional<String>,
+    /// The acpmux session id; null for a new chat until bind-conversation-tab-session.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -204,6 +220,13 @@ pub enum ClientTransport {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloseReason {
+    #[serde(rename = "session_end")]
+    SessionEnd,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloseTerminalResult {
     pub already_closed: bool,
@@ -362,10 +385,17 @@ pub struct ConversationSummary {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConversationTabRecord {
-    pub conversation: String,
-    pub owner: String,
+    /// Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub agent_session: Option<AgentSessionSource>,
+    /// Conversation source: a conv_ id, with owner.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    /// Conversation source: local or cloud.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 #[rustfmt::skip]

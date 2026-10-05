@@ -1,4 +1,5 @@
 import CmuxNextWakeups
+import CryptoKit
 public import Foundation
 import os
 
@@ -35,13 +36,29 @@ public final class RecoveryDraftStore {
     }
 
     /// Records the current unsaved contents; written after the debounce.
-    /// The size check is synchronous: `.tooLarge` means no draft is kept for
-    /// this update.
+    /// The checks are synchronous: `.tooLarge` and `.invalidID` mean no
+    /// draft is kept for this update. `id` is the participant's id,
+    /// `file:<host id>:<canonical path>`; `host` (nil: the id's host) and
+    /// `filePath` must agree with it. `base` is the file state the edits are
+    /// based on, taken by the participant when it read or last saved the
+    /// file; the launch check compares the file with it. Without a base the
+    /// draft records the file's date and size at the delayed write.
     @discardableResult
-    public func update(id: String, title: String, contents: Data, host: String = "local",
-                       filePath: String? = nil) -> RecoveryDraftAcceptance {
+    public func update(id: String, title: String, contents: Data, host: String? = nil,
+                       filePath: String? = nil, base: RecoveryDraftBase? = nil) -> RecoveryDraftAcceptance {
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "recovery-drafts")
+        guard let parts = QuitParticipantID.parse(id) else {
+            logger.error("refused recovery draft id (\(QuitParticipantID.shape(id), privacy: .public))")
+            return .invalidID
+        }
+        guard host.map({ $0 == parts.host }) ?? true, filePath.map({ $0 == parts.path }) ?? true else {
+            logger.error("refused recovery draft: its host or file path disagrees with its id")
+            return .invalidID
+        }
         guard contents.count <= maxDraftBytes else { return .tooLarge }
-        pending[id] = RecoveryDraft(id: id, host: host, title: title, savedAt: Date(), contents: contents, filePath: filePath)
+        let base = base.flatMap { $0.isEmpty ? nil : $0 }
+        pending[id] = RecoveryDraft(id: id, host: parts.host, title: title, savedAt: Date(), contents: contents, filePath: filePath,
+                                    fileModified: base?.modified, fileSize: base?.size, base: base)
         let timer = timers[id] ?? DemandTimer(owner: "recovery-draft", clock: clock)
         timers[id] = timer
         timer.schedule(after: debounce) { @MainActor [weak self] in await self?.writeNow(id) }
@@ -68,7 +85,9 @@ public final class RecoveryDraftStore {
         await RecoveryDraftFiles.readAll(in: directory)
     }
 
-    /// Whether the document's file changed after the draft was written.
+    /// Whether the document's file differs from the draft's base, or (with
+    /// no base) changed after the draft was written. A draft of another host
+    /// is never compared with a local file.
     public func fileChangedSince(_ draft: RecoveryDraft) async -> Bool {
         await RecoveryDraftFiles.changedSince(draft)
     }
@@ -97,10 +116,12 @@ nonisolated enum RecoveryDraftFiles {
         return String(format: "%016llx.draft", hash)
     }
 
-    /// Records the file's date and size, then writes temp + fsync + rename.
+    /// With no base, records the file's date and size now; then writes
+    /// temp + fsync + rename.
     @concurrent static func write(_ draft: RecoveryDraft, in directory: URL, maxTotalBytes: Int) async {
         var draft = draft
-        if let path = draft.filePath, let attributes = try? FileManager.default.attributesOfItem(atPath: path) {
+        if draft.base == nil, draft.host == QuitParticipantID.localHost, let path = draft.filePath,
+           let attributes = try? FileManager.default.attributesOfItem(atPath: path) {
             draft.fileModified = attributes[.modificationDate] as? Date
             draft.fileSize = (attributes[.size] as? NSNumber)?.int64Value
         }
@@ -160,10 +181,39 @@ nonisolated enum RecoveryDraftFiles {
     }
 
     @concurrent static func changedSince(_ draft: RecoveryDraft) async -> Bool {
-        guard let path = draft.filePath else { return false }
+        guard draft.host == QuitParticipantID.localHost, let path = draft.filePath else { return false }
+        if let base = draft.base, !base.isEmpty { return !matches(base, path: path) }
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return draft.fileSize != nil }
         let modified = attributes[.modificationDate] as? Date
         let size = (attributes[.size] as? NSNumber)?.int64Value
         return modified != draft.fileModified || size != draft.fileSize
+    }
+
+    /// Whether the file is still `base`: the hash alone decides when the
+    /// base has one, else the date and the size that it has. A missing file
+    /// is not its base.
+    static func matches(_ base: RecoveryDraftBase, path: String) -> Bool {
+        if let hash = base.contentHash { return sha256(path) == hash.lowercased() }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return false }
+        if let modified = base.modified, attributes[.modificationDate] as? Date != modified { return false }
+        if let size = base.size, (attributes[.size] as? NSNumber)?.int64Value != size { return false }
+        return true
+    }
+
+    /// Lowercase hex SHA-256 of the file, read in 1 MB chunks; nil when it
+    /// cannot be read.
+    static func sha256(_ path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        do {
+            // concurrency-allow: called only from @concurrent changedSince, never on the main actor
+            while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+        } catch {
+            return nil
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }

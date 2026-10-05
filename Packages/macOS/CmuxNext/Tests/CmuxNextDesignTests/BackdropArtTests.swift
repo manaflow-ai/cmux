@@ -12,6 +12,48 @@ struct BackdropArtTests {
         #expect(image.size.height > 500)
     }
 
+    @Test func eachPaintingPublishesLayoutMetadata() {
+        for art in BackdropArt.allCases {
+            let metadata = art.metadata
+            #expect((0...1).contains(metadata.focalAnchor.x))
+            #expect((0...1).contains(metadata.focalAnchor.y))
+            #expect(!metadata.dominantPalette.isEmpty)
+            #expect(metadata.quietZone.width > 0)
+            #expect(metadata.quietZone.height > 0)
+        }
+
+        #expect(BackdropArt.wheatField.metadata.tone == .light)
+        #expect(BackdropArt.portraitAtCasement.metadata.tone == .dark)
+        #expect(BackdropArt.wheatField.metadata.focalAnchor.x > 0.5)
+    }
+
+    @Test func cropRectFollowsFocalAnchorForAspectFill() {
+        let metadata = BackdropArt.wheatField.metadata
+        let crop = metadata.cropRect(forViewSize: CGSize(width: 2_000, height: 800),
+                                     imageSize: CGSize(width: 2_400, height: 1_910))
+
+        #expect(crop.width == 1)
+        #expect(crop.height < 1)
+        #expect(crop.minX == 0)
+        #expect(crop.minY >= 0)
+        #expect(crop.maxY <= 1)
+        #expect(crop.midY > 0.35)
+        #expect(crop.midY < 0.65)
+    }
+
+    @Test func windowMaterialUsesThePaintingFocalCrop() throws {
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 2_000, height: 800))
+        var backdrop = WindowBackdrop(backgroundOpacity: 0, backgroundBlur: 0)
+        backdrop.art = .wheatField
+        view.apply(backdrop, tint: .white)
+        view.layoutSubtreeIfNeeded()
+        let artLayer = try #require(view.subviews.first?.layer)
+        let image = try #require(BackdropArt.wheatField.image())
+        let expected = BackdropArt.wheatField.metadata.cropRect(forViewSize: view.bounds.size,
+                                                                 imageSize: image.size)
+        #expect(artLayer.contentsRect == expected)
+    }
+
     @Test func catalogContainsBundledCC0PaintingsAndEnumeratesSystemFiles() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

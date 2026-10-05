@@ -89,6 +89,8 @@ impl HostEngines {
             implicit_session: false,
             engine: engine.to_owned(),
         };
+        // The session's automation.input events also reach the app (`input` frames).
+        let events = crate::provider_link::tee_inputs(events, &provider, &session.name);
         let engine = crate::provider_engine::ProviderEngine::new(
             provider,
             engine,
@@ -128,6 +130,25 @@ impl Driver for HeadlessDriver {
 
     fn capabilities(&self) -> Vec<&'static str> {
         self.driver.capabilities()
+    }
+
+    // Without these the trait defaults applied: no request filter (every
+    // call under a domain policy failed closed) and no end of session.
+    fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
+        self.driver.set_request_filter(filter)
+    }
+
+    fn end_session(&self) {
+        self.driver.end_session();
+    }
+
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<crate::driver::Reply, DriverError> {
+        self.driver.call_reply_announced(method, params, announce)
     }
 }
 

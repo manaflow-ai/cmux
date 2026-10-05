@@ -39,6 +39,7 @@ use ghostty_vt::{
     Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 
+use crate::daemon_env::set_env;
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
@@ -160,6 +161,8 @@ pub struct SurfaceOptions {
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
+    /// The `claude` shim directory, kept first on every child's PATH.
+    pub claude_shim_dir: Option<String>,
     /// Optional Chrome/Chromium binary for browser surfaces.
     pub chrome_binary: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
@@ -240,6 +243,7 @@ impl Default for SurfaceOptions {
             rows: 24,
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
+            claude_shim_dir: None,
             chrome_binary: None,
             cdp_url: None,
             browser_discover: false,
@@ -2174,15 +2178,11 @@ impl Surface {
             })
             .transpose()?;
         if let Some(terminal_public_id) = terminal_public_id.as_ref() {
-            set_surface_environment(&mut opts, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
+            set_env(&mut opts.extra_env, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
             configure_agent_browser_session(&mut opts, terminal_public_id.as_str());
         }
         if let Some(mux) = mux.upgrade() {
-            set_surface_environment(
-                &mut opts,
-                "CMUX_TUI_SESSION_ID",
-                mux.session_public_id().as_str(),
-            );
+            set_env(&mut opts.extra_env, "CMUX_TUI_SESSION_ID", mux.session_public_id().as_str());
         }
         let kitty_reservation = mux
             .upgrade()
@@ -6056,15 +6056,6 @@ impl Surface {
     }
 }
 
-fn set_surface_environment(options: &mut SurfaceOptions, key: &str, value: &str) {
-    if let Some((_, current)) = options.extra_env.iter_mut().find(|(candidate, _)| candidate == key)
-    {
-        *current = value.into();
-    } else {
-        options.extra_env.push((key.into(), value.into()));
-    }
-}
-
 fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &str) {
     let enabled = options
         .extra_env
@@ -6074,7 +6065,7 @@ fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &s
         // agent-browser daemons are keyed by session. A distinct caller
         // session prevents a command from another workspace from silently
         // reusing the first workspace's page-scoped CDP connection.
-        set_surface_environment(options, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
+        set_env(&mut options.extra_env, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
     }
 }
 
@@ -6849,14 +6840,14 @@ impl PtySurface {
                 pending_sequence: replay.pending_sequence.into(),
             };
             if grid_changed {
-                self.broadcast_attach_frame(frame);
+                self.publish_resize_locked(&term, Some(frame));
             } else {
                 // A cell-pixel-only change reflows nothing: snapshot viewers
                 // keep their grid and generation.
                 self.broadcast_attach_frame_to_replay_taps(frame);
             }
         } else if grid_changed {
-            self.resync_snapshot_taps();
+            self.publish_resize_locked(&term, None);
         }
         // Geometry changes are terminal-stream transitions too. Publish the
         // revision before releasing the parser lock so screen snapshots have

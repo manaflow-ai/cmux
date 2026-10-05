@@ -191,8 +191,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         return titlebarBadgeFrame.map { band.union($0) } ?? band
     }
 
+    var onHintGeometryChange: (() -> Void)?
+
     override func layout() {
+        defer { onHintGeometryChange?() }
         super.layout()
+        // A reorder that added no view passed no add hook: the agent cursor goes back on top.
+        if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() }
         // The sidebar stays above Chromium pages and pane overlays (R126): an occluder of the window's overlay host.
         if let window {
             let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
@@ -245,6 +250,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+    }
+
+    /// A later subview must not cover the window's agent cursor while it
+    /// lives here (the overlay panel is detached): the host raises it again.
+    /// The positioned add places the view after `didAddSubview`, so it
+    /// raises once more when the add returns.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(subview) }
+    }
+
+    /// A `subviews =` assignment adds through no hook above.
+    override var subviews: [NSView] {
+        didSet { if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() } }
+    }
+
+    override func addSubview(_ view: NSView, positioned place: NSWindow.OrderingMode, relativeTo otherView: NSView?) {
+        super.addSubview(view, positioned: place, relativeTo: otherView)
+        if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(view) }
     }
 
     override func viewDidChangeEffectiveAppearance() {

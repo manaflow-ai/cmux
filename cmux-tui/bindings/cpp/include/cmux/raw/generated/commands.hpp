@@ -46,6 +46,7 @@ public:
     [[nodiscard]] Result<JsonValue> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_activate(const BrowserActivateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_back(const BrowserBackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_forward(const BrowserForwardRequest& request, RequestOptions options = {});
@@ -161,7 +162,7 @@ public:
     [[nodiscard]] Result<JsonValue> move_workspace_group(const MoveWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_workspace_to_group(const MoveWorkspaceToGroupRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_browser_tab(const NewBrowserTabRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<NewConversationTabResult> new_conversation_tab(const NewConversationTabRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<NewConversationTabResult> new_conversation_tab(const NewConversationTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> new_frontend_browser_tab(const NewFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});

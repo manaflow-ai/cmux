@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 30c200162c793bdda767ca55c44b939a784bb66eceabba2b34b2eac237485988.
+// cmux-tui mux protocol 12, IR 85c12d35a3dfe000c082760b1ccbb6a8e3eb30a8387faac01c6cb1344e09b11b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -80,6 +80,8 @@ pub struct AttachSurfaceRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub snapshot_local_history: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -90,6 +92,23 @@ pub struct AttachSurfaceRequest {
 
 #[rustfmt::skip]
 pub type AttachSurfaceResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BindConversationTabSessionRequest {
+    /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
+    pub expected_session: Nullable<String>,
+    pub session: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BindConversationTabSessionResult {
+    pub conversation: T::ConversationTabRecord,
+    pub replayed: bool,
+    pub surface: T::Id,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -390,6 +409,9 @@ pub struct CloseTabsRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// The close is not recorded in the closed history (session_end).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<T::CloseReason>,
     pub surfaces: Vec<T::TabRef>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -1606,16 +1628,20 @@ pub struct NewBrowserTabRequest {
 pub type NewBrowserTabResult = T::SurfaceResult;
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewConversationTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent_session: Optional<T::AgentSessionSource>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
-    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
-    pub owner: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owner: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1745,6 +1771,8 @@ pub struct NewScreenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub group: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
@@ -1756,6 +1784,10 @@ pub struct NewScreenRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -3044,6 +3076,9 @@ impl CmuxClient {
         if !request.snapshot.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
+        if request.snapshot_local_history.is_some() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-local-history-v1")?;
+        }
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
@@ -3051,6 +3086,10 @@ impl CmuxClient {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
         self.execute_stream(&ATTACH_SURFACE_METADATA, &request)
+    }
+
+    pub fn bind_conversation_tab_session(&mut self, request: BindConversationTabSessionRequest) -> Result<BindConversationTabSessionResult> {
+        self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
     }
 
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {
@@ -3158,6 +3197,9 @@ impl CmuxClient {
     }
 
     pub fn close_tabs(&mut self, request: CloseTabsRequest) -> Result<CloseTabsResult> {
+        if !request.reason.is_missing() {
+            self.require_capability_field("close-tabs", "close-reason-v1")?;
+        }
         self.execute(&CLOSE_TABS_METADATA, &request)
     }
 
@@ -3619,6 +3661,9 @@ impl CmuxClient {
     }
 
     pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
+        if !request.agent_session.is_missing() {
+            self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
+        }
         self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }
 
@@ -3687,6 +3732,18 @@ impl CmuxClient {
     }
 
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
 

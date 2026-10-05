@@ -29,6 +29,8 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     public var selection: BackdropSelection? = nil
     /// Live experimental adjustments applied to the tint.
     public var tuning: AppearanceTuning = .identity
+    /// The one-time texture pass applied when artwork is loaded.
+    public var texture: BackdropTexture = .default
     /// Alpha of the white window background while non-opaque.
     public let windowBackgroundAlpha: CGFloat = 0.001
 
@@ -79,7 +81,8 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter art: Bundled art below the window's material and tint.
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
-                selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity) {
+                selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
+                texture: BackdropTexture = .default) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
             ? tokens.backgroundOpacity
@@ -89,5 +92,6 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         self.art = art
         self.selection = resolvedSelection
         self.tuning = tuning
+        self.texture = texture
     }
 }

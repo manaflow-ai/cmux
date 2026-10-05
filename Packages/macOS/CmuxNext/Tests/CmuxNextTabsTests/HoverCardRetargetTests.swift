@@ -76,6 +76,30 @@ struct HoverCardRetargetTests {
         #expect(previews.calls.count == fetches, "a cached thumbnail is not fetched again")
     }
 
+    /// A retarget to a tab that has no thumbnail (a page never captured)
+    /// shows the placeholder once its fetch answers, never the previous
+    /// tab's picture as if it were this tab's.
+    @Test func aTabWithNoThumbnailShowsThePlaceholderNotThePreviousTabs() async throws {
+        let previews = HoverRetargetPreviews()
+        let a = image(0.2)
+        previews.images = [TabID("t1"): a]
+        let strip = strip(previews)
+        let card = strip.hoverCard
+        card.cardIsShowing = { true }
+        let t1 = TabHoverCardController.targetID("t1"), t2 = TabHoverCardController.targetID("t2")
+        card.hoverCardActivated(t1)
+        let body = try #require(card.hoverCardBody(for: t1)?.view as? TabHoverCardView)
+        await settle()
+        #expect(body.thumbnailImage === a)
+
+        card.hoverCardDeactivated(t1)
+        card.hoverCardActivated(t2)
+        _ = card.hoverCardBody(for: t2)
+        await settle()
+        #expect(previews.calls.contains(TabID("t2")))
+        #expect(body.thumbnailImage == nil, "t2 has no thumbnail: the placeholder, not t1's picture")
+    }
+
     @Test func thumbnailCacheIsBoundedByCountAndBytes() {
         var cache = TabThumbnailCache(maxCount: 2, maxBytes: 1 << 20)
         cache.insert(image(0.1), for: TabID("a"))

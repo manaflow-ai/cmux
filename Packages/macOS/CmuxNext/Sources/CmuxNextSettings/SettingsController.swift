@@ -111,7 +111,9 @@ public final class SettingsController {
     /// Suspends until at least `count` loads have completed, or the task
     /// is cancelled.
     public func waitForLoad(atLeast count: Int) async {
-        guard loadCount < count else { return }
+        // A cancelled caller returns without registering a waiter or
+        // spawning the cancellation hop below.
+        guard loadCount < count, !Task.isCancelled else { return }
         let token = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in

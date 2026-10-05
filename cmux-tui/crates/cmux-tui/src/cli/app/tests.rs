@@ -7,7 +7,9 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. } | AppCommand::Events { .. } => panic!("expected a call"),
+        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
+            panic!("expected a call")
+        }
     }
 }
 
@@ -411,7 +413,9 @@ fn a_user_only_key_is_refused_without_confirm_and_waits_for_the_person_with_it()
 fn only_a_confirmed_settings_write_waits_without_a_deadline() {
     let timeout = |words: &[&str]| match parse(&args(words)).unwrap().unwrap() {
         AppCommand::Call { timeout, .. } => timeout,
-        AppCommand::Open { .. } | AppCommand::Events { .. } => panic!("expected a call"),
+        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
+            panic!("expected a call")
+        }
     };
     assert_eq!(timeout(&["settings", "set", "a.b", "1", "--confirm"]), None);
     assert_eq!(timeout(&["settings", "reset", "a.b", "--confirm"]), None);
@@ -446,4 +450,122 @@ fn a_user_only_refusal_says_what_to_do() {
     let mut other = json!({ "code": "managed", "message": "managed by your organization" });
     settings::explain_refusal("settings.set", &confirmed, &mut other);
     assert_eq!(other["message"], "managed by your organization");
+}
+
+/// RED: `--` ends the options, so a value or path may start with `--`
+/// (`cmux settings set <key> -- --confirm` sets the string "--confirm").
+#[test]
+fn a_double_dash_ends_the_settings_options() {
+    let cases = [
+        (
+            &["settings", "set", "a.b", "--", "--confirm"][..],
+            "settings.set",
+            json!({ "path": "a.b", "value": "--confirm" }),
+        ),
+        (
+            &["settings", "set", "--confirm", "a.b", "--", "--x"][..],
+            "settings.set",
+            json!({ "path": "a.b", "value": "--x", "confirm": true }),
+        ),
+        (
+            &["settings", "set", "--", "a.b", "-1"][..],
+            "settings.set",
+            json!({ "path": "a.b", "value": -1 }),
+        ),
+        (&["settings", "reset", "--", "--odd"][..], "settings.reset", json!({ "path": "--odd" })),
+    ];
+    for (words, method, params) in cases {
+        let command = parse(&args(words)).unwrap_or_else(|error| panic!("{words:?}: {error:?}"));
+        assert_eq!(call(command.unwrap()), (method, params), "{words:?}");
+    }
+    assert!(parse(&args(&["settings", "set", "a.b", "--"])).is_err());
+    assert!(parse(&args(&["settings", "set", "a.b", "--", "x", "y"])).is_err());
+}
+
+/// A `--confirm` write says first that the sheet is in the app; other
+/// requests print no note.
+#[test]
+fn a_confirmed_write_says_where_to_answer() {
+    let messages = &crate::localization::catalog().app_control;
+    let confirmed = json!({ "path": "a.b", "confirm": true });
+    for method in ["settings.set", "settings.reset", "settings.unset"] {
+        assert_eq!(settings::waiting_note(method, &confirmed), Some(messages.settings_waiting));
+    }
+    assert_eq!(settings::waiting_note("settings.set", &json!({ "path": "a.b" })), None);
+    assert_eq!(settings::waiting_note("action.run", &confirmed), None);
+    assert!(output_shows_notes(OutputMode::Human));
+    assert!(!output_shows_notes(OutputMode::Json) && !output_shows_notes(OutputMode::Quiet));
+}
+
+fn identify_answer(bundle_id: &str) -> Value {
+    json!({ "id": 1, "ok": true, "result": { "app": "cmux-next", "bundle_id": bundle_id, "tag": "occl1-v1" } })
+}
+
+fn app_call(socket: &std::path::Path, words: &[&str]) -> i32 {
+    let mut command_args = vec!["app", "call"];
+    command_args.extend_from_slice(words);
+    run(&global_for(socket), parse(&args(&command_args)).unwrap().unwrap())
+}
+
+/// RED: `app call <method> [json]` asks the app who it is, then sends the
+/// method with exactly the given params plus the CLI's origin (no read
+/// barrier, so `debug.hangs` keeps its own `after`).
+#[test]
+fn app_call_sends_the_method_to_a_debug_build() {
+    let answer = json!({ "id": 1, "ok": true, "result": { "surfaces": [] } });
+    let (socket, app) = fake_app(vec![identify_answer("com.cmuxterm.app.debug.occl1-v1"), answer]);
+    assert_eq!(app_call(&socket, &["debug.surfaces", r#"{"window":"win_1"}"#]), 0);
+    let connections = app.join().unwrap();
+    let methods: Vec<_> = connections[0].iter().map(|request| request["method"].clone()).collect();
+    assert_eq!(methods, vec![json!("system.identify"), json!("debug.surfaces")]);
+    assert_eq!(connections[0][1]["params"], json!({ "window": "win_1", "origin": "script" }));
+
+    let (socket, app) = fake_app(vec![
+        identify_answer("com.cmuxterm.app.debug"),
+        json!({ "id": 1, "ok": true, "result": {} }),
+    ]);
+    assert_eq!(app_call(&socket, &["debug.hangs"]), 0);
+    assert_eq!(app.join().unwrap()[0][1]["params"], json!({ "origin": "script" }));
+}
+
+/// RED: a release, nightly or rc app is refused before any method is sent.
+#[test]
+fn app_call_refuses_an_app_that_is_not_a_debug_build() {
+    for bundle in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debugger"] {
+        let (socket, app) =
+            fake_app(vec![identify_answer(bundle), json!({ "id": 1, "ok": true, "result": {} })]);
+        assert_eq!(app_call(&socket, &["debug.surfaces"]), 1, "{bundle}");
+        let connections = app.join().unwrap();
+        assert_eq!(connections[0].len(), 1, "{bundle}: sent more than identify: {connections:?}");
+    }
+}
+
+/// RED: the params must be one JSON object (else a usage error, exit 2), and
+/// a method is required.
+#[test]
+fn app_call_params_are_one_json_object() {
+    for words in [
+        &["app", "call"][..],
+        &["app", "call", "debug.surfaces", "{nope"],
+        &["app", "call", "debug.surfaces", "[1]"],
+        &["app", "call", "debug.surfaces", "{}", "extra"],
+    ] {
+        assert!(parse(&args(words)).is_err(), "{words:?}");
+    }
+}
+
+/// RED: a caller cannot claim to be the person: the CLI's origin replaces any
+/// `origin` in the JSON, and a person-only answer passes through as exit 1.
+#[test]
+fn app_call_never_claims_the_person_and_passes_app_refusals_through() {
+    let refused = json!({ "id": 1, "ok": false, "error": { "code": "setting_user_only",
+        "message": "history.terminalCommands can be changed only by you",
+        "data": { "key": "history.terminalCommands" } } });
+    let (socket, app) = fake_app(vec![identify_answer("com.cmuxterm.app.debug.t1"), refused]);
+    let params =
+        r#"{"path":"history.terminalCommands","value":false,"origin":"user","confirm":false}"#;
+    assert_eq!(app_call(&socket, &["settings.set", params]), 1);
+    let sent = &app.join().unwrap()[0][1];
+    assert_eq!(sent["method"], "settings.set");
+    assert_eq!(sent["params"]["origin"], "script");
 }

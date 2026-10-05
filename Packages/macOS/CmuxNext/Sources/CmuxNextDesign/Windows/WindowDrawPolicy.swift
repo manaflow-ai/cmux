@@ -67,7 +67,8 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// drawing, so captures show content. The same rule as React pages
 /// (`PageWebView.rendersWhenCovered`). Users keep the energy saving.
 @MainActor
-public enum WindowDrawPolicy {
+public struct WindowDrawPolicy {
+    public init() {}
     /// Whether a launch with `environment` draws occluded windows.
     nonisolated public static func isAutomationLaunch(_ environment: [String: String]) -> Bool {
         #if DEBUG

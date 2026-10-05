@@ -151,6 +151,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        if cancelsAttachedSheet(event, in: window) { return true }
         // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
         if let keyRecorder, keyRecorder(event, window) {
             cancelChord()
@@ -244,6 +245,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
     var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
+    /// Ends the topmost sheet on a window as cancelled; returns whether one
+    /// ended. A seam: tests without a window session (no sheets) replace it.
+    var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }
 
     /// The last intercepted action and window (for `debug.key`).
     private(set) var lastInterception: (action: ActionID, window: String)?

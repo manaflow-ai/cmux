@@ -14,10 +14,11 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "30c200162c793bdda767ca55c44b939a784bb66eceabba2b34b2eac237485988";
+inline constexpr std::string_view kProtocolIrSha256 = "85c12d35a3dfe000c082760b1ccbb6a8e3eb30a8387faac01c6cb1344e09b11b";
 
 struct AgentRecord;
 enum class AgentReportSource;
+struct AgentSessionSource;
 enum class AgentSource;
 enum class AgentState;
 struct AppliedPane;
@@ -36,6 +37,7 @@ struct CellPixelSurface;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
+enum class CloseReason;
 struct CloseTerminalResult;
 struct ColorHex;
 struct ColumnPin;
@@ -187,6 +189,8 @@ struct AddScreensToScreenGroupRequest;
 struct AddTabsToTabGroupRequest;
 struct ApplyLayoutRequest;
 struct AttachSurfaceRequest;
+struct BindConversationTabSessionRequest;
+struct BindConversationTabSessionResult;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
@@ -582,6 +586,14 @@ enum class AgentReportSource {
     hook,
 };
 
+struct AgentSessionSource {
+    Field<std::string> harness{};
+    std::string host{};
+    Field<std::string> host_name{};
+    Field<std::string> session{};
+    friend bool operator==(const AgentSessionSource&, const AgentSessionSource&) = default;
+};
+
 struct AppliedPane {
     Id pane{};
     Id surface{};
@@ -646,6 +658,7 @@ struct AttachSurfaceRequest {
     Field<AttachSurfaceRequestMode> mode{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
+    std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
     Field<Id> surface{};
     Field<std::uint64_t> viewer_backlog_bytes{};
@@ -679,6 +692,27 @@ struct Base64 {
 struct BellEvent {
     Id surface{};
     friend bool operator==(const BellEvent&, const BellEvent&) = default;
+};
+
+struct BindConversationTabSessionRequest {
+    std::optional<std::string> expected_session{};
+    std::string session{};
+    Id surface{};
+    friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;
+};
+
+struct ConversationTabRecord {
+    std::optional<AgentSessionSource> agent_session{};
+    std::optional<std::string> conversation{};
+    std::optional<std::string> owner{};
+    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
+};
+
+struct BindConversationTabSessionResult {
+    ConversationTabRecord conversation{};
+    bool replayed{};
+    Id surface{};
+    friend bool operator==(const BindConversationTabSessionResult&, const BindConversationTabSessionResult&) = default;
 };
 
 struct BookmarksChangedEvent {
@@ -1113,6 +1147,10 @@ struct CloseProviderManagedWorkspaceRequest {
     friend bool operator==(const CloseProviderManagedWorkspaceRequest&, const CloseProviderManagedWorkspaceRequest&) = default;
 };
 
+enum class CloseReason {
+    session_end,
+};
+
 struct CloseScreenGroupRequest {
     std::optional<bool> end_terminals{};
     std::string group{};
@@ -1142,6 +1180,7 @@ struct CloseTabsRequest {
     Field<std::uint64_t> expected_revision{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
+    Field<CloseReason> reason{};
     std::vector<TabRef> surfaces{};
     Field<std::string> transaction{};
     friend bool operator==(const CloseTabsRequest&, const CloseTabsRequest&) = default;
@@ -1540,12 +1579,6 @@ struct ConversationSnapshotResult {
     ConversationSummary conversation{};
     std::vector<ConversationMessage> messages{};
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
-};
-
-struct ConversationTabRecord {
-    std::string conversation{};
-    std::string owner{};
-    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
 };
 
 struct ConversationTypingEvent {
@@ -2692,11 +2725,12 @@ struct NewBrowserTabRequest {
 };
 
 struct NewConversationTabRequest {
+    Field<AgentSessionSource> agent_session{};
     Field<std::uint16_t> cols{};
-    std::string conversation{};
+    Field<std::string> conversation{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
-    std::string owner{};
+    Field<std::string> owner{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
     Field<Id> workspace{};
@@ -2785,12 +2819,15 @@ struct NewScreenRequest {
     Field<std::string> color{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> group{};
     Field<std::string> icon{};
     Field<std::uint64_t> index{};
     Field<bool> pinned{};
     Field<std::uint16_t> rows{};
     Field<std::string> screen_name{};
+    Field<std::vector<std::string>> shell_args{};
+    Field<std::string> terminal_id{};
     Field<Id> workspace{};
     friend bool operator==(const NewScreenRequest&, const NewScreenRequest&) = default;
 };
@@ -4421,6 +4458,12 @@ struct Codec<AgentReportSource> {
 };
 
 template <>
+struct Codec<AgentSessionSource> {
+    static Result<Json> encode(const AgentSessionSource& value);
+    static Result<AgentSessionSource> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentSource> {
     static Result<Json> encode(const AgentSource& value);
     static Result<AgentSource> decode(const Json& value);
@@ -4526,6 +4569,12 @@ template <>
 struct Codec<ClientTransport> {
     static Result<Json> encode(const ClientTransport& value);
     static Result<ClientTransport> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloseReason> {
+    static Result<Json> encode(const CloseReason& value);
+    static Result<CloseReason> decode(const Json& value);
 };
 
 template <>
@@ -5432,6 +5481,18 @@ template <>
 struct Codec<AttachSurfaceRequest> {
     static Result<Json> encode(const AttachSurfaceRequest& value);
     static Result<AttachSurfaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BindConversationTabSessionRequest> {
+    static Result<Json> encode(const BindConversationTabSessionRequest& value);
+    static Result<BindConversationTabSessionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BindConversationTabSessionResult> {
+    static Result<Json> encode(const BindConversationTabSessionResult& value);
+    static Result<BindConversationTabSessionResult> decode(const Json& value);
 };
 
 template <>

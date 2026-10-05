@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
+import Synchronization
 import Testing
 
 /// The socket writes settings only through the settings owner
@@ -94,6 +95,67 @@ import Testing
         }
     }
 
+    /// settings.reset and settings.unset wait for the person like settings.set (their own deadline
+    /// is the confirmation's, not the 2 s control plane): an approval after the control-plane
+    /// deadline still answers the request it writes for.
+    @Test func resetAndUnsetWaitForTheSheetPastTheControlPlaneDeadline() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-settings-slow-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{"history":{"terminalCommands":false}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), settings: settings.file, settingsWriter: settings,
+                                   configuration: .init(requestDeadline: .milliseconds(200)))
+        settings.userOnlyConfirmation = { _, _ in
+            try? await Task.sleep(for: .milliseconds(500)) // the person takes longer than the control-plane deadline
+            return true
+        }
+        for method in ["settings.reset", "settings.unset"] {
+            try Data(#"{"history":{"terminalCommands":false}}"#.utf8).write(to: url)
+            await settings.reload()
+            let answer = await call(router, method, ["path": "history.terminalCommands", "confirm": true])
+            #expect((try? answer.get()) != nil, "\(method): \(answer)")
+            #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == nil, "\(method)")
+        }
+    }
+
+    /// A request whose connection closes while the sheet is open (Ctrl-C) ends the sheet as
+    /// declined and writes nothing.
+    @Test func aClosedConnectionDismissesTheSheetAndWritesNothing() async throws {
+        let (router, settings, directory) = try make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ended = Box()
+        let started = Box()
+        settings.userOnlyConfirmation = { _, _ in
+            started.flag.withLock { $0 = true }
+            // The sheet stays open until the request ends; a cancelled sheet answers no.
+            await withTaskCancellationHandler {
+                while !Task.isCancelled { await Task.yield() }
+            } onCancel: { ended.flag.withLock { $0 = true } }
+            return false
+        }
+        let connection = ControlConnectionID(rawValue: 4242)
+        async let answer = router.handle(ControlRequest(id: "1", method: "settings.set",
+                                                        params: ["path": "history.terminalCommands", "value": false, "confirm": true]),
+                                         connection: connection)
+        for _ in 0..<10_000 where !started.flag.withLock({ $0 }) { await Task.yield() }
+        #expect(started.flag.withLock { $0 }, "the sheet opened")
+        ControlConnectionClosures.shared.closed(connection)
+        let result = await answer
+        guard case .failure(let declined) = result else {
+            Issue.record("a closed connection's request wrote: \(result)")
+            return
+        }
+        #expect(declined.code == "setting_user_only")
+        #expect(ended.flag.withLock { $0 }, "the sheet was ended")
+        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == nil)
+    }
+
+    final class Box: Sendable { let flag = Mutex(false) }
+
     /// A managed key is refused on the socket, schema key or not.
     @Test func aManagedKeyIsRefused() async throws {
         let (router, settings, directory) = try make(managed: ManagedPreferences(forced: ["appearance.density": "compact"]))
@@ -121,7 +183,8 @@ extension SettingDescriptor {
         case .color: return .string("#336699")
         case .sound: return .string("default")
         case .url: return .string("")
-        case .hostList, .folderList: return .array([])
+        case .hostList, .folderList, .numberList: return .array([])
+        case .stringMap: return .object([:])
         case .timeRange: return .object(["start": .string("22:00"), "end": .string("07:00")])
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")

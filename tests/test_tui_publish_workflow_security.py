@@ -206,6 +206,18 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
     assert "paths" not in push_trigger
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "runs-on:" in preflight and "ubuntu" in preflight
+    assert "git mktree --missing" in preflight
+    assert "cmux-tui-aarch64-apple-darwin.sha256" in preflight
+    assert "ls-remote" in preflight
+    assert "tree_ready" in preflight
+    assert "run_macos" in preflight
+    assert "refs/heads/main" in preflight
+    for job in ("build", "cmux-next-daemon-tests"):
+        body = workflow_job(artifacts, job)
+        assert "needs: tree-preflight" in body
+        assert "needs.tree-preflight.outputs.run_macos == 'true'" in body
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert 'CARGO_NET_RETRY: "10"' in daemon
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
@@ -223,6 +235,7 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "/actions/runs/$RUN_ID/rerun" in requeue
     assert "needs.cmux-next-daemon-tests.result == 'failure'" in requeue
     assert "needs.build.result == 'failure'" in requeue
+    assert "needs.tree-preflight.result == 'failure'" in requeue
     assert "needs.publish-pr-tree.result == 'failure'" in requeue
     pr_publisher = workflow_job(artifacts, "publish-pr-tree")
     assert "github.event_name == 'pull_request_target'" in pr_publisher

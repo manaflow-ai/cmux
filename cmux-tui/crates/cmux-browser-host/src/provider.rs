@@ -158,6 +158,10 @@ pub enum Frame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         actor: Option<String>,
     },
+    /// One agent input (host -> app): an `automation.input` v1 event
+    /// (schemas/automation-input), verbatim; the app draws the agent cursor.
+    #[serde(rename = "input")]
+    Input { event: Value },
     /// A person used a leased tab; the host pauses the lease.
     #[serde(rename = "user.input")]
     UserInput {
@@ -230,6 +234,12 @@ impl fmt::Debug for Frame {
             Frame::UserInput { target_id } => {
                 f.debug_struct("UserInput").field("target_id", target_id).finish()
             }
+            Frame::Input { event } => f
+                .debug_struct("Input")
+                .field("session", &event.get("session_id"))
+                .field("seq", &event.get("seq"))
+                .field("kind", &event.get("kind"))
+                .finish_non_exhaustive(),
             Frame::LeaseUser { op, target_id, actor } => f
                 .debug_struct("LeaseUser")
                 .field("op", op)

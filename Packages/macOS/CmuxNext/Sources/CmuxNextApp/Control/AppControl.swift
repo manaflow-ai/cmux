@@ -116,6 +116,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugDockColumns.handle(call.params, services: services))
             },
+            // Agent cursor visibility per browser tab (`target` narrows it).
+            .mainActor("debug.agent_cursor") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.report(call.params, services: services))
+            },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
@@ -173,10 +178,22 @@ final class AppControl {
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
+            .async("debug.shortcut_hints") { [weak services] call in
+                await DebugShortcutHintControl().handle(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(4))),
             .mainActor("debug.showcase.seed") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugShowcase.seed(call.params, services: services))
             },
+            .mainActor("debug.scene.list") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(CaptureSceneRegistry(services: services).list())
+            },
+            .async("debug.scene.render") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                let registry = await MainActor.run { CaptureSceneRegistry(services: services) }
+                return await registry.render(call.params)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.webkit_inspector") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugWebInspector.handle(call.params, services: services))
@@ -185,6 +202,11 @@ final class AppControl {
             .mainActor("debug.popups") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPopups.report(call.params, services: services))
+            },
+            // Scripted input into the real agent cursor stacks (visual checks).
+            .mainActor("debug.agent_cursor.demo") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursorDemo.handle(call.params, services: services))
             },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }

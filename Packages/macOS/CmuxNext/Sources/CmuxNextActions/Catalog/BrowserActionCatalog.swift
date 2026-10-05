@@ -235,13 +235,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], targets: [.pane], cliName: "browser disable"
             ),
             ActionDescriptor(
-                id: "openLinkInNewTab",
-                title: String(localized: "action.openLinkInNewTab", defaultValue: "Open Link in New Tab", bundle: .module),
-                keywords: ["browser", "link"], category: .browser, symbol: "arrow.up.right.square",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser open-link-in-new-tab"
-            ),
-            ActionDescriptor(
                 id: "openLinkInDefaultBrowser",
                 title: String(localized: "action.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser", bundle: .module),
                 keywords: ["browser", "link", "external"], category: .browser, symbol: "arrow.up.forward.app",

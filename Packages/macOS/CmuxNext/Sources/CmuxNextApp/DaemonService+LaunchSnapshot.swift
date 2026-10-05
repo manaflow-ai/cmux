@@ -33,8 +33,10 @@ extension DaemonService {
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment) else { return nil }
+        let hello = ClientHelloIdentity(installKey: launcher.configuration.installKey)
         return DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(
-            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration))
+            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
+            clientHello: hello))
     }
 
     /// Records the local daemon's socket for the next launch

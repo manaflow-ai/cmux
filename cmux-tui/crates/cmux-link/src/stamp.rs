@@ -3,6 +3,12 @@
 //! daemon reads it only on its remote entry, after the entry verified that
 //! the connecting process is the link ([`crate::caller`]). The peer's own
 //! bytes follow the stamp; nothing the peer sends can stand in for it.
+//!
+//! The optional `check` names a control-plane check the link made for this
+//! stream ([`StampCheck`]). The link writes it only after the check passed;
+//! the daemon records it as the install's good check (the 24 h / 72 h
+//! offline limits). A peer cannot set it: the stamp is the first line, the
+//! link writes it before any peer byte, and the daemon reads it only there.
 
 use serde::{Deserialize, Serialize};
 
@@ -22,10 +28,29 @@ pub struct LinkPeer {
     pub team: String,
 }
 
+/// A control-plane check the link made for this stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StampCheck {
+    /// A Cloud host's token verifier accepted a control-plane link token for
+    /// this stream (cloud-client-contract.md 1.7). The control plane mints
+    /// no token for a revoked install.
+    LinkToken,
+}
+
+/// One parsed stamp: the verified peer and the check the link made, if any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamp {
+    pub peer: LinkPeer,
+    pub check: Option<StampCheck>,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StampLine {
     link_peer: LinkPeer,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    check: Option<StampCheck>,
 }
 
 /// Why a stamp line was refused.
@@ -67,25 +92,28 @@ impl LinkPeer {
     }
 }
 
-/// The stamp line for `peer`, without the trailing newline.
-pub fn encode(peer: &LinkPeer) -> Result<String, StampError> {
+/// The stamp line for `peer`, without the trailing newline. `check` only
+/// after that check passed for this stream.
+pub fn encode(peer: &LinkPeer, check: Option<StampCheck>) -> Result<String, StampError> {
     if !peer.is_valid() {
         return Err(StampError::InvalidId);
     }
-    serde_json::to_string(&StampLine { link_peer: peer.clone() }).map_err(|_| StampError::Malformed)
+    serde_json::to_string(&StampLine { link_peer: peer.clone(), check })
+        .map_err(|_| StampError::Malformed)
 }
 
 /// Parse one stamp line (a trailing newline is allowed).
-pub fn parse(line: &str) -> Result<LinkPeer, StampError> {
+pub fn parse(line: &str) -> Result<Stamp, StampError> {
     let line = line.strip_suffix('\n').unwrap_or(line);
     if line.len() > MAX_STAMP_BYTES {
         return Err(StampError::TooLong);
     }
-    let StampLine { link_peer } = serde_json::from_str(line).map_err(|_| StampError::Malformed)?;
+    let StampLine { link_peer, check } =
+        serde_json::from_str(line).map_err(|_| StampError::Malformed)?;
     if !link_peer.is_valid() {
         return Err(StampError::InvalidId);
     }
-    Ok(link_peer)
+    Ok(Stamp { peer: link_peer, check })
 }
 
 #[cfg(test)]
@@ -100,10 +128,26 @@ mod tests {
     pub(crate) const GOLDEN: &str =
         r#"{"link_peer":{"install":"inst_1","user":"user_42","team":"team_a"}}"#;
 
+    /// The golden line of a stream whose link token the host accepted.
+    pub(crate) const GOLDEN_CHECKED: &str = r#"{"link_peer":{"install":"inst_1","user":"user_42","team":"team_a"},"check":"link_token"}"#;
+
     #[test]
     fn the_stamp_round_trips_through_the_golden_line() {
-        assert_eq!(encode(&peer()).unwrap(), GOLDEN);
-        assert_eq!(parse(&format!("{GOLDEN}\n")).unwrap(), peer());
+        assert_eq!(encode(&peer(), None).unwrap(), GOLDEN);
+        assert_eq!(parse(&format!("{GOLDEN}\n")).unwrap(), Stamp { peer: peer(), check: None });
+    }
+
+    #[test]
+    fn a_checked_stamp_round_trips_and_an_unknown_check_is_refused() {
+        assert_eq!(encode(&peer(), Some(StampCheck::LinkToken)).unwrap(), GOLDEN_CHECKED);
+        assert_eq!(
+            parse(GOLDEN_CHECKED).unwrap(),
+            Stamp { peer: peer(), check: Some(StampCheck::LinkToken) }
+        );
+        let unknown = r#"{"link_peer":{"install":"i","user":"u","team":"t"},"check":"admin"}"#;
+        assert_eq!(parse(unknown), Err(StampError::Malformed));
+        let inside = r#"{"link_peer":{"install":"i","user":"u","team":"t","check":"link_token"}}"#;
+        assert_eq!(parse(inside), Err(StampError::Malformed));
     }
 
     #[test]

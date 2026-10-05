@@ -30,7 +30,7 @@ fn entry(label: &str, deadline: Duration) -> Entry {
     fs.first_line_deadline = deadline;
     let verifier: LinkVerifier = Arc::new(|_stream: &UnixStream| Ok(()));
     let server =
-        serve_remote_entry_with(mux.clone(), &path, verifier, Arc::new(FsGate), fs).unwrap();
+        serve_remote_entry_with(mux.clone(), &path, verifier, Arc::new(FsGate), fs, false).unwrap();
     Entry { server: Some(server), mux, home, _directory: directory }
 }
 
@@ -167,7 +167,7 @@ fn revoking_the_install_ends_its_running_stream_at_once() {
     let (_stream, mut reader) = start_write(&entry);
     assert!(wait_until(|| remote_clients(&entry.mux).len() == 1));
     let start = Instant::now();
-    entry.mux.revoke_remote_install("inst_1");
+    entry.mux.revoke_remote_install("inst_1").unwrap();
     assert_ends_at_once(&mut reader, start);
     assert!(wait_until(|| home_is_empty(&entry)), "no file and no temporary left");
     let (mut again, mut again_reader) = dial(&entry);

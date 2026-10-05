@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextActions
 import CmuxNextHistory
 import CmuxNextBridge
@@ -12,6 +13,7 @@ import Observation
 /// Which workspace that is, plus frame and sidebar width, persist in the
 /// daemon's personal projection through `WindowManager`.
 final class WindowController: NSWindowController, NSWindowDelegate {
+    var shortcutHints: WindowShortcutHints?
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
@@ -37,6 +39,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// Agent cursors on this window's cursor layer (made on the first input it draws).
+    private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
@@ -77,6 +81,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
+        startShortcutHints()
         observeWorkspace()
         observeRoom()
     }
@@ -85,6 +90,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
@@ -261,6 +267,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131). The
+        // next key window is known on the next main-actor turn.
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
+                                              presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
+                                              cache: self.services.cache)
+        }
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }

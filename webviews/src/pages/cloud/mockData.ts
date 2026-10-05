@@ -130,6 +130,8 @@ export function sampleFiles(): Map<string, SampleFile> {
 /** The plan's fixed part; `usage.active` and `usage.saved` come from the mock's machines. */
 export interface SamplePlan {
   plan_id: string;
+  /** `CloudPlan.upgrade_plan`; dev and staging answer null today. */
+  upgrade_plan: string | null;
   max_active: number;
   max_saved: number;
   memory_options_mb: number[];
@@ -155,6 +157,7 @@ export function sampleAccount(): SampleAccount {
     ],
     plan: {
       plan_id: "go",
+      upgrade_plan: null,
       max_active: 5,
       max_saved: 5,
       // Like the backend vectors: the offered sizes include the locked ones.

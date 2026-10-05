@@ -111,7 +111,7 @@ struct WindowKindMatrixTests {
     /// Each kind through the window kit: a visible close button above the
     /// content, a `debug.window_snapshot` PNG, and a background pixel equal
     /// to the surface token (the app theme is opaque here).
-    @Test func everyKindShowsACloseButtonAndSnapshotsItsSurface() throws {
+    @Test(.requiresGUISession) func everyKindShowsACloseButtonAndSnapshotsItsSurface() throws {
         _ = NSApplication.shared
         let services = ActionBindingCoverageTests.boundServices()
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-kinds-\(UUID().uuidString)")

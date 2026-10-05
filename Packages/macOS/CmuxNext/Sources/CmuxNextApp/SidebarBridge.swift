@@ -38,6 +38,8 @@ final class SidebarBridge {
     private var everIncognito = false
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
+    /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
+    var sectionStepCursor: (item: LayoutItemID, workspace: String?)?
 
     init(services: AppServices, state: WindowState) {
         self.services = services

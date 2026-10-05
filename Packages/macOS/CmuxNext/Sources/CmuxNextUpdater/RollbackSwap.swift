@@ -4,7 +4,8 @@ public import Foundation
 /// after ``RollbackDecision`` allowed it): the running build is kept first
 /// (so the user can move forward again), then the kept bundle replaces it
 /// by an atomic rename on the same volume.
-nonisolated public enum RollbackSwap {
+nonisolated public struct RollbackSwap {
+    public init() {}
     /// - Returns: the bundle now at `current`.
     @discardableResult
     public static func perform(current: URL, currentBuild: String, target: KeptVersion, store: KeptVersionStore, limit: Int) throws -> URL {

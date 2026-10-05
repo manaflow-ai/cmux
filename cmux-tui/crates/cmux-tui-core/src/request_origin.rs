@@ -5,7 +5,8 @@
 //! - `page` on every request of a connection whose `client-hello` role is
 //!   `page_relay` (a page's JS reaches the daemon only through one);
 //! - `user` only on a `verified_app` connection (role `main` and a proof;
-//!   P8 sets the proof, so no connection is verified before P8);
+//!   the proof is P8's install-key hello or the app's code signature,
+//!   server/app_trust.rs);
 //! - `app` on the in-process app supervisor router (`apps::routing`);
 //! - `agent` otherwise, including every connection without a hello.
 //!
@@ -35,6 +36,10 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// Gate A2: operations that need origin `user`.
 pub(crate) const USER_ONLY_OPERATIONS: [&str; 3] =
     ["apps.install", "apps.uninstall", "apps.enable"];
+/// Operations a page may never call, whatever it claims: their result is a
+/// credential that would reach the page's JS. A renderer grant lets its
+/// holder view a terminal (server/renderer_grant.rs).
+pub(crate) const PAGE_FORBIDDEN_OPERATIONS: [&str; 1] = ["terminal.renderer_grant.create"];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
 const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
@@ -101,10 +106,11 @@ pub struct OriginClaim {
 #[derive(Default)]
 pub(crate) struct ConnectionOrigin {
     pub(crate) role: HelloRole,
-    /// `token:<pid>.<pidversion>` of the socket peer, read at the hello;
-    /// P8 adds `install:<id>` once the install key is proven.
+    /// `token:<pid>.<pidversion>` of the socket peer, read at the hello.
+    /// The install-key proof never changes it (request-origin.md).
     pub(crate) peer_key: Option<String>,
-    /// Role main plus a proof. Always false before P8.
+    /// Role main plus a proof (P8: install-key hello on DEV builds, the
+    /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
@@ -209,6 +215,14 @@ impl ConnectionOrigin {
             return Err(forbidden(
                 "a page relay connection cannot issue confirmations",
                 json!({"derived": RequestOrigin::Page.wire_name()}),
+            ));
+        }
+        if (self.role == HelloRole::PageRelay || origin == RequestOrigin::Page)
+            && PAGE_FORBIDDEN_OPERATIONS.contains(&operation)
+        {
+            return Err(forbidden(
+                "a page cannot call this operation",
+                json!({"required": "agent", "derived": RequestOrigin::Page.wire_name()}),
             ));
         }
         require_origin(operation, origin)?;

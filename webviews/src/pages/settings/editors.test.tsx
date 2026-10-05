@@ -6,7 +6,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, fire, ops, renderPage, rowElement, run } = await import("./testing");
+const { changeValue, click, fire, ops, renderPage, rowElement, run, settle } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -44,6 +44,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("[data-add-folder]") ? null : "no Add Folder button";
     case "time_range":
       return has('input[type="time"]', 2) ? null : "no time fields";
+    case "number_list":
+    case "string_map":
+      return "a cmux-browser kind on the cmux-next page";
   }
 }
 
@@ -95,7 +98,11 @@ describe("editors", () => {
     const order = page.provider.log
       .map((entry) => entry.op)
       .filter(
-        (op) => op !== "cmux.settings.list" && op !== "cmux.settings.snapshot" && op !== "cmux.settings.host.lists",
+        (op) =>
+          op !== "cmux.settings.list" &&
+          op !== "cmux.settings.snapshot" &&
+          op !== "cmux.settings.host.lists" &&
+          op !== "cmux.settings.section.actions",
       );
     expect(order).toEqual([
       "cmux.settings.preview",
@@ -104,6 +111,20 @@ describe("editors", () => {
       "cmux.settings.set",
       "cmux.settings.preview.end",
     ]);
+  });
+
+  test("an unset slider sits at the value the host derives (the theme's opacity), live", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const row = rowElement(page.container, "appearance.backgroundOpacity");
+    const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
+    await run(() =>
+      page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.85 } }),
+    );
+    expect(slider()).toBe("0.85");
+    await run(() =>
+      page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.6 } }),
+    );
+    expect(slider()).toBe("0.6");
   });
 
   test("a number field commits on Return, clamped to the range", async () => {
@@ -236,12 +257,11 @@ describe("editors", () => {
     expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
   });
 
-  test("sections without rows link to the Settings window; Advanced resets all after a confirm", async () => {
-    page = await renderPage({ path: "/settings/keyboard" });
-    await click(page.container.querySelector(".content .button")!);
-    expect(ops(page.provider, "cmux.app.action.run")).toEqual([
-      { action: "openSettings", args: { section: "keyboard" } },
-    ]);
+  test("a section's own buttons run their actions; Advanced resets all after a confirm", async () => {
+    page = await renderPage({ path: "/settings/general" });
+    await settle();
+    await click(page.container.querySelector('[data-action="palette.welcomeChecklist"]')!);
+    expect(ops(page.provider, "cmux.app.action.run")).toEqual([{ action: "palette.welcomeChecklist" }]);
     page.unmount();
     page = await renderPage({ path: "/settings/advanced" });
     await click(page.container.querySelector("[data-reset-all]")!);

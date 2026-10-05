@@ -16,6 +16,7 @@ class ProtocolDecodeError(ValueError):
 
 MODEL_BY_PATH = {
     'types/AgentRecord': models.AgentRecord,
+    'types/AgentSessionSource': models.AgentSessionSource,
     'types/AppliedPane': models.AppliedPane,
     'types/ApplyLayoutResult': models.ApplyLayoutResult,
     'types/AttachedViewOutcomeResult': models.AttachedViewOutcomeResult,
@@ -162,6 +163,8 @@ MODEL_BY_PATH = {
     'commands/add-tabs-to-tab-group/request': models.AddTabsToTabGroupRequest,
     'commands/apply-layout/request': models.ApplyLayoutRequest,
     'commands/attach-surface/request': models.AttachSurfaceRequest,
+    'commands/bind-conversation-tab-session/request': models.BindConversationTabSessionRequest,
+    'commands/bind-conversation-tab-session/result': models.BindConversationTabSessionResult,
     'commands/browser-activate/request': models.BrowserActivateRequest,
     'commands/browser-back/request': models.BrowserBackRequest,
     'commands/browser-forward/request': models.BrowserForwardRequest,
@@ -466,6 +469,7 @@ ENUM_BY_PATH = {
     'types/AgentState': models.AgentState,
     'types/BrowserProviderAuthentication': models.BrowserProviderAuthentication,
     'types/ClientTransport': models.ClientTransport,
+    'types/CloseReason': models.CloseReason,
     'types/CursorStyle': models.CursorStyle,
     'types/DetachReason': models.DetachReason,
     'types/FrontendFocusTarget': models.FrontendFocusTarget,
