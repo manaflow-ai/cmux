@@ -98,7 +98,7 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(any("ghostty/src/shell-integration" in p for p in problems))
 
     def test_the_hand_written_section_must_hold_the_text(self) -> None:
-        self.hand = self.hand.replace("Ryan Caloras and contributors", "R. Caloras", 1)
+        self.hand = self.hand.replace("Copyright (c) 2017 Ryan Caloras", "Copyright (c) 2017 R. Caloras", 1)
         self.assertTrue(self.problems())
 
     def test_embedded_paths_are_found_in_rust_sources(self) -> None:

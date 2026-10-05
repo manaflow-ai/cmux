@@ -34,12 +34,12 @@
     {
       "path": "Contents/Resources/bin/cmux",
       "what": "the cmux CLI and daemon (cmux-tui crates; acpmux and libghostty-vt are linked in; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
-      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration"]
     },
     {
       "path": "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
       "what": "the same cmux-tui binary for remote hosts",
-      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries"]
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration"]
     },
     {
       "path": "Contents/Resources/bin/cmux-app-host",
@@ -72,6 +72,11 @@
       "path": "Contents/Resources/ghostty/themes",
       "what": "Ghostty themes from iTerm2-Color-Schemes (Resources/ghostty/themes, or Ghostty's zig-out share)",
       "notices": ["section:ghostty-themes"]
+    },
+    {
+      "path": "Contents/Resources/ghostty/shell-integration",
+      "what": "Ghostty's shell integration scripts from ghostty-next (bundle-ghostty-resources.sh): bash-preexec 0.7.0 (MIT), Kitty-derived bash/zsh files (GPL-3.0-or-later); rows in cmux-tui/build-support/notices/ghostty/shell-integration.json",
+      "notices": ["first-party", "section:manual-ghostty", "section:manual-ghostty-shell-integration"]
     },
     {
       "path": "Contents/Resources/ghostty-licenses",

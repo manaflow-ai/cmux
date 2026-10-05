@@ -160,6 +160,48 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
+<!-- notices-section: manual-ghostty-shell-integration -->
+## Ghostty shell integration
+
+The app bundles Ghostty's shell integration scripts from ghostty-next (`Contents/Resources/ghostty/shell-integration/`), and `bin/cmux` and `bin/cmux-tui-ssh/*` embed the files marked (embedded). Each file and its license:
+
+- `README.md`: Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `bash/bash-preexec.sh` (embedded): bash-preexec 0.7.0 (Ryan Caloras and contributors, https://github.com/rcaloras/bash-preexec), modified by Ghostty (__bp_adjust_histcontrol commented out); MIT (text below)
+- `bash/ghostty.bash` (embedded): Ghostty (ghostty-next), parts based on Kitty's bash integration (https://github.com/kovidgoyal/kitty); GPL-3.0-or-later (the GNU GPL text is `Contents/Resources/LICENSE`)
+- `elvish/lib/ghostty-integration.elv`: Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `fish/vendor_conf.d/ghostty-shell-integration.fish` (embedded): Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `nushell/vendor/autoload/ghostty.nu`: Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `zsh/.zshenv` (embedded): Ghostty (ghostty-next), based on Kitty's zsh integration (https://github.com/kovidgoyal/kitty); GPL-3.0-or-later (the GNU GPL text is `Contents/Resources/LICENSE`)
+- `zsh/ghostty-integration` (embedded): Ghostty (ghostty-next), based on Kitty's zsh integration (https://github.com/kovidgoyal/kitty); GPL-3.0-or-later (the GNU GPL text is `Contents/Resources/LICENSE`)
+
+bash-preexec 0.7.0 (https://github.com/rcaloras/bash-preexec, tag 0.7.0), MIT License:
+
+```text
+The MIT License
+
+Copyright (c) 2017 Ryan Caloras and contributors (see https://github.com/rcaloras/bash-preexec)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+---
+
 <!-- notices-section: manual-freetype -->
 ## FreeType
 

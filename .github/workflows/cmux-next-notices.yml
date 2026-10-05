@@ -36,6 +36,8 @@ on:
       - "Native/DiffSidecar/rust-toolchain.toml"
       - "ghostty"
       - "ghostty-next"
+      - "cmux-tui/crates/cmux-tui-core/src/shell_integration.rs"
+      - "scripts/cmux-next/bundle-ghostty-resources.sh"
       - "cmux-tui/crates/ghostty-vt-sys/build.rs"
       - "scripts/verify-app-bundle-licenses.sh"
       - "Resources/ghostty/themes/**"
@@ -77,6 +79,7 @@ jobs:
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_vendored.py
+          python3 cmux-tui/build-support/notices/ghostty/test_shell_integration_notices.py
           python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
@@ -114,6 +117,11 @@ jobs:
           # build.zig.zon of both Ghostty sources sets the Zig version; a missing one fails the check.
           git submodule update --init --depth 1 --filter=blob:none ghostty ghostty-next
           python3 cmux-tui/build-support/notices/toolchains/toolchain_notices.py check-repo --repo .
+
+      # ghostty-next/src/shell-integration ships in the app and (include_str!) in cmux-tui:
+      # every file needs a reviewed row (shell-integration.json) and its notice text.
+      - name: Ghostty shell integration files have reviewed notices
+        run: python3 cmux-tui/build-support/notices/ghostty/shell_integration_notices.py check
 
       - name: vt-link-graph.json is for the libghostty-vt gitlink
         run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json

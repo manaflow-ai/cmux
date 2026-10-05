@@ -26,6 +26,9 @@ Each notice names everything the static binaries link, for that target:
     vendored directory that vt-link-graph.json says the archive links for the
     target (cmux-tui/dist/notices/package-notices.json, owned by the license
     review; the texts must be for the graph's ghostty-next commit),
+  - the Ghostty shell integration scripts that cmux-tui embeds with include_str!
+    (every target; rows in build-support/notices/ghostty/shell-integration.json,
+    bash-preexec's MIT text, Kitty-derived files under the package's GPL LICENSE),
   - Linux musl targets: musl's COPYRIGHT (package-notices.json),
   - Windows (x86_64-pc-windows-gnu): the static mingw-w64 13.0.0 CRT and the
     GCC 15.2.0 runtime (libgcc_eh, crtbegin) of the one reviewed toolchain,
@@ -69,6 +72,8 @@ VT_GRAPH = ROOT / "scripts/cmux-next/notices/vt-link-graph.json"
 NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
 
 sys.path.insert(0, str(BUILD_SUPPORT / "toolchains"))
+sys.path.insert(0, str(BUILD_SUPPORT / "ghostty"))
+import shell_integration_notices  # noqa: E402
 import toolchain_notices  # noqa: E402
 
 # rust target -> zig target of libghostty-vt (ghostty-vt-sys build_support.rs).
@@ -373,6 +378,23 @@ def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -
             out.append("Covered by the texts above (Ghostty's own code or its Zig package).\n\n")
         for title, text in texts:
             out.append(_block(title, text))
+    shell = shell_integration_notices.load()
+    out.append(f"## Shell integration scripts ({shell['source']})\n\n")
+    out.append(
+        "bin/cmux-tui embeds these Ghostty shell integration files (include_str!) and writes them for the "
+        "shells it starts:\n\n"
+    )
+    for path, row in shell["files"].items():
+        if not row["embedded"]:
+            continue
+        license_note = {
+            "ghostty": "MIT; Ghostty's LICENSE above",
+            "cmux-gpl": "GPL-3.0-or-later; the GNU GPL text is this package's LICENSE",
+        }.get(row["text"], "MIT; text below")
+        out.append(f"- `{path}`: {row['owner']} ({license_note})\n")
+    out.append("\n")
+    for name in sorted({row["text"] for row in shell["files"].values() if row["embedded"] and row["text"] in shell["texts"]}):
+        out.append(_block(f"{name} ({shell['texts'][name]['source']})", shell_integration_notices.text(shell, name)))
     if rust_target.endswith("-linux-musl"):
         musl = inputs.data["musl"]
         out.append(f"## musl libc {musl['version']}\n\n")
