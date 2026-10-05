@@ -383,6 +383,9 @@ struct MachinesPanelView: View {
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
+            },
+            onRename: { [weak viewModel] machine, label in
+                viewModel?.optimisticallyRenameMachine(id: machine.id, label: label)
             }
         )
         // The list endpoint is authoritative for the caller's plan-sized

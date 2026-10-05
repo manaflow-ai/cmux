@@ -388,6 +388,12 @@ final class MachinesPanelViewModel: ObservableObject {
         usageByMachineID = usage
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
     }
+
+    /// Projects a submitted label into the sidebar immediately. The next
+    /// authoritative list refresh replaces it if the command was rejected.
+    func optimisticallyRenameMachine(id: String, label: String?) {
+        machines = MachineSnapshotBuilder.applyingLabel(to: machines, machineID: id, label: label)
+    }
     static let pollInterval: Duration = .seconds(45)
     static let initialTransientFailureLimit = 3
     /// A refresh asked for while one is in flight runs again afterwards: a

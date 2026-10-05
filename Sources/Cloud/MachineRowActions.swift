@@ -36,7 +36,8 @@ struct MachineRowActions {
 
     static func bound(
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
-        onDidMutate: @escaping @MainActor () -> Void
+        onDidMutate: @escaping @MainActor () -> Void,
+        onRename: @escaping @MainActor (MachineSnapshot, String?) -> Void = { _, _ in }
     ) -> MachineRowActions {
         MachineRowActions(
             openShell: { id in
@@ -241,6 +242,7 @@ struct MachineRowActions {
             } else {
                 arguments.append(label)
             }
+            onRename(machine, label.isEmpty ? nil : label)
             onWillMutate(operationLabel(verb: ["rename"], id: machine.id))
             if !launch(arguments: arguments, onDidMutate: onDidMutate) {
                 onDidMutate()
