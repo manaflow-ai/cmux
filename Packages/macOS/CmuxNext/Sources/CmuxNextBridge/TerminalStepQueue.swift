@@ -141,7 +141,7 @@ public nonisolated final class TerminalStepQueue: Sendable {
     private static func outputSize(_ step: TerminalStreamPlan.Step) -> Int {
         switch step {
         case .output(let data): data.count
-        case .snapshot(let frame) where frame.phase == .history: frame.data.count
+        case .snapshot(let frame) where frame.phase != .ready: frame.data.count
         default: 0
         }
     }

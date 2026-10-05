@@ -44,6 +44,7 @@
     "terminal-placement-env-v1",
     "terminal-reap-v1",
     "terminal-shell-args-v1",
+    "terminal-snapshot-images-v1",
     "terminal-snapshot-history-v1",
     "terminal-snapshot-local-history-v1",
     "workspace-groups-v1",

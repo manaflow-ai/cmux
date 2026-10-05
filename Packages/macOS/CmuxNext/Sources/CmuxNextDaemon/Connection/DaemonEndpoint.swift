@@ -181,6 +181,8 @@ public struct DaemonCapabilities: Sendable {
     /// A READY cut exactly at a host resize, restored with the view's own
     /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
     public let terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
+    /// The Kitty image replay after a plain READY (S3k).
+    public let terminalSnapshotImages = "terminal-snapshot-images-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -197,7 +199,7 @@ public struct DaemonCapabilities: Sendable {
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, conversationTabs, agentSessionTabs, conversationSearch,
-                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory] }
+                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

@@ -58,12 +58,14 @@ extension TerminalAttachment {
         var history: String?
         var historyRows: UInt64?
         var historyDigest: String?
+        var skippedImages: Int?
 
         enum CodingKeys: String, CodingKey {
             case surface, phase, generation, offset, version, cols, rows, colors, data, compression, history
             case rawBytes = "raw_bytes"
             case historyRows = "history_rows"
             case historyDigest = "history_digest"
+            case skippedImages = "skipped_images"
         }
 
         /// The check of a local-history READY; nil (a plain READY whose
@@ -132,7 +134,7 @@ extension TerminalAttachment {
                 return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
                     phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
                     cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
-                    localHistory: snapshot.localHistory, data: data)))
+                    localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
                 guard scoped(output.surface) else { return nil }
