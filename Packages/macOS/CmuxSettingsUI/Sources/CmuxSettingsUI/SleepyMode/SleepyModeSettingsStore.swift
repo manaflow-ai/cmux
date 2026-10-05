@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CmuxSettings
 
 /// Persisted, observable Sleepy Mode preferences. The renderer reads
 /// `snapshot()` fresh each animation frame, so changing any value updates the
@@ -50,11 +51,15 @@ public final class SleepyModeSettingsStore {
     public var customBackground: String { didSet { persist(customBackground, SleepyModeDefaultsKeys.customBackground) } }
 
     private let defaults: UserDefaults
+    private let configStore: JSONConfigStore?
+    private var applyingDefaults = false
+    private var defaultsObserver: NSObjectProtocol?
 
     /// Loads persisted preferences from `defaults` (inject an isolated
     /// `UserDefaults` for tests/previews); missing keys fall back to defaults.
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard, configStore: JSONConfigStore? = nil) {
         self.defaults = defaults
+        self.configStore = configStore
         let fallback = SleepyModeConfig()
         theme = (defaults.string(forKey: SleepyModeDefaultsKeys.theme)).flatMap(SleepyTheme.init(rawValue:)) ?? fallback.theme
         mascot = (defaults.string(forKey: SleepyModeDefaultsKeys.mascot)).flatMap(SleepyMascot.init(rawValue:)) ?? fallback.mascot
@@ -71,6 +76,50 @@ public final class SleepyModeSettingsStore {
         customInk = defaults.string(forKey: SleepyModeDefaultsKeys.customInk) ?? fallback.customInk
         customLogo = defaults.string(forKey: SleepyModeDefaultsKeys.customLogo) ?? fallback.customLogo
         customBackground = defaults.string(forKey: SleepyModeDefaultsKeys.customBackground) ?? fallback.customBackground
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadFromDefaults()
+        }
+    }
+
+    deinit {
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+    }
+
+    /// Re-reads the managed defaults snapshot after cmux.json is applied.
+    /// The classic file store writes JSON values into these same keys, so this
+    /// keeps the renderer and Settings pane live without a restart.
+    private func reloadFromDefaults() {
+        applyingDefaults = true
+        defer { applyingDefaults = false }
+        let fallback = SleepyModeConfig()
+        let nextTheme = defaults.string(forKey: SleepyModeDefaultsKeys.theme).flatMap(SleepyTheme.init(rawValue:)) ?? fallback.theme
+        let nextMascot = defaults.string(forKey: SleepyModeDefaultsKeys.mascot).flatMap(SleepyMascot.init(rawValue:)) ?? fallback.mascot
+        let nextGlow = defaults.string(forKey: SleepyModeDefaultsKeys.glow).flatMap(SleepyGlow.init(rawValue:)) ?? fallback.glow
+        if theme != nextTheme { theme = nextTheme }
+        if mascot != nextMascot { mascot = nextMascot }
+        if glow != nextGlow { glow = nextGlow }
+        if showMoon != (defaults.object(forKey: SleepyModeDefaultsKeys.showMoon) as? Bool ?? fallback.showMoon) { showMoon = defaults.object(forKey: SleepyModeDefaultsKeys.showMoon) as? Bool ?? fallback.showMoon }
+        if showStars != (defaults.object(forKey: SleepyModeDefaultsKeys.showStars) as? Bool ?? fallback.showStars) { showStars = defaults.object(forKey: SleepyModeDefaultsKeys.showStars) as? Bool ?? fallback.showStars }
+        if showZs != (defaults.object(forKey: SleepyModeDefaultsKeys.showZs) as? Bool ?? fallback.showZs) { showZs = defaults.object(forKey: SleepyModeDefaultsKeys.showZs) as? Bool ?? fallback.showZs }
+        if showClock != (defaults.object(forKey: SleepyModeDefaultsKeys.showClock) as? Bool ?? fallback.showClock) { showClock = defaults.object(forKey: SleepyModeDefaultsKeys.showClock) as? Bool ?? fallback.showClock }
+        if showStatus != (defaults.object(forKey: SleepyModeDefaultsKeys.showStatus) as? Bool ?? fallback.showStatus) { showStatus = defaults.object(forKey: SleepyModeDefaultsKeys.showStatus) as? Bool ?? fallback.showStatus }
+        if showPets != (defaults.object(forKey: SleepyModeDefaultsKeys.showPets) as? Bool ?? fallback.showPets) { showPets = defaults.object(forKey: SleepyModeDefaultsKeys.showPets) as? Bool ?? fallback.showPets }
+        let strings: [(String, String)] = [
+            (SleepyModeDefaultsKeys.customFace, customFace), (SleepyModeDefaultsKeys.customCap, customCap),
+            (SleepyModeDefaultsKeys.customBlush, customBlush), (SleepyModeDefaultsKeys.customInk, customInk),
+            (SleepyModeDefaultsKeys.customLogo, customLogo), (SleepyModeDefaultsKeys.customBackground, customBackground)
+        ]
+        let values = strings.map { defaults.string(forKey: $0.0) ?? $0.1 }
+        if customFace != values[0] { customFace = values[0] }
+        if customCap != values[1] { customCap = values[1] }
+        if customBlush != values[2] { customBlush = values[2] }
+        if customInk != values[3] { customInk = values[3] }
+        if customLogo != values[4] { customLogo = values[4] }
+        if customBackground != values[5] { customBackground = values[5] }
     }
 
     /// Returns an immutable snapshot of the current preferences for the renderer.
@@ -94,6 +143,17 @@ public final class SleepyModeSettingsStore {
         return config
     }
 
-    private func persist(_ value: String, _ key: String) { defaults.set(value, forKey: key) }
-    private func persist(_ value: Bool, _ key: String) { defaults.set(value, forKey: key) }
+    private func persist(_ value: String, _ key: String) {
+        defaults.set(value, forKey: key)
+        guard !applyingDefaults, let configStore else { return }
+        let jsonKey = JSONKey<String>(id: key, defaultValue: "")
+        Task { try? await configStore.set(value, for: jsonKey) }
+    }
+
+    private func persist(_ value: Bool, _ key: String) {
+        defaults.set(value, forKey: key)
+        guard !applyingDefaults, let configStore else { return }
+        let jsonKey = JSONKey<Bool>(id: key, defaultValue: false)
+        Task { try? await configStore.set(value, for: jsonKey) }
+    }
 }

@@ -477,6 +477,9 @@ final class CmuxSettingsFileStore {
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let sleepyModeSection = root["sleepyMode"] as? [String: Any] {
+            parseSleepyModeSection(sleepyModeSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
