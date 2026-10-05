@@ -10,10 +10,21 @@ public nonisolated struct TabSearchMatch: Sendable, Hashable {
 /// Ranks Search Tabs rows for a query exactly as the palette page does
 /// (same rows, same fuzzy index, same section order), for callers without
 /// a palette: the `tab.search` control method behind `cmux tab search` and
-/// the MCP tool. Pure.
-public nonisolated enum TabSearchRanker {
-    public static func search(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle = .recent,
-                              includeClosed: Bool = true, limit: Int = 50, now: Date) -> [TabSearchMatch] {
+/// the MCP tool. A ranker instance serializes access to its shared bridge.
+public final class TabSearchRanker: @unchecked Sendable {
+    private let ranker: PaletteRanker
+    private let lock = NSLock()
+
+    /// Creates a tab-search ranker with a persistent JavaScriptCore context.
+    public init() {
+        ranker = PaletteRanker()
+    }
+
+    /// Ranks Search Tabs rows without mutating the supplied entries.
+    public func search(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle = .recent,
+                       includeClosed: Bool = true, limit: Int = 50, now: Date) -> [TabSearchMatch] {
+        lock.lock()
+        defer { lock.unlock() }
         var rows = TabSearchPlan.rows(entries, style: style, now: now)
         if !includeClosed { rows.removeAll { $0.entry.isClosed } }
         var sectionIndex: [String: Int] = [:]
@@ -30,7 +41,7 @@ public nonisolated enum TabSearchRanker {
                                       isVisibleWhenQueryEmpty: row.isVisibleWhenQueryEmpty, sectionIndex: index)
         }
         var index = PaletteSearchIndex(entries: searchEntries)
-        let ranked = PaletteRanker.rank(index: &index, query: query, sectionOrders: sectionOrders, frecency: FrecencyStore(),
+        let ranked = ranker.rank(index: &index, query: query, sectionOrders: sectionOrders, frecency: FrecencyStore(),
                                         now: now, showsRecent: false, keepsSectionOrder: true)
         return ranked.flatMap(\.rows).prefix(max(0, limit)).map { TabSearchMatch(row: rows[$0.index], score: $0.score) }
     }

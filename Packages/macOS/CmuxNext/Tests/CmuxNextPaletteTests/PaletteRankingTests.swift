@@ -10,19 +10,21 @@ import Testing
     struct Corpus {
         let items: [PaletteItem]
         var index: PaletteSearchIndex
+        let ranker: PaletteRanker
 
         init(_ items: [PaletteItem], visible: [Bool]? = nil) {
             self.items = items
             index = PaletteSearchIndex(items: items, visibleWhenQueryEmpty: visible)
+            ranker = PaletteRanker()
         }
 
         mutating func rank(_ query: String, frecency: FrecencyStore, now: Date, showsRecent: Bool = false) -> [(section: Int?, ids: [String])] {
-            PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: showsRecent)
+            ranker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: showsRecent)
                 .map { section in (section.sectionIndex, section.rows.map { items[$0.index].id }) }
         }
 
         mutating func topID(_ query: String, frecency: FrecencyStore, now: Date) -> String? {
-            PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: false)
+            ranker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: false)
                 .flatMap(\.rows)
                 .max { $0.score < $1.score }
                 .map { items[$0.index].id }

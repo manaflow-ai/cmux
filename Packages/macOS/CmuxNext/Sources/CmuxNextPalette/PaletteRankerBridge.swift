@@ -118,7 +118,7 @@ public final class PaletteRankerBridge {
         do {
             source = try String(contentsOf: url, encoding: .utf8)
         } catch {
-            throw PaletteRankerBridgeError.runtimeFailed("cannot read (url.lastPathComponent): \(error)")
+            throw PaletteRankerBridgeError.runtimeFailed("cannot read \(url.lastPathComponent): \(error)")
         }
         self.context = context
         context.evaluateScript(source, withSourceURL: url)

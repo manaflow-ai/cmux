@@ -18,18 +18,22 @@ nonisolated public struct PaletteRankedSection: Sendable, Hashable {
 ///
 /// The palette keeps this API so existing providers and callers do not need to
 /// know about JavaScriptCore. All scoring, matching, frecency and grouping now
-/// run in `webviews/src/palette/ranker.ts` through ``PaletteRankerBridge``.
-nonisolated public enum PaletteRanker {
-    private static func bridge() -> PaletteRankerBridge {
+/// run in `webviews/src/palette/ranker.ts` through one persistent
+/// ``PaletteRankerBridge``.
+public final class PaletteRanker {
+    private let bridge: PaletteRankerBridge
+
+    /// Creates a ranker with a persistent JavaScriptCore context.
+    public init() {
         do {
-            return try PaletteRankerBridge()
+            bridge = try PaletteRankerBridge()
         } catch {
             preconditionFailure("Palette ranker bridge unavailable: \(error.localizedDescription)")
         }
     }
 
     /// Ranks a prepared palette index through the shared TypeScript engine.
-    public static func rank(
+    public func rank(
         index: inout PaletteSearchIndex,
         query: String,
         sectionOrders: [Int],
@@ -43,7 +47,7 @@ nonisolated public enum PaletteRanker {
         highlightLimit: Int = 60
     ) -> [PaletteRankedSection] {
         do {
-            return try bridge().rank(
+            return try bridge.rank(
                 index: index,
                 query: query,
                 sectionOrders: sectionOrders,
@@ -62,7 +66,7 @@ nonisolated public enum PaletteRanker {
     }
 
     /// Ranks the visible rows for an empty query through the shared TypeScript engine.
-    public static func rankEmpty(
+    public func rankEmpty(
         entries: [PaletteSearchEntry],
         sectionOrders: [Int],
         frecency: FrecencyStore,
@@ -71,7 +75,7 @@ nonisolated public enum PaletteRanker {
         recentLimit: Int = 5
     ) -> [PaletteRankedSection] {
         do {
-            return try bridge().rankEmpty(
+            return try bridge.rankEmpty(
                 entries: entries,
                 sectionOrders: sectionOrders,
                 frecency: frecency,
