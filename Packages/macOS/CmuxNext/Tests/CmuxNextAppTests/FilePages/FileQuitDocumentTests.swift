@@ -131,6 +131,27 @@ struct FileQuitDocumentTests {
         stopChanged()
     }
 
+    /// A crashed page's flush call never returns: each page gets the flush timeout (on the
+    /// injected clock), then the host writes the reported text on its base hash.
+    @Test func aPageThatNeverAnswersTheFlushStillLetsTheHostWrite() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let clock = ManualClock()
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true }, clock: clock)
+        document.edited(text: "reported\n", baseHash: FileDocument.hash(Data("v1\n".utf8)))
+        let stop = document.addFlusher {
+            // A page that never answers: this waits until the test ends.
+            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+            return true
+        }
+        let quit = Task { try await document.flushForQuit() }
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: FileQuitDocument.pageFlushTimeout)
+        try await quit.value
+        #expect(try String(contentsOf: url, encoding: .utf8) == "reported\n")
+        stop()
+    }
+
     /// Don't Save: a flush after it asks no page and writes nothing.
     @Test func noHostWriteHappensAfterDontSave() async throws {
         let (drafts, _) = try Self.store()
