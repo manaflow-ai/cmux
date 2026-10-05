@@ -29,11 +29,20 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
     // A peer whose URL a user wrote with its token in the query.
     cfg.peers.insert(
         "p".into(),
-        PeerConfig { url: format!("ws://127.0.0.1:1/?token={PEER_TOKEN}"), token: None },
+        PeerConfig {
+            url: format!("ws://127.0.0.1:1/?token={PEER_TOKEN}"),
+            token: None,
+            // A peer token kept for a ws:// peer never leaves either.
+            peer_token: Some(PEER_TOKEN.into()),
+        },
     );
     cfg.peers.insert(
         "q".into(),
-        PeerConfig { url: format!("ws://user:{PEER_TOKEN}@127.0.0.1:2/"), token: None },
+        PeerConfig {
+            url: format!("ws://user:{PEER_TOKEN}@127.0.0.1:2/"),
+            token: None,
+            peer_token: None,
+        },
     );
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();

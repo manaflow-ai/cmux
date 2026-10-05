@@ -227,7 +227,10 @@ impl Hub {
         &self,
         session: &Session,
         params: Value,
+        control: Control,
     ) -> Result<Value, RpcError> {
+        // Checked again here, at the answer, not only in the remote guard.
+        self.web_control_check(session, control)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()

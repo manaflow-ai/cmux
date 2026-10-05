@@ -720,8 +720,11 @@ impl Hub {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_session_id = state.session_id;
-            m.modes = Some(state.modes);
-            m.config_options = Some(state.config_options);
+            drop(m);
+            self.write_mode_state(
+                session,
+                [ModeWrite::Modes(state.modes), ModeWrite::ConfigOptions(state.config_options)],
+            );
         } else if let Some(res) = &p.new_result {
             let sid = res.get("sessionId").and_then(Value::as_str).map(str::to_owned);
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id = sid;
