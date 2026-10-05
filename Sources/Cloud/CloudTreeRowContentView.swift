@@ -53,12 +53,12 @@ struct CloudTreeRowContentView: View {
         case .coderouterSection:
             groupRow(title: String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter"))
         case .coderouterEmpty:
-            CloudTreeLeafRow(style: style, icon: "person.2", tint: .secondary,
+            CloudTreeLeafRow(style: style, icon: "", tint: .clear,
                              title: String(localized: "coderouter.empty", defaultValue: "No accounts yet"), titleDimmed: true)
         case .coderouterAddAccount:
-            CloudTreeLeafRow(style: style, icon: "plus.circle", tint: .accentColor,
+            CloudTreeLeafRow(style: style, icon: "plus", tint: .secondary,
                              title: String(localized: "coderouter.addAccount", defaultValue: "Add account"),
-                             titleWeight: .medium)
+                             titleDimmed: true)
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
         case .createAction(let action):

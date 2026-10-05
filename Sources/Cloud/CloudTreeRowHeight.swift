@@ -31,8 +31,6 @@ struct CloudTreeRowHeight {
             )
         case .machineEndSpacer:
             return GlobalFontMagnification.scaledSize(6)
-        case .coderouterAddAccount:
-            return GlobalFontMagnification.scaledSize(style.rowHeight + 8)
         case .placeholder(_, let placeholder) where placeholder.portStatus != nil:
             guard let presentation = placeholder.portStatus else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
             let level = outlineView.level(forItem: node)
