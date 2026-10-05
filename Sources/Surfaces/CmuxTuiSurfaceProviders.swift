@@ -1548,10 +1548,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return updated
     }
 
+    /// A forwarded-port pane, live or staged by session restore, is standing
+    /// scan demand: a restored port resource exists only after a scan
+    /// publishes it, so without this the staged pane can never resolve.
+    private var hasProjectedPortPanes: Bool {
+        catalog.pendingRestoredProjections.projections.contains { $0.resource.machine == machine && $0.resource.isForwardedPort }
+            || catalog.projections.contains { $0.resource.machine == machine && $0.resource.isForwardedPort }
+    }
+
     private func ports(link: CloudMachineLink, socketPath: String, force: Bool, lifecycle: UInt64, privateAddress: String?, displayPortsOwned: Bool) async -> [Int]? {
 #if DEBUG
         cmuxDebugLog("cloud.portScan.begin machine=\(machineID) requested=\(portDiscovery.wasRequested) force=\(force)")
 #endif
+        if !portDiscovery.wasRequested, hasProjectedPortPanes { requestPortDiscovery() }
         guard portDiscovery.mayScan else { return portsCache?.ports }
         let previousState = portDiscovery.state
         if let cached = portDiscovery.cachedScan(at: Date.now, socketPath: socketPath, force: force) {
