@@ -70,3 +70,16 @@ test("webmcp.call: a call runs only in the document and at the URL its tool was 
   assert.match(await s.error('sites.webmcp.call("lookup", {}, { trustReadOnlyHint: true })'), /page_changed|another URL|navigated/);
   assert.equal(env.state.webmcpReads || 0, reads, "the tool did not run on the moved page");
 });
+
+// The listed document is bound by cmux, not by a value the page can read and
+// set: a reloaded page (same URL, same tools) that copies whatever the
+// previous document carried calls nothing.
+test("webmcp.call: a reloaded page that copies the listed document's page-world state calls nothing", async () => {
+  await s.run(`await page.goto("https://tools.example/"); var wmF = await sites.webmcp.call("add_to_cart", { sku: "T-11" });
+    var wmCopied = await page.evaluate(() => Object.getOwnPropertyNames(window).filter((k) => /cmux/i.test(k)).map((k) => [k, window[k]]).filter(([, v]) => typeof v === "string"));
+    await page.reload();
+    await page.evaluate((pairs) => { for (const [k, v] of pairs) Object.defineProperty(window, k, { value: v, enumerable: false, writable: false, configurable: false }); }, wmCopied);`);
+  const cart = (env.state.cart || []).length;
+  assert.match(await s.error("sites.webmcp.call(wmF.id, { confirm: true })"), /page_changed|new document/);
+  assert.equal((env.state.cart || []).length, cart, "the reloaded page's tool did not run");
+});
