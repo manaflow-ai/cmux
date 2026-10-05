@@ -416,22 +416,19 @@ impl PendingTail {
     }
 }
 
-/// The Kitty replay stream of one READY still to send.
+/// The Kitty replay stream of one READY still to send (shared with the
+/// terminal's cache and other viewers).
 struct PendingImages {
-    data: Vec<u8>,
+    data: Arc<SnapshotImages>,
     sent: usize,
     finished: bool,
     skipped_images: u64,
 }
 
 impl PendingImages {
-    fn of(images: SnapshotImages) -> Self {
-        Self {
-            data: images.data,
-            sent: 0,
-            finished: false,
-            skipped_images: images.stats.skipped_images,
-        }
+    fn of(images: Arc<SnapshotImages>) -> Self {
+        let skipped_images = images.stats.skipped_images;
+        Self { data: images, sent: 0, finished: false, skipped_images }
     }
 
     /// The next images chunk and whether it is the last one. The stream is
@@ -445,15 +442,16 @@ impl PendingImages {
         if self.finished {
             return None;
         }
-        let end = (self.sent + IMAGES_CHUNK_BYTES).min(self.data.len());
-        let done = end == self.data.len();
+        let stream = &self.data.data;
+        let end = (self.sent + IMAGES_CHUNK_BYTES).min(stream.len());
+        let done = end == stream.len();
         let mut value = json!({
             "event": "snapshot",
             "surface": surface,
             "phase": "images",
             "generation": generation,
             "offset": offset,
-            "data": base64(&self.data[self.sent..end]),
+            "data": base64(&stream[self.sent..end]),
             "done": done,
         });
         if done && self.skipped_images > 0 {
@@ -941,7 +939,8 @@ mod tests {
         let stream: Vec<u8> = (0..(IMAGES_CHUNK_BYTES * 2 + 17)).map(|i| i as u8).collect();
         let stats =
             ghostty_vt::KittyReplayStats { images: 1, skipped_images: 2, ..Default::default() };
-        let mut pending = PendingImages::of(SnapshotImages { data: stream.clone(), stats });
+        let mut pending =
+            PendingImages::of(Arc::new(SnapshotImages { data: stream.clone(), stats }));
         let (mut joined, mut events) = (Vec::new(), Vec::new());
         while let Some((value, done)) = pending.next_chunk(3, 9, 77) {
             assert_eq!(value["phase"], "images");

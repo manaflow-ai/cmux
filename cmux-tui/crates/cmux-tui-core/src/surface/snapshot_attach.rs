@@ -13,6 +13,7 @@ use ghostty_vt::SnapshotPhase;
 use sha2::{Digest, Sha256};
 
 use super::attach_tap::SnapshotRequestHandle;
+use kitty_replay_cache::KittyReplayCache;
 use super::*;
 
 /// Default `viewer_backlog_bytes` (spec/terminal-frames.md: 8 MiB, set per
@@ -27,10 +28,14 @@ pub(crate) const SNAPSHOT_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis
 /// Published byte offset and grid generation of one terminal. Written only by
 /// the attach broadcasts, which run under the terminal lock; read under the
 /// same lock when a snapshot is taken.
+///
+/// It also holds the terminal's Kitty replay state for READY images, which is
+/// used under the same lock.
 #[derive(Default)]
 pub(crate) struct SnapshotStreamPosition {
     offset: AtomicU64,
     generation: AtomicU64,
+    kitty_replay: KittyReplayCache,
 }
 
 impl SnapshotStreamPosition {
@@ -84,7 +89,7 @@ pub(crate) struct TerminalSnapshotFrame {
     pub active_top_marker: u64,
     /// The Kitty image replay at the same cut (`terminal-snapshot-images-v1`),
     /// or `None` when the viewer did not opt in or the terminal has no images.
-    pub images: Option<SnapshotImages>,
+    pub images: Option<Arc<SnapshotImages>>,
 }
 
 /// The Kitty image replay stream of one READY and what it holds.
@@ -92,30 +97,6 @@ pub(crate) struct TerminalSnapshotFrame {
 pub(crate) struct SnapshotImages {
     pub data: Vec<u8>,
     pub stats: ghostty_vt::KittyReplayStats,
-}
-
-/// The Kitty replay of `term` with at most `max_image_bytes` of decoded
-/// pixels, or `None` when the terminal has no images (nothing is encoded
-/// while the image storage never changed). The caller holds the terminal
-/// lock of the READY encode it belongs to.
-fn encode_snapshot_images_locked(
-    term: &Terminal,
-    max_image_bytes: u64,
-    surface: SurfaceId,
-) -> Option<SnapshotImages> {
-    match term.kitty_image_generation() {
-        // NoValue: Kitty graphics are not built in.
-        Ok(0) | Err(_) => return None,
-        Ok(_) => {}
-    }
-    match term.encode_kitty_replay(max_image_bytes) {
-        Ok((data, stats)) if !stats.is_empty() => Some(SnapshotImages { data, stats }),
-        Ok(_) => None,
-        Err(error) => {
-            eprintln!("cmux-tui: surface {surface} snapshot images not encoded: {error}");
-            None
-        }
-    }
 }
 
 /// A READY taken exactly at a resize cut for a viewer that reflows its own
@@ -267,7 +248,8 @@ impl Surface {
         };
         let term = pty.term.lock().unwrap();
         let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
-        let images = images_cap.and_then(|cap| encode_snapshot_images_locked(&term, cap, self.id));
+        let images = images_cap
+            .and_then(|cap| pty.snapshot_position.kitty_replay.images_locked(&term, cap, self.id));
         let (generation, offset) = pty.snapshot_position.load();
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
@@ -334,6 +316,12 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         pty.term.lock().unwrap().encode_kitty_replay(max_image_bytes)
+    }
+
+    /// Kitty replay encodes this terminal ran for READY images (tests).
+    #[cfg(test)]
+    pub(crate) fn kitty_replay_encodes_for_test(&self) -> u64 {
+        self.as_pty().map_or(0, |pty| pty.snapshot_position.kitty_replay.encodes())
     }
 
     /// The host terminal's history check now (tests compare it with a
@@ -458,6 +446,9 @@ impl PtySurface {
         }))
     }
 }
+
+#[path = "kitty_replay_cache.rs"]
+mod kitty_replay_cache;
 
 #[cfg(test)]
 #[path = "tests/snapshot_attach.rs"]

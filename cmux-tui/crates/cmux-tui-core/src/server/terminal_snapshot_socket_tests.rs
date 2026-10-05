@@ -871,6 +871,36 @@ fn live_output_overtakes_images_and_a_new_ready_cancels_the_old_images() {
     mux.shutdown();
 }
 
+/// The replay is encoded at most once per image generation: a second viewer
+/// at the same generation reuses the bytes, and an image change encodes
+/// again once.
+#[test]
+fn viewers_at_the_same_image_generation_share_one_encode() {
+    let (mux, surface) = quiet_surface_with_image("snapshot-images-cache", 4, 4, false);
+    let (_first_writer, first_outbound, first) = attach_images_viewer(&mux, &surface, false);
+    let ready = next_event(&first_outbound, Duration::from_secs(10)).expect("ready");
+    let first_images = drain_history_then_images(&first_outbound, &ready);
+    let encodes = surface.kitty_replay_encodes_for_test();
+    assert_eq!(encodes, 1, "the first READY encodes once");
+
+    let (_second_writer, second_outbound, second) = attach_images_viewer(&mux, &surface, false);
+    let ready = next_event(&second_outbound, Duration::from_secs(10)).expect("ready");
+    let second_images = drain_history_then_images(&second_outbound, &ready);
+    assert!(second_images == first_images, "the same generation gives the same bytes");
+    assert_eq!(surface.kitty_replay_encodes_for_test(), encodes, "the second viewer reuses them");
+
+    surface.inject_output_for_test(&kitty_image(8, 4, 4, false));
+    let (_third_writer, third_outbound, third) = attach_images_viewer(&mux, &surface, false);
+    let ready = next_event(&third_outbound, Duration::from_secs(10)).expect("ready");
+    let third_images = drain_history_then_images(&third_outbound, &ready);
+    assert!(third_images != first_images, "a new image changes the replay");
+    assert_eq!(surface.kitty_replay_encodes_for_test(), encodes + 1, "one encode per change");
+    for client in [first, second, third] {
+        disconnect_client(&mux, client, false);
+    }
+    mux.shutdown();
+}
+
 /// A local-history READY after a resize is followed by no images: on a
 /// match the viewer keeps its own.
 #[test]
