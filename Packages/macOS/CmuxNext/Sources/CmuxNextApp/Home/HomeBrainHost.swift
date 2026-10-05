@@ -8,10 +8,15 @@ import os
 /// and listens on nothing. It outlives the app; its own pid lock keeps one
 /// instance per mux home, so starting it again is harmless.
 ///
-/// Phase A: the host is the TypeScript `mux` executable named by
-/// `CMUX_NEXT_MUX_HOST` (a `bun build --compile` binary of `mux/`); without it
-/// Home works and the mux simply does not answer. Tagged builds use
-/// `~/.cmux/mux/tags/<tag>` so a test never touches the real mux memory.
+/// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
+/// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
+/// builds bundle as Contents/Resources/bin/optchat-chief
+/// (scripts/cmux-next/bundle-optchat-chief.sh; experiments/chief-optmem,
+/// chief-done.md check 7: every Chief turn follows OptChat). Release builds
+/// carry neither: Home works and the Chief does not answer. Both keep the
+/// `host --daemon-socket --mux-home` contract and one lock per mux home.
+/// Tagged builds use `~/.cmux/mux/tags/<tag>` so a test never touches the
+/// real mux memory.
 nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
@@ -26,7 +31,9 @@ nonisolated struct HomeBrainHost: Sendable {
     static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> HomeBrainHost? {
-        guard let path = environment["CMUX_NEXT_MUX_HOST"], !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else {
+        let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
+        let bundled = bundledBinDirectory?.appendingPathComponent(bundledChiefName).path
+        guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
         let base = userHome.appendingPathComponent(".cmux/mux", isDirectory: true)
