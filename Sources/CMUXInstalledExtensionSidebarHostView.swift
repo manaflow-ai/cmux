@@ -373,20 +373,20 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     return
                 }
                 lifecycleEvent("activated", generation: generation)
-                xpcHost.onSnapshotRead = {
-                    guard recovery.accepts(generation) else { return }
-                    activationDeadline.cancel()
-                    recoveryTask?.cancel()
-                    recovery.ready(for: generation, now: ProcessInfo.processInfo.systemUptime)
-                    isRecovering = false
-                    lifecycleEvent("first_snapshot", generation: generation, state: "connected")
-                }
                 xpcHost.attach(
                     diagnostics: diagnostics,
                     connection: connection,
                     bundleIdentifier: identity.bundleIdentifier,
                     snapshotProvider: { snapshotCache.replace(with: snapshotProvider()) },
                     actionHandler: actionHandler,
+                    onSnapshotRead: {
+                        guard recovery.accepts(generation) else { return }
+                        activationDeadline.cancel()
+                        recoveryTask?.cancel()
+                        recovery.ready(for: generation, now: ProcessInfo.processInfo.systemUptime)
+                        isRecovering = false
+                        lifecycleEvent("first_snapshot", generation: generation, state: "connected")
+                    },
                     onGrantChanged: { grant in
                         guard recovery.accepts(generation) else { return }
                         effectiveGrant = grant
@@ -1396,7 +1396,7 @@ private final class CMUXSidebarExtensionHostXPC {
     private var awaitingManifestGeneration: UInt64?
     private var manifestRequestTimeoutTask: Task<Void, Never>?
     private let grantStore = CMUXSidebarExtensionGrantStore()
-    var onSnapshotRead: (() -> Void)?
+    private var onSnapshotRead: (() -> Void)?
     private var didReadSnapshot = false
     private var acknowledgements = CMUXSidebarSnapshotAcknowledgements()
     private var grantRevision: UInt64 = 0
@@ -1422,6 +1422,7 @@ private final class CMUXSidebarExtensionHostXPC {
         bundleIdentifier: String,
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
         actionHandler: @escaping @MainActor (CmuxSidebarAction) async -> CmuxSidebarActionResult,
+        onSnapshotRead: @escaping @MainActor () -> Void,
         onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void,
         onManifestBlocked: @escaping @MainActor (String?) -> Void
     ) {
@@ -1467,6 +1468,7 @@ private final class CMUXSidebarExtensionHostXPC {
         self.exportedObject = exportedObject
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
+        self.onSnapshotRead = onSnapshotRead
         self.connection = connection
         self.bundleIdentifier = bundleIdentifier
         self.currentManifest = nil
@@ -1532,6 +1534,9 @@ private final class CMUXSidebarExtensionHostXPC {
         extensionProxy = nil
         exportedObject?.cancelPendingActions()
         exportedObject = nil
+        snapshotProvider = nil
+        actionHandler = nil
+        onSnapshotRead = nil
         allowedScopes = Self.untrustedScopes
         allowedActionScopes = Self.untrustedActionScopes
         bundleIdentifier = nil
