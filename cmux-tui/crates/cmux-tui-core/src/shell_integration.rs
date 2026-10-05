@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
+mod ghostty_files;
+
 struct Script {
     path: &'static str,
     contents: &'static str,
@@ -574,6 +576,43 @@ mod tests {
                 "{shell}"
             );
         }
+    }
+
+    /// With no caller value, a daemon-integrated shell takes the user's
+    /// Ghostty `shell-integration-features` and `cursor-style-blink` from
+    /// their config files (DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES): the
+    /// default files under the shell's `XDG_CONFIG_HOME`, or the app's
+    /// `CMUX_NEXT_GHOSTTY_CONFIG`. Every feature off exports an empty value,
+    /// never the defaults; a caller value still wins; the ssh features still
+    /// need a Ghostty CLI.
+    #[test]
+    fn a_daemon_integrated_shell_follows_the_users_ghostty_files() {
+        let dir = std::env::temp_dir().join(format!("cmux-shell-features-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("ghostty")).unwrap();
+        let xdg = dir.to_str().unwrap();
+        let config = dir.join("ghostty").join("config");
+        let features = |text: &str, env: &[(&str, &str)]| {
+            fs::write(&config, text).unwrap();
+            env_of(&launch("zsh", env), FEATURES_ENV)
+        };
+        let in_xdg = [("XDG_CONFIG_HOME", xdg), ("HOME", "/home/me")];
+        assert_eq!(
+            features("shell-integration-features = no-title,sudo\ncursor-style-blink = false\n", &in_xdg)
+                .as_deref(),
+            Some("cursor:steady,path,sudo")
+        );
+        assert_eq!(features("shell-integration-features = false\n", &in_xdg).as_deref(), Some(""));
+        assert_eq!(
+            features("shell-integration-features = ssh-env\n", &in_xdg).as_deref(),
+            Some("cursor:blink,path,title"),
+            "no Ghostty CLI: the ssh wrapper goes"
+        );
+        let caller = [("XDG_CONFIG_HOME", xdg), (FEATURES_ENV, "path")];
+        assert_eq!(features("shell-integration-features = false\n", &caller).as_deref(), Some("path"), "the caller's value stays");
+        let app_file = [("CMUX_NEXT_GHOSTTY_CONFIG", config.to_str().unwrap()), ("HOME", "/home/me")];
+        assert_eq!(features("shell-integration-features = no-path\n", &app_file).as_deref(), Some("cursor:blink,title"));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// zsh passes preexec a `$2` that drops every word that does not fit its
