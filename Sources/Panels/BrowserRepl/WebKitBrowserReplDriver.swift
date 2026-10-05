@@ -1655,7 +1655,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return frame
     }
 
-    private static let needsAgentSentinel = "__cmuxNeedsAgent__"
+    private static let needsAgentSentinel = BrowserReplEvaluationBody.needsAgentSentinel
 
     @MainActor
     private func evaluate(_ params: [String: Any]) async throws -> Any? {
@@ -1680,20 +1680,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// The function body that runs `source` with handles resolved to elements
     /// (`__els`), returning JSON text, the agent sentinel, or an error envelope.
-    private static func evaluationBody(source: String, requiresAgent: Bool, elementsExpression: String) -> String {
-        """
-        const __agent = globalThis[\(BrowserReplRuntimeBundle.agentGlobalKeyExpression)];
-        if (\(requiresAgent ? "true" : "false") && !__agent) return "\(needsAgentSentinel)";
-        try {
-          const __els = \(elementsExpression);
-          const __result = await (\(source))(...__els, ...__args);
-          if (__result === undefined) return "null";
-          const __json = JSON.stringify(__result);
-          return __json === undefined ? "null" : __json;
-        } catch (e) {
-          return { __cmuxError__: { code: (e && e.code) || "evaluation", message: String(e && e.message !== undefined ? e.message : e), name: (e && e.name) || "Error" } };
-        }
-        """
+    private static func evaluationBody(source: String, requiresAgent: Bool, elementsExpression: String) throws -> String {
+        try BrowserReplEvaluationBody(source: source, requiresAgent: requiresAgent, elementsExpression: elementsExpression).text
     }
 
     @MainActor
@@ -1704,7 +1692,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         args: [Any],
         handles: [String]
     ) async throws -> Any? {
-        let body = Self.evaluationBody(
+        let body = try Self.evaluationBody(
             source: source,
             requiresAgent: true,
             elementsExpression: "__handles.map((h) => __agent.element(h))"
@@ -1725,7 +1713,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         handles: [String]
     ) async throws -> Any? {
         guard !handles.isEmpty else {
-            let body = Self.evaluationBody(source: source, requiresAgent: false, elementsExpression: "[]")
+            let body = try Self.evaluationBody(source: source, requiresAgent: false, elementsExpression: "[]")
             return try await runEvaluation(panel, frame, body: body, world: .page, args: args, handles: [])
         }
         let key = "__cmuxHandleBridge_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -1743,7 +1731,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         } catch {
             throw Self.translate(error)
         }
-        let dispatch = Self.evaluationBody(
+        let dispatch = try Self.evaluationBody(
             source: "(...els) => { for (const el of els) el.dispatchEvent(new CustomEvent(__key, { bubbles: true, composed: true })); return els.length; }",
             requiresAgent: true,
             elementsExpression: "__handles.map((h) => __agent.element(h))"
@@ -1773,7 +1761,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if (__bridge) window.removeEventListener(__key, __bridge.listener, true);
         if (!__bridge || __bridge.got.length !== __count) return { __cmuxError__: { code: "stale", message: "Element handle is no longer attached to the document", name: "Error" } };
         """
-        let body = collect + "\n" + Self.evaluationBody(source: source, requiresAgent: false, elementsExpression: "__bridge.got")
+        let body = try collect + "\n" + Self.evaluationBody(source: source, requiresAgent: false, elementsExpression: "__bridge.got")
         return try await runEvaluation(
             panel,
             frame,
@@ -1946,7 +1934,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// sibling's frame. A handle that cannot be bound gets `nil`.
     @MainActor
     private func childFrameIDs(_ panel: BrowserPanel, _ frame: BrowserReplFrame, elements: [String]) async throws -> [String?] {
-        let body = Self.evaluationBody(
+        let body = try Self.evaluationBody(
             source: """
             (...els) => {
               const index = new Map();
@@ -2658,7 +2646,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "element is required")
         }
         let files = params["files"] as? [[String: Any]] ?? []
-        let body = Self.evaluationBody(
+        let body = try Self.evaluationBody(
             source: """
             (el, files) => {
               if (!(el instanceof HTMLInputElement) || el.type !== "file") throw new Error("Node is not an HTMLInputElement of type file");
