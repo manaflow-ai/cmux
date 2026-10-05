@@ -36,6 +36,10 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// Gate A2: operations that need origin `user`.
 pub(crate) const USER_ONLY_OPERATIONS: [&str; 3] =
     ["apps.install", "apps.uninstall", "apps.enable"];
+/// Operations a page may never call, whatever it claims: their result is a
+/// credential that would reach the page's JS. A renderer grant lets its
+/// holder view a terminal (server/renderer_grant.rs).
+pub(crate) const PAGE_FORBIDDEN_OPERATIONS: [&str; 1] = ["terminal.renderer_grant.create"];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
 const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
@@ -211,6 +215,14 @@ impl ConnectionOrigin {
             return Err(forbidden(
                 "a page relay connection cannot issue confirmations",
                 json!({"derived": RequestOrigin::Page.wire_name()}),
+            ));
+        }
+        if (self.role == HelloRole::PageRelay || origin == RequestOrigin::Page)
+            && PAGE_FORBIDDEN_OPERATIONS.contains(&operation)
+        {
+            return Err(forbidden(
+                "a page cannot call this operation",
+                json!({"required": "agent", "derived": RequestOrigin::Page.wire_name()}),
             ));
         }
         require_origin(operation, origin)?;

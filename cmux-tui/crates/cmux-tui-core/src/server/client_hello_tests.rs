@@ -298,12 +298,16 @@ fn origin_claim_capability_is_advertised() {
     assert!(capabilities.iter().any(|value| value == "origin-claim-v1"), "{identify}");
 }
 
+/// A page relay is served `cmux.protocol/2` without a subscribe; its legacy
+/// lines (`subscribe` and `ping` included) are refused
+/// (server/untrusted_mint_tests.rs covers the default deny).
 #[test]
 fn page_relay_without_subscribe_is_served_and_subscribe_is_refused() {
     let mux = mux("relay-subscribe");
     let mut client = Client::connect(&mux, "relay-subscribe");
     assert_ok_connection_id(&client.hello(json!({"role": "page_relay"})), &mux);
-    assert_eq!(client.request(json!({"cmd": "ping"}))["ok"], true);
+    let legacy_ping = client.request(json!({"cmd": "ping"}));
+    assert_eq!(legacy_ping["error_code"], "origin.forbidden", "{legacy_ping}");
     let ping = client.request(json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
