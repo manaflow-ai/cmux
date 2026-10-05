@@ -297,3 +297,6 @@ fn kitty_budget_rebalance_never_holds_a_terminal_for_the_control_timeout() {
 
 #[path = "kitty_create.rs"]
 mod kitty_create;
+
+#[path = "mint_after_defaults.rs"]
+mod mint_after_defaults;
