@@ -43,8 +43,14 @@ describe("shared palette ranker", () => {
   // only a keyword matches, also when that row was used more often.
   test("a row whose whole title is the query outranks a keyword-only match", () => {
     const entries = [
-      entry("scope:settings", "Change Settings", { keywords: ["settings", "preferences"], frecencyKey: "scope:settings" }),
-      entry("action:openSettings", "Settings…", { keywords: ["preferences", "options", "config"], frecencyKey: "openSettings" }),
+      entry("scope:settings", "Change Settings", {
+        keywords: ["settings", "preferences"],
+        frecencyKey: "scope:settings",
+      }),
+      entry("action:openSettings", "Settings…", {
+        keywords: ["preferences", "options", "config"],
+        frecencyKey: "openSettings",
+      }),
       entry("action:palette.toggleSetting", "Toggle Setting…", { keywords: ["preferences"] }),
     ];
     const frecency: PaletteFrecency = { entries: { "scope:settings": { score: 20, lastUsed: now } } };
@@ -62,8 +68,12 @@ describe("shared palette ranker", () => {
   test("a scope row whose keyword is the whole query comes right after whole-title matches", () => {
     const entries = [
       entry("setting:palette.scopes.settings.prefix", "Settings Scope Prefix", { keywords: ["settings", "setting"] }),
-      entry("setting:appearance.surfaces.settings.color", "Settings Background Color", { keywords: ["settings", "setting"] }),
-      entry("setting:appearance.surfaces.settings.opacity", "Settings Background Opacity", { keywords: ["settings", "setting"] }),
+      entry("setting:appearance.surfaces.settings.color", "Settings Background Color", {
+        keywords: ["settings", "setting"],
+      }),
+      entry("setting:appearance.surfaces.settings.opacity", "Settings Background Opacity", {
+        keywords: ["settings", "setting"],
+      }),
       entry("scope:settings", "Change Settings", { keywords: ["settings", "preferences"], entersScope: true }),
       entry("action:openSettings", "Settings…", { keywords: ["preferences", "options", "config"] }),
     ];
