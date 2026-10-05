@@ -1,13 +1,14 @@
 import React from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { type StringKey, useT } from "./i18n";
 import { projectLabel } from "./sessionList";
 
-/// Empty-state copy. English defaults until the host passes localized labels, as the rest of the pane does today.
+/// Empty-state copy: keys of the pane's string table.
 export const EMPTY_STATE_LABELS = {
-  prompt: "What should we build?",
+  prompt: "empty.prompt",
   /// `{project}` is replaced by the session's folder name, drawn underlined.
-  promptIn: "What should we build in {project}?",
-};
+  promptIn: "empty.promptIn",
+} as const satisfies Record<string, StringKey>;
 
 /// The hero's folder: the sidebar's project label, or nothing for no folder or the home folder.
 export function projectName(cwd: string | undefined): string | undefined {
@@ -32,7 +33,8 @@ export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
 /// a small prompt glyph and one line naming the session's project.
 export function EmptyState({ project }: { project?: string }) {
-  const [before, after] = EMPTY_STATE_LABELS.promptIn.split("{project}");
+  const t = useT();
+  const [before, after] = t(EMPTY_STATE_LABELS.promptIn).split("{project}");
   return (
     <div className="acpmux-empty">
       <svg
@@ -59,7 +61,7 @@ export function EmptyState({ project }: { project?: string }) {
             {after}
           </>
         ) : (
-          EMPTY_STATE_LABELS.prompt
+          t(EMPTY_STATE_LABELS.prompt)
         )}
       </h2>
     </div>

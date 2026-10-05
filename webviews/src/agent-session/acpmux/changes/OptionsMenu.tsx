@@ -4,11 +4,13 @@
 // keyboard and a screen reader, and does nothing.
 import { More } from "../changeIcons";
 import { useMenuButton } from "./useMenuButton";
+import { useT } from "../i18n";
 
 /// A menu row, or `null` for a separator.
 export type OptionsRow = { label: string; disabled?: boolean; run: () => unknown } | null;
 
 export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
+  const t = useT();
   const { open, button, menu, onKeyDown, run, toggle } = useMenuButton();
   return (
     <span className="acpmux-file-menu">
@@ -17,8 +19,8 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
         type="button"
         className="acpmux-diff-tool"
         data-tool="options"
-        aria-label="Changes options"
-        title="Changes options"
+        aria-label={t("changes.options")}
+        title={t("changes.options")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggle}
@@ -31,7 +33,7 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
           role="menu"
           tabIndex={-1}
           className="acpmux-file-menu-list"
-          aria-label="Changes options"
+          aria-label={t("changes.options")}
           onKeyDown={onKeyDown}
         >
           {rows.map((row, index) =>
