@@ -522,7 +522,6 @@ struct MachinesPanelView: View {
     }
 
     @MainActor
-    @MainActor
     private func removeCoderouterAccount(_ account: CloudTreeNode.CoderouterAccount) {
         guard let teamID = accountFlow?.confirmedTeamID else { return }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
@@ -552,6 +551,7 @@ struct MachinesPanelView: View {
         coderouterRefreshRequest += 1
     }
 
+    @MainActor
     private func addCoderouterAccount(_ provider: CoderouterProvider) {
         guard let teamID = accountFlow?.confirmedTeamID,
               !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
