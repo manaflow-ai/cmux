@@ -87,8 +87,10 @@ fn decide(
         // A refused document is aborted, so no error page commits and the
         // tab stays on its page (main's WebKit policy decision); every other
         // request fails as blocked by the client.
-        let reason =
-            if paused.kind == RequestKind::Document { "Aborted" } else { "BlockedByClient" };
+        let reason = match paused.kind {
+            RequestKind::Document | RequestKind::SubframeDocument => "Aborted",
+            _ => "BlockedByClient",
+        };
         return ("Fetch.failRequest", json!({"requestId": id, "errorReason": reason}));
     }
     let action = cors.lock().unwrap_or_else(PoisonError::into_inner).on_request(
@@ -129,8 +131,14 @@ impl Inner {
         let Some(session) = event.session_id.clone() else { return };
         let params = &event.params;
         let text = |value: &Value| value.as_str().unwrap_or("").to_owned();
-        // The tab the session belongs to (its page or one of its frames).
-        let target = self.lock().target_for_session(&session).unwrap_or("").to_owned();
+        // The tab the session belongs to (its page or one of its frames),
+        // and whether the request is that tab's main-frame document.
+        let (target, main_frame) = {
+            let state = self.lock();
+            let target = state.target_for_session(&session).unwrap_or("").to_owned();
+            let main = state.tabs.get(&target).and_then(|tab| tab.main_frame.clone());
+            (target, main)
+        };
         // A response-stage pause has a status (or an error) and its headers.
         let response = params.get("responseStatusCode").is_some()
             || params.get("responseErrorReason").is_some();
@@ -142,10 +150,12 @@ impl Inner {
             method: text(&params["request"]["method"]),
             headers: params["request"].get("headers").cloned().unwrap_or(json!({})),
             network_id: text(&params["networkId"]),
-            kind: if params["resourceType"] == "Document" {
-                RequestKind::Document
-            } else {
-                RequestKind::Subresource
+            kind: match params["resourceType"].as_str() {
+                Some("Document") if params["frameId"].as_str() == main_frame.as_deref() => {
+                    RequestKind::Document
+                }
+                Some("Document") => RequestKind::SubframeDocument,
+                _ => RequestKind::Subresource,
             },
             response_status: params.get("responseStatusCode").cloned().unwrap_or(json!(200)),
             response_headers: response.then(|| {
