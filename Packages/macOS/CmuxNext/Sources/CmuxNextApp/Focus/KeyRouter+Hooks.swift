@@ -56,11 +56,14 @@ extension KeyRouter {
     /// `NSApplication.sendEvent` (`debug.key`), where `NSApp.currentEvent`
     /// is not that event.
     func dispatchingSynthetic<T>(_ event: NSEvent, _ body: () -> T) -> T {
-        body()
+        let previous = syntheticKeyEvent
+        syntheticKeyEvent = event
+        defer { syntheticKeyEvent = previous }
+        return body()
     }
 
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
-        if let event = NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
+        if let event = syntheticKeyEvent ?? NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
         return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)
