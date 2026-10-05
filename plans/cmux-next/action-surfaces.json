@@ -123,6 +123,110 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "app close-all-windows",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "closeAllWindows",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Close All Windows",
+      "title_key" : "action.closeAllWindows",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "app zoom-window",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "zoomWindow",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Zoom",
+      "title_key" : "action.zoomWindow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "app select-next-window",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "selectNextWindow",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Select Next Window",
+      "title_key" : "action.selectNextWindow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "app select-previous-window",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "selectPreviousWindow",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Select Previous Window",
+      "title_key" : "action.selectPreviousWindow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "app minimize-window",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -12811,6 +12915,182 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "browser editor-go-to-line",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
+      "id" : "fileEditorGotoLine",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Editor: Go to Line…",
+      "title_key" : "action.fileEditorGotoLine",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser editor-replace",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileEditorReplace",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Editor: Replace…",
+      "title_key" : "action.fileEditorReplace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "browser editor-zoom-in",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "fileEditorZoomIn",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Editor: Zoom In",
+      "title_key" : "action.fileEditorZoomIn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "browser editor-zoom-out",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "fileEditorZoomOut",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Editor: Zoom Out",
+      "title_key" : "action.fileEditorZoomOut",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "browser editor-actual-size",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "fileEditorZoomReset",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Editor: Actual Size",
+      "title_key" : "action.fileEditorZoomReset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser editor-action",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileEditorAction",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Editor: Run Editor Action",
+      "title_key" : "action.fileEditorAction",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "browser page-info",
       "context_menu" : "offered",
@@ -13100,6 +13380,58 @@
       },
       "title" : "About This Page",
       "title_key" : "action.pageInfo.aboutThisPage",
+      "title_table" : "PageInfoActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-certificate-warning-proceed",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.certificateWarning.proceed",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Proceed Past Certificate Warning (Unsafe)",
+      "title_key" : "action.certificateWarning.proceed",
+      "title_table" : "PageInfoActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-certificate-warning-go-back",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.certificateWarning.goBack",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Go Back from Certificate Warning",
+      "title_key" : "action.certificateWarning.goBack",
       "title_table" : "PageInfoActions"
     },
     {

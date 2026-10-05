@@ -1,11 +1,17 @@
 #![cfg_attr(not(unix), allow(dead_code))]
 //! The daemon's browser host (plans/cmux-next/browser-host.md, step c2).
 //!
-//! When the host binary exists, the daemon starts one `cmux-browser-host` for
-//! itself as it starts serving, restarts it with [`Backoff`] after a crash,
-//! and stops it with itself: the host runs `serve --supervised`, so it exits
-//! when its stdin (the daemon's end of a pipe) reaches its end, also when the
-//! daemon dies.
+//! When the host binary exists, the daemon binds the host's two sockets
+//! itself and keeps them (socket activation): no host runs until the first
+//! agent connect (a thread blocks in poll(2) on the agent socket and a cancel
+//! pipe, no timer) or the app's `browser-host-provider`. The host gets the
+//! listening sockets as fds 4 and 5 and runs `serve --supervised
+//! --idle-exit-ms`: it exits with code 0 after that long with no session, no
+//! agent connection and no app provider (a connected app keeps it), and the
+//! daemon waits for the next agent connect again. A crash (any other exit)
+//! restarts it with [`Backoff`] and never through activation, so a crash loop
+//! stays slow. The host stops with the daemon: it exits when its stdin (the
+//! daemon's end of a pipe) reaches its end, also when the daemon dies.
 //!
 //! One host per daemon, not per machine: its sockets are in a directory of
 //! the daemon's own runtime directory, so the stable app's daemon and a tagged
@@ -36,6 +42,8 @@ const READY_TIMEOUT: Duration = Duration::from_secs(10);
 /// A host that ran at least this long before it stopped restarts at the
 /// first backoff delay again.
 const HEALTHY_RUN: Duration = Duration::from_secs(30);
+/// How long the host may serve nothing before it exits (the idle stop).
+pub(crate) const DEFAULT_IDLE_EXIT: Duration = Duration::from_secs(5 * 60);
 /// The agent socket's file name. The host puts its provider socket
 /// (`browser-host-provider.sock`) in the same directory.
 const SOCKET_FILE: &str = "browser-host.sock";
@@ -69,16 +77,14 @@ pub fn terminal_env(daemon_socket: &Path, has_host: bool) -> Option<(String, Str
 }
 
 impl crate::mux::Mux {
-    /// Starts this daemon's browser host at once, in the background, when
-    /// the host binary exists (`CMUX_BROWSER_HOST_BIN`, else
-    /// `cmux-browser-host` beside the daemon executable): its terminals were
-    /// told the socket is the daemon's ([`terminal_env`]), so the host must
-    /// be there before an agent asks. `browser-host-provider` waits for the
-    /// same start.
+    /// Lets this daemon run its browser host when the host binary exists
+    /// (`CMUX_BROWSER_HOST_BIN`, else `cmux-browser-host` beside the daemon
+    /// executable): the daemon binds the socket its terminals were told
+    /// ([`terminal_env`]) now, and starts the host on the first agent connect
+    /// or `browser-host-provider`.
     pub fn configure_browser_host(&self, daemon_socket: &Path) {
         let supervisor = &self.control_clients.browser_host;
         supervisor.configure(resolve_binary(), socket_path_for(daemon_socket));
-        supervisor.start_in_background();
     }
 }
 
@@ -104,8 +110,13 @@ pub(crate) struct ProviderCredentials {
     pub(crate) socket: PathBuf,
     /// The host launch's provider secret (64 lowercase hex digits).
     pub(crate) secret: String,
-    /// The host's pid: the app checks the provider socket's peer against it.
+    /// The host process.
     pub(crate) host_pid: u32,
+    /// The process that holds the listening socket: this daemon under socket
+    /// activation, else the host. A socket's peer pid is the listen(2) caller
+    /// on Linux and the last process that used the server end on macOS, so
+    /// the app accepts a peer that is either of the two, and no other.
+    pub(crate) listener_pid: u32,
 }
 
 impl std::fmt::Debug for ProviderCredentials {
@@ -114,6 +125,7 @@ impl std::fmt::Debug for ProviderCredentials {
             .field("socket", &self.socket)
             .field("secret", &"<redacted>")
             .field("host_pid", &self.host_pid)
+            .field("listener_pid", &self.listener_pid)
             .finish()
     }
 }
@@ -132,12 +144,19 @@ struct Inner {
     /// Held while a host starts, so two callers never start two hosts.
     starting: Mutex<()>,
     backoff: Mutex<Option<Backoff>>,
+    /// After a crash: activation does not start a host before this time
+    /// (the Backoff restart does), so a crash loop never runs at the speed
+    /// of agent connects.
+    restart_due: Mutex<Option<Instant>>,
+    #[cfg(unix)]
+    activation: activation::Activation,
 }
 
 #[derive(Clone)]
 struct Config {
     binary: Option<PathBuf>,
     socket: PathBuf,
+    idle_exit: Duration,
 }
 
 #[derive(Default)]
@@ -148,6 +167,8 @@ enum State {
 }
 
 struct Running {
+    /// The host process.
+    pid: u32,
     credentials: ProviderCredentials,
     /// The daemon's end of the host's stdin; dropping it stops the host.
     #[cfg(unix)]
@@ -156,7 +177,30 @@ struct Running {
 
 impl BrowserHostSupervisor {
     pub(crate) fn configure(&self, binary: Option<PathBuf>, socket: PathBuf) {
-        *lock(&self.inner.config) = Some(Config { binary, socket });
+        self.configure_with_idle_exit(binary, socket, DEFAULT_IDLE_EXIT);
+    }
+
+    /// [`BrowserHostSupervisor::configure`] with the idle stop's delay. With
+    /// a binary, binds the host's sockets and waits for the first agent
+    /// connect; a bind failure leaves the host to bind them itself, without
+    /// activation or idle stop.
+    pub(crate) fn configure_with_idle_exit(
+        &self,
+        binary: Option<PathBuf>,
+        socket: PathBuf,
+        idle_exit: Duration,
+    ) {
+        let has_binary = binary.is_some();
+        *lock(&self.inner.config) = Some(Config { binary, socket: socket.clone(), idle_exit });
+        #[cfg(unix)]
+        if has_binary {
+            match self.inner.activation.bind(&socket) {
+                Ok(()) => activation::arm(&self.inner),
+                Err(error) => eprintln!("cmux-tui: browser host sockets: {error}"),
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = has_binary;
     }
 
     /// The running host's credentials, starting the host first when none
@@ -166,31 +210,11 @@ impl BrowserHostSupervisor {
         Inner::credentials(&self.inner)
     }
 
-    /// Starts the host on a background thread when one is configured and
-    /// none runs; a failure is logged and the next caller retries.
-    pub(crate) fn start_in_background(&self) {
-        let has_binary = lock(&self.inner.config).as_ref().is_some_and(|c| c.binary.is_some());
-        if !has_binary {
-            return;
-        }
-        let inner = Arc::downgrade(&self.inner);
-        let spawned =
-            std::thread::Builder::new().name("browser-host-start".into()).spawn(move || {
-                let Some(inner) = inner.upgrade() else { return };
-                if let Err(error) = Inner::credentials(&inner) {
-                    eprintln!("cmux-tui: browser host start failed: {error}");
-                }
-            });
-        if let Err(error) = spawned {
-            eprintln!("cmux-tui: cannot start the browser host thread: {error}");
-        }
-    }
-
     /// The running host's pid, if any (tests).
     #[cfg(test)]
     pub(crate) fn running_pid(&self) -> Option<u32> {
         match &*lock(&self.inner.state) {
-            State::Running(running) => Some(running.credentials.host_pid),
+            State::Running(running) => Some(running.pid),
             State::Idle => None,
         }
     }
@@ -206,23 +230,24 @@ impl Inner {
             return Ok(running.credentials.clone());
         }
         let config = lock(&this.config).clone().ok_or("this daemon has no browser host")?;
-        let binary = config.binary.ok_or(
+        let binary = config.binary.clone().ok_or(
             "cmux-browser-host was not found beside the daemon (set CMUX_BROWSER_HOST_BIN)",
         )?;
-        let running = start(this, &binary, &config.socket)?;
+        let running = start(this, &binary, &config)?;
         let credentials = running.credentials.clone();
         *lock(&this.state) = State::Running(running);
+        *lock(&this.restart_due) = None;
         Ok(credentials)
     }
 
     /// The host with `pid` stopped after running `ran`: forget it, and start
     /// a new one after the backoff delay unless the daemon dropped the
     /// supervisor meanwhile. Runs on the host's watcher thread.
-    fn host_stopped(this: &Weak<Self>, pid: u32, ran: Duration) {
+    fn host_stopped(this: &Weak<Self>, pid: u32, ran: Duration, idle_exit: bool) {
         let delay = {
             let Some(inner) = this.upgrade() else { return };
             let mut state = lock(&inner.state);
-            if matches!(&*state, State::Running(running) if running.credentials.host_pid == pid) {
+            if matches!(&*state, State::Running(running) if running.pid == pid) {
                 *state = State::Idle;
             }
             drop(state);
@@ -233,15 +258,41 @@ impl Inner {
             if ran >= HEALTHY_RUN {
                 backoff.reset();
             }
-            backoff.next_delay()
+            // The idle stop: the next agent connect starts a host again.
+            #[cfg(unix)]
+            if idle_exit && inner.activation.is_bound() {
+                activation::arm(&inner);
+                return;
+            }
+            let delay = backoff.next_delay();
+            *lock(&inner.restart_due) = Some(Instant::now() + delay);
+            delay
         };
+        let _ = idle_exit;
         eprintln!("cmux-tui: browser host {pid} stopped after {} ms; restarting", ran.as_millis());
         // A bounded restart delay on the watcher thread, not a synchronization.
         std::thread::sleep(delay);
         let Some(inner) = this.upgrade() else { return };
         if let Err(error) = Self::credentials(&inner) {
             eprintln!("cmux-tui: browser host restart failed: {error}");
+            // No host: the next agent connect tries again, after the next
+            // backoff delay.
+            #[cfg(unix)]
+            {
+                let delay = lock(&inner.backoff).as_mut().map(Backoff::next_delay);
+                *lock(&inner.restart_due) = delay.map(|delay| Instant::now() + delay);
+                activation::arm(&inner);
+            }
         }
+    }
+}
+
+/// The daemon's end: the activation thread stops (cancel pipe) before the
+/// sockets close; a running host stops when its stdin closes.
+impl Drop for Inner {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        self.activation.shutdown();
     }
 }
 
@@ -258,7 +309,7 @@ fn mint_secret() -> Result<String, String> {
 }
 
 #[cfg(not(unix))]
-fn start(_: &Arc<Inner>, _: &Path, _: &Path) -> Result<Running, String> {
+fn start(_: &Arc<Inner>, _: &Path, _: &Config) -> Result<Running, String> {
     Err("the browser host runs on macOS and Linux only".into())
 }
 
@@ -266,13 +317,14 @@ fn start(_: &Arc<Inner>, _: &Path, _: &Path) -> Result<Running, String> {
 /// its `ready` line. A watcher thread reaps it and calls
 /// [`Inner::host_stopped`].
 #[cfg(unix)]
-fn start(inner: &Arc<Inner>, binary: &Path, socket: &Path) -> Result<Running, String> {
+fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, String> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
+    let socket = config.socket.as_path();
     let dir = socket.parent().ok_or("the browser host socket has no directory")?;
     std::fs::create_dir_all(dir)
         .and_then(|()| std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)))
@@ -280,10 +332,17 @@ fn start(inner: &Arc<Inner>, binary: &Path, socket: &Path) -> Result<Running, St
     let secret = mint_secret()?;
     let (secret_read, mut secret_write) =
         std::io::pipe().map_err(|error| format!("cannot open the secret pipe: {error}"))?;
-    let fd = secret_read.as_raw_fd();
+    // fd 3 the secret, then the listening sockets the daemon keeps (4, 5).
+    let mut fds = vec![secret_read.as_raw_fd()];
     let mut command = Command::new(binary);
+    command.args(["serve", "--provider-secret-fd", "3", "--supervised"]);
+    if let Some((agent, provider)) = inner.activation.raw_fds() {
+        fds.extend([agent, provider]);
+        command.args(["--agent-listen-fd", "4", "--provider-listen-fd", "5", "--idle-exit-ms"]);
+        command.arg(config.idle_exit.as_millis().to_string());
+    }
     command
-        .args(["serve", "--provider-secret-fd", "3", "--supervised", "--socket"])
+        .arg("--socket")
         .arg(socket)
         // The host then leaves the directory's mode to the daemon.
         .env(BROWSER_HOST_SOCKET_ENV, socket)
@@ -300,7 +359,7 @@ fn start(inner: &Arc<Inner>, binary: &Path, socket: &Path) -> Result<Running, St
         _ => 4096,
     };
     // SAFETY: only async-signal-safe calls between fork and exec.
-    unsafe { command.pre_exec(move || secret_fd_only(fd, max_fd)) };
+    unsafe { command.pre_exec(move || inherited_fds_only(&fds, max_fd)) };
     let mut child =
         command.spawn().map_err(|error| format!("cannot start the browser host: {error}"))?;
     drop(secret_read);
@@ -328,33 +387,49 @@ fn start(inner: &Arc<Inner>, binary: &Path, socket: &Path) -> Result<Running, St
     std::thread::Builder::new()
         .name("browser-host-watch".into())
         .spawn(move || {
-            let _ = child.wait();
-            Inner::host_stopped(&watcher, pid, started.elapsed());
+            let idle_exit = child.wait().is_ok_and(|status| status.success());
+            Inner::host_stopped(&watcher, pid, started.elapsed(), idle_exit);
         })
         .map_err(|error| format!("cannot watch the browser host: {error}"))?;
     let provider = socket.with_file_name(PROVIDER_SOCKET_FILE);
+    let listener_pid = if inner.activation.is_bound() { std::process::id() } else { pid };
     Ok(Running {
-        credentials: ProviderCredentials { socket: provider, secret, host_pid: pid },
+        // The daemon holds the sockets from its start (with the lock files)
+        // and passes them only to its host (which sets close-on-exec again).
+        credentials: ProviderCredentials { socket: provider, secret, host_pid: pid, listener_pid },
+        pid,
         _stdin: stdin,
     })
 }
 
-/// In the forked child: the secret pipe becomes fd 3; every other
-/// descriptor above stderr is closed.
+/// In the forked child: `fds` become 3, 4, ... in order (moved above 9
+/// first, so no source is overwritten), with close-on-exec cleared; every
+/// other descriptor above them is closed.
 #[cfg(unix)]
-fn secret_fd_only(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
+fn inherited_fds_only(fds: &[libc::c_int], max_fd: libc::c_int) -> std::io::Result<()> {
+    let mut high = [0 as libc::c_int; 3];
+    let count = fds.len().min(high.len());
     // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
     unsafe {
-        if fd == 3 {
-            if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
+        for (slot, fd) in high.iter_mut().zip(fds) {
+            *slot = libc::fcntl(*fd, libc::F_DUPFD, 10);
+            if *slot < 0 {
                 return Err(std::io::Error::last_os_error());
             }
-        } else if libc::dup2(fd, 3) != 3 {
-            return Err(std::io::Error::last_os_error());
         }
-        for other in 4..max_fd {
+        for (index, fd) in high[..count].iter().enumerate() {
+            let target = 3 + index as libc::c_int;
+            if libc::dup2(*fd, target) != target || libc::fcntl(target, libc::F_SETFD, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        for other in (3 + count as libc::c_int)..max_fd {
             libc::close(other);
         }
     }
     Ok(())
 }
+
+#[cfg(unix)]
+#[path = "browser_host_activation.rs"]
+mod activation;

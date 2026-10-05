@@ -12,12 +12,15 @@ import java.util.Objects;
 
 public final class BrowserHostProviderResult implements WireValue {
     private final long hostPid;
+    private final long listenerPid;
     private final String secret;
     private final String socket;
 
     private BrowserHostProviderResult(Builder builder) {
         if (!builder.hostPidSet) throw new IllegalArgumentException("host_pid is required");
         this.hostPid = builder.hostPid;
+        if (!builder.listenerPidSet) throw new IllegalArgumentException("listener_pid is required");
+        this.listenerPid = builder.listenerPid;
         if (!builder.secretSet) throw new IllegalArgumentException("secret is required");
         this.secret = Wire.nonNull(builder.secret, "secret");
         if (!builder.socketSet) throw new IllegalArgumentException("socket is required");
@@ -27,6 +30,7 @@ public final class BrowserHostProviderResult implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public long hostPid() { return hostPid; }
+    public long listenerPid() { return listenerPid; }
     public String secret() { return secret; }
     public String socket() { return socket; }
 
@@ -35,6 +39,8 @@ public final class BrowserHostProviderResult implements WireValue {
         Builder builder = builder();
         Object rawHostPid = Wire.required(object, "host_pid");
         builder.hostPid(Wire.uint32(rawHostPid, "BrowserHostProviderResult.host_pid"));
+        Object rawListenerPid = Wire.required(object, "listener_pid");
+        builder.listenerPid(Wire.uint32(rawListenerPid, "BrowserHostProviderResult.listener_pid"));
         Object rawSecret = Wire.required(object, "secret");
         builder.secret(Wire.string(rawSecret, "BrowserHostProviderResult.secret"));
         Object rawSocket = Wire.required(object, "socket");
@@ -46,6 +52,7 @@ public final class BrowserHostProviderResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "host_pid", hostPid);
+        Wire.put(object, "listener_pid", listenerPid);
         Wire.put(object, "secret", secret);
         Wire.put(object, "socket", socket);
         return Collections.unmodifiableMap(object);
@@ -54,11 +61,11 @@ public final class BrowserHostProviderResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof BrowserHostProviderResult that)) return false;
-        return Objects.equals(hostPid, that.hostPid) && Objects.equals(secret, that.secret) && Objects.equals(socket, that.socket);
+        return Objects.equals(hostPid, that.hostPid) && Objects.equals(listenerPid, that.listenerPid) && Objects.equals(secret, that.secret) && Objects.equals(socket, that.socket);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(hostPid, secret, socket); }
+    public int hashCode() { return Objects.hash(hostPid, listenerPid, secret, socket); }
 
     @Override
     public String toString() { return "BrowserHostProviderResult" + toWire(); }
@@ -66,6 +73,8 @@ public final class BrowserHostProviderResult implements WireValue {
     public static final class Builder {
         private Long hostPid;
         private boolean hostPidSet;
+        private Long listenerPid;
+        private boolean listenerPidSet;
         private String secret;
         private boolean secretSet;
         private String socket;
@@ -74,6 +83,11 @@ public final class BrowserHostProviderResult implements WireValue {
         public Builder hostPid(long value) {
             this.hostPid = value;
             this.hostPidSet = true;
+            return this;
+        }
+        public Builder listenerPid(long value) {
+            this.listenerPid = value;
+            this.listenerPidSet = true;
             return this;
         }
         public Builder secret(String value) {

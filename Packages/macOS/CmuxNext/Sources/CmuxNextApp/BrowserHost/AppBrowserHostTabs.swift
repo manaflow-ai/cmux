@@ -1,8 +1,10 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
+import Observation
 
 /// The app's browser tabs for the browser host: the tab list (`hello`,
 /// `tab.announced`/`navigated`/`gone`), each Chromium tab's extension access
@@ -128,10 +130,30 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
     }
 
-    /// The host opens tabs through `openBrowser` (store op), never through
-    /// the provider, for both engines.
+    /// `tabs.open` from a browser session (browser-host.md, D12: the app
+    /// picks the place, never the agent): a WebKit store tab in the
+    /// background, in the active window's focused pane, then its page. No
+    /// selection or focus changes. The session owns the tab: its end closes it
+    /// (``endSessionTab(_:)``) unless it was kept. The driver navigates it.
     func openAutomationTab(url: URL?) async throws -> WebKitTab {
-        throw AutomationTabError.openThroughStore
+        guard let services, let browserTabs = services.cache.browserTabs, browserTabs.isAvailable() else {
+            throw AutomationTabError.unavailable
+        }
+        guard let pane = services.windows.active?.focusedPane, !browserTabs.isIncognitoPane(pane.pane.handle) else {
+            throw AutomationTabError.noPane
+        }
+        let surface = try await browserTabs.open(BrowserEngineChoice(engine: .webkit), in: pane.pane.handle,
+                                                 url: "about:blank")
+        // The create reply can come before the store shows the tab.
+        let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor in
+            for await found in Observations({ services.locateTab(surface: surface) != nil }) where found { return true }
+            return false
+        }
+        guard appeared == true, let tab = services.locateTab(surface: surface),
+              let page = services.cache.browser(for: tab)?.tab as? WebKitTab else {
+            throw AutomationTabError.unavailable
+        }
+        return page
     }
 
     /// Tabs belong to the person's layout: the provider never closes one.
@@ -164,9 +186,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
 
 /// Agent-facing protocol text (driver error message), not shown to a person: not localized.
 enum AutomationTabError: LocalizedError {
-    case openThroughStore
+    /// No daemon browser tabs, or the new tab did not appear.
+    case unavailable
+    /// No window with a pane to hold the tab (or only an incognito one).
+    case noPane
 
     var errorDescription: String? {
-        "opening a tab through the app provider is not supported; open it with openBrowser (cmux browser open) and use its targetId"
+        switch self {
+        case .unavailable: "the app cannot open a browser tab now"
+        case .noPane: "the app has no window with a pane for a new tab"
+        }
     }
 }

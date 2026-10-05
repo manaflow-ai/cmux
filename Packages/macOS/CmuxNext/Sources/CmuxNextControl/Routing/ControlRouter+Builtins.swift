@@ -138,36 +138,6 @@ extension ControlRouter {
         return failure
     }
 
-    /// The control error for failed action work. A terminal start that
-    /// missed its deadline is a `timeout` that says the terminal may still
-    /// appear; a command whose reply missed its deadline is a `timeout` that
-    /// says it may still apply; anything else is a `daemon_error`.
-    static func workError(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
-        guard failure.terminalMayAppear else {
-            guard failure.mayHaveApplied else {
-                return ControlError(code: "daemon_error", message: failure.message, data: ["action": .string(action)])
-            }
-            // The command's reply missed its deadline: it may still apply.
-            var error = ControlError.timeout(method, after: .zero)
-            error.message = failure.message
-            error.data = ["action": .string(action), "detail": .string(failure.message)]
-            return error
-        }
-        var error = ControlError.terminalStartTimeout(method, after: TerminalStartDeadline.daemon)
-        if case .object(var members) = error.data {
-            members["action"] = .string(action)
-            members["detail"] = .string(failure.message)
-            error.data = .object(members)
-        }
-        return error
-    }
-
-    /// Typed refusal for a destructive action run without `confirm: true`.
-    static func confirmationRequired(_ id: String) -> ControlError {
-        ControlError(code: "confirmation_required", message: ActionRegistry.confirmationRequiredReason(forRawID: id),
-                     data: ["action": .string(id), "argument": .string(ActionArgument.confirmName)])
-    }
-
     // MARK: - settings
 
     /// Answers from the published cmux.json snapshot when there is one (no

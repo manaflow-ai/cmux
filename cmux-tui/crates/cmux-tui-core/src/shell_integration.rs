@@ -20,6 +20,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
+mod ghostty_files;
+
+use ghostty_files::Mode;
+
 struct Script {
     path: &'static str,
     contents: &'static str,
@@ -62,10 +66,6 @@ const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";
 /// without it the title is whatever the user's own hooks set.
 const FEATURES_ENV: &str = "GHOSTTY_SHELL_FEATURES";
 
-/// Ghostty's default `shell-integration-features` (cursor, path, title) with
-/// its default blinking cursor, in its sorted order.
-const DEFAULT_FEATURES: &str = "cursor:blink,path,title";
-
 /// The scripts' ssh wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`.
 const GHOSTTY_BIN_DIR_ENV: &str = "GHOSTTY_BIN_DIR";
 
@@ -101,6 +101,28 @@ fn usable_features(features: &str, has_cli: bool) -> String {
         .filter(|feature| !CLI_FEATURES.contains(feature))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// `GHOSTTY_SHELL_FEATURES` and the Ghostty CLI directory for a shell the
+/// daemon starts.
+fn export_features(
+    env: &mut Vec<(String, String)>,
+    lookup: &dyn Fn(&str) -> Option<String>,
+    user: &ghostty_files::Settings,
+) {
+    // A caller (or daemon) value is the user's resolved feature set; with
+    // none, the user's Ghostty config files give it, then Ghostty's defaults
+    // (DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES).
+    let cli_dir = ghostty_cli_dir(lookup);
+    let given = lookup(FEATURES_ENV);
+    let features = given.clone().unwrap_or_else(|| user.env_value());
+    let usable = usable_features(&features, cli_dir.is_some());
+    if given.as_deref() != Some(usable.as_str()) {
+        env.push((FEATURES_ENV.into(), usable));
+    }
+    if let Some(GhosttyCliDir::FromBinary(dir)) = cli_dir {
+        env.push((GHOSTTY_BIN_DIR_ENV.into(), dir));
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,13 +162,34 @@ pub fn integrate_default_shell(
     if lookup(OPT_OUT_ENV).as_deref() == Some("none") {
         return ShellLaunch { command, env: extra_env };
     }
-    let Some(shell) = detect_shell(&command) else {
-        return ShellLaunch { command, env: extra_env };
+    let user = ghostty_files::read(&lookup);
+    let Some(shell) = shell_for(user.mode, &command) else {
+        if user.mode == Mode::Detect {
+            return ShellLaunch { command, env: extra_env };
+        }
+        // `shell-integration = none` (or a shell with no scripts here):
+        // Ghostty still exports the features, for a manual integration.
+        let mut env = extra_env;
+        export_features(&mut env, &lookup, &user);
+        return ShellLaunch { command, env };
     };
     let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {
         return ShellLaunch { command, env: extra_env };
     };
-    apply(shell, &root, command, extra_env, &lookup)
+    apply(shell, &root, command, extra_env, &lookup, &user)
+}
+
+/// The shell to integrate under the user's `shell-integration`: none for
+/// `none`, the command's shell for `detect`, else the forced shell, as
+/// Ghostty's `Exec` does. elvish and nushell have no scripts here.
+fn shell_for(mode: Mode, command: &[String]) -> Option<Shell> {
+    match mode {
+        Mode::Detect => detect_shell(command),
+        Mode::Bash => Some(Shell::Bash),
+        Mode::Fish => Some(Shell::Fish),
+        Mode::Zsh => Some(Shell::Zsh),
+        Mode::None | Mode::Elvish | Mode::Nushell => None,
+    }
 }
 
 fn detect_shell(command: &[String]) -> Option<Shell> {
@@ -170,24 +213,12 @@ fn apply(
     mut command: Vec<String>,
     mut env: Vec<(String, String)>,
     lookup: &dyn Fn(&str) -> Option<String>,
+    user: &ghostty_files::Settings,
 ) -> ShellLaunch {
     // The daemon integrates this shell, so it owns the Ghostty integration
     // keys: a caller value for one of them never reaches the shell.
     crate::daemon_env::warn_dropped(&crate::daemon_env::strip_integration_owned(&mut env));
-    // A caller (or daemon) value is the user's resolved feature set.
-    let cli_dir = ghostty_cli_dir(lookup);
-    match lookup(FEATURES_ENV) {
-        None => env.push((FEATURES_ENV.into(), DEFAULT_FEATURES.into())),
-        Some(features) => {
-            let usable = usable_features(&features, cli_dir.is_some());
-            if usable != features {
-                env.push((FEATURES_ENV.into(), usable));
-            }
-        }
-    }
-    if let Some(GhosttyCliDir::FromBinary(dir)) = cli_dir {
-        env.push((GHOSTTY_BIN_DIR_ENV.into(), dir));
-    }
+    export_features(&mut env, lookup, user);
     let root_str = root.to_string_lossy().into_owned();
     match shell {
         Shell::Zsh => {
@@ -382,14 +413,17 @@ fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
 }
 
 #[cfg(test)]
+mod user_config_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn env_of(launch: &ShellLaunch, key: &str) -> Option<String> {
+    pub(super) fn env_of(launch: &ShellLaunch, key: &str) -> Option<String> {
         launch.env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone())
     }
 
-    fn launch(shell: &str, env: &[(&str, &str)]) -> ShellLaunch {
+    pub(super) fn launch(shell: &str, env: &[(&str, &str)]) -> ShellLaunch {
         let env: Vec<(String, String)> =
             env.iter().map(|(key, value)| ((*key).into(), (*value).into())).collect();
         let lookup = {
@@ -402,6 +436,7 @@ mod tests {
             vec![shell.into()],
             env,
             &lookup,
+            &ghostty_files::read(&lookup),
         )
     }
 
@@ -620,7 +655,8 @@ mod tests {
             let env = env.clone();
             move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
         };
-        let launched = apply(Shell::Zsh, &root, vec![zsh.into()], env, &lookup);
+        let launched =
+            apply(Shell::Zsh, &root, vec![zsh.into()], env, &lookup, &ghostty_files::read(&lookup));
 
         let pty = cmux_pty::open(cmux_pty::PtySize {
             rows: 24,
@@ -820,7 +856,8 @@ mod tests {
             let env = env.clone();
             move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
         };
-        let launched = apply(shell, &root, vec![exe.into()], env, &lookup);
+        let launched =
+            apply(shell, &root, vec![exe.into()], env, &lookup, &ghostty_files::read(&lookup));
         let pty = cmux_pty::open(cmux_pty::PtySize {
             rows: 24,
             cols: 200,

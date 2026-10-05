@@ -91,7 +91,7 @@ final class AppServices {
     private(set) lazy var apps = AppsService(services: self)
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
-    /// The viewers' recents, the cmux picker and the file viewer page (R89).
+    /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar =
@@ -260,12 +260,12 @@ final class AppServices {
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in
             PageInfoHandlers.installRouter(on: entry, registry: registry)
+            CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
         }
-        cache.extraSuggestionProviders = { [unowned self] profile in
-            [BookmarkSuggestionProvider(service: bookmarks, profile: bookmarks.profile(of: profile))]
-        }
+        cache.onSuggestionEngineCreated = { [unowned self] in BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0) }
+        cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
         cache.makeExtensionMenuHandler = { [unowned self] key in ExtensionMenuRouter(services: self, tabKey: key) }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }

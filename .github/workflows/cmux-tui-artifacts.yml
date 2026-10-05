@@ -105,12 +105,15 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
+      actions: read
       contents: read
     outputs:
       key: ${{ steps.inspect.outputs.key }}
+      legacy_key: ${{ steps.inspect.outputs.legacy_key }}
       tree_ready: ${{ steps.inspect.outputs.tree_ready }}
       run_macos: ${{ steps.inspect.outputs.run_macos }}
       superseded: ${{ steps.inspect.outputs.superseded }}
+      owner_run_id: ${{ steps.inspect.outputs.owner_run_id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -134,6 +137,7 @@ jobs:
           set -euo pipefail
           superseded=false
           run_macos=true
+          same_tree_head=false
 
           remote_sha=""
           authorization=""
@@ -156,9 +160,14 @@ jobs:
             echo "Fork pull request: no trusted cmux-tui build is run."
           fi
 
-          key="$(python3 scripts/ci/cmux_tui_tree_key.py "$SOURCE_COMMIT")"
+          key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$SOURCE_COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
+          # CMUX-TUI-TREE-KEY-V2: the v1 key of the same commit (with the classic
+          # ghostty gitlink). Trees published before v2 exist only under it.
+          legacy_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v1 "$SOURCE_COMMIT")"
+          [[ "$legacy_key" =~ ^[0-9a-f]{40}$ ]]
+          echo "legacy_key=$legacy_key" >> "$GITHUB_OUTPUT"
 
           if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
             current_key=""
@@ -166,12 +175,11 @@ jobs:
                 fetch --no-tags --depth=1 "${SERVER_URL}/${REPOSITORY}.git" "$remote_sha" >/dev/null 2>&1 \
               && git diff --quiet "$SOURCE_COMMIT" "$remote_sha" -- \
                 scripts/ci/cmux_tui_tree_key.py scripts/cmux-next/cmux-tui-tree-inputs.txt \
-              && current_key="$(python3 scripts/ci/cmux_tui_tree_key.py "$remote_sha" 2>/dev/null)" \
+              && current_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$remote_sha" 2>/dev/null)" \
               && [[ "$current_key" =~ ^[0-9a-f]{40}$ ]]; then
               if [[ "$current_key" == "$key" ]]; then
-                superseded=true
-                run_macos=false
-                echo "Superseded feat-cmux-next push $SHA; current branch head $remote_sha has the same tree key $key."
+                same_tree_head=true
+                echo "A newer feat-cmux-next head $remote_sha has the same tree key $key; checking publication completeness before superseding $SHA."
               else
                 echo "Current feat-cmux-next head $remote_sha has tree key $current_key; retaining publication for superseded tree $key."
               fi
@@ -180,24 +188,26 @@ jobs:
             fi
           fi
 
-          tree_ready=true
-          base="https://files.cmux.com/cmux-tui/tree/$key"
-          # A daemon marker alone can belong to a legacy or interrupted
-          # publication. All arm64 runtime binaries and checksums must exist.
-          for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
-            if ! digest="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-                "$base/$asset.sha256?preflight=$RUN_ID" 2>/dev/null)" \
-              || [[ ! "$digest" =~ ^[0-9a-f]{64}[[:space:]] ]] \
-              || ! curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-                -o /dev/null "$base/$asset?preflight=$RUN_ID"; then
-              tree_ready=false
-              echo "Tree $key is missing $asset or its checksum; publication repair is required (see cmuxterm-hq REPAIR.md)."
-            fi
-          done
-          completion="$RUNNER_TEMP/cmux-tui-completion.json"
-          if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-              "$base/completion.json?preflight=$RUN_ID" -o "$completion" \
-              || ! python3 - "$key" "$completion" <<'PY'
+          # A tree is complete when every arm64 runtime binary, its checksum and
+          # the completion manifest exist under its key.
+          tree_complete() {
+            local key="$1" base="https://files.cmux.com/cmux-tui/tree/$1" complete=true
+            # A daemon marker alone can belong to a legacy or interrupted
+            # publication. All arm64 runtime binaries and checksums must exist.
+            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+              if ! digest="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                  "$base/$asset.sha256?preflight=$RUN_ID" 2>/dev/null)" \
+                || [[ ! "$digest" =~ ^[0-9a-f]{64}[[:space:]] ]] \
+                || ! curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                  -o /dev/null "$base/$asset?preflight=$RUN_ID"; then
+                complete=false
+                echo "Tree $key is missing $asset or its checksum; publication repair is required (see cmuxterm-hq REPAIR.md)."
+              fi
+            done
+            completion="$RUNNER_TEMP/cmux-tui-completion.json"
+            if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                "$base/completion.json?preflight=$RUN_ID" -o "$completion" \
+                || ! python3 - "$key" "$completion" <<'PY'
           import json, re, sys
           key, path = sys.argv[1:]
           data = json.load(open(path, encoding="utf-8"))
@@ -213,13 +223,69 @@ jobs:
               if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
                   raise SystemExit(f"completion manifest is missing {name}")
           PY
-          then
-            tree_ready=false
-            echo "Tree $key is missing a complete completion manifest; publication repair is required (see cmuxterm-hq REPAIR.md)."
+            then
+              complete=false
+              echo "Tree $key is missing a complete completion manifest; publication repair is required (see cmuxterm-hq REPAIR.md)."
+            fi
+            [[ "$complete" == true ]]
+          }
+          tree_ready=false
+          if tree_complete "$key"; then
+            tree_ready=true
+          elif [[ "$legacy_key" != "$key" ]] && tree_complete "$legacy_key"; then
+            tree_ready=true
+            echo "Tree $key is published under its v1 key $legacy_key; fetch reads it there (CMUX-TUI-TREE-KEY-V2)."
           fi
           if [[ "$tree_ready" == true ]]; then
             echo "Published tree $key and all daemon companions are ready; macOS build can be skipped."
           fi
+
+          # A newer commit with the same inputs may supersede this run only
+          # after the immutable tree is complete. If the newer publisher was
+          # cancelled or skipped before publishing, this run must remain the
+          # repair publisher for the missing key.
+          if [[ "$same_tree_head" == true && "$tree_ready" == true ]]; then
+            superseded=true
+            run_macos=false
+            echo "Superseded feat-cmux-next push $SHA; current branch head has the same complete tree key $key."
+          elif [[ "$same_tree_head" == true ]]; then
+            echo "Same tree key $key is incomplete; retaining publication for superseded push $SHA."
+          fi
+
+          # Elect one deterministic owner before any expensive macOS work.
+          # GitHub replaces an older pending job in a job-level concurrency
+          # group, so serializing builders by tree key can strand a key. Later
+          # runs wait for this owner and take over only if it ends without a
+          # complete publication.
+          owner_run_id="$RUN_ID"
+          if [[ "$tree_ready" != true && "$EVENT_NAME" == push &&
+                "$REF" == refs/heads/feat-cmux-next ]]; then
+            runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              -u "x-access-token:$GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "$SERVER_URL/repos/$REPOSITORY/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=push&status=in_progress&per_page=100" \
+              2>/dev/null || true)"
+            if [[ -n "$runs_json" ]]; then
+              while IFS=$'\t' read -r candidate_id candidate_sha; do
+                [[ -n "$candidate_id" && -n "$candidate_sha" ]] || continue
+                [[ "$candidate_id" == "$RUN_ID" ]] && continue
+                if git -c "http.extraHeader=Authorization: Basic $authorization" \
+                    fetch --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate_sha" >/dev/null 2>&1 \
+                  && candidate_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate_sha" 2>/dev/null)" \
+                  && [[ "$candidate_key" == "$key" ]] \
+                  && [[ "$candidate_id" =~ ^[0-9]+$ ]] \
+                  && (( candidate_id < owner_run_id )); then
+                  owner_run_id="$candidate_id"
+                fi
+              done < <(python3 -c 'import json,sys; [print("{}\t{}".format(run.get("id", ""), run.get("head_sha", ""))) for run in json.loads(sys.stdin.read()).get("workflow_runs", []) if run.get("status") == "in_progress"]' <<<"$runs_json")
+            fi
+          fi
+          if [[ "$owner_run_id" == "$RUN_ID" ]]; then
+            owner_run_id=""
+          else
+            echo "Tree $key is owned by active publisher run $owner_run_id; this run will wait before building."
+          fi
+          echo "owner_run_id=$owner_run_id" >> "$GITHUB_OUTPUT"
           echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
 
           # Main still needs commit-addressed artifacts and latest/ updates.
@@ -232,17 +298,96 @@ jobs:
           echo "run_macos=$run_macos" >> "$GITHUB_OUTPUT"
           echo "superseded=$superseded" >> "$GITHUB_OUTPUT"
 
+  tree-owner-wait:
+    name: wait for same-key tree publisher
+    if: needs.tree-preflight.result == 'success'
+    needs: tree-preflight
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 35
+    outputs:
+      takeover: ${{ steps.wait.outputs.takeover }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Wait for the owning tree publisher
+        id: wait
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          OWNER_RUN_ID: ${{ needs.tree-preflight.outputs.owner_run_id }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          takeover=true
+          tree_ready() {
+            local base="https://files.cmux.com/cmux-tui/tree/$KEY"
+            for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+              curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                "$base/$asset.sha256?owner-wait=$GITHUB_RUN_ID" >/dev/null || return 1
+              curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                -o /dev/null "$base/$asset?owner-wait=$GITHUB_RUN_ID" || return 1
+            done
+            completion="$RUNNER_TEMP/cmux-tui-owner-completion.json"
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              "$base/completion.json?owner-wait=$GITHUB_RUN_ID" -o "$completion" || return 1
+            python3 - "$KEY" "$completion" <<'PY'
+          import json, re, sys
+          key, path = sys.argv[1:]
+          data = json.load(open(path, encoding="utf-8"))
+          if data.get("key") != key or not isinstance(data.get("binaries"), dict):
+              raise SystemExit("completion manifest key or binaries object is invalid")
+          for name in (
+              "cmux-tui-aarch64-apple-darwin",
+              "cmux-tui-app-host-aarch64-apple-darwin",
+              "cmux-tui-cloud-server-aarch64-apple-darwin",
+          ):
+              if not re.fullmatch(r"[0-9a-f]{64}", data["binaries"].get(name, "")):
+                  raise SystemExit(f"completion manifest is missing {name}")
+          PY
+          }
+          if [[ -n "$OWNER_RUN_ID" ]]; then
+            deadline=$(( $(date +%s) + 1800 ))
+            while (( $(date +%s) < deadline )); do
+              if tree_ready; then
+                echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
+                takeover=false
+                break
+              fi
+              owner_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                -u "x-access-token:$GH_TOKEN" \
+                -H 'Accept: application/vnd.github+json' \
+                "$SERVER_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" \
+                | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status", "unknown"), d.get("conclusion", ""))' \
+                2>/dev/null || echo unknown)"
+              if [[ "$owner_state" == completed* || "$owner_state" == cancelled* || "$owner_state" == failure* ]]; then
+                echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; taking over."
+                break
+              fi
+              echo "Waiting for owner run $OWNER_RUN_ID to publish tree $KEY."
+              sleep 30
+            done
+            if [[ "$takeover" == true && $(date +%s) -ge "$deadline" ]]; then
+              echo "::warning::owner wait expired for tree $KEY; taking over publication"
+            fi
+          else
+            echo "This run owns tree $KEY; building and publishing it."
+          fi
+          echo "takeover=$takeover" >> "$GITHUB_OUTPUT"
+
   build:
     if: >-
       ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
+          needs.tree-owner-wait.outputs.takeover == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    needs: tree-preflight
-    # Once preflight has computed the immutable key, duplicate feat-cmux-next
-    # pushes may cancel one another safely. Distinct keys use distinct groups,
-    # so an older base tree cannot be dropped by a newer tree publication.
+    needs: [tree-preflight, tree-owner-wait]
+    # Once preflight has computed the immutable key, keep each workflow run in
+    # its own group. The owner-wait job prevents duplicate same-key builds;
+    # per-run groups ensure GitHub cannot replace a pending owner.
     concurrency:
-      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}
-      cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
       # The reusable package workflow declares an optional attestation job.
@@ -275,11 +420,14 @@ jobs:
   cmux-next-daemon-tests:
     if: >-
       ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
+          needs.tree-owner-wait.outputs.takeover == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    needs: tree-preflight
+    needs: [tree-preflight, tree-owner-wait]
     concurrency:
-      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}
-      cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
+      # Keep every publisher alive, including a queued run. The complete-key
+      # preflight skips duplicate work after the first complete run.
+      cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
     runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
     timeout-minutes: 60
@@ -294,6 +442,7 @@ jobs:
       contents: read
     outputs:
       key: ${{ steps.key.outputs.key }}
+      legacy_key: ${{ steps.key.outputs.legacy_key }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -311,12 +460,18 @@ jobs:
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "cmux-tui tree key: $key"
+          # CMUX-TUI-TREE-KEY-V2: the tree is also published under its v1 key
+          # until the v1 write stops (B2), so older checkouts still find it.
+          legacy_key="$(scripts/cmux-next/pin-cmux-tui.sh key --version v1)"
+          [[ "$legacy_key" =~ ^[0-9a-f]{40}$ ]]
+          echo "legacy_key=$legacy_key" >> "$GITHUB_OUTPUT"
+          echo "cmux-tui v1 tree key: $legacy_key"
 
       - name: Use short temporary directory for macOS socket tests
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install zig
         env:
@@ -366,12 +521,13 @@ jobs:
     if: >-
       ${{ always() && github.run_attempt < 3 &&
           (needs.tree-preflight.result == 'failure' ||
+           needs.tree-owner-wait.result == 'failure' ||
            needs.build.result == 'failure' ||
            needs.cmux-next-daemon-tests.result == 'failure' ||
            needs.publish.result == 'failure' ||
            needs.publish-tree.result == 'failure' ||
            needs.publish-pr-tree.result == 'failure') }}
-    needs: [tree-preflight, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
+    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -990,10 +1146,11 @@ jobs:
     needs: [build, publish, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
-    # One writer per key: a second commit with the same tree waits, then
-    # finds the key published and stops.
+    # Ownership is elected before expensive work. Keep publication per run
+    # because GitHub replaces older pending jobs in a key-only group; the
+    # write-once uploader makes a rare election race safe.
     concurrency:
-      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}
+      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -1014,13 +1171,25 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+          KEY_V2: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+          LEGACY_KEY: ${{ needs.cmux-next-daemon-tests.outputs.legacy_key }}
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
-          [[ "$(scripts/cmux-next/pin-cmux-tui.sh key)" == "$KEY" ]] || {
-            echo "tree key $KEY does not match this checkout; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
+          # This run's downloaded build, kept apart: a call that completes an
+          # existing publication overwrites assets/tree with that commit's
+          # binaries, and the next call must start from this run's again.
+          rm -rf assets/run
+          cp -R assets/tree assets/run
+          # Publishes the tree under KEY, which must be this checkout's key
+          # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
+          publish_tree() {
+          local KEY="$1" version="$2" base source_args source_commit
+          [[ "$(scripts/cmux-next/pin-cmux-tui.sh key --version "$version")" == "$KEY" ]] || {
+            echo "tree key $KEY does not match this checkout's $version key; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
             exit 1; }
+          rm -rf tree assets/tree
+          cp -R assets/run assets/tree
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
           fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
           fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
@@ -1064,19 +1233,31 @@ jobs:
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries
+          }
+          publish_tree "$KEY_V2" v2
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY_V2" ]]; then
+            publish_tree "$LEGACY_KEY" v1
+          fi
 
       - name: Verify the tree publication
         env:
           KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+          LEGACY_KEY: ${{ needs.cmux-next-daemon-tests.outputs.legacy_key }}
         run: |
           set -euo pipefail
-          base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          name=cmux-tui-aarch64-apple-darwin
+          verify_tree() {
+          local base="https://files.cmux.com/cmux-tui/tree/$1" name=cmux-tui-aarch64-apple-darwin published_sha
           curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
           published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
           [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
           curl -fsSL --proto '=https' "$base/source.json?verify=$GITHUB_RUN_ID"
           echo "Verified: $base/$name"
+          }
+          verify_tree "$KEY"
+          # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then
+            verify_tree "$LEGACY_KEY"
+          fi
 
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only

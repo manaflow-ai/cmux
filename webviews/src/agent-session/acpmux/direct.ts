@@ -19,9 +19,12 @@ import { translate } from "./i18n";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
-  transport: "acpmux-websocket";
-  endpoint: string;
-  token: string;
+  /// `acpmux-bridge`: the app's host owns the socket and its tokens (bridgeSocket.ts); this page
+  /// gets neither endpoint nor token. `acpmux-websocket`: a real socket, only for the browser dev
+  /// slot (devHost.ts) and mock mode.
+  transport: "acpmux-websocket" | "acpmux-bridge";
+  endpoint?: string;
+  token?: string;
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
@@ -261,8 +264,12 @@ function sessionUpdate(event: EventRecord): any | undefined {
   return event.dir === "in" && event.msg.method === "session/update" ? event.msg.params?.update : undefined;
 }
 
-/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts).
+/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts), the app the host
+/// bridge (bridgeSocket.ts).
 export type OpenSocket = (url: URL) => WebSocket;
+
+/// The placeholder URL of a bridge connection (never dialed).
+export const BRIDGE_URL = "cmux-bridge://acpmux/";
 
 /// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
 export type GitRoute = "native" | "daemon";
@@ -478,10 +485,11 @@ export class AcpmuxDirectClient {
   private async open(): Promise<void> {
     if (this.opening || this.closed) return;
     this.opening = true;
-    const url = new URL(this.host.endpoint);
-    url.searchParams.set("token", this.host.token);
+    // Over the bridge the URL names nothing: the host knows its daemon.
+    const url = new URL(this.host.endpoint ?? BRIDGE_URL);
+    if (this.host.token) url.searchParams.set("token", this.host.token);
     this.wire.lifecycle("connecting", {
-      endpoint: redactEndpoint(this.host.endpoint),
+      endpoint: this.host.endpoint ? redactEndpoint(this.host.endpoint) : BRIDGE_URL,
       sessionId: this.selectedSessionId,
     });
     await new Promise<void>((resolve, reject) => {

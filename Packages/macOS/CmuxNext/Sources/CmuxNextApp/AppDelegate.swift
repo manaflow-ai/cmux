@@ -4,8 +4,10 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextTerminal
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -22,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     private var clipboardReads: TerminalClipboardReadService?
+    /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
+    private var ghosttyKeybinds: GhosttyKeybindSync?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
@@ -54,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start()
+        // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
+        PageDescriptor.registerDiffRoot()
+        PageDescriptor.registerFilePageRoots()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         self.services = services
@@ -63,6 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
+        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
+        self.ghosttyKeybinds = ghosttyKeybinds
+        ghosttyKeybinds.start()
+        // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
+        GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(registry: services.registry)
         DebugTimings.markLaunch("dfl.settings")
@@ -266,6 +278,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        services?.viewers.diffPages.terminate()
+        services?.viewers.markdownPages.terminate()
+        services?.viewers.editorPages.terminate()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }

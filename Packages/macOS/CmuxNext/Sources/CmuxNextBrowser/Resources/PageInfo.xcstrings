@@ -13494,6 +13494,399 @@
         }
       }
     },
+    "pageInfo.security.turnOnWarnings.allSites": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لجميع المواقع في هذا الملف الشخصي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Za sve web lokacije u ovom profilu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "For alle websites i denne profil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Für alle Websites in diesem Profil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For all sites in this profile"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Para todos los sitios de este perfil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pour tous les sites de ce profil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Per tutti i siti di questo profilo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロファイルのすべてのサイトが対象です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សម្រាប់គេហទំព័រទាំងអស់ក្នុងប្រវត្តិរូបនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 프로필의 모든 사이트에 적용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "For alle nettsteder i denne profilen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dla wszystkich witryn w tym profilu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Para todos os sites deste perfil"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для всех сайтов в этом профиле"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สำหรับทุกเว็บไซต์ในโปรไฟล์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu profildeki tüm siteler için"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для всіх сайтів у цьому профілі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho tất cả trang web trong hồ sơ này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "适用于此配置文件中的所有网站"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "適用於此設定檔中的所有網站"
+          }
+        }
+      }
+    },
+    "pageInfo.security.warningsOnAgain.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم تفعيل تحذيرات الأمان مرة أخرى لجميع المواقع في هذا الملف الشخصي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigurnosna upozorenja su ponovo uključena za sve web lokacije u ovom profilu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikkerhedsadvarsler er slået til igen for alle websites i denne profil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sicherheitswarnungen sind für alle Websites in diesem Profil wieder aktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Security warnings are on again for all sites in this profile."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las advertencias de seguridad vuelven a estar activadas para todos los sitios de este perfil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les avertissements de sécurité sont de nouveau activés pour tous les sites de ce profil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli avvisi di sicurezza sono di nuovo attivi per tutti i siti di questo profilo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロファイルのすべてのサイトでセキュリティ警告を再びオンにしました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការព្រមានសុវត្ថិភាពត្រូវបានបើកឡើងវិញសម្រាប់គេហទំព័រទាំងអស់ក្នុងប្រវត្តិរូបនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 프로필의 모든 사이트에 대한 보안 경고가 다시 켜졌습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikkerhetsadvarsler er slått på igjen for alle nettsteder i denne profilen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostrzeżenia dotyczące bezpieczeństwa są ponownie włączone dla wszystkich witryn w tym profilu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os avisos de segurança foram ativados novamente para todos os sites deste perfil."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предупреждения системы безопасности снова включены для всех сайтов в этом профиле."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดคำเตือนด้านความปลอดภัยสำหรับทุกเว็บไซต์ในโปรไฟล์นี้อีกครั้งแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu profildeki tüm siteler için güvenlik uyarıları yeniden açıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередження системи безпеки знову ввімкнено для всіх сайтів у цьому профілі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cảnh báo bảo mật đã được bật lại cho tất cả trang web trong hồ sơ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已重新开启此配置文件中所有网站的安全警告。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已重新開啟此設定檔中所有網站的安全性警告。"
+          }
+        }
+      }
+    },
+    "pageInfo.security.warningsOnAgain.site": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم تفعيل تحذيرات الأمان مرة أخرى لهذا الموقع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigurnosna upozorenja su ponovo uključena za ovu web lokaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikkerhedsadvarsler er slået til igen for dette website."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sicherheitswarnungen sind für diese Website wieder aktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Security warnings are on again for this site."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las advertencias de seguridad vuelven a estar activadas para este sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les avertissements de sécurité sont de nouveau activés pour ce site."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli avvisi di sicurezza sono di nuovo attivi per questo sito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトのセキュリティ警告を再びオンにしました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការព្រមានសុវត្ថិភាពត្រូវបានបើកឡើងវិញសម្រាប់គេហទំព័រនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 사이트에 대한 보안 경고가 다시 켜졌습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikkerhetsadvarsler er slått på igjen for dette nettstedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostrzeżenia dotyczące bezpieczeństwa są ponownie włączone dla tej witryny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os avisos de segurança foram ativados novamente para este site."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предупреждения системы безопасности для этого сайта снова включены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดคำเตือนด้านความปลอดภัยสำหรับเว็บไซต์นี้อีกครั้งแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu site için güvenlik uyarıları yeniden açıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередження системи безпеки для цього сайту знову ввімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cảnh báo bảo mật đã được bật lại cho trang web này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已重新开启此网站的安全警告。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已重新開啟此網站的安全性警告。"
+          }
+        }
+      }
+    },
     "pageInfo.security.warningsTurnedOff": {
       "extractionState": "manual",
       "localizations": {

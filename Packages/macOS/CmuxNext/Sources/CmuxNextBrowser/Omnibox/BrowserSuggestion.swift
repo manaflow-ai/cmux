@@ -13,6 +13,8 @@ public nonisolated struct BrowserSuggestion: Hashable, Sendable, Identifiable {
         case bookmark
         /// An extension's suggestion in a keyword session (`chrome.omnibox`).
         case keyword
+        /// An open tab of the same profile: Enter reveals it ("Switch to Tab").
+        case switchToTab
     }
 
     public var kind: Kind
@@ -25,6 +27,12 @@ public nonisolated struct BrowserSuggestion: Hashable, Sendable, Identifiable {
     public var score: Double
     /// Keyword rows: the text sent to the extension and put in the field.
     public var content: String?
+    /// Inline autocomplete may complete the typed text to this row. The
+    /// suggestion pipeline allows it only on its top local row
+    /// (`OmniboxPhaseA`); rows from other providers keep the default.
+    public var inlineCompletable = true
+    /// Switch to Tab rows: the tab to reveal.
+    public var tabKey: String?
 
     public var id: String { "\(kind)|\(url.absoluteString)" }
 

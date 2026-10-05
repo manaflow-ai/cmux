@@ -28,9 +28,11 @@ public nonisolated struct AgentPageOps {
             "pane.checkpointAvailability", "pane.framePacing", "pane.renderRate",
             "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "project.list", "project.browse", "onboarding.importAndSync", "app.action",
             "quick.dismiss", "quick.openInWindow",
             "git.diff", "git.status", "file.search", "git.checkpoint.diff",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
+            "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
         ].map { ($0, $0) })
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"

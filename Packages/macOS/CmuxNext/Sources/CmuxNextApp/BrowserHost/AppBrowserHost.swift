@@ -151,6 +151,7 @@ final class AppProviderCredentials: ProviderCredentialsSource {
         guard let daemon, daemon.supports(DaemonCapabilities.shared.browserHostProvider),
               let connection = daemon.connection,
               let reply = try? await connection.request(BrowserHostProviderRequest()) else { return nil }
-        return ProviderCredentials(socketPath: reply.socket, secret: ProviderSecret(reply.secret), hostPID: reply.hostPID)
+        return ProviderCredentials(socketPath: reply.socket, secret: ProviderSecret(reply.secret), hostPID: reply.hostPID,
+                                   listenerPID: reply.listenerPID)
     }
 }

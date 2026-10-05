@@ -42,8 +42,9 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
         applySiteSettings(to: preferences, for: navigationAction)
-        if navigationAction.targetFrame?.isMainFrame ?? true { navigationSourceSite = pageSite }
-        decisionHandler(.allow, preferences)
+        guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
+        navigationSourceSite = pageSite
+        engine.admitMainFrameLoad(url, in: self) { decisionHandler($0 ? .allow : .cancel, preferences) }
     }
 
     public func webView(
@@ -90,7 +91,6 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.titleChanged(webView.title))
         syncHistory()
         syncSecurity()
-        engine?.recheckCertificate(self)
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

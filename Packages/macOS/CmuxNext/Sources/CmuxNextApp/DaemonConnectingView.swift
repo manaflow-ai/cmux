@@ -88,7 +88,7 @@ final class DaemonConnectingView: NSView {
             statusTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { @MainActor [weak self] in
                 guard let self else { return }
                 statusDue = true
-                Motion.animate(.fadeIn) { self.titleLabel.animator().alphaValue = 1 }
+                Motion.animate(.fadeIn, in: self.titleLabel) { self.titleLabel.animator().alphaValue = 1 }
             }
         }
     }

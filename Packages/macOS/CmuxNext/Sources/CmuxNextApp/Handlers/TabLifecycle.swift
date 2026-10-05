@@ -255,10 +255,15 @@ enum TabLifecycle {
     static func close(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil else {
             guard let (pane, id) = ctx.tab(invocation) else { return }
+            // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
+            if invocation.origin == .user { ctx.services.closedTabs?.undoToasts.expect(id, in: pane) }
             return pane.close([id])
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-        if let controller = ctx.services.paneController(for: pane) { return controller.close([StripTabID(tab.id)]) }
+        if let controller = ctx.services.paneController(for: pane) {
+            if invocation.origin == .user { ctx.services.closedTabs?.undoToasts.expect(StripTabID(tab.id), in: controller) }
+            return controller.close([StripTabID(tab.id)])
+        }
         let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
         if tab.kind == .remoteTerminal { ctx.services.remoteTerminals.viewClosed(tab) }
         ctx.send(command.label, command.run)

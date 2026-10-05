@@ -23,7 +23,8 @@ struct BrowserChordTableTests {
             GhosttyHostKeybind(key: .unicode(UInt32(("b" as Unicode.Scalar).value)), modifiers: [.command, .control], action: .gotoSplit(.left)),
             GhosttyHostKeybind(key: .unicode(UInt32(("y" as Unicode.Scalar).value)), modifiers: [.command], action: .toggleSplitZoom),
         ]
-        services.keyRouter.ghosttyHostAction = { event in binds.first { $0.matches(event) }?.action }
+        // `super+[` / `super+]` are Ghostty defaults; Cmd-Ctrl-B and Cmd-Y are the user's.
+        services.keyRouter.loadGhosttyKeybinds(binds, defaults: Array(binds.prefix(2)))
         return services
     }
 

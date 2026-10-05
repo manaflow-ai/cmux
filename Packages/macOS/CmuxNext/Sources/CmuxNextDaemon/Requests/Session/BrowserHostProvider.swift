@@ -9,12 +9,16 @@ public struct BrowserHostProviderRequest: DaemonRequest {
         public var socket: String
         /// The host launch's provider secret.
         public var secret: String
-        /// The host's pid: dial only when the socket's peer is this process.
+        /// The host process.
         public var hostPID: Int32
+        /// The process that holds the listening socket (the daemon under socket activation);
+        /// absent from older daemons. Send the secret only to a peer that is one of the two.
+        public var listenerPID: Int32?
 
         enum CodingKeys: String, CodingKey {
             case socket, secret
             case hostPID = "host_pid"
+            case listenerPID = "listener_pid"
         }
     }
     public static let command = "browser-host-provider"

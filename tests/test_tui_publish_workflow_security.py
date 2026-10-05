@@ -218,11 +218,19 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "ls-remote" in preflight
     assert "tree_ready" in preflight
     assert "run_macos" in preflight
+    assert "owner_run_id" in preflight
+    assert "actions/workflows/cmux-tui-artifacts.yml/runs" in preflight
+    owner_wait = workflow_job(artifacts, "tree-owner-wait")
+    assert "takeover" in owner_wait
+    assert "actions/runs/$OWNER_RUN_ID" in owner_wait
+    assert "skipping duplicate build" in owner_wait
+    assert "taking over" in owner_wait
     assert "refs/heads/main" in preflight
     for job in ("build", "cmux-next-daemon-tests"):
         body = workflow_job(artifacts, job)
-        assert "needs: tree-preflight" in body
+        assert "needs: [tree-preflight, tree-owner-wait]" in body
         assert "needs.tree-preflight.outputs.run_macos == 'true'" in body
+        assert "needs.tree-owner-wait.outputs.takeover == 'true'" in body
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert 'CARGO_NET_RETRY: "10"' in daemon
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
@@ -241,6 +249,7 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "needs.cmux-next-daemon-tests.result == 'failure'" in requeue
     assert "needs.build.result == 'failure'" in requeue
     assert "needs.tree-preflight.result == 'failure'" in requeue
+    assert "needs.tree-owner-wait.result == 'failure'" in requeue
     assert "needs.publish-pr-tree.result == 'failure'" in requeue
     pr_publisher = workflow_job(artifacts, "publish-pr-tree")
     assert "github.event_name == 'pull_request_target'" in pr_publisher
@@ -269,10 +278,15 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "current_key" in preflight
     assert '"$current_key" == "$key"' in preflight
     assert "retaining publication for superseded tree" in preflight
+    assert "deterministic owner" in preflight
+    assert "owner_run_id" in preflight
     for job, prefix in (("build", "cmux-tui-build-"), ("cmux-next-daemon-tests", "cmux-tui-daemon-")):
         body = workflow_job(artifacts, job)
-        assert f"group: {prefix}" + "${{ needs.tree-preflight.outputs.key }}" in body
-        assert "cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}" in body
+        assert f"group: {prefix}" + "${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in body
+        assert "cancel-in-progress: false" in body
+    tree_publisher = workflow_job(artifacts, "publish-tree")
+    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
+    assert "replaces an older pending job" in artifacts
 
 
 def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:

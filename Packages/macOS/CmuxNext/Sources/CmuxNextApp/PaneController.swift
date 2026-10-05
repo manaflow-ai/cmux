@@ -285,7 +285,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
-        case .conversation where tab.agentSession != nil: return agentContent(key)
+        case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
             return nil

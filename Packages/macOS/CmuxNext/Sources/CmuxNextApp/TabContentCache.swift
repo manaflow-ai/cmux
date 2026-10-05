@@ -37,6 +37,10 @@ final class TabContentCache {
     /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
     /// apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// How long a leave capture may take before its thumbnail is dropped
+    /// (the capture runs on the main thread). Tests that do not test this
+    /// deadline use the shared 30 s test configuration.
+    var pageCaptureDeadline: Duration = .seconds(2)
     /// Pages revealed since their last hide: the next hide captures their
     /// thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
@@ -45,8 +49,9 @@ final class TabContentCache {
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
     /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
     let history = InMemoryBrowserHistory()
-    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)] + (extraSuggestionProviders?(.default) ?? []))
-    var extraSuggestionProviders: ((BrowserProfileID) -> [any BrowserSuggestionProvider])? // bookmark rows per profile
+    private(set) lazy var suggestionEngine = makeSuggestionEngine(history: history, profile: .default)
+    var onSuggestionEngineCreated: ((OmniboxSuggestionEngine, BrowserProfileID) -> Void)? // bookmark feed, settings
+    var onRevealTab: ((String) -> Void)? // a Switch to Tab row was chosen
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
     /// A profile's omnibar history was created or dropped (`HistoryService`).
@@ -304,8 +309,9 @@ final class TabContentCache {
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
         let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
-        let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestions(for: page.profileID),
+        let entry = BrowserEntry(tab: page, suggestionEngine: incognito.map { incognitoSuggestions($0) } ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
+        entry.chrome.addressBar.tabKey = key
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
@@ -373,7 +379,6 @@ final class TabContentCache {
     }
 }
 
-
 /// A pane that shows cached content.
 @MainActor
 protocol SurfacePresenter: AnyObject {
@@ -385,11 +390,4 @@ protocol SurfacePresenter: AnyObject {
 
 struct WeakPresenter {
     weak var value: (any SurfacePresenter)?
-}
-
-extension TabContentCache: BrowserDevToolsObserving {
-    func browserTab(_ tab: any BrowserTab, devToolsDidChange state: BrowserDevToolsState, focused: Bool) {
-        guard let key = key(of: tab) else { return }
-        onDevToolsChange?(key, state, focused)
-    }
 }

@@ -332,8 +332,13 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
     def test_new_tree_schedules_mac_build_and_daemon_tests(self):
         self.assertEqual(self.run_preflight(artifacts=True)["run_macos"], "true")
 
-    def test_same_tree_superseded_push_skips_missing_tree_build(self):
+    def test_same_tree_superseded_push_keeps_missing_tree_build(self):
         output = self.run_preflight(artifacts=True, remote="b" * 40)
+        self.assertEqual(output["run_macos"], "true")
+        self.assertEqual(output["superseded"], "false")
+
+    def test_same_tree_superseded_push_skips_complete_tree_build(self):
+        output = self.run_preflight(artifacts=True, remote="b" * 40, published=True)
         self.assertEqual(output["run_macos"], "false")
         self.assertEqual(output["superseded"], "true")
 

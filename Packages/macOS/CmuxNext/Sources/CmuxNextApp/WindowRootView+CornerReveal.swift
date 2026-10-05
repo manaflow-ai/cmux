@@ -34,7 +34,7 @@ extension WindowRootView {
             for view in views { view.animator().alphaValue = alpha }
             self.onWindowControlsChange?(collapsed)
         }
-        if collapsed { Motion.animateExit(.disappear, apply) } else { Motion.animateTimed(.appear, apply) }
+        if collapsed { Motion.animateExit(.disappear, in: self, apply) } else { Motion.animateTimed(.appear, in: self, apply) }
     }
 
     /// The window's close, minimize and zoom buttons.

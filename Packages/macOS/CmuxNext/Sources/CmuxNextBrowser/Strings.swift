@@ -35,6 +35,10 @@ nonisolated enum Strings {
     static func searchWith(engine: String) -> String {
         String(localized: "browser.suggestion.searchWith", defaultValue: "\(engine) Search", bundle: .module)
     }
+    /// Chromium's `IDS_OMNIBOX_TAB_SUGGEST_HINT`: the detail of an open-tab row.
+    static var switchToTab: String {
+        String(localized: "browser.suggestion.switchToTab", defaultValue: "Switch to Tab", bundle: .module)
+    }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
         String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .module)

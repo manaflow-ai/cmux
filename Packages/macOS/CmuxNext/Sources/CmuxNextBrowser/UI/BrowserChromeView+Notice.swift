@@ -28,7 +28,7 @@ extension BrowserChromeView {
     public func hideNotice() {
         guard let notice = currentNotice else { return }
         notice.isDismissing = true
-        Motion.animate(.fadeOut, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.animate(.fadeOut, in: notice, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
             notice.removeFromSuperview()
             self?.needsLayout = true
         })
@@ -52,7 +52,7 @@ extension BrowserChromeView {
             notice.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: inset),
         ])
         notice.alphaValue = 0
-        Motion.animate(.fadeIn) { notice.animator().alphaValue = 1 }
+        Motion.animate(.fadeIn, in: notice) { notice.animator().alphaValue = 1 }
         return notice
     }
 }

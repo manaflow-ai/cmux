@@ -104,7 +104,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -254,7 +254,7 @@ jobs:
         run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       # libghostty-vt for cmux-tui comes only from ghostty-next. Fail here,
       # loudly, when that checkout is missing or empty instead of later in
@@ -392,7 +392,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install valgrind
         run: |
@@ -601,7 +601,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -652,6 +652,15 @@ jobs:
         # cmux-link checks a caller's code signature only on macOS
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: 'cargo test -p cmux-link --lib caller::tests:: -- --test-threads=2'
+
+      - name: Mac browser host provider tests
+        working-directory: cmux-tui
+        # The provider socket's peer pid differs by platform (macOS reports
+        # the last process that used the server end), and the inherited
+        # listeners must close on exec on macOS too.
+        run: |
+          cargo test -p cmux-browser-host --lib server::inherited_listener_tests:: -- --test-threads=1
+          cargo test -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
 
       - name: Mac process and PTY tests
         working-directory: cmux-tui
@@ -715,7 +724,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -921,7 +930,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -1076,7 +1085,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |
