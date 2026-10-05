@@ -10,6 +10,8 @@ use std::io;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 const AGENT_SOURCE: &str = "globalThis.__cmuxPageAgent = { resolveHandle: (id) => null };";
+/// A page value in the page's key order, nested objects and arrays included.
+const KEY_ORDER: &str = r#"{"title":"cmux","url":"https://example.com/cmux","snippet":"s","nested":{"z":1,"a":[{"y":2,"b":0.1}]}}"#;
 const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 #[derive(Default)]
@@ -53,9 +55,11 @@ impl CdpWire for WireHandle {
         for event in events {
             conn.receive(&event.to_string());
         }
-        // A held request gets no reply now.
-        if !reply.is_null() {
-            conn.receive(&reply.to_string());
+        // A held request gets no reply now; a text reply is sent verbatim.
+        match reply {
+            Value::Null => {}
+            Value::String(text) => conn.receive(&text),
+            reply => conn.receive(&reply.to_string()),
         }
         Ok(())
     }
@@ -241,6 +245,24 @@ impl FakeWire {
             "Runtime.callFunctionOn" => {
                 let declaration = params["functionDeclaration"].as_str().unwrap_or("");
                 let first = &params["arguments"][0]["value"];
+                if declaration.contains("key-order") {
+                    // Chromium's text, in the page's key order.
+                    let text = format!(
+                        r#"{{"id":{id},"result":{{"result":{{"type":"object","value":{KEY_ORDER}}}}}}}"#
+                    );
+                    return (Value::String(text), events);
+                }
+                if declaration.contains("cmux-fetch-cancel") {
+                    // The host aborts its fetch: the held request rejects.
+                    if let Some((held, _)) = browser.held.take() {
+                        events.push(json!({"id": held, "result": {"result": {"type": "object"},
+                            "exceptionDetails": {"text": "Uncaught", "exception": {"description": "AbortError: aborted"}}}}));
+                    }
+                    return (
+                        json!({"id": id, "result": {"result": {"type": "boolean", "value": true}}}),
+                        events,
+                    );
+                }
                 if declaration.contains("__cmuxFetch") && declaration.contains("AbortController") {
                     if browser.hold_fetch {
                         browser.held = Some((id, session));
@@ -1330,4 +1352,74 @@ fn the_fetch_shell_closes_when_its_setup_fails() {
         sent.iter().any(|(m, p)| m == "Target.closeTarget" && p["targetId"] == "T1"),
         "the shell leaked: {sent:?}"
     );
+}
+
+/// a9 raw_value: frame.evaluate hands the page's value on as the JSON text
+/// Chromium sent, in the page's key order (scenario 32's search results).
+#[test]
+fn script_values_keep_the_page_key_order() {
+    use cmux_browser_host::driver::Reply;
+    let h = Harness::new();
+    let target = h.open(None);
+    let reply = h
+        .driver
+        .call_reply_announced(
+            "frame.evaluate",
+            &json!({"targetId": target, "source": "() => 'key-order'"}),
+            &mut || {},
+        )
+        .expect("frame.evaluate");
+    match reply {
+        Reply::Json(raw) => assert_eq!(raw.get(), KEY_ORDER),
+        Reply::Value(value) => panic!("the value was parsed (keys sorted): {value}"),
+    }
+}
+
+/// Classic main: a cancelled fetch stops at once. A shell fetch closes its
+/// shell (the detached session fails the pending call).
+#[test]
+fn a_cancelled_shell_fetch_closes_its_shell_at_once() {
+    let h = Harness::with_browser(Browser { hold_fetch: true, ..Browser::default() });
+    let mark = h.mark();
+    std::thread::scope(|scope| {
+        let fetch = scope.spawn(|| {
+            h.driver.call(
+                "net.fetch",
+                &json!({"url": "https://a.test/data", "fetchId": "f1", "timeoutMs": 2000}),
+            )
+        });
+        wait_until(|| h.wire.browser.lock().unwrap().held.is_some(), "the fetch never started");
+        let _ = h.driver.call("net.fetch.cancel", &json!({"fetchId": "f1"}));
+        wait_until(
+            || {
+                h.sent_since(mark)
+                    .iter()
+                    .any(|(m, p)| m == "Target.closeTarget" && p["targetId"] == "T1")
+            },
+            "the cancel did not close the shell",
+        );
+        assert!(fetch.join().unwrap().is_err(), "a cancelled fetch fails");
+    });
+}
+
+/// Classic main: a cancelled in-tab fetch is aborted in the host world.
+#[test]
+fn a_cancelled_tab_fetch_is_aborted_at_once() {
+    let h = Harness::with_browser(Browser { hold_fetch: true, ..Browser::default() });
+    let target = h.open(None);
+    std::thread::scope(|scope| {
+        let fetch = scope.spawn(|| {
+            h.driver.call(
+                "net.fetch",
+                &json!({"targetId": target, "url": "https://a.test/data", "fetchId": "f2", "timeoutMs": 2000}),
+            )
+        });
+        wait_until(|| h.wire.browser.lock().unwrap().held.is_some(), "the fetch never started");
+        let _ = h.driver.call("net.fetch.cancel", &json!({"fetchId": "f2"}));
+        wait_until(
+            || h.wire.browser.lock().unwrap().held.is_none(),
+            "the cancel did not abort the fetch",
+        );
+        assert!(fetch.join().unwrap().is_err(), "a cancelled fetch fails");
+    });
 }

@@ -2291,7 +2291,7 @@ enum Command {
         transaction: Option<String>,
         /// `close-reason-v1`: `session_end` keeps the close out of closed history.
         #[serde(default)]
-        reason: Option<String>,
+        reason: Option<crate::mux::CloseReason>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },

@@ -23,7 +23,7 @@ extension TerminalSurfaceView {
             if let delegate = session.delegate {
                 delegate.terminalSessionDidRingBell(session)
             } else {
-                NSSound.beep()
+                GhosttyRuntime.shared.bellSettings.ring()
             }
         case .openURL(let text):
             guard let url = Self.url(from: text) else { return false }

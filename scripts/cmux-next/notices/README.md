@@ -16,7 +16,10 @@ stale). Do not edit it by hand.
 - `bundle-map.json` maps every Mach-O file of the app bundle to the notices it
   needs. `scripts/verify-app-bundle-licenses.sh` runs `check_bundle_notices.py`
   and fails on an unmapped binary or a missing notice. Add a map entry in the
-  same change that adds a binary to the bundle.
+  same change that adds a binary to the bundle. Its `resources` entries cover
+  third-party data: a bundle with `Contents/Resources/ghostty-licenses/` needs
+  that entry, and the tree must pass `verify-ghostty-license-bundle.py` for the
+  checkout's Ghostty revision.
 
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
@@ -24,7 +27,17 @@ CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 Ghostty's Zig packages: `cmux-tui/build-support/notices/ghostty/`
 (collect-ghostty-licenses.py, verify-ghostty-license-bundle.py, pinned-licenses/),
 shared with cmux-browser. A Zig package without a license file needs pinned
-texts there, or the collection fails.
+texts there, or the collection fails. So does a vendored Ghostty directory
+(`pkg/<name>`, `vendor/<name>`) without a license file: it needs a reviewed
+"vendored" entry in `pinned-licenses/MANIFEST.json` (`ghostty_vendored.py`,
+which also checks a git revision without zig). bin/cmux links libghostty-vt
+from the submodule that `ghostty-vt-sys/build.rs` names (`ghostty-next` today);
+`check_ghostty_vt_notices.py` resolves that source and commit from the tree and
+checks that its declared Zig packages are in a collected license manifest.
+nightly-next collects a second tree from that submodule
+(`Contents/Resources/ghostty-next-licenses/`, its own bundle-map entry) and
+puts the tree and its Zig packages in the source archive. A product that
+builds cmux-tui with its own Ghostty pin passes `--ghostty-revision-file`.
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache

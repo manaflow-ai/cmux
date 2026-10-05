@@ -22,7 +22,8 @@
 # owned by the license review, copied byte for byte with section markers), one
 # generated crate list per bundled Rust binary (cmux-tui/build-support/notices/
 # rust_notices.py; union of aarch64 and x86_64 macOS closures), and one shared
-# block that prints each license text once:
+# block that prints each license text once, and the Ghostty themes section
+# (ghostty_themes_notice.py, for Resources/ghostty/themes):
 #
 #   rust-cmux-cli           bin/cmux and bin/cmux-tui-ssh/*  cmux-tui/Cargo.lock
 #   rust-cmux-app-host      bin/cmux-app-host                cmux-tui/Cargo.lock
@@ -167,8 +168,10 @@ section rust-iroh-ffi "Rust crates: Iroh.framework (manaflow-ai/iroh-ffi)" \
   --root iroh-ffi --workspace "$iroh_src" \
   --path-download "git+https://github.com/manaflow-ai/iroh-ffi.git@$iroh_rev"
 
+python3 "$ROOT/scripts/cmux-next/notices/ghostty_themes_notice.py" --root "$ROOT" --out "$work/ghostty-themes.md"
 compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --hand-written "$ROOT/scripts/cmux-next/notices/hand-written.md"
+  --section "$work/ghostty-themes.md"
   --section "$work/rust-cmux-cli.md" --section "$work/rust-cmux-app-host.md"
   --section "$work/rust-cmux-cloud.md" --section "$work/rust-cmux-diff-sidecar.md"
   --section "$work/rust-iroh-ffi.md"

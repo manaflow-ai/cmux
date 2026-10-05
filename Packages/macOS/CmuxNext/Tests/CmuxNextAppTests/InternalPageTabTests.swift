@@ -122,7 +122,7 @@ struct InternalPageTabTests {
         }
         #expect(view.page == .settings)
         #expect(view.focusTarget.isDescendant(of: view))
-        #expect(services.pages.stripItem(key).title == SettingsPaneTitle.text)
+        #expect(services.pages.stripItem(key).title == SettingsDeepLink.pageTitle)
     }
 
     /// R82: the tab shows the React Settings page (cmux-page://cmux.settings/), not the Swift view.
