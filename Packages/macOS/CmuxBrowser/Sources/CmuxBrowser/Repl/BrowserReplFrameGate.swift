@@ -1185,11 +1185,24 @@ public final class BrowserReplFrameGate {
     return { tampered };
     """
 
+    /// A JavaScript expression: whether the element in `variable` is one
+    /// that holds a child browsing context (`<iframe>`, `<frame>`,
+    /// `<object>`, `<embed>`), so the focus it has is in that frame. Every
+    /// focus check (the gate's, the secret target's) uses this one list.
+    /// String comparisons only: it runs in a world agent code cannot reach,
+    /// and needs no global it could replace.
+    public static func frameElementTest(_ variable: String) -> String {
+        "(!!\(variable) && (" + frameElementTags.map { "\(variable).tagName === \"\($0)\"" }.joined(separator: " || ") + "))"
+    }
+
+    /// The elements that hold a child browsing context.
+    static let frameElementTags = ["IFRAME", "FRAME", "OBJECT", "EMBED"]
+
     /// The frame's focus, and its own position in its parent's
     /// `window.frames` (-1 in a shadow tree) with that list's length.
     private static let focusSource = """
     const e = document.activeElement;
-    const inner = !!e && (e.tagName === "IFRAME" || e.tagName === "FRAME" || e.tagName === "OBJECT");
+    const inner = \(frameElementTest("e"));
     const p = window.parent;
     let position = -1;
     const length = p === window ? 0 : p.length;
@@ -1205,7 +1218,7 @@ public final class BrowserReplFrameGate {
     private static let ownerFocusSource = """
     let e = document.activeElement;
     while (e && e.shadowRoot && e.shadowRoot.activeElement) e = e.shadowRoot.activeElement;
-    if (!e || !(e.tagName === "IFRAME" || e.tagName === "FRAME" || e.tagName === "OBJECT" || e.tagName === "EMBED")) return false;
+    if (!\(frameElementTest("e"))) return false;
     if (window.frames.length !== length) return null;
     const w = e.contentWindow;
     if (index >= 0) return !!w && w === window.frames[index];

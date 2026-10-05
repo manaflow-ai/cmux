@@ -21,12 +21,15 @@ public struct BrowserReplSecretTarget {
     /// navigation replaces its document, and a busy page answers late.
     private let probe: BrowserReplScriptProbe
     /// Answers, in one frame's document, whether it holds the focused
-    /// element (a function body returning a boolean).
+    /// element (a function body returning a boolean). A document whose
+    /// active element is a frame element
+    /// (``BrowserReplFrameGate/frameElementTest(_:)``) is never asked: the
+    /// focus is in that element's frame, which answers for itself.
     var focusProbe = Self.focusProbe
 
     static let focusProbe = """
     const el = document.activeElement;
-    return document.hasFocus() && !!el && el.tagName !== "IFRAME" && el.tagName !== "FRAME";
+    return document.hasFocus() && !!el;
     """
 
     /// - Parameters:
@@ -46,7 +49,16 @@ public struct BrowserReplSecretTarget {
     /// - Parameter frames: The tab's frame tree, read just before.
     public func check(in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
         // The document that answers "focused" names its own origin.
-        let source = "const focused = (() => {\n\(focusProbe)\n})();\nreturn focused ? String(self.origin) : null;"
+        // A focused `<iframe>`, `<frame>`, `<object>` or `<embed>` means the
+        // focus is in its frame, never in this document.
+        let source = """
+        const __active = document.activeElement;
+        if (\(BrowserReplFrameGate.frameElementTest("__active"))) return null;
+        const focused = (() => {
+        \(focusProbe)
+        })();
+        return focused ? String(self.origin) : null;
+        """
         var focusedOrigin: String?
         for frame in frames {
             guard let info = frame.info else { continue }
