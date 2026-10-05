@@ -751,6 +751,31 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect((partial?.intValue ?? size) < size)
     }
 
+    /// A path is bounded before any work (the ledger's fsPathBytes,
+    /// `PATH_MAX` each): a longer one would be canonicalized one component
+    /// at a time in native code, long past the cell's timeout.
+    @Test("An fs path past PATH_MAX is refused with ENAMETOOLONG before any work, without echoing it")
+    func overlongPathIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget())
+        let long = String(repeating: "a/", count: 32 << 10)
+        let calls: [(String, [String: Any])] = [
+            ("stat", ["path": long]),
+            ("resolve", ["path": long]),
+            ("writeFile", ["path": long, "base64": ""]),
+            ("rename", ["from": "x", "to": long]),
+            ("copyFile", ["from": long, "to": "y"]),
+        ]
+        for (operation, arguments) in calls {
+            let result = fs.perform(operation, arguments: arguments)
+            #expect(result.failureCode == "ENAMETOOLONG", "\(operation): \(String(describing: result.failure))")
+            let message = result.failure?.message ?? ""
+            #expect(message.contains("an fs path at most 1024 bytes each") && !message.contains(long), "\(operation): \(message.prefix(300))")
+        }
+        #expect(fs.perform("stat", arguments: ["path": String(repeating: "b", count: 255)]).failureCode == "ENOENT")
+    }
+
     @Test("copyFile copies the bytes, the mode and replaces the destination")
     func copyKeepsBytesAndMode() throws {
         let scratch = try Scratch()
