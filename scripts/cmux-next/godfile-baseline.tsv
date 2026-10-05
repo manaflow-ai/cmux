@@ -61,12 +61,10 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2820	83
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1938	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1126	30
-rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27460	782
+rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27365	780
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
-rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	10402	433
-rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_protocol.rs	1234	54
-rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime.rs	10212	370
-rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host.rs	917	65
+rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	10396	432
+rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime.rs	10092	369
 rust-file	cmux-tui/crates/cmux-tui-core/src/unix_process_scope.rs	1679	72
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	6159	231
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs	1480	29
@@ -93,7 +91,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/machine_runtime.rs	1105	54
 rust-file	cmux-tui/crates/cmux-tui/src/machine.rs	1364	63
 rust-file	cmux-tui/crates/cmux-tui/src/main.rs	3177	119
 rust-file	cmux-tui/crates/cmux-tui/src/plugin_manager.rs	2140	106
-rust-file	cmux-tui/crates/cmux-tui/src/pty_input.rs	2852	107
+rust-file	cmux-tui/crates/cmux-tui/src/pty_input.rs	2783	105
 rust-file	cmux-tui/crates/cmux-tui/src/remote_browser_proxy.rs	1008	23
 rust-file	cmux-tui/crates/cmux-tui/src/remote_cli.rs	5324	190
 rust-file	cmux-tui/crates/cmux-tui/src/remote_runtime.rs	6677	238
@@ -106,7 +104,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/ui/terminal_grid.rs	1115	43
 rust-file	cmux-tui/crates/cmux-tui/tests/cli.rs	3870	122
 rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5573	109
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
-rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3335	168
+rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3320	166
 swift-type	CmuxNextApp/WindowManager	1129	0
 swift-type	CmuxNextDaemon/DaemonConnection	1446	0
 swift-type	CmuxNextTabs/TabStripView	2116	0
