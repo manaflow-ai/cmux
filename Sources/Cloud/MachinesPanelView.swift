@@ -146,7 +146,13 @@ struct MachinesPanelView: View {
                 billingPlanLoaded = false
                 return
             }
-            billingPlanLoaded = false
+            // The panel is rebuilt whenever the sidebar switches modes. Start
+            // from the account's last answer so Enable Cloud / Upgrade stays
+            // on screen while it refreshes, instead of flashing "Checking…".
+            billingPlanLoaded = accountFlow.hasLoadedBillingPlan
+            // The enable action is available while the entitlement is unknown.
+            // The response itself is the synchronization event.
+            billingPlanLoaded = true
             await accountFlow.refreshBillingPlan()
             guard !Task.isCancelled,
                   accountFlow.isAuthenticated,
@@ -225,6 +231,7 @@ struct MachinesPanelView: View {
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
+            treeHint: viewModel.treeHint,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
             onDismissTreeError: { error in
                 bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
@@ -406,6 +413,7 @@ struct MachinesPanelView: View {
             },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            onHint: { [weak viewModel] hint in viewModel?.noteTreeHint(hint) },
             refresh: { refreshMachines() },
             refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
             workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
@@ -452,11 +460,11 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(), isRefreshing: devicesModel.isRefreshing
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
-            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest) : nil,
             reveal: devicesModel.revealRequest,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
@@ -471,7 +479,7 @@ struct MachinesPanelView: View {
                 Image(systemName: "desktopcomputer")
                     .font(.system(size: 30, weight: .light))
                     .foregroundStyle(.secondary)
-                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                Text(String(localized: "devices.empty.title", defaultValue: "No other devices yet"))
                     .font(.callout.weight(.medium))
                 Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
                     .font(.callout)
@@ -508,7 +516,7 @@ struct MachinesPanelView: View {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
                 }
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.small)
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {

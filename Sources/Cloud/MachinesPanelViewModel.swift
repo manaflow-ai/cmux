@@ -10,7 +10,9 @@ import SwiftUI
 final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var machines: [MachineSnapshot] = []
     @Published private(set) var plan: MachinePlanSnapshot?
-    @Published private(set) var isLoading = false
+    @Published private(set) var isLoading = false { didSet { if !isLoading { isRefreshingOnRequest = false } } }
+    /// A refresh someone asked for (`refresh(tree:)`) is loading, as opposed to the poll.
+    @Published private(set) var isRefreshingOnRequest = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
     /// Classified list failure for the matching sign-in, plan, or retry presentation.
@@ -34,6 +36,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
+    /// Set when `treeErrorDescription` is trusted, user-facing guidance rather
+    /// than an upstream failure; only that copy is shown verbatim.
+    @Published private(set) var treeHint: String?
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
@@ -75,7 +80,13 @@ final class MachinesPanelViewModel: ObservableObject {
         // prior dismissal so repeating the same ownership hint remains
         // visible on the next invalid attempt.
         AppDelegate.shared?.cloudBannerDismissalStore.clear(id: "machines.tree-error")
+        treeHint = nil
         treeErrorDescription = description
+    }
+
+    func noteTreeHint(_ hint: String) {
+        noteTreeFailure(hint)
+        treeHint = hint
     }
 
     /// Projects the coordinator's typed reachability event into this panel's
@@ -369,6 +380,7 @@ final class MachinesPanelViewModel: ObservableObject {
     func refresh(tree forceTree: Bool) {
         recoverList()
         refreshTree(force: forceTree)
+        isRefreshingOnRequest = isLoading
     }
     func refreshMachine(_ machine: SurfaceMachineID) { machineRefreshes.refresh(machine) }
     nonisolated static func usageBackoffDelay(failureCount: Int) -> TimeInterval {
@@ -381,16 +393,13 @@ final class MachinesPanelViewModel: ObservableObject {
     }
     static let pollInterval: Duration = .seconds(45)
     static let initialTransientFailureLimit = 3
-    /// A refresh asked for while one is in flight runs again afterwards: a
-    /// create that lands mid-poll must still replace its pending row with the
-    /// real machine now, not on the next 45 s sweep.
+    /// A refresh asked for while one is in flight runs again afterwards: a create that lands
+    /// mid-poll must still replace its pending row with the real machine now, not on the next 45 s sweep.
     var refreshRequestedWhileLoading = false
-    /// A queued automatic refresh promotes the current request to recovery
-    /// presentation and keeps that intent for the follow-up read.
+    /// A queued automatic refresh promotes the current request to recovery presentation and keeps that intent for the follow-up read.
     var refreshRequestedWhileLoadingIsRecovery = false
-    /// Invalidates refresh completions when the Cloud gate closes. A cancelled
-    /// URLSession task may still resume on the main actor, so cancellation
-    /// alone is not enough to prevent stale rows or follow-up work.
+    /// Invalidates refresh completions when the Cloud gate closes. A cancelled URLSession task may
+    /// still resume on the main actor, so cancellation alone is not enough to prevent stale rows or follow-up work.
     var refreshGeneration: UInt64 = 0
     /// Sleeps until the earliest upcoming transition across the fleet, then
     /// recomputes the free-access facet locally and re-arms for the next one.

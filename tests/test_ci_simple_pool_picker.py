@@ -126,8 +126,52 @@ def observed(runners, pools, *, jobs=4, env=None, runners_error=None):
         picker.LiveState = original
 
 
+class ConfiguredPoolTests(unittest.TestCase):
+    """Only the pools CI_OWNED_POOL_SLOTS lists are owned pools."""
+
+    def test_an_unlisted_owned_looking_label_is_never_picked(self):
+        # Ten idle aws runners carry glaeda-std-xcode-26.3, which sorts before
+        # the minis' 26.6; picking it sent compile admission to five runners
+        # per EC2 Mac while the minis sat idle (cmux#17207).
+        aws = [runner(f"aws-{index}", ["glaeda-std-xcode-26.3", "glaeda-root-std-xcode-26.3"], busy=False)
+               for index in range(10)]
+        minis = [std_runner(index, busy=False) for index in range(8)]
+        choice = picker.pick(observed(aws + minis, {}))
+        self.assertEqual(choice.label, STD)
+        busy_minis = [std_runner(index, busy=True) for index in range(8)]
+        self.assertNotEqual(picker.pick(observed(aws + busy_minis, {})).label, "glaeda-std-xcode-26.3")
+
+
+class LiveRunnerReadTests(unittest.TestCase):
+    """The organization has hundreds of runners; the minis are not on the first page."""
+
+    def test_runners_reads_every_page(self):
+        pages = {
+            1: [runner(f"other-{index}", ["blacksmith-6vcpu-macos-26"], busy=False) for index in range(100)],
+            2: [std_runner(index, busy=False) for index in range(30)],
+        }
+        asked = []
+
+        class Paged(picker.LiveState):
+            def _get(self, path):
+                asked.append(path)
+                page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
+                return {"total_count": 130, "runners": pages.get(page, [])}
+
+        runners = Paged("t", "manaflow-ai/cmux").runners()
+        self.assertEqual(len(runners), 130)
+        self.assertEqual(len(asked), 2)
+
+
 class OwnedQueueTests(unittest.TestCase):
     """An owned pool's free runners are its idle runners less the jobs queued on its family."""
+
+    def test_stale_xcode_pool_labels_are_not_eligible(self):
+        stale = runner("stale", ["glaeda-std-xcode-26.3"], busy=False)
+        current = std_runner(0, busy=False)
+        state = observed([stale, current], {}, jobs=1)
+        self.assertNotIn("glaeda-std-xcode-26.3", {pool.label for pool in state.owned})
+        self.assertEqual(picker.pick(state).label, STD)
 
     def test_many_queued_on_light_and_none_free_never_picks_light(self):
         # 2026-10-01 04:15Z: 25 jobs queued on the light family (14 root, 6

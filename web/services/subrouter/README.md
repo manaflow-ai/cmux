@@ -37,9 +37,11 @@ finalization command after an interrupted gate write. The operator derives
 destination tenant keys from short-lived Stack impersonation sessions and
 revokes each session without logging tokens or keys.
 
-`SUBROUTER_BASE_URL` and `SUBROUTER_ADMIN_TOKEN` remain deployed until the
-mapping table is empty. Account deletion retires both mapped legacy tenants and
-hosted tenants before removing the Stack user.
+The legacy Subrouter (`subrouter.cmux.dev`) is being retired. Account deletion
+no longer calls it: it deletes hosted tenants and the local legacy mapping rows
+before removing the Stack user. Retiring the legacy worker revokes every legacy
+tenant key. `SUBROUTER_BASE_URL` and `SUBROUTER_ADMIN_TOKEN` are read only by
+the migration script above and can be removed from deployments.
 
 ## Capacity and session contract
 

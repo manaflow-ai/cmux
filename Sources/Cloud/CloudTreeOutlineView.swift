@@ -36,7 +36,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
-    var cloudMachinesUsage: CloudMachinesUsage? = nil
+    var cloudMachinesUsage: CloudMachinesUsage? = nil, cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
@@ -76,7 +76,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             devicesSection: devicesSection,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
-            cloudMachinesUsage: cloudMachinesUsage
+            cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
         ))
         context.coordinator.reveal(reveal)
         context.coordinator.reveal(creation: creationReveal)
@@ -110,12 +110,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineDetailLayout = CloudTreeMachineDetailLayout()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
-        private var machineLiftMouseUpMonitor: Any?
+        var machineLiftMouseUpMonitor: Any?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
         private weak var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
-        private var activeDragSequenceNumber: Int?
-        private var activeDragSession: NSDraggingSession?
+        var activeDragSequenceNumber: Int?
+        var activeDragSession: NSDraggingSession?
         private weak var activeDragSourceView: CloudTreeNSOutlineView?
         private var supersededDragSession: NSDraggingSession?
         private var supersededDragSequenceNumber: Int?
@@ -164,25 +164,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
         }
 
-        /// Removes the fallback monitor used when AppKit omits a drag-end callback.
-        private func removeMachineLiftMouseUpMonitor() {
-            if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
-            machineLiftMouseUpMonitor = nil
-        }
-
-        /// Finishes the native drag through the same coordinator path as `endedAt`.
-        func installMachineLiftMouseUpMonitor(for session: NSDraggingSession, in outline: CloudTreeNSOutlineView) {
-            removeMachineLiftMouseUpMonitor()
-            machineLiftMouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
-                MainActor.assumeIsolated {
-                    guard let self,
-                          self.activeDragSession === session,
-                          self.activeDragSequenceNumber == session.draggingSequenceNumber else { return }
-                    self.outlineView(outline, draggingSession: session, endedAt: event.locationInWindow, operation: [])
-                }
-                return event
-            }
-        }
         private func discardPendingDrag(_ pending: PendingDrag) {
             pending.registration.end()
         }
@@ -509,15 +490,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #endif
             switch node.kind {
             case .machine(let machine, _):
-                machineActions.promptRename(machine.id, machine.label)
+                machineActions.promptRename(machine)
             case .workspace(let machine, let workspace, _, _, _):
                 nodeActions.renameWorkspace(machine, workspace)
-            case .display(let resource, _, _):
-                // A double-click is already an open gesture. If the selected
-                // workspace belongs to another Cloud machine, explain the
-                // ownership boundary instead of leaving the user with a
-                // generic failed pane operation.
-                _ = nodeActions.showDisplayOpenHint(resource.id)
             default:
                 break
             }
@@ -623,9 +598,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     nodeActions.newMachine()
                     return
                 }
+                // A Ports status row's text never acts; only its own button refreshes or wakes.
+                guard placeholder.portStatus == nil else { return }
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
-                if let status = placeholder.portStatus { performPortAction(status.action, machineID: machineID) }
-                else if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
+                if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
             }
         }
         private func toggle(_ node: CloudTreeNode) {
@@ -638,14 +614,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             } else {
                 outlineView.expandItem(node)
             }
-        }
-
-        /// Machines can sit under a section row (`.cloudMachinesSection`), so search the whole tree.
-        func machine(id: SurfaceMachineID) -> MachineSnapshot? {
-            for node in CloudTreeNodeBuilder.flattened(nodes) {
-                if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
-            }
-            return nil
         }
 
         // MARK: Keyboard

@@ -19,6 +19,7 @@ extension CloudTreeNodeBuilder {
         showsCloudVPNWarning: Bool = false,
         canCreateCloudMachine: Bool = false,
         cloudMachinesUsage: CloudMachinesUsage? = nil,
+        cloudMachinesRefresh: CloudTreeSectionRefresh? = nil,
         now: Date = .now,
         resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()
     ) -> [CloudTreeNode] {
@@ -77,6 +78,7 @@ extension CloudTreeNodeBuilder {
         // Device machines have no cloud id and are never fleet rows.
         for info in snapshot.machines where !info.id.isLocal {
             guard let id = info.id.cloudMachineID, !seen.contains(id) else { continue }
+            let catalogOnlyConnecting = machines.isEmpty && info.linkState == .connecting
             let placeholderSnapshot = MachineSnapshot(
                 id: id,
                 provider: "",
@@ -93,7 +95,7 @@ extension CloudTreeNodeBuilder {
                 kind: .machine(placeholderSnapshot, info),
                 children: cloudChildren(
                     machine: info.id,
-                    machineSnapshot: placeholderSnapshot,
+                    machineSnapshot: catalogOnlyConnecting ? nil : placeholderSnapshot,
                     info: info,
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
@@ -103,7 +105,9 @@ extension CloudTreeNodeBuilder {
                 ),
                 isPinned: pinnedMachineIDs.contains(id)
             ))
-            nodes.last?.resourceSection = section
+            if !catalogOnlyConnecting {
+                nodes.last?.resourceSection = section
+            }
         }
         if source.groupsDevicesUnderSection {
             let cloudChildren = nodes.isEmpty
@@ -112,15 +116,17 @@ extension CloudTreeNodeBuilder {
                     kind: .placeholder(
                         machine: .cloud("cloud-machines-section"),
                         CloudTreePlaceholder(
-                            text: String(localized: "machines.empty.create", defaultValue: "New Machine"),
-                            style: .createMachine
+                            text: String(localized: "machines.empty.none", defaultValue: "No cloud machines yet"),
+                            style: .empty
                         )
                     )
                 )]
                 : nodes
             nodes = [CloudTreeNode(
                 id: "cloud-machines-section",
-                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage),
+                kind: .cloudMachinesSection(
+                    canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage, refresh: cloudMachinesRefresh
+                ),
                 children: cloudChildren
             )]
         }
