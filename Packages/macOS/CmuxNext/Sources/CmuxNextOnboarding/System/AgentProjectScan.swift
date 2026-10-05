@@ -228,11 +228,11 @@ public nonisolated struct AgentProjectScan: Sendable {
 public struct RecentProjectScan: Sendable {
     public let projects: AgentProjectScan
     public let roots: [URL]
-    public var maxProjects: Int
-    public var maxDepth: Int
-    public var maxEntriesPerDirectory: Int
+    public let maxProjects: Int
+    public let maxDepth: Int
+    public let maxEntriesPerDirectory: Int
 
-    public init(projects: AgentProjectScan, roots: [URL]? = nil, maxProjects: Int = 50,
+    public nonisolated init(projects: AgentProjectScan, roots: [URL]? = nil, maxProjects: Int = 50,
                 maxDepth: Int = 2, maxEntriesPerDirectory: Int = 80) {
         self.projects = projects
         self.roots = roots ?? Self.defaultRoots(home: projects.home)
@@ -241,21 +241,21 @@ public struct RecentProjectScan: Sendable {
         self.maxEntriesPerDirectory = max(1, maxEntriesPerDirectory)
     }
 
-    public init(home: URL, roots: [URL]? = nil, maxProjects: Int = 50,
+    public nonisolated init(home: URL, roots: [URL]? = nil, maxProjects: Int = 50,
                 maxDepth: Int = 2, maxEntriesPerDirectory: Int = 80) {
         self.init(projects: AgentProjectScan(home: home), roots: roots, maxProjects: maxProjects,
                   maxDepth: maxDepth, maxEntriesPerDirectory: maxEntriesPerDirectory)
     }
 
     /// A scan rooted at the current user's home and agent configuration.
-    public static func live(environment: [String: String] = ProcessInfo.processInfo.environment) -> RecentProjectScan {
+    public nonisolated static func live(environment: [String: String] = ProcessInfo.processInfo.environment) -> RecentProjectScan {
         let projects = AgentProjectScan.live(environment: environment)
         return RecentProjectScan(projects: projects)
     }
 
     /// Returns recent projects, merging agent sessions, explicit cwd hints and
     /// bounded git repositories under the common development roots.
-    public func run(hints: [String] = [], now: Date = Date()) -> [AgentProject] {
+    public nonisolated func run(hints: [String] = [], now: Date = Date()) -> [AgentProject] {
         var byPath = Dictionary(uniqueKeysWithValues: projects.run(now: now).map { ($0.id, $0) })
 
         for hint in hints {
@@ -286,7 +286,7 @@ public struct RecentProjectScan: Sendable {
 
     /// Path candidates matching an explicit prefix or substring. The full
     /// path is returned so the caller can use it directly as a cwd.
-    public func complete(query: String, hints: [String] = [], limit: Int = 20) -> [String] {
+    public nonisolated func complete(query: String, hints: [String] = [], limit: Int = 20) -> [String] {
         guard limit > 0 else { return [] }
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let expanded = normalizedQuery(raw)
@@ -300,31 +300,31 @@ public struct RecentProjectScan: Sendable {
         }.prefix(limit).map { $0 }
     }
 
-    public func complete(_ query: String, hints: [String] = [], limit: Int = 20) -> [String] {
+    public nonisolated func complete(_ query: String, hints: [String] = [], limit: Int = 20) -> [String] {
         complete(query: query, hints: hints, limit: limit)
     }
 
-    private static func defaultRoots(home: URL) -> [URL] {
+    private nonisolated static func defaultRoots(home: URL) -> [URL] {
         ["Projects", "Developer", "code", "src", "workspaces"].map {
             home.appending(path: $0, directoryHint: .isDirectory)
         }
     }
 
-    private func normalizedFolder(_ path: String) -> URL? {
+    private nonisolated func normalizedFolder(_ path: String) -> URL? {
         guard !path.isEmpty else { return nil }
         let expanded = (path as NSString).expandingTildeInPath
         guard expanded.hasPrefix("/") else { return nil }
         return URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
     }
 
-    private func normalizedQuery(_ query: String) -> String {
+    private nonisolated func normalizedQuery(_ query: String) -> String {
         let expanded = (query as NSString).expandingTildeInPath
         return expanded.isEmpty ? "" : (expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded).standardizedFileURL.path : expanded)
     }
 
     /// Finds repositories at root, one child, or two children deep. Directory
     /// entries are capped to keep the new-tab request bounded on large homes.
-    private func gitRepositories() -> [URL] {
+    private nonisolated func gitRepositories() -> [URL] {
         var found: [URL] = []
         let manager = FileManager.default
         // Never inspect a caller-supplied root inside a protected location.
@@ -352,7 +352,7 @@ public struct RecentProjectScan: Sendable {
         return found
     }
 
-    private func isDirectory(_ url: URL, manager: FileManager) -> Bool {
+    private nonisolated func isDirectory(_ url: URL, manager: FileManager) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
               values.isDirectory == true, values.isSymbolicLink != true else { return false }
         return true
