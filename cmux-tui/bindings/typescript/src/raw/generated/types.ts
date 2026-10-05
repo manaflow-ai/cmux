@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
+/* cmux-tui mux protocol 12, IR 700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -15,6 +15,17 @@ export type AgentRecord = {
 };
 
 export type AgentReportSource = "socket" | "hook";
+
+export type AgentSessionSource = {
+  /** The agent kind the chat was started with. */
+  "harness"?: (string) | null;
+  /** install: and the stable install id of the machine whose acpmux runs the session. */
+  "host": string;
+  /** Display name of the host machine: 1 to 255 bytes, no control characters. */
+  "host_name"?: (string) | null;
+  /** The acpmux session id; null for a new chat until bind-conversation-tab-session. */
+  "session"?: (string) | null;
+};
 
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
@@ -226,8 +237,12 @@ export type ConversationSummary = {
 };
 
 export type ConversationTabRecord = {
-  "conversation": string;
-  "owner": string;
+  /** Agent session source (agent-session-tabs-v1); exclusive with conversation and owner. */
+  "agent_session"?: AgentSessionSource;
+  /** Conversation source: a conv_ id, with owner. */
+  "conversation"?: string;
+  /** Conversation source: local or cloud. */
+  "owner"?: string;
 };
 
 export type ConversationTextRun = {
