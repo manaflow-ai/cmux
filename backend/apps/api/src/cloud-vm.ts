@@ -127,11 +127,11 @@ export const vmEventEmit = (entity: string, p: Principal, params: unknown, rows:
  */
 export const registerVmInstall = async (
   env: Env,
-  a: { creator: string; team: string; machine: string; epoch: number; jwk: { kty: string; crv: string; x: string; y: string } }
+  a: { creator: string; team: string; machine: string; epoch: number; jwk: { kty: string; crv: string; x: string; y: string }; ssoTeam?: string }
 ): Promise<{ ok: true; id: string; grant: string } | { ok: false; code: string; message: string }> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(a.creator)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<SubmitResult> }
-  // The team vouches for its own machine's VM install: it counts as SSO-registered for that team (review P2).
-  const server: Principal = { identity: `system:cloud:${a.team}`, kind: "system", user: a.creator, team: a.team, sso_team: a.team }
+  // The VM install counts as registered from the SSO that created its machine (the creator's SSO team), else its machine's team (review P2).
+  const server: Principal = { identity: `system:cloud:${a.team}`, kind: "system", user: a.creator, team: a.team, sso_team: a.ssoTeam ?? a.team }
   const frame = {
     t: "op",
     op: "install.register_server",

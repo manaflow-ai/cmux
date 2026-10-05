@@ -56,7 +56,7 @@ export class CloudDO extends CloudCore {
     // Without the link signing keyset a bound VM could never check a link token: refuse, token unspent.
     if (!keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
     const keyset = await publicKeyset(keys)
-    const vm = await registerVmInstall(this.env, { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk })
+    const vm = await registerVmInstall(this.env, { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk, ...(m.creator_sso_team ? { ssoTeam: m.creator_sso_team } : {}) })
     if (!vm.ok) return { ok: false, code: "owner.unreachable", message: "the VM install could not be registered; retry the bind" }
     const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, vm_install: vm.id, now }
     // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
