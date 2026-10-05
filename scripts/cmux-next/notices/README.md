@@ -27,7 +27,10 @@ CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 Ghostty's Zig packages: `cmux-tui/build-support/notices/ghostty/`
 (collect-ghostty-licenses.py, verify-ghostty-license-bundle.py, pinned-licenses/),
 shared with cmux-browser. A Zig package without a license file needs pinned
-texts there, or the collection fails.
+texts there, or the collection fails. So does a vendored Ghostty directory
+(`pkg/<name>`, `vendor/<name>`) without a license file: it needs a reviewed
+"vendored" entry in `pinned-licenses/MANIFEST.json` (`ghostty_vendored.py`,
+which also checks a git revision without zig).
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache

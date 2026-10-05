@@ -469,9 +469,13 @@ def test_pinned_vendored_texts_ship_with_the_tree() -> None:
             assert (output / entry["destination"]).read_bytes() == (pinned / item["path"]).read_bytes()
         verified = run(VERIFIER, "--root", output, "--revision", REVISION)
         assert verified.returncode == 0, verified.stderr
+        other = work / "other"
+        other.mkdir()
+        source, cache = build_fixture(other)
+        (source / "pkg/simdutf/vendor").mkdir(parents=True)
         (source / "pkg/simdutf/vendor/simdutf.cpp").write_bytes(content + b"// 9.1.0\n")
         assert collect_in_process(
-            source, cache, work / "again", pinned=pinned, accept_manifest=True
+            source, cache, other / "collected", pinned=pinned, accept_manifest=True
         ) != 0
 
 
