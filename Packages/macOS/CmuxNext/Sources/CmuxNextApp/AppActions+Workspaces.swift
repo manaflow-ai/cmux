@@ -120,7 +120,8 @@ extension AppActions {
 
     private static func stepSidebar(_ services: AppServices, offset: Int) {
         let window = services.windows.active
-        if window?.sidebar.stepSectionItem(by: offset, shownWorkspace: { window?.state.workspaceID }) == true { return }
+        let shownPage = window?.focus.state.resolved.tab.flatMap(LocalPageTab.page(of:))
+        if window?.sidebar.stepSectionItem(by: offset, shownWorkspace: { window?.state.workspaceID }, shownPage: shownPage) == true { return }
         selectWorkspace(services, offset: offset)
     }
 
