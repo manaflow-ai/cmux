@@ -26,8 +26,7 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
-    @State private var isShowingCoderouterAccountChooser = false
-    @State private var coderouterAccounts: [CloudTreeNode.CoderouterAccount] = []
+    @State private var coderouter = CloudTreeCoderouterSection()
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The owning window's selection stream lets the Cloud tree update before
     /// the next machine/catalog refresh arrives.
@@ -150,19 +149,6 @@ struct MachinesPanelView: View {
                     return
                 }
             }
-        }
-        .confirmationDialog(
-            "Add coding agent account",
-            isPresented: $isShowingCoderouterAccountChooser,
-            titleVisibility: .visible
-        ) {
-            Button("Codex") { openCoderouterCLI(provider: "codex") }
-            Button("Claude") { openCoderouterCLI(provider: "claude") }
-            Button("OpenCode") { openCoderouterCLI(provider: "opencode") }
-            Button("Other CodeRouter account") { openCoderouterCLI(provider: nil) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Choose an account type. cmux opens CodeRouter in a terminal and submits the command for you.")
         }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
@@ -480,13 +466,14 @@ struct MachinesPanelView: View {
             )
         }
         nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
-        nodeActions.openCoderouterCLI = { [self] in
-            guard let teamID = accountFlow?.confirmedTeamID,
-                  !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                viewModel.noteTreeHint("Select a team before adding a coding agent account.")
-                return
+        nodeActions.addCoderouterAccount = { [self] provider in addCoderouterAccount(provider) }
+        nodeActions.refreshCoderouter = { [self] in
+            guard !coderouter.isRefreshing else { return }
+            Task { @MainActor in
+                coderouter.isRefreshing = true
+                await refreshCoderouterAccounts()
+                coderouter.isRefreshing = false
             }
-            isShowingCoderouterAccountChooser = true
         }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
@@ -507,7 +494,7 @@ struct MachinesPanelView: View {
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(), isRefreshing: devicesModel.isRefreshing
             ),
-            coderouterAccounts: coderouterAccounts,
+            coderouter: coderouter,
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest || viewModel.isRenamingMachine) : nil,
@@ -521,13 +508,13 @@ struct MachinesPanelView: View {
     private func refreshCoderouterAccounts() async {
         guard let teamID = accountFlow?.confirmedTeamID,
               !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            coderouterAccounts = []
+            coderouter.accounts = []
             return
         }
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
-            coderouterAccounts = try await CoderouterCLIAccountReader.accounts(for: teamID, name: teamName)
+            coderouter.accounts = try await CoderouterCLIAccountReader.accounts(for: teamID, name: teamName)
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
             // Keep the last successful snapshot during a transient refresh failure.
@@ -535,23 +522,15 @@ struct MachinesPanelView: View {
     }
 
     @MainActor
-    private func openCoderouterCLI(provider: String?) {
+    private func addCoderouterAccount(_ provider: CoderouterProvider) {
         guard let teamID = accountFlow?.confirmedTeamID,
               !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             viewModel.noteTreeHint("Select a team before adding a coding agent account.")
             return
         }
-
-        let quotedTeamID = "'" + teamID.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let command: String
-        switch provider {
-        case "claude":
-            command = "cmux coderouter claude add oauth-token --team \(quotedTeamID)"
-        case let provider? where ["codex", "opencode"].contains(provider):
-            command = "cmux cr add \(provider)"
-        default:
-            command = "cmux cr add"
-        }
+        // Every type adds through the CodeRouter CLI's active organization, the
+        // one the sidebar refresh keeps on the selected team and reads back.
+        let command = provider.addCommand
 
         if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
             panel.sendInput(command + "\r")

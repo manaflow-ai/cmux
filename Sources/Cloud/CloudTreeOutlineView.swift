@@ -33,7 +33,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
-    var coderouterAccounts: [CloudTreeNode.CoderouterAccount] = []
+    var coderouter = CloudTreeCoderouterSection()
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
@@ -75,7 +75,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             source: source,
             devicesSection: devicesSection,
-            coderouterAccounts: coderouterAccounts,
+            coderouter: coderouter,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
@@ -532,12 +532,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup:
                 toggle(node)
-            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAccount, .coderouterEmpty:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAccount:
                 break
-            case .coderouterAddAccount:
-                nodeActions.openCoderouterCLI()
             case .createAction(let action):
                 action.perform(nodeActions)
             case .pendingMachine(let operation):
@@ -825,7 +823,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
-            case .coderouterSection, .coderouterAccount, .coderouterEmpty, .coderouterAddAccount:
+            case .coderouterSection:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshCoderouter() }]
+            case .coderouterProviderGroup(let provider, _):
+                guard provider.canAdd else { return [] }
+                return [item(provider.newAccountTitle) { [nodeActions] in nodeActions.addCoderouterAccount(provider) }]
+            case .coderouterAccount:
                 return []
             case .createAction, .machineEndSpacer: return []
             case .machineDetailTabs(let tabs):

@@ -48,12 +48,23 @@ enum CoderouterCLIAccountReader {
             }
             return CloudTreeNode.CoderouterAccount(
                 id: id,
-                provider: provider,
+                provider: CoderouterProvider(id: provider.lowercased()),
                 label: account["label"] as? String,
-                state: account["state"] as? String
+                state: account["state"] as? String,
+                remainingPercent: remainingPercent(usage: account["usage"])
             )
         }
         return (object?["teamId"] as? String, result)
+    }
+
+    /// The share of the account's current rate-limit window still unused, the
+    /// "93% left" `cr accounts` prints. Nil when the provider reports no window.
+    private static func remainingPercent(usage: Any?) -> Int? {
+        guard let usage = usage as? [String: Any],
+              let rateLimit = usage["rate_limit"] as? [String: Any],
+              let window = rateLimit["primary_window"] as? [String: Any],
+              let used = (window["used_percent"] as? NSNumber)?.doubleValue else { return nil }
+        return min(100, max(0, Int((100 - used).rounded())))
     }
 
     private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String, run: Run) async throws -> String? {

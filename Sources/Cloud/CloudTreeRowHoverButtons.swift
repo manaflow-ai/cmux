@@ -16,9 +16,11 @@ struct CloudTreeRowHoverButtons: View {
         // (`CloudTreeSectionRefreshHeader`), not with these buttons.
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
-        case .coderouterSection:
-            plus(String(localized: "coderouter.addAccount", defaultValue: "Add coding agent account")) {
-                nodeActions.openCoderouterCLI()
+        case .coderouterProviderGroup(let provider, _):
+            if provider.canAdd {
+                plus(provider.newAccountTitle) {
+                    nodeActions.addCoderouterAccount(provider)
+                }
             }
         case .cloudMachinesSection(let canCreateMachine, _, _):
             if canCreateMachine {
@@ -128,8 +130,10 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection, .coderouterSection:
+        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
+        case .coderouterProviderGroup(let provider, _):
+            return provider.canAdd
         case .cloudMachinesSection(let canCreateMachine, _, _):
             return canCreateMachine
         case .pendingMachine:

@@ -52,20 +52,16 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
         case .coderouterSection:
             groupRow(title: String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter"))
+        case .coderouterProviderGroup(let provider, _):
+            groupRow(title: provider.title)
         case .coderouterAccount(let account):
             CloudTreeLeafRow(
                 style: style,
-                icon: "person.crop.circle",
-                tint: .secondary,
-                title: account.label?.isEmpty == false ? account.label! : account.provider.capitalized
+                icon: "",
+                tint: .clear,
+                title: account.title,
+                detail: Self.usageDetail(for: account)
             )
-        case .coderouterEmpty:
-            CloudTreeLeafRow(style: style, icon: "", tint: .clear,
-                             title: String(localized: "coderouter.empty", defaultValue: "No accounts yet"), titleDimmed: true)
-        case .coderouterAddAccount:
-            CloudTreeLeafRow(style: style, icon: "plus", tint: .secondary,
-                             title: String(localized: "coderouter.addAccount", defaultValue: "Add coding agent account"),
-                             titleDimmed: true)
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
         case .createAction(let action):
@@ -189,6 +185,7 @@ struct CloudTreeRowContentView: View {
         switch kind {
         case .cloudMachinesSection(_, _, let refresh): refresh
         case .devicesSection(let section): CloudTreeSectionRefresh(isRefreshing: section.isRefreshing)
+        case .coderouterSection(_, let refresh): refresh
         default: nil
         }
     }
@@ -204,11 +201,21 @@ struct CloudTreeRowContentView: View {
     static func groupCount(for kind: CloudTreeNode.Kind) -> CloudTreeGroupCount? {
         switch kind {
         case .devicesSection(let section): CloudTreeGroupCount(section.count)
-        case .coderouterSection, .coderouterEmpty: nil
+        case .coderouterSection(let count, _), .coderouterProviderGroup(_, let count): CloudTreeGroupCount(count)
         case .cloudMachinesSection(_, let usage?, _): CloudTreeGroupCount(usage: usage)
         case .terminalsPool(_, let count), .displaysPool(_, let count, _): CloudTreeGroupCount(count)
         default: nil
         }
+    }
+
+    /// An account row's trailing usage, as `cr accounts` shows it ("93% left").
+    /// A state other than active (cooldown, expired, rejected) replaces it.
+    static func usageDetail(for account: CloudTreeNode.CoderouterAccount) -> String? {
+        if let state = account.state, !state.isEmpty, state != "active" {
+            return state.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+        guard let remaining = account.remainingPercent else { return nil }
+        return String(format: String(localized: "coderouter.account.remaining", defaultValue: "%d%% left"), remaining)
     }
 
     /// Formats terminal totals for group and machine summaries.
