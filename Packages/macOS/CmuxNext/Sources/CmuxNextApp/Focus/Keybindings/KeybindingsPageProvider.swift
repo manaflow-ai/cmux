@@ -39,7 +39,18 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.keymap.import":
             return try await keymapFile(export: false)
         case "cmux.keybindings.set", "cmux.keybindings.remove", "cmux.keybindings.reset":
-            throw PageError(code: "cmux.keybindings.unsupported", message: KeybindingStrings.editingUnsupported)
+            guard let settings = services.settings else {
+                throw PageError(code: "cmux.keybindings.unsupported", message: KeybindingStrings.editingUnsupported)
+            }
+            let writes = KeybindingPageWrites(registry: services.registry, settings: settings)
+            let fields = params.objectValue ?? [:]
+            switch op {
+            case "cmux.keybindings.set": try await writes.set(fields)
+            case "cmux.keybindings.remove": try await writes.remove(fields)
+            default: try await writes.reset(fields)
+            }
+            for listener in changedListeners.values { listener([:]) }
+            return .object([:])
         default:
             throw PageError.unknownOp(op)
         }
