@@ -130,6 +130,55 @@ struct CertificateWarningRevokeTests {
         #expect(await tab.turnOnCertificateWarnings() == false)
     }
 
+    /// Chromium can clear only every Proceed choice of the profile
+    /// (ClearCertificateExceptions): Page Info and the result notice say
+    /// "all sites in this profile"; WebKit says "this site".
+    @Test func theResultSaysWhatWasTurnedOn() async throws {
+        let cases: [(BrowserEngineKind, BrowserCertificateWarningScope)] = [(.cef, .profile), (.webkit, .site)]
+        for (engine, scope) in cases {
+            let tab = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: engine, completesNavigationsImmediately: true)
+            let notices = NoticeRecorder()
+            tab.delegate = notices
+            tab.load(page)
+            tab.pageInfoFake.certificateWarningsOff = true
+            let controller = PageInfoController(tab: { tab }, anchor: { nil })
+            controller.refreshPermissions()
+            #expect(controller.model.certificateWarningScope == scope, "\(engine)")
+
+            try controller.run(.reenableCertificateWarnings)
+            for _ in 0 ..< 50 where notices.texts.isEmpty { await Task.yield() }
+            #expect(notices.texts == [PageInfoStrings.certificateWarningsOnAgain(scope)], "\(engine)")
+        }
+        #expect(PageInfoStrings.certificateWarningsOnAgain(.profile) != PageInfoStrings.certificateWarningsOnAgain(.site))
+    }
+
+    /// Chromium's "Turn on warnings" row says it covers every site of the
+    /// profile; WebKit's row has no such line.
+    @Test func chromiumsTurnOnWarningsRowSaysAllSites() {
+        let model = PageInfoModel()
+        model.site = PageInfoSite(url: page, security: .broken)
+        model.page = .security
+        model.certificates = []
+        model.certificateWarningsOff = true
+        let allSites = PageInfoStrings.certificateWarningsAllSites
+        #expect(Self.label(allSites, in: PageInfoPages(model: model, send: { _ in }).build()) == nil)
+        model.certificateWarningScope = .profile
+        #expect(Self.label(allSites, in: PageInfoPages(model: model, send: { _ in }).build()) != nil)
+    }
+
+    private final class NoticeRecorder: BrowserTabDelegate {
+        var texts: [String] = []
+        func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+            if case .notice(let text) = intent { texts.append(text) }
+        }
+    }
+
+    private static func label(_ text: String, in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.stringValue == text { return field }
+        for child in view.subviews { if let hit = label(text, in: child) { return hit } }
+        return nil
+    }
+
     private static func find(_ identifier: String, in view: NSView) -> NSView? {
         if view.identifier?.rawValue == identifier { return view }
         for child in view.subviews { if let hit = find(identifier, in: child) { return hit } }
