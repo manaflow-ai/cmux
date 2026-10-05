@@ -51,8 +51,15 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (!props.loadProjects) return;
     let cancelled = false;
-    void props.loadProjects().then((next) => { if (!cancelled) setProjects(next); }).catch(() => undefined);
-    return () => { cancelled = true; };
+    void props
+      .loadProjects()
+      .then((next) => {
+        if (!cancelled) setProjects(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [props.loadProjects]);
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now } = props;
   const [text, setText] = useState(location ?? "");
@@ -163,18 +170,37 @@ export function NewTabScreen(props: Props) {
           <span className="nt-terminal-starting">{nt("terminal")}</span>
         </div>
       )}
-      {!converting && <div className="nt-project">
-        <ProjectChooser projects={projects} current={projectCwd}
-          currentLabel={projectCwd?.split("/").filter(Boolean).pop()} icon={null}
-          onPick={(cwd) => { setProjectCwd(cwd); field.current?.focus(); }}
-          onBrowse={props.onBrowseProject ? () => {
-            void props.onBrowseProject!().then((cwd) => {
-              if (cwd) setProjectCwd(cwd);
+      {!converting && (
+        <div className="nt-project">
+          <ProjectChooser
+            projects={projects}
+            current={projectCwd}
+            currentLabel={projectCwd?.split("/").filter(Boolean).pop()}
+            icon={null}
+            onPick={(cwd) => {
+              setProjectCwd(cwd);
               field.current?.focus();
-            }).catch(() => undefined);
-          } : undefined} />
-        {props.onImport && <button type="button" onClick={props.onImport}>{t("empty.import")}</button>}
-      </div>}
+            }}
+            onBrowse={
+              props.onBrowseProject
+                ? () => {
+                    void props.onBrowseProject!()
+                      .then((cwd) => {
+                        if (cwd) setProjectCwd(cwd);
+                        field.current?.focus();
+                      })
+                      .catch(() => undefined);
+                  }
+                : undefined
+            }
+          />
+          {props.onImport && (
+            <button type="button" onClick={props.onImport}>
+              {t("empty.import")}
+            </button>
+          )}
+        </div>
+      )}
       <div className="nt-box">
         <input
           ref={field}

@@ -32,15 +32,7 @@ export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
 
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
 /// a small prompt glyph and one line naming the session's project.
-export function EmptyState({
-  project,
-  onNew,
-  onImport,
-}: {
-  project?: string;
-  onNew?(): void;
-  onImport?(): void;
-}) {
+export function EmptyState({ project, onNew, onImport }: { project?: string; onNew?(): void; onImport?(): void }) {
   const t = useT();
   const [before, after] = EMPTY_STATE_LABELS.promptIn.split("{project}");
   return (

@@ -24,14 +24,22 @@ export function newTabScreenActions(deps: {
       ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
     },
     onOpen: (url) => {
-      if (url.startsWith("file://")) return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
+      if (url.startsWith("file://"))
+        return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
       ignore(callNative("tab.open", { kind: "browser", text: url }));
     },
     onAction: (id) => ignore(callNative("app.action", { id })),
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
     // Typed, never run: the user presses Return in the terminal (a paste never runs by itself).
     onTerminal: (command, projectCwd) =>
-      ignore(callNative("tab.open", { kind: "terminal", text: command, run: false, ...((projectCwd ?? cwd) ? { cwd: projectCwd ?? cwd } : {}) })),
+      ignore(
+        callNative("tab.open", {
+          kind: "terminal",
+          text: command,
+          run: false,
+          ...((projectCwd ?? cwd) ? { cwd: projectCwd ?? cwd } : {}),
+        }),
+      ),
     onTypeAhead: (command) => ignore(callNative("tab.typeAhead", { text: command })),
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onOpenSession(sessionId) {

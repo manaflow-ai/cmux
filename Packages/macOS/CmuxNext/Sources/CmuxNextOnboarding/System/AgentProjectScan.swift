@@ -225,7 +225,7 @@ public nonisolated struct AgentProjectScan: Sendable {
 /// privacy-protected folder, and protected paths supplied as hints are kept
 /// without an existence probe so choosing a project cannot cause a privacy
 /// prompt.
-public nonisolated struct RecentProjectScan: Sendable {
+public struct RecentProjectScan: Sendable {
     public let projects: AgentProjectScan
     public let roots: [URL]
     public var maxProjects: Int

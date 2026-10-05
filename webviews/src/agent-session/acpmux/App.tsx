@@ -1757,9 +1757,13 @@ function AcpmuxPane() {
       if (text) await callNative("chat.send", { text });
     })().catch(() => undefined);
   };
-  const loadNewTabProjects = useCallback(() =>
-    callNative<{ projects?: string[] }>("project.list").then((result) =>
-      (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd }))), []);
+  const loadNewTabProjects = useCallback(
+    () =>
+      callNative<{ projects?: string[] }>("project.list").then((result) =>
+        (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd })),
+      ),
+    [],
+  );
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });

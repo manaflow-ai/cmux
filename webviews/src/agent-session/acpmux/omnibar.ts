@@ -88,7 +88,9 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
         const id = string(action.id);
         const title = string(action.title);
         const detail = string(action.detail);
-        const keywords = (Array.isArray(action.keywords) ? action.keywords : []).flatMap((keyword) => string(keyword) ?? []);
+        const keywords = (Array.isArray(action.keywords) ? action.keywords : []).flatMap(
+          (keyword) => string(keyword) ?? [],
+        );
         return id && title
           ? [{ id, title, ...(detail ? { detail } : {}), ...(keywords.length ? { keywords } : {}) }]
           : [];

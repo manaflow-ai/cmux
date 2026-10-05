@@ -320,7 +320,12 @@ test("file and app action suggestions use their host callbacks and keep agent En
         snapshot,
         initialKind: "agent",
         omnibar: {
-          tabs: [], workspaces: [], sessions: [], folders: [], commands: [], history: [],
+          tabs: [],
+          workspaces: [],
+          sessions: [],
+          folders: [],
+          commands: [],
+          history: [],
           files: [{ path: "/src/app/README.md", title: "Project guide" }],
           actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
         },
@@ -334,16 +339,21 @@ test("file and app action suggestions use their host callbacks and keep agent En
   );
   const field = container.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
-  const type = (value: string) => act(async () => {
-    setValue.call(field, value);
-    edited(field);
-  });
-  const key = (name: string) => act(async () => {
-    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
-  });
-  const submit = () => act(async () => {
-    container.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
-  });
+  const type = (value: string) =>
+    act(async () => {
+      setValue.call(field, value);
+      edited(field);
+    });
+  const key = (name: string) =>
+    act(async () => {
+      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+    });
+  const submit = () =>
+    act(async () => {
+      container
+        .querySelector("form")!
+        .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    });
   await type("README");
   await submit();
   expect(submitted).toEqual(["agent:README"]);

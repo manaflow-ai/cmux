@@ -78,7 +78,12 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
       score: matchScore(query, workspace.name, workspace.detail) + 0.5,
     })),
     ...(omnibar.actions ?? []).map((action) => ({
-      row: { type: "action", id: action.id, title: action.title, ...(action.detail ? { detail: action.detail } : {}) } as ScreenRow,
+      row: {
+        type: "action",
+        id: action.id,
+        title: action.title,
+        ...(action.detail ? { detail: action.detail } : {}),
+      } as ScreenRow,
       score: matchScore(query, action.title, ...(action.keywords ?? [])) + 0.4,
     })),
     ...omnibar.history.map((entry) => ({
