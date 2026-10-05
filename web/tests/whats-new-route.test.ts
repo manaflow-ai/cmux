@@ -125,23 +125,16 @@ describe("whats-new route channel targeting", () => {
     const notice = whatsNewList.announcements.find(
       (entry) => entry.id === "ios-1.0.6-connections",
     );
-    expect(notice).toEqual({
-      id: "ios-1.0.6-connections",
-      minVersion: "1.0.6",
-      maxVersion: "1.0.6",
-      title: "What's New in 1.0.6",
-      releaseLabel: "1.0.6 · September 2026",
-      channels: ["beta", "internal"],
-      localizations: expect.objectContaining({ en: expect.objectContaining({ title: "What's New in 1.0.6" }) }),
-      features: expect.arrayContaining([
-        expect.objectContaining({
-          title: "Updated Mac connections",
-        }),
-        expect.objectContaining({
-          detail: expect.stringContaining("0.64.25-nightly.3522337919701"),
-        }),
-      ]),
-    });
+    expect(notice).toBeDefined();
+    expect(notice?.id).toBe("ios-1.0.6-connections");
+    expect(notice?.minVersion).toBe("1.0.6");
+    expect(notice?.maxVersion).toBe("1.0.6");
+    expect(notice?.title).toBe("What's New in 1.0.6");
+    expect(notice?.releaseLabel).toBe("1.0.6 · September 2026");
+    expect(notice?.channels).toEqual(["beta", "internal"]);
+    expect(notice?.localizations?.en?.title).toBe("What's New in 1.0.6");
+    expect(notice?.features.some((feature) => feature.title === "Updated Mac connections")).toBe(true);
+    expect(notice?.features.some((feature) => feature.detail.includes("0.65.0-nightly.3737789529201"))).toBe(true);
   });
 
   test("serves translated release instructions with exact compatibility values", async () => {
@@ -154,7 +147,7 @@ describe("whats-new route channel targeting", () => {
       "pl", "pt-BR", "ru", "th", "tr", "uk", "zh-CN", "zh-TW",
     ]);
     for (const [locale, content] of Object.entries(translations)) {
-      expect(content.features[1].detail).toContain("0.64.25-nightly.3522337919701");
+      expect(content.features[1].detail).toContain("0.65.0-nightly.3737789529201");
       expect(content.features[2].detail).toContain("1.0.5 (20260914204800)");
       expect(JSON.stringify(content)).not.toMatch(/\{(?:stableVersion|nightlyVersion|rollbackBuild)\}/);
       if (locale !== "en") expect(content.features[2].detail).not.toBe(translations.en.features[2].detail);

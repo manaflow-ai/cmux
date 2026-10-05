@@ -73,12 +73,20 @@ export interface MobileMacCompatList {
   entries: MobileMacCompatEntry[];
 }
 
-// v0.64.25 includes the v2 backend, pairing opt-in, and persistent Mac
-// identity fixes. Run 35223379197, attempt 01, is its first published nightly.
-// Share these values with the 1.0.6 notice so its instructions match the gate.
-export const ios106MacRequirement = {
+// The App Store lane remains on the 0.64.25 transport floor. BETA 1.0.6
+// follows the current stable release and its associated nightly so testers
+// exercise the same Mac transport that is shipping now.
+export const ios106AppStoreMacRequirement = {
   stableMinVersion: "0.64.25",
   nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
+} satisfies MobileMacCompatRequirement;
+
+// v0.65.0 is the current stable release. Run 37377895292, attempt 01, is the
+// newest published 0.65.0 nightly at the time of this BETA cut.
+// Share these values with the 1.0.6 notice so its instructions match the gate.
+export const ios106BetaMacRequirement = {
+  stableMinVersion: "0.65.0",
+  nightly: { minBaseVersion: "0.65.0", minBuild: "3737789529201" },
 } satisfies MobileMacCompatRequirement;
 
 export const mobileMacCompatList: MobileMacCompatList = {
@@ -159,13 +167,13 @@ export const mobileMacCompatList: MobileMacCompatList = {
     },
     {
       minIOSVersion: "1.0.6",
-      ...ios106MacRequirement,
+      ...ios106AppStoreMacRequirement,
       buildKinds: {
         dev: { stableMinVersion: "0.64.0" },
-        beta: ios106MacRequirement,
-        internal: ios106MacRequirement,
+        beta: ios106BetaMacRequirement,
+        internal: ios106AppStoreMacRequirement,
         demo: { stableMinVersion: "0.64.23" },
-        prod: ios106MacRequirement,
+        prod: ios106AppStoreMacRequirement,
       },
     },
   ],

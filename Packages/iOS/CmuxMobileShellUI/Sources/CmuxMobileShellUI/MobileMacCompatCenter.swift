@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import Observation
@@ -27,6 +28,8 @@ public final class MobileMacCompatCenter {
     private let defaults: UserDefaults
     private let loader: Loader
     private let appBuildIdentity: String
+    private let appVersion: String
+    private let buildType: MobileBuildType
 
     /// The effective policy: the last successfully decoded fetch (this
     /// launch or a cached previous one), else the compiled-in fallback.
@@ -46,6 +49,8 @@ public final class MobileMacCompatCenter {
         apiBaseURL: String?,
         defaults: UserDefaults = .standard,
         loader: Loader? = nil,
+        appVersion: String? = nil,
+        buildType: MobileBuildType? = nil,
         appBuildIdentity: String? = nil
     ) {
         let url: URL?
@@ -58,6 +63,8 @@ public final class MobileMacCompatCenter {
         self.defaults = defaults
         self.loader = loader ?? mobileRemoteJSONLoader
         let versionInfo = AppVersionInfo.current()
+        self.appVersion = appVersion ?? versionInfo.marketingVersion
+        self.buildType = buildType ?? .current()
         let buildIdentity = appBuildIdentity
             ?? [versionInfo.marketingVersion, versionInfo.buildNumber, versionInfo.devTag, versionInfo.gitSHA]
                 .filter { !$0.isEmpty }
@@ -74,7 +81,8 @@ public final class MobileMacCompatCenter {
         self.policy = .baked
         pruneObsoleteCacheEntries()
         if let cached = defaults.data(forKey: environmentCacheKey),
-           let decoded = MobileMacCompatPolicy(decoding: cached) {
+           let decoded = MobileMacCompatPolicy(decoding: cached),
+           acceptsRemotePolicy(decoded) {
             policy = decoded
         }
     }
@@ -95,6 +103,18 @@ public final class MobileMacCompatCenter {
         }
     }
 
+    /// A stale endpoint or cache must never lower the shipped floor for the
+    /// BETA lane. Other lanes retain the existing remote-policy behavior so
+    /// the server can continue to retract or adjust their constraints.
+    private func acceptsRemotePolicy(_ candidate: MobileMacCompatPolicy) -> Bool {
+        guard buildType == .beta else { return true }
+        return candidate.satisfiesMinimum(
+            of: .baked,
+            forIOSVersion: appVersion,
+            buildType: .beta
+        )
+    }
+
     /// Fetches the remote list, replacing the device cache on success. Any
     /// failure (offline, server error, payload this build cannot fully
     /// parse) keeps the current policy.
@@ -103,6 +123,7 @@ public final class MobileMacCompatCenter {
         do {
             let data = try await loader(requestURL)
             guard let decoded = MobileMacCompatPolicy(decoding: data) else { return }
+            guard acceptsRemotePolicy(decoded) else { return }
             policy = decoded
             defaults.set(data, forKey: environmentCacheKey)
         } catch {

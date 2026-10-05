@@ -129,10 +129,14 @@ describe("mobile-mac-compat route", () => {
     expect(next.minIOSVersion).toBe("1.0.6");
     expect(next.maxIOSVersion).toBeUndefined();
     expect(next.buildKinds?.beta).toEqual({
+      stableMinVersion: "0.65.0",
+      nightly: { minBaseVersion: "0.65.0", minBuild: "3737789529201" },
+    });
+    expect(next.buildKinds?.internal).toEqual({
       stableMinVersion: "0.64.25",
       nightly: { minBaseVersion: "0.64.25", minBuild: "3522337919701" },
     });
-    expect(next.buildKinds?.internal).toEqual(next.buildKinds?.beta);
+    expect(next.buildKinds?.prod).toEqual(next.buildKinds?.internal);
   });
 
   test("rejects conflicting legacy and build-kind minimums", () => {

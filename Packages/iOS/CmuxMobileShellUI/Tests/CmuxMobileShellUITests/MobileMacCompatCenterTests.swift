@@ -39,5 +39,27 @@ import Testing
         )
         #expect(evictedOldBuild.policy == .baked)
     }
+
+    @Test func betaKeepsBakedFloorWhenRemoteListIsStale() async {
+        let defaults = UserDefaults(suiteName: "MobileMacCompatCenterTests-\(UUID().uuidString)")!
+        let stale = #"""
+        {"entries":[{"minIOSVersion":"1.0.6","stableMinVersion":"0.64.25",
+          "nightly":{"minBaseVersion":"0.64.25","minBuild":"3522337919701"},
+          "buildKinds":{
+            "beta":{"stableMinVersion":"0.64.25","nightly":{"minBaseVersion":"0.64.25","minBuild":"3522337919701"}},
+            "prod":{"stableMinVersion":"0.64.25","nightly":{"minBaseVersion":"0.64.25","minBuild":"3522337919701"}}
+          }}]}
+        """#
+        let center = MobileMacCompatCenter(
+            apiBaseURL: "https://cmux.test",
+            defaults: defaults,
+            loader: { _ in Data(stale.utf8) },
+            appVersion: "1.0.6",
+            buildType: .beta,
+            appBuildIdentity: "beta-1.0.6"
+        )
+        await center.refresh()
+        #expect(center.policy.tier(forIOSVersion: "1.0.6")?.buildKinds["beta"]?.stableMinVersion.description == "0.65.0")
+    }
 }
 #endif

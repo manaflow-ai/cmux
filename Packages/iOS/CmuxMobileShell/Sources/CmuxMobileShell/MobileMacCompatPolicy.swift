@@ -29,7 +29,9 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     /// `web/data/mobile-mac-compat.ts`: 0.64.17 for the original release
     /// transport, 0.64.20 for authenticated Iroh, and 0.64.23 for the rebuilt
     /// Iroh transport. The App Store lane requires 0.64.25 stable or the first
-    /// published 0.64.25 nightly in every tier. The
+    /// published 0.64.25 nightly. BETA 1.0.6 moves to the current 0.65.0
+    /// stable release or its newest associated nightly; older BETA and App
+    /// Store tiers retain their existing floors. The
     /// BETA 1.0.5 build 20260914204800 is the last older-compatible build;
     /// the later INTERNAL 1.0.4 cut uses the rebuilt transport.
     public static let baked: MobileMacCompatPolicy = {
@@ -43,7 +45,9 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
               let rebuiltStableMin = MobileMacAppVersion(parsing: "0.64.23"),
               let appStoreStableMin = MobileMacAppVersion(parsing: "0.64.25"),
               let historicalNightlyBase = MobileMacAppVersion(parsing: "0.64.22"),
-              let appStoreNightlyBase = MobileMacAppVersion(parsing: "0.64.25")
+              let appStoreNightlyBase = MobileMacAppVersion(parsing: "0.64.25"),
+              let beta106StableMin = MobileMacAppVersion(parsing: "0.65.0"),
+              let beta106NightlyBase = MobileMacAppVersion(parsing: "0.65.0")
         else {
             return MobileMacCompatPolicy(tiers: [])
         }
@@ -54,6 +58,10 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         let appStoreNightly = NightlyRequirement(
             minBaseVersion: appStoreNightlyBase,
             minBuild: 3_522_337_919_701
+        )
+        let beta106Nightly = NightlyRequirement(
+            minBaseVersion: beta106NightlyBase,
+            minBuild: 3_737_789_529_201
         )
         let devMin = MobileMacAppVersion(parsing: "0.64.0")!
         return MobileMacCompatPolicy(tiers: [
@@ -102,7 +110,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 nightly: appStoreNightly,
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
-                    MobileBuildType.beta.token: Requirement(stableMinVersion: appStoreStableMin, nightly: appStoreNightly),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: beta106StableMin, nightly: beta106Nightly),
                     MobileBuildType.internal.token: Requirement(stableMinVersion: appStoreStableMin, nightly: appStoreNightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: rebuiltStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: appStoreStableMin, nightly: appStoreNightly),
@@ -110,6 +118,35 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
             ),
         ])
     }()
+
+    /// Returns whether a candidate remote policy preserves this policy's
+    /// requirement for one running iOS version and distribution lane.
+    ///
+    /// Release builds keep the baked BETA floor when a stale remote payload
+    /// would lower it. A missing candidate tier or nightly requirement cannot
+    /// satisfy a baked requirement; an explicit remote empty-list kill switch
+    /// therefore cannot weaken a shipped compatibility floor.
+    public func satisfiesMinimum(
+        of minimum: MobileMacCompatPolicy,
+        forIOSVersion iosVersion: String,
+        buildType: MobileBuildType
+    ) -> Bool {
+        guard let minimumTier = minimum.tier(forIOSVersion: iosVersion) else { return true }
+        guard let candidateTier = tier(forIOSVersion: iosVersion) else { return false }
+        let minimumRequirement = minimumTier.buildKinds[buildType.token]
+            ?? Requirement(stableMinVersion: minimumTier.stableMinVersion, nightly: minimumTier.nightly)
+        let candidateRequirement = candidateTier.buildKinds[buildType.token]
+            ?? Requirement(stableMinVersion: candidateTier.stableMinVersion, nightly: candidateTier.nightly)
+        guard candidateRequirement.stableMinVersion >= minimumRequirement.stableMinVersion else { return false }
+        guard let minimumNightly = minimumRequirement.nightly else { return true }
+        guard let candidateNightly = candidateRequirement.nightly,
+              candidateNightly.minBaseVersion >= minimumNightly.minBaseVersion
+        else { return false }
+        if candidateNightly.minBaseVersion == minimumNightly.minBaseVersion {
+            return candidateNightly.minBuild >= minimumNightly.minBuild
+        }
+        return true
+    }
 
     /// The tier that applies to one iOS marketing version: the greatest
     /// `minIOSVersion` at or below it. `nil` — no Mac version limit at all —

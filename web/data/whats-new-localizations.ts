@@ -18,7 +18,7 @@ import th from "../messages/th.json";
 import tr from "../messages/tr.json";
 import km from "../messages/km.json";
 import uk from "../messages/uk.json";
-import { ios106MacRequirement } from "./mobile-mac-compat";
+import { ios106BetaMacRequirement } from "./mobile-mac-compat";
 import type { WhatsNewAnnouncementContent } from "./whats-new";
 
 const messages = {
@@ -46,8 +46,8 @@ const messages = {
 
 function format(detail: string): string {
   return detail
-    .replaceAll("{stableVersion}", ios106MacRequirement.stableMinVersion)
-    .replaceAll("{nightlyVersion}", `${ios106MacRequirement.nightly.minBaseVersion}-nightly.${ios106MacRequirement.nightly.minBuild}`)
+    .replaceAll("{stableVersion}", ios106BetaMacRequirement.stableMinVersion)
+    .replaceAll("{nightlyVersion}", `${ios106BetaMacRequirement.nightly.minBaseVersion}-nightly.${ios106BetaMacRequirement.nightly.minBuild}`)
     .replaceAll("{rollbackBuild}", "20260914204800");
 }
 

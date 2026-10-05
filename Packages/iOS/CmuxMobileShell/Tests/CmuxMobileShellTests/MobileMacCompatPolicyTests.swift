@@ -305,10 +305,11 @@ import Testing
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.0")?.buildKinds["internal"]?.nightly?.minBuild == 3_345_650_013_202)
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4")?.buildKinds["internal"]?.nightly?.minBuild == 3_345_650_013_202)
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.5")?.buildKinds["internal"]?.nightly?.minBuild == 3_345_650_013_202)
-        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.6")?.buildKinds["beta"]?.stableMinVersion == version("0.64.25"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.5")?.buildKinds["beta"]?.stableMinVersion == version("0.64.23"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.6")?.buildKinds["beta"]?.stableMinVersion == version("0.65.0"))
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.6")?.buildKinds["internal"]?.stableMinVersion == version("0.64.25"))
-        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.6")?.buildKinds["beta"]?.nightly?.minBaseVersion == version("0.64.25"))
-        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.6")?.buildKinds["beta"]?.nightly?.minBuild == 3_522_337_919_701)
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.6")?.buildKinds["beta"]?.nightly?.minBaseVersion == version("0.65.0"))
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.6")?.buildKinds["beta"]?.nightly?.minBuild == 3_737_789_529_201)
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.0")?.buildKinds["beta"]?.nightly?.minBuild == 3_345_650_013_202)
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4")?.buildKinds["beta"]?.nightly?.minBuild == 3_345_650_013_202)
         // Versions below the first tier stay unconstrained.
@@ -319,27 +320,47 @@ import Testing
         #expect(MobileMacCompatPolicy.baked.violation(
             iosVersion: "1.0.6",
             channel: .stable,
-            macAppVersion: "0.64.24",
+            macAppVersion: "0.64.25",
             buildType: .beta
         ) != nil)
         #expect(MobileMacCompatPolicy.baked.violation(
             iosVersion: "1.0.6",
             channel: .stable,
-            macAppVersion: "0.64.25",
+            macAppVersion: "0.65.0",
             buildType: .beta
         ) == nil)
         #expect(MobileMacCompatPolicy.baked.violation(
             iosVersion: "1.0.6",
             channel: .nightly,
-            macAppVersion: "0.64.25-nightly.3522337919700",
-            buildType: .internal
+            macAppVersion: "0.65.0-nightly.3737789529200",
+            buildType: .beta
         ) != nil)
         #expect(MobileMacCompatPolicy.baked.violation(
             iosVersion: "1.0.6",
             channel: .nightly,
-            macAppVersion: "0.64.25-nightly.3522337919701",
-            buildType: .internal
+            macAppVersion: "0.65.0-nightly.3737789529201",
+            buildType: .beta
         ) == nil)
+    }
+
+    @Test func staleRemotePolicyCannotLowerTheCurrentBetaFloor() {
+        let staleNightly = MobileMacCompatPolicy.NightlyRequirement(
+            minBaseVersion: version("0.64.25"),
+            minBuild: 3_522_337_919_701
+        )
+        let stale = MobileMacCompatPolicy(tiers: [
+            MobileMacCompatPolicy.Tier(
+                minIOSVersion: version("1.0.6"),
+                stableMinVersion: version("0.64.25"),
+                nightly: staleNightly,
+                buildKinds: [
+                    "beta": .init(stableMinVersion: version("0.64.25"), nightly: staleNightly),
+                    "prod": .init(stableMinVersion: version("0.64.25"), nightly: staleNightly),
+                ]
+            ),
+        ])
+        #expect(!stale.satisfiesMinimum(of: .baked, forIOSVersion: "1.0.6", buildType: .beta))
+        #expect(stale.satisfiesMinimum(of: .baked, forIOSVersion: "1.0.6", buildType: .prod))
     }
 
     @Test func bakedPolicyUsesTheHistoricalInternalProtocolFloors() {
