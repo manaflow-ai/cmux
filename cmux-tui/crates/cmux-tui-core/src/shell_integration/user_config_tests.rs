@@ -82,3 +82,24 @@ fn the_users_shell_integration_mode_decides_the_shell() {
     assert_eq!(env_of(&launched, FEATURES_ENV).as_deref(), Some("cursor:blink,title"));
     fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Ghostty exports `GHOSTTY_SHELL_FEATURES` for every shell it starts,
+/// also one it has no integration for (`Exec` calls `setupFeatures` before
+/// it detects the shell), so a manual integration in an unknown shell gets
+/// the user's features.
+#[test]
+fn an_unknown_shell_still_gets_the_users_features() {
+    let dir = std::env::temp_dir().join(format!("cmux-shell-unknown-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let config = dir.join("config");
+    fs::write(&config, "shell-integration-features = no-path,sudo\n").unwrap();
+    let launched = integrate_default_shell(
+        vec!["/bin/mksh".into()],
+        vec![("CMUX_NEXT_GHOSTTY_CONFIG".into(), config.to_str().unwrap().into())],
+    );
+    assert_eq!(launched.command, vec!["/bin/mksh".to_string()]);
+    assert_eq!(env_of(&launched, "ZDOTDIR"), None, "no integration for mksh");
+    assert_eq!(env_of(&launched, FEATURES_ENV).as_deref(), Some("cursor:blink,sudo,title"));
+    fs::remove_dir_all(&dir).unwrap();
+}
