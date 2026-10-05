@@ -510,7 +510,7 @@ struct MachinesPanelView: View {
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
-            coderouterAccounts = try await CoderouterCLIAccountReader.accounts(for: teamName)
+            coderouterAccounts = try await CoderouterCLIAccountReader.accounts(for: teamID, name: teamName)
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
             // Keep the last successful snapshot during a transient refresh failure.

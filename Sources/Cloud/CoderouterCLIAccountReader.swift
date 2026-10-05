@@ -7,11 +7,11 @@ import OSLog
 enum CoderouterCLIAccountReader {
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
 
-    static func accounts(for cmuxTeamName: String?) async throws -> [CloudTreeNode.CoderouterAccount] {
+    static func accounts(for cmuxTeamID: String?, name cmuxTeamName: String?) async throws -> [CloudTreeNode.CoderouterAccount] {
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty,
-              let organizationID = try await matchingOrganizationID(for: cmuxTeamName) else {
-            logger.error("No CodeRouter organization matched cmux team name: \(cmuxTeamName ?? "<nil>", privacy: .public)")
+              let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName) else {
+            logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(cmuxTeamName, privacy: .public)")
             throw accountError("The selected cmux team is not mapped to a CodeRouter organization.")
         }
 
@@ -41,13 +41,14 @@ enum CoderouterCLIAccountReader {
         return result
     }
 
-    private static func matchingOrganizationID(for cmuxTeamName: String) async throws -> String? {
+    private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String) async throws -> String? {
         let output = try await run(["org", "list"])
         let wanted = normalized(cmuxTeamName)
         for rawLine in String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline) {
             let tokens = rawLine.split(whereSeparator: { $0 == " " || $0 == "\t" })
             guard let candidateID = tokens.last,
                   UUID(uuidString: String(candidateID)) != nil else { continue }
+            if String(candidateID) == cmuxTeamID { return String(candidateID) }
             let candidateName = tokens.dropLast().joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "*"))
             if normalized(candidateName) == wanted {
                 return String(candidateID)
