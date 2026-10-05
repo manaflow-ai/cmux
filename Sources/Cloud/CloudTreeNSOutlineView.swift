@@ -496,9 +496,22 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         }
         let trailing = frame.maxX
         frame.origin.x = panelContentLeading(atRow: row)
+            ?? connectingLeading(atRow: row)
             ?? CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame
+    }
+
+    /// A machine's "Connecting…" row stands where its New Workspace will be,
+    /// so its spinner takes the same chevron column as New Workspace's "+"
+    /// (`CloudTreeCellView.createRowContentInset`); nil for every other row.
+    func connectingLeading(atRow row: Int) -> CGFloat? {
+        guard let node = item(atRow: row) as? CloudTreeNode,
+              case .placeholder(_, let placeholder) = node.kind, placeholder.style == .connecting,
+              let parent = parent(forItem: node) as? CloudTreeNode, parent.isMachineRow else { return nil }
+        let slot = max(treeStyle.iconSlot, 12)
+        return disclosureLeading(atRow: row)
+            + GlobalFontMagnification.scaledSize(treeStyle.rowGrid.disclosureSlot / 2 - slot / 2)
     }
 
     private func redrawVisibleRows() {
