@@ -63,6 +63,12 @@ extension KeyRouter {
     }
 
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
+        let allowed = menuGate(id)
+        trace?("menu gate \(id.rawValue): \(allowed ? "allowed" : "refused")")
+        return allowed
+    }
+
+    private func menuGate(_ id: ActionID) -> Bool {
         if let event = syntheticKeyEvent ?? NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }

@@ -89,6 +89,10 @@ enum DebugKey {
         services.keyWindowSource = { [window] in window }
         defer { services.keyWindowSource = previousKey }
         let isChord = !flags.isDisjoint(with: [.command, .control])
+        var trace: [String] = []
+        // The dispatcher's verdict, menu gate answers and host actions this key caused.
+        services.keyRouter.trace = { trace.append($0) }
+        defer { services.keyRouter.trace = nil }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.keyRouter.interceptKeyDown(event, in: window) {
@@ -128,7 +132,8 @@ enum DebugKey {
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
-        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind)])
+        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
+                        "trace": .array(trace.map(JSONValue.string))])
     }
 
     /// The first enabled main-menu item with `event`'s key equivalent (what

@@ -37,6 +37,12 @@ final class CloseUndoToasts {
     var toasts: CmuxToastCenter = .shared
     private var expected: [Expected] = []
     private var seenDaemonItems: Set<String> = []
+    /// For `debug.filepages` (nxdog47): user closes announced, announcements
+    /// that found no tab, and the newest closed items with whether a waiting
+    /// gesture took them.
+    private(set) var announced = 0
+    private(set) var announcedEmpty = 0
+    private(set) var recentDaemonItems: [(id: String, pane: String?, tabs: Int, matched: Bool)] = []
     private var observation: Task<Void, Never>?
     static let toastID = "tab-closed"
 
@@ -85,7 +91,8 @@ final class CloseUndoToasts {
         let entries = tabs.compactMap { tab in
             pane.tabs.firstIndex { $0 === tab }.map { (trackerTabID: ClosedTabTracker.qualified(daemon.machineID, tab.id), index: $0) }
         }
-        guard !entries.isEmpty else { return }
+        announced += 1
+        guard !entries.isEmpty else { announcedEmpty += 1; return }
         expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
                                  title: tabs.count == 1 ? tabs[0].displayTitle : "", window: window))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
@@ -113,9 +120,13 @@ final class CloseUndoToasts {
         seenDaemonItems = Set(ids)
         guard let services else { return }
         for id in added {
-            guard let entry = DaemonClosedHistory.entry(id, in: services), entry.item.kind == .tab,
-                  let position = expected.firstIndex(where: { $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID })
-            else { continue }
+            let entry = DaemonClosedHistory.entry(id, in: services)
+            let position = entry.flatMap { entry in
+                entry.item.kind == .tab ? expected.firstIndex { $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID } : nil
+            }
+            recentDaemonItems.append((id, entry?.item.paneID?.rawValue, entry?.item.tabs.count ?? 0, position != nil))
+            if recentDaemonItems.count > 8 { recentDaemonItems.removeFirst(recentDaemonItems.count - 8) }
+            guard let entry, let position else { continue }
             expected[position].daemonItems.append(id)
             expected[position].daemonTabs += max(entry.item.tabs.count, 1)
             guard expected[position].daemonTabs >= expected[position].tabs.count else { continue }
@@ -137,5 +148,10 @@ final class CloseUndoToasts {
             : MiscHandlerStrings.tabClosed(close.title.isEmpty ? MiscHandlerStrings.untitledTab : close.title)
         let handle = toasts.show(CmuxToast(id: Self.toastID, message: message, action: .undo()), in: window)
         handle.onAction = reopen
+    }
+
+    /// The gestures still waiting for their history records (`debug.filepages`).
+    var waiting: [(pane: String?, tabs: Int, records: Int, daemonTabs: Int)] {
+        expected.map { ($0.paneResourceID?.rawValue, $0.tabs.count, $0.records.count, $0.daemonTabs) }
     }
 }

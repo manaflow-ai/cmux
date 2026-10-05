@@ -42,6 +42,8 @@ final class KeyRouter: BrowserKeyRouting {
     /// The key-down `debug.key` dispatches (``dispatchingSynthetic(_:_:)``),
     /// which `NSApp.currentEvent` does not report.
     var syntheticKeyEvent: NSEvent?
+    /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
+    var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
     private var resignObserver: (any NSObjectProtocol)?
@@ -199,7 +201,9 @@ final class KeyRouter: BrowserKeyRouting {
             return false
         }
         // 3-5.
-        switch decide(event, focus: focus, context: context) {
+        let decision = decide(event, focus: focus, context: context)
+        trace?("dispatcher: \(decision)")
+        switch decision {
         case .run(let candidate):
             run(candidate, context: context, window: controller.state.id)
             // A refusal (no neighbor) is reported by the registry; the chord

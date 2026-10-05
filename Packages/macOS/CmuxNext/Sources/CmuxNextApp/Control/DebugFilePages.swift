@@ -65,6 +65,17 @@ enum DebugFilePages {
         })
         let windows = services.windows.controllers.compactMap(\.window)
         result["toasts"] = .array(windows.flatMap { CmuxToastCenter.shared.toasts(in: $0) }.map { .string($0.message) })
+        // Undo toast of closes (REOPEN-CLOSED): why a close showed no toast (nxdog47).
+        result["undo"] = services.closedTabs.map { tracker -> JSONValue in
+            let undo = tracker.undoToasts
+            return .object([
+                "announced": .number(Double(undo.announced)), "announced_without_tabs": .number(Double(undo.announcedEmpty)),
+                "waiting": .array(undo.waiting.map { .object(["pane": $0.pane.map(JSONValue.string) ?? .null, "tabs": .number(Double($0.tabs)),
+                                                             "records": .number(Double($0.records)), "daemon_tabs": .number(Double($0.daemonTabs))]) }),
+                "closed_items": .array(undo.recentDaemonItems.map { .object(["id": .string($0.id), "pane": $0.pane.map(JSONValue.string) ?? .null,
+                                                                            "tabs": .number(Double($0.tabs)), "matched": .bool($0.matched)]) }),
+            ])
+        } ?? .null
         return .object(result)
     }
 }

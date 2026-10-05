@@ -43,10 +43,10 @@ enum WindowHandlers {
             context.activeWindow?.window?.miniaturize(nil)
         })
         registry.bind("closeAllWindows", run: { _ in
-            // Each window's own close path (its confirmation included).
-            for controller in context.services.windows.controllers { controller.window?.performClose(nil) }
+            // Each window's own close check (an incognito window asks), then close.
+            for window in context.services.windows.controllers.compactMap(\.window) { WindowTargeting.close(window) }
         })
-        registry.bind("zoomWindow", run: { _ in context.activeWindow?.window?.zoom(nil) })
+        registry.bind("zoomWindow", run: { _ in targeting(context).target?.zoom(nil) })
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
         registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
         registry.bind("keepMacAwake", run: { _ in toggleKeepAwake(keepAwake) })
@@ -76,12 +76,14 @@ enum WindowHandlers {
         WindowActivation.show(window, .focus)
     }
 
-    /// The visible cmux window `offset` places after the active one, wrapping.
+    private static func targeting(_ context: AppActionContext) -> WindowTargeting {
+        WindowTargeting.current(context.services.windows.controllers.compactMap(\.window).filter(\.isVisible))
+    }
+
+    /// The cmux window `offset` places from the key or frontmost one, wrapping.
     private static func selectWindow(offset: Int, _ context: AppActionContext) {
-        let windows = context.services.windows.controllers.compactMap(\.window).filter(\.isVisible)
-        guard windows.count > 1 else { return }
-        let current = context.activeWindow?.window.flatMap { active in windows.firstIndex { $0 === active } } ?? 0
-        WindowActivation.show(windows[(current + offset + windows.count) % windows.count], .focus)
+        guard let window = targeting(context).cycled(offset) else { return }
+        WindowActivation.show(window, .focus)
     }
 
     /// Prevents idle system sleep while on; a second run turns it off.

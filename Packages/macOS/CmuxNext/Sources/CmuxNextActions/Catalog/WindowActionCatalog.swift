@@ -40,7 +40,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 id: "closeAllWindows",
                 title: String(localized: "action.closeAllWindows", defaultValue: "Close All Windows", bundle: .module),
                 keywords: ["close", "windows", "all"], category: .window, symbol: "xmark.rectangle.portrait",
-                surfaces: [.palette, .keyboard], cliName: "app close-all-windows"
+                surfaces: [.palette, .keyboard, .menu], cliName: "app close-all-windows", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "zoomWindow",
