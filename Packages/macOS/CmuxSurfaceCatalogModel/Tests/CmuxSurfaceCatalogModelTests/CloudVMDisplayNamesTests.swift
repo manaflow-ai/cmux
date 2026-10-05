@@ -10,11 +10,11 @@ struct CloudVMDisplayNamesTests {
         [
             "id": "projection_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "frontend_id": CloudVMDisplayMembership.projectionFrontendID,
-            "window_id": CloudVMDisplayNames.projectionWindowID(machine: SurfaceMachineID(rawValue: machineID)),
+            "window_id": CloudVMDisplayMembership.namesProjectionWindowID(machine: SurfaceMachineID(rawValue: machineID)),
             "generation": CloudVMDisplayMembership.projectionGeneration,
             "projection_revision": "1",
             "projection": [
-                "schema": CloudVMDisplayNames.projectionSchema,
+                "schema": CloudVMDisplayMembership.namesProjectionSchema,
                 "machine_id": machineID,
                 "names": names,
             ],

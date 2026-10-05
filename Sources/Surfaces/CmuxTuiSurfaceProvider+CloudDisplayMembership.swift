@@ -111,7 +111,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
               let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
         }
-        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(CloudVMDisplayNames.maxNameLength))
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(CloudVMDisplayMembership.maxDisplayNameLength))
         let projectionID = Self.displayNamesProjectionID(machine: machine)
         let idempotencyKey = "cmux-cloud-display-name-\(UUID().uuidString.lowercased())"
         var lastError: Error?
@@ -131,10 +131,10 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             let request = CloudTuiRequests.putCloudDisplayMembershipProjection(
                 projectionID: projectionID,
                 frontendID: CloudVMDisplayMembership.projectionFrontendID,
-                windowID: CloudVMDisplayNames.projectionWindowID(machine: machine),
+                windowID: CloudVMDisplayMembership.namesProjectionWindowID(machine: machine),
                 generation: CloudVMDisplayMembership.projectionGeneration,
                 projection: [
-                    "schema": CloudVMDisplayNames.projectionSchema,
+                    "schema": CloudVMDisplayMembership.namesProjectionSchema,
                     "machine_id": machine.rawValue,
                     "names": names,
                 ],
@@ -154,7 +154,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
     }
 
     private static func displayNamesProjectionID(machine: SurfaceMachineID) -> String {
-        let input = Data("\(machine.rawValue)/\(CloudVMDisplayNames.projectionSchema)".utf8)
+        let input = Data("\(machine.rawValue)/\(CloudVMDisplayMembership.namesProjectionSchema)".utf8)
         let digest = SHA256.hash(data: input)
         return "projection_" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
