@@ -27,20 +27,15 @@ extension WebKitTab {
         admitDownload(url, site: pageSite, decide: decide)
     }
 
-    /// Asks the gate for a download of `url` counted for `site`; a declined
-    /// or unanswered one is listed blocked (`BrowserDownload.Status.blocked`).
+    /// Asks the gate for a download of `url` counted for `site`; a refused
+    /// one is listed blocked with `site` (`BrowserDownload.Status.blocked`).
     func admitDownload(_ url: URL?, site: String?, decide: @escaping (Bool) -> Void) {
         automaticDownloads.request(site: site) { [weak self] outcome in
-            if let reason = AutomaticDownloadGate.blockedReason(outcome) { self?.listBlockedDownload(url, reason: reason) }
+            if let reason = AutomaticDownloadGate.blockedReason(outcome) {
+                self?.emit(.download(.blocked(sourceURL: url, suggestedName: url?.lastPathComponent ?? "", site: site, reason: reason)))
+            }
             decide(outcome == .allowed)
         }
-    }
-
-    /// Lists a refused download in the App's downloads list, blocked.
-    private func listBlockedDownload(_ url: URL?, reason: String) {
-        let item = BrowserDownload(sourceURL: url, filename: DownloadDestination.sanitizedFilename(url?.lastPathComponent ?? ""))
-        emit(.download(item))
-        item.complete(.blocked(reason))
     }
 
     /// The origin of the page the tab shows (asked before a navigation

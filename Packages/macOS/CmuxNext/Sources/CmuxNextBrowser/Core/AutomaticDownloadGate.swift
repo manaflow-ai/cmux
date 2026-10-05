@@ -17,8 +17,8 @@ public final class AutomaticDownloadGate {
     /// What happens to one download.
     public enum Outcome: Equatable, Sendable {
         case allowed
-        /// The site is blocked (a remembered Block): refused silently (a
-        /// log line).
+        /// The site is blocked (a remembered Block): refused and listed as
+        /// blocked, with the site's settings to change the choice.
         case refused
         /// The person answered Block for the downloads held by the
         /// question: refused and listed as blocked.
@@ -101,10 +101,11 @@ public final class AutomaticDownloadGate {
     }
 
     /// Why a download with `outcome` is listed blocked (localized); nil
-    /// for one that goes ahead or is refused silently.
+    /// for one that goes ahead. No refusal is silent.
     public static func blockedReason(_ outcome: Outcome) -> String? {
         switch outcome {
-        case .allowed, .refused: nil
+        case .allowed: nil
+        case .refused: Strings.downloadBlockedBySite
         case .declined: Strings.downloadBlockedDeclined
         case .unanswered: Strings.downloadBlockedUnanswered
         }
