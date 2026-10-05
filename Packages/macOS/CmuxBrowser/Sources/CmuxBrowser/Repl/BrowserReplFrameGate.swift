@@ -374,7 +374,7 @@ public final class BrowserReplFrameGate {
     private var known: [Key: BrowserReplFrameDocument] = [:]
     /// Holds back child-frame loads while guarded input or a capture is in
     /// flight; the navigation delegate honors it.
-    let loadHold: BrowserReplSubframeLoadHold
+    public let loadHold: BrowserReplSubframeLoadHold
 
     private struct Key: Hashable {
         let webView: ObjectIdentifier
