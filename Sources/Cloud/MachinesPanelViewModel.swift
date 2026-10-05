@@ -13,6 +13,12 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isLoading = false { didSet { if !isLoading { isRefreshingOnRequest = false } } }
     /// A refresh someone asked for (`refresh(tree:)`) is loading, as opposed to the poll.
     @Published private(set) var isRefreshingOnRequest = false
+    /// A rename keeps the Cloud Machines section visibly refreshing while its
+    /// optimistic label is waiting for the command completion callback.
+    @Published private(set) var isRenamingMachine = false
+    /// Labels submitted by the user remain over the sidebar projection until
+    /// an authoritative list response confirms the same value.
+    private var optimisticLabels: [String: String] = [:]
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
     /// Classified list failure for the matching sign-in, plan, or retry presentation.
@@ -356,6 +362,21 @@ final class MachinesPanelViewModel: ObservableObject {
         // state, so a catalog read also refreshes it. Cheap: a dictionary read.
         readUnreadTerminalIDs()
     }
+
+    /// Refreshes the local workspace projection with the selection that was just committed.
+    /// The selection publisher fires from `willSet`, so reading the tab manager here can still
+    /// return the previous workspace and leave the Cloud tree highlight one selection behind.
+    func refreshLocalWorkspaces(selectedWorkspaceID: UUID?) {
+        let updated = localWorkspacesProvider().map { workspace in
+            CloudTreeLocalWorkspace(
+                id: workspace.id,
+                title: workspace.title,
+                isSelected: workspace.id == selectedWorkspaceID
+            )
+        }
+        guard updated != localWorkspaces else { return }
+        localWorkspaces = updated
+    }
     private func readUnreadTerminalIDs() {
         let unread = CloudNotificationSyncHub.shared.unreadTerminalIDs
         guard unread != unreadTerminalIDs else { return }
@@ -390,6 +411,42 @@ final class MachinesPanelViewModel: ObservableObject {
     func applyUsage(_ usage: [String: MachineUsageSnapshot]) {
         usageByMachineID = usage
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
+    }
+
+    /// Projects a submitted label into the sidebar immediately. The next
+    /// authoritative list refresh replaces it if the command was rejected.
+    func beginOptimisticRename(id: String, label: String?) {
+        optimisticLabels[id] = label ?? ""
+        machines = MachineSnapshotBuilder.applyingLabel(to: machines, machineID: id, label: label)
+        isRenamingMachine = true
+        // Catalog-only machines are rendered by `sidebarMachines`, so notify
+        // those readers even when the list response does not contain this id.
+        objectWillChange.send()
+    }
+
+    func finishOptimisticRename() {
+        isRenamingMachine = false
+    }
+
+    func applyingOptimisticLabels(to snapshots: [MachineSnapshot]) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            guard let encoded = optimisticLabels[snapshot.id] else { return snapshot }
+            var next = snapshot
+            next.label = encoded.isEmpty ? nil : encoded
+            return next
+        }
+    }
+
+    private func reconcileOptimisticLabels(with authoritative: [MachineSnapshot]) {
+        for snapshot in authoritative {
+            guard let encoded = optimisticLabels[snapshot.id] else { continue }
+            let expected = encoded.isEmpty ? nil : encoded
+            if snapshot.label == expected { optimisticLabels.removeValue(forKey: snapshot.id) }
+        }
+    }
+
+    func optimisticallyRenameMachine(id: String, label: String?) {
+        beginOptimisticRename(id: id, label: label)
     }
     static let pollInterval: Duration = .seconds(45)
     static let initialTransientFailureLimit = 3
@@ -522,6 +579,8 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshRequestedWhileLoadingIsRecovery = false
         refreshGeneration &+= 1
         isLoading = false
+        isRenamingMachine = false
+        optimisticLabels.removeAll()
         isRecoveringList = false
         statsTask?.cancel(); statsTask = nil; statsID = nil
         usageTask?.cancel(); usageTask = nil
@@ -562,6 +621,8 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            reconcileOptimisticLabels(with: snapshots)
+            snapshots = applyingOptimisticLabels(to: snapshots)
             // The authoritative fleet plus catalog-only rows is the complete
             // visible set: a pin whose machine is gone from both is pruned.
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))

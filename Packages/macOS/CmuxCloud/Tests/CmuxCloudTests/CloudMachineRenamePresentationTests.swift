@@ -35,6 +35,33 @@ struct CloudMachineRenamePresentationTests {
         #expect(presentation.promptName(for: machine, fallbackName: "Cloud machine") == "Cloud machine")
     }
 
+    @Test("uses the generated slug after a whitespace-only label")
+    func usesSlugAfterWhitespaceLabel() {
+        let machine = Self.machine(label: "  ", slug: "sleepy-teal-otter")
+
+        #expect(presentation.promptName(for: machine, fallbackName: "Cloud machine") == "sleepy-teal-otter")
+    }
+
+    @Test("projects an in-flight label onto only the renamed machine")
+    func appliesOptimisticLabel() {
+        let first = Self.machine(label: nil, slug: "first-machine")
+        let second = MachineSnapshot(
+            id: "vm-second",
+            provider: first.provider,
+            image: first.image,
+            isDesktop: first.isDesktop,
+            activity: first.activity,
+            label: "Second",
+            slug: "second-machine"
+        )
+
+        let updated = MachineSnapshotBuilder.applyingLabel(
+            to: [first, second], machineID: first.id, label: "Renamed"
+        )
+
+        #expect(updated.map(\.label) == ["Renamed", "Second"])
+    }
+
     private static func machine(label: String?, slug: String?) -> MachineSnapshot {
         MachineSnapshot(
             id: "vm-1f7ddfedaa024f559b-d0b959327fe3f6",

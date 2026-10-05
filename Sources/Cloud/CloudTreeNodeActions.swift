@@ -64,6 +64,9 @@ struct CloudTreeNodeActions {
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
+    /// Starts guest display discovery, which also warms the machine's standby display.
+    /// Returns false when the machine cannot run discovery now.
+    var discoverDisplays: @MainActor (SurfaceMachineID, _ completion: @escaping @MainActor (Bool) -> Void) -> Bool = { _, _ in false }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
@@ -191,6 +194,21 @@ struct CloudTreeNodeActions {
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
+        /// A Cloud row click is a content-focus action. Browser panes reset their
+        /// omnibar focus while they are being materialized, so selecting the pane
+        /// alone can leave the address field active even though the page was opened.
+        /// Reassert WebKit focus after the shared pane focus operation, preserving
+        /// the same behavior for ports, displays, and other browser resources.
+        @MainActor
+        func focusProjection(_ projection: SurfaceProjection) {
+            SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+            if let browser = SurfacePaneFactory.browserPanel(
+                panelID: projection.panelID,
+                in: projection.workspaceID
+            ) {
+                browser.focusContentAfterAttachment()
+            }
+        }
         var actions = CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 // Capture the caller's workspace before the async operation starts.
@@ -248,26 +266,27 @@ struct CloudTreeNodeActions {
                     // pane opened as an additional tab does not by itself become the
                     // SELECTED tab in its column — explicitly select it too, so
                     // clicking a sidebar row always lands you looking at it.
-                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+                    focusProjection(projection)
                 }
             },
             projectRemoteView: { resource, view, placement, reuseExisting in
                 // A daemon view must use the same captured destination as a pool resource.
                 let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(
+                    let opened = try await catalog.project(
                         resource,
                         into: try target.get(),
                         focus: true,
                         reuseExisting: reuseExisting,
                         remoteView: view
                     )
+                    focusProjection(opened.projection)
                 }
             },
             projectInLocalWorkspace: { resource, workspaceID in
                 run(openingLabel(resource.machine)) { catalog in
                     if let port = resource.forwardedPort {
-                        _ = try await catalog.openCloudPort(
+                        let opened = try await catalog.openCloudPort(
                             machine: resource.machine,
                             port: port,
                             into: .workspace(id: workspaceID, placement: .split),
@@ -275,20 +294,22 @@ struct CloudTreeNodeActions {
                             reuseExisting: true,
                             reuseInWorkspace: workspaceID
                         )
+                        focusProjection(opened.projection)
                     } else {
-                        _ = try await catalog.project(
+                        let opened = try await catalog.project(
                             resource,
                             into: .workspace(id: workspaceID, placement: .split),
                             focus: true,
                             reuseExisting: true,
                             reuseInWorkspace: workspaceID
                         )
+                        focusProjection(opened.projection)
                     }
                 }
             },
             projectRemoteViewInLocalWorkspace: { resource, view, workspaceID in
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(
+                    let opened = try await catalog.project(
                         resource,
                         into: .workspace(id: workspaceID, placement: .split),
                         focus: true,
@@ -296,6 +317,7 @@ struct CloudTreeNodeActions {
                         reuseInWorkspace: workspaceID,
                         remoteView: view
                     )
+                    focusProjection(opened.projection)
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
@@ -325,7 +347,7 @@ struct CloudTreeNodeActions {
                         reuseExisting: true,
                         remoteView: remoteView
                     )
-                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+                    focusProjection(projection)
                 }
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
@@ -352,7 +374,7 @@ struct CloudTreeNodeActions {
                             reuseExisting: true,
                             remoteView: remoteView
                         )
-                        SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+                        focusProjection(projection)
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
@@ -598,6 +620,7 @@ struct CloudTreeNodeActions {
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
+        actions.discoverDisplays = { machine, completion in catalog().beginDisplayDiscovery(on: machine, completion: completion) }
         actions.newDisplay = { machine in
             let target = try? destination(.split)
             if let target,

@@ -89,6 +89,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let portsDemand = CloudPortsDiscoveryDemand()
+        let displaysDemand = CloudDisplaysDiscoveryDemand()
         let expansionStore: CloudTreeExpansionStore
         let nodeCache: CloudTreeNodeCache
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -101,6 +102,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         /// The selected row's stable node id, restored across in-place reloads.
         var selectedNodeID: String?
+        /// The last focused local Cloud workspace/remote row pair reconciled
+        /// into the native outline selection. A stable pair lets user clicks
+        /// on other rows survive unrelated catalog refreshes.
+        var lastFocusedCloudWorkspace: CloudTreeFocusedWorkspaceSelection?
         /// Workspaces the catalog has admitted for deletion but not confirmed.
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         var pendingMachineDeletions: Set<String> = []
@@ -287,6 +292,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
         }
+        /// Applies a tree snapshot immediately or retains it until a native drag ends.
         private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
             if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
@@ -326,6 +332,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             contentSignature = nextContent
             if structureUnchanged, !self.nodes.isEmpty {
                 portsDemand.update(nodes: self.nodes)
+                displaysDemand.update(nodes: self.nodes, actions: nodeActions)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
@@ -337,6 +344,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             self.nodes = nodes
             portsDemand.update(nodes: nodes)
+            displaysDemand.update(nodes: nodes, actions: nodeActions)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -346,6 +354,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         /// Ends a native drag and drains the latest deferred snapshot exactly once.
+        /// Tracks native drag state and drains the latest deferred snapshot on completion.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
             isDragging = dragging
@@ -363,6 +372,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     outlineView?.indentationPerLevel = style.indentPerLevel
                 }
                 apply(nodes: deferred)
+                if let selectedNodeID {
+                    selectFocusedCloudWorkspaceRow(selectedNodeID)
+                }
             } else if shouldReload, let outlineView {
                 outlineView.treeStyle = style
                 outlineView.indentationPerLevel = style.indentPerLevel

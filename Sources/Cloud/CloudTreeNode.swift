@@ -910,7 +910,7 @@ enum CloudTreeNodeBuilder {
                         }) + pendingDisplayRows(machine: machine, snapshot: snapshot)
                 ))
             }
-            if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
+            if info.linkState == .connecting || info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
                 children.append(terminalsGroupNode(
                     machine: machine,
                     terminals: terminals,

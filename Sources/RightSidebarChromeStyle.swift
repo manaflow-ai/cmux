@@ -361,6 +361,9 @@ struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
 struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
+    /// The tab is actively being dragged. Its icon stays anchored while the
+    /// full label slot opens around it.
+    var isDragged = false
     var badgeCount: Int = 0
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
@@ -383,7 +386,10 @@ struct ModeBarButton: View {
     /// With its label hidden, the icon (and badge) moves into the middle of
     /// the label's empty slot, so it sits centered in the tab's highlight.
     private var hiddenLabelShift: CGFloat {
-        labelFits ? 0 : (labelWidth + Self.contentSpacing) / 2
+        // A dragged tab is promoted to the full-label slot by the parent
+        // layout. Keep the glyph at its resting x position while the text
+        // reveals, instead of animating it from the icon-only center.
+        isDragged || labelFits ? 0 : (labelWidth + Self.contentSpacing) / 2
     }
     private static let contentSpacing: CGFloat = 4
 
@@ -417,7 +423,7 @@ struct ModeBarButton: View {
                     .frame(minWidth: 0, alignment: .leading)
                     .clipped()
                     .mask { ModeBarLabelEdgeFade(naturalWidth: naturalLabelWidth) }
-                    .opacity(labelFits ? 1 : 0)
+                    .opacity(isDragged ? 1 : (labelFits ? 1 : 0))
                     .onGeometryChange(for: CGFloat.self) { proxy in
                         proxy.size.width
                     } action: { width in

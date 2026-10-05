@@ -4640,7 +4640,8 @@ class TabManager: ObservableObject {
         globalConfigPath: String,
         settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
-        workspaceCommands: [String: CmuxResolvedCommand]
+        workspaceCommands: [String: CmuxResolvedCommand],
+        usesCompactCluster: Bool = false
     ) {
         for workspace in tabs {
             workspace.applySurfaceTabBarButtons(
@@ -4649,7 +4650,8 @@ class TabManager: ObservableObject {
                 globalConfigPath: globalConfigPath,
                 settingPresets: settingPresets,
                 terminalCommandSourcePaths: terminalCommandSourcePaths,
-                workspaceCommands: workspaceCommands
+                workspaceCommands: workspaceCommands,
+                usesCompactCluster: usesCompactCluster
             )
         }
     }
