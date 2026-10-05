@@ -345,7 +345,7 @@ extension TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
+            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.runtime.list", "agent.hibernation.session_end",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",

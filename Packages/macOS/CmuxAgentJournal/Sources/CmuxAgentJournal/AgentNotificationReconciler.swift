@@ -261,7 +261,17 @@ public struct AgentNotificationReconciler: Sendable {
         case .sessionEnded:
             session.ended = true
         case .stateChanged:
-            if draft.declaredPhase == .running {
+            let assertedPhase: AgentLifecyclePhase?
+            if let activity = draft.declaredActivity {
+                switch activity {
+                case .working: assertedPhase = .running
+                case .needsInput: assertedPhase = .needsInput
+                case .failed, .quotaBlocked: assertedPhase = .error
+                case .idle, .ready, .paused: assertedPhase = .idle
+                case .unknown, .waiting, .ended: assertedPhase = .unknown
+                }
+            } else { assertedPhase = draft.declaredPhase }
+            if assertedPhase == .running {
                 let isNewTurn = incomingTurn != nil
                     && incomingTurn != session.nativeTurn
                     && incomingTurn.map { !session.seenTurns.contains($0) } == true
@@ -281,7 +291,7 @@ public struct AgentNotificationReconciler: Sendable {
                 session.rootStopped = false
                 session.pendingCompletion = nil
             }
-            if let phase = draft.declaredPhase {
+            if let phase = assertedPhase {
                 session.phase = phase == .running && !session.attentionIdentities.isEmpty ? .needsInput : phase
             }
         case .childSpawned:
@@ -343,6 +353,9 @@ public struct AgentNotificationReconciler: Sendable {
             }
         case .stateChanged where draft.declaredPhase != nil:
             draft.declaredPhase = session.phase
+        case .stateChanged where draft.declaredActivity == .working && session.phase == .needsInput:
+            // A coarse busy observation cannot retire an unresolved exact request.
+            draft.declaredActivity = .needsInput
         case .idleObserved, .attentionResolved, .childSpawned, .childCompleted, .childFailed:
             draft.occurredAtMs = max(draft.occurredAtMs, session.occurredAtMs)
             draft.kind = .stateChanged

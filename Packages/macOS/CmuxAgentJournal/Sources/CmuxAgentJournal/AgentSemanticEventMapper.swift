@@ -54,11 +54,14 @@ public struct AgentSemanticEventMapper: Sendable {
             // These providers use their session-end callback as a per-turn
             // boundary and expose a distinct finalization event where available.
             return .turnCompleted
-        case ("opencode", "sessioncreated"):
+        case ("commandcode", "sessioncreated"), ("command-code", "sessioncreated"),
+             ("opencode", "sessioncreated"):
             return .sessionStarted
-        case ("opencode", "sessionidle"):
+        case ("commandcode", "sessionidle"), ("command-code", "sessionidle"),
+             ("opencode", "sessionidle"):
             return .turnCompleted
-        case ("opencode", "sessiondeleted"):
+        case ("commandcode", "sessiondeleted"), ("command-code", "sessiondeleted"),
+             ("opencode", "sessiondeleted"):
             return .sessionEnded
         case ("copilot", "notification"), ("codebuddy", "notification"), ("factory", "notification"):
             // These Claude-compatible runtimes use Notification as their only
@@ -67,6 +70,7 @@ public struct AgentSemanticEventMapper: Sendable {
         default:
             break
         }
+        if ["questionreplied", "questionrejected", "permissionreplied", "permissionrejected"].contains(event) { return .attentionResolved }
         if Self.childSpawnEvents.contains(event) { return .childSpawned }
         if Self.childCompletionEvents.contains(event) { return .childCompleted }
         if event == "subagentfailed" || event == "childfailed" { return .childFailed }
@@ -77,6 +81,19 @@ public struct AgentSemanticEventMapper: Sendable {
         if Self.errorEvents.contains(event) { return .errorReported }
         if Self.sessionEndEvents.contains(event) { return .sessionEnded }
         return .stateChanged
+    }
+
+    /// Normalizes explicit mode metadata without inferring mode from activity or prose.
+    /// - Parameter nativeMode: Structured native mode value, if supplied.
+    /// - Returns: Plan/execution mode, or nil when no recognized mode was asserted.
+    public func mode(nativeMode: String?) -> AgentExecutionMode? {
+        guard let nativeMode else { return nil }
+        switch Self.semanticKey(nativeMode) {
+        case "plan", "planning": return .plan
+        case "execution", "execute", "build", "code": return .execution
+        case "unknown": return .unknown
+        default: return nil
+        }
     }
 
     /// Normalizes a native event or tool name for table matching: lowercases

@@ -28,6 +28,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let leadingBadge = SidebarRowUnreadBadgeView()
     private var leadingSpinner: GPUSpinnerNSView?
     private let pinImageView = NSImageView()
+    private let importanceImageView = NSImageView()
     private let muteImageView = NSImageView()
     private let mediaAudioView = NSImageView()
     private let mediaMicView = NSImageView()
@@ -322,7 +323,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(railView)
         addSubview(contentContainer)
 
-        for view in [pinImageView, muteImageView, cloudImageView, mediaAudioView, mediaMicView, mediaCameraView] {
+        for view in [pinImageView, importanceImageView, muteImageView, cloudImageView, mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
         }
@@ -548,6 +549,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             symbol: "pin.fill", label: snapshot.isPinned
                 ? String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close") : nil,
             pointSize: model.scaled(9), tint: palette.secondary(0.8)
+        )
+        importanceImageView.configureSidebarWorkspaceAccessory(
+            symbol: "star.fill", label: snapshot.importance == .none ? nil : snapshot.importance.menuTitle,
+            pointSize: model.scaled(10),
+            tint: snapshot.importance == .priority ? .systemYellow : .systemBlue
         )
         muteImageView.configureSidebarWorkspaceAccessory(
             symbol: "bell.slash.fill", label: snapshot.isMuted
@@ -1303,6 +1309,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if !pinImageView.isHidden {
             let side = model.scaled(9) + 4
             place(pinImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            x += side + titleRowSpacing
+        }
+        if !importanceImageView.isHidden {
+            let side = model.scaled(10) + 4
+            place(importanceImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
         }
         if !muteImageView.isHidden {

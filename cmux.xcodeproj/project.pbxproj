@@ -195,6 +195,7 @@
 		CC2D14DFE13EFF544A25BEAF /* AgentResumeLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F8DA1BC7420DEC238C4CB0B /* AgentResumeLiveness.swift */; };
 		B679CCBA4CF56982C8564009 /* AgentResumeLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85FA9F7370322CC65A15774E /* AgentResumeLivenessTests.swift */; };
 		8837A0010000000000000001 /* AgentResumeReturnShellStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8837A0020000000000000002 /* AgentResumeReturnShellStartupTests.swift */; };
+		FC22D0020000000000000001 /* AgentRuntimeObservationReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC22D0020000000000000002 /* AgentRuntimeObservationReader.swift */; };
 		42A1CC63848CB4420F2F0FD7 /* AgentSemanticNotificationDeliveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2C0D107664F88CAE6E4E45 /* AgentSemanticNotificationDeliveryTests.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */; };
@@ -2601,6 +2602,7 @@
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
 		D77690000000000000000005 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */; };
 		E05E36509344691CA085F0CC /* NarrowWindowSidePanelFitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C6C5413708B2C95D6C1CC3 /* NarrowWindowSidePanelFitTests.swift */; };
+		FC22D0040000000000000001 /* NativeAgentRuntimeObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC22D0040000000000000002 /* NativeAgentRuntimeObservationTests.swift */; };
 		596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */; };
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
 		A6AC72030000000000000001 /* NativeSpinner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72030000000000000002 /* NativeSpinner.swift */; };
@@ -3228,6 +3230,12 @@
 		9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0049212B0049212B004 /* SidebarEmptyAreaWindowDragOutcome.swift */; };
 		9212A0069212A0069212A006 /* SidebarEmptyAreaWindowDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */; };
 		9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */; };
+		FC22D0010000000000000001 /* SidebarExtensionAgentSessionBindingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC22D0010000000000000002 /* SidebarExtensionAgentSessionBindingCoordinator.swift */; };
+		6F4C07E634FB3B91A73B43FB /* SidebarExtensionImportanceMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01345AEE427B428F770C3DB1 /* SidebarExtensionImportanceMenu.swift */; };
+		C14BB250731A62C3CC38C034 /* SidebarExtensionManagementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 499A3CA2EB3580820BEBDCBC /* SidebarExtensionManagementCoordinator.swift */; };
+		FCDD8A486170C2ED2F5DF8F2 /* SidebarExtensionModeHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD80145597B5563E5949E7CB /* SidebarExtensionModeHeader.swift */; };
+		EFBE1F9AF97433BBA50804F1 /* SidebarExtensionRuntimeProjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B156974C94653C55BF48FE63 /* SidebarExtensionRuntimeProjector.swift */; };
+		FC22C0020000000000000001 /* SidebarExtensionWorkspaceContextCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC22C0020000000000000002 /* SidebarExtensionWorkspaceContextCoordinator.swift */; };
 		A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7FD1001 /* SidebarFileDropFindRoutingTests.swift */; };
 		B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */; };
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
@@ -3677,6 +3685,7 @@
 		D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */; };
 		110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */; };
 		1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */; };
+		FC22D0030000000000000001 /* TerminalController+AgentRuntimeObservations.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC22D0030000000000000002 /* TerminalController+AgentRuntimeObservations.swift */; };
 		2AEE214AD8A145C2BEA7AEE3 /* TerminalController+AgentTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CCD6F86F7D943F79609DF83 /* TerminalController+AgentTitle.swift */; };
 		13019E000000000000000002 /* TerminalController+AuthTeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019E000000000000000001 /* TerminalController+AuthTeam.swift */; };
 		A106490C0000000000000001 /* TerminalController+Automation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A106490B0000000000000001 /* TerminalController+Automation.swift */; };
@@ -4316,6 +4325,8 @@
 		DFAAE6D5B2C449C4BC3AC238 /* WorkspaceContentView+PanelVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 043F767DF75A4170B35210E7 /* WorkspaceContentView+PanelVisibility.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
 		F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
+		FC22C0030000000000000001 /* WorkspaceContextBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC22C0030000000000000002 /* WorkspaceContextBehaviorTests.swift */; };
+		FC22C0010000000000000001 /* WorkspaceContextModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC22C0010000000000000002 /* WorkspaceContextModel.swift */; };
 		F7962E5DDA94319A98612BDC /* WorkspaceCreateIdempotencyIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D745F48BE9C06D2ED4C2E3DC /* WorkspaceCreateIdempotencyIsolationTests.swift */; };
 		D1A700000000000000000008 /* WorkspaceCreateIdempotencyRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000007 /* WorkspaceCreateIdempotencyRecoveryTests.swift */; };
 		C0DE00000000000000000D38 /* WorkspaceCreateIdempotencyTombstoneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000D37 /* WorkspaceCreateIdempotencyTombstoneTests.swift */; };
@@ -4758,6 +4769,7 @@
 		8F8DA1BC7420DEC238C4CB0B /* AgentResumeLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLiveness.swift; sourceTree = "<group>"; };
 		85FA9F7370322CC65A15774E /* AgentResumeLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLivenessTests.swift; sourceTree = "<group>"; };
 		8837A0020000000000000002 /* AgentResumeReturnShellStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeReturnShellStartupTests.swift; sourceTree = "<group>"; };
+		FC22D0020000000000000002 /* AgentRuntimeObservationReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRuntimeObservationReader.swift"; sourceTree = "<group>"; };
 		2F2C0D107664F88CAE6E4E45 /* AgentSemanticNotificationDeliveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSemanticNotificationDeliveryTests.swift"; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSwiftTests.swift; sourceTree = "<group>"; };
@@ -7003,6 +7015,7 @@
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
 		D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsWorkspaceHeadlineUITests.swift; sourceTree = "<group>"; };
 		D0C6C5413708B2C95D6C1CC3 /* NarrowWindowSidePanelFitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NarrowWindowSidePanelFitTests.swift"; sourceTree = "<group>"; };
+		FC22D0040000000000000002 /* NativeAgentRuntimeObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeAgentRuntimeObservationTests.swift"; sourceTree = "<group>"; };
 		596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationDeliveryHooks.swift; sourceTree = "<group>"; };
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
 		A6AC72030000000000000002 /* NativeSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSpinner.swift; sourceTree = "<group>"; };
@@ -7623,6 +7636,12 @@
 		9212B0049212B0049212B004 /* SidebarEmptyAreaWindowDragOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragOutcome.swift; sourceTree = "<group>"; };
 		9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarEmptyAreaWindowDragTests.swift; sourceTree = "<group>"; };
 		9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragTrackingEvent.swift; sourceTree = "<group>"; };
+		FC22D0010000000000000002 /* SidebarExtensionAgentSessionBindingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarExtensionAgentSessionBindingCoordinator.swift"; sourceTree = "<group>"; };
+		01345AEE427B428F770C3DB1 /* SidebarExtensionImportanceMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionImportanceMenu.swift; sourceTree = "<group>"; };
+		499A3CA2EB3580820BEBDCBC /* SidebarExtensionManagementCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionManagementCoordinator.swift; sourceTree = "<group>"; };
+		FD80145597B5563E5949E7CB /* SidebarExtensionModeHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionModeHeader.swift; sourceTree = "<group>"; };
+		B156974C94653C55BF48FE63 /* SidebarExtensionRuntimeProjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionRuntimeProjector.swift; sourceTree = "<group>"; };
+		FC22C0020000000000000002 /* SidebarExtensionWorkspaceContextCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionWorkspaceContextCoordinator.swift; sourceTree = "<group>"; };
 		A7FD1001 /* SidebarFileDropFindRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFileDropFindRoutingTests.swift; sourceTree = "<group>"; };
 		B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFocusBoundaryLifecycleTests.swift; sourceTree = "<group>"; };
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
@@ -8063,6 +8082,7 @@
 		D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentPromptDelivery.swift"; sourceTree = "<group>"; };
 		110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreAdmission.swift"; sourceTree = "<group>"; };
 		8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreRecovery.swift"; sourceTree = "<group>"; };
+		FC22D0030000000000000002 /* TerminalController+AgentRuntimeObservations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRuntimeObservations.swift"; sourceTree = "<group>"; };
 		0CCD6F86F7D943F79609DF83 /* TerminalController+AgentTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentTitle.swift"; sourceTree = "<group>"; };
 		13019E000000000000000001 /* TerminalController+AuthTeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AuthTeam.swift"; sourceTree = "<group>"; };
 		A106490B0000000000000001 /* TerminalController+Automation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+Automation.swift"; sourceTree = "<group>"; };
@@ -8698,6 +8718,8 @@
 		043F767DF75A4170B35210E7 /* WorkspaceContentView+PanelVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceContentView+PanelVisibility.swift"; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
+		FC22C0030000000000000002 /* WorkspaceContextBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContextBehaviorTests.swift; sourceTree = "<group>"; };
+		FC22C0010000000000000002 /* WorkspaceContextModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContextModel.swift; sourceTree = "<group>"; };
 		D745F48BE9C06D2ED4C2E3DC /* WorkspaceCreateIdempotencyIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCreateIdempotencyIsolationTests.swift"; sourceTree = "<group>"; };
 		D1A700000000000000000007 /* WorkspaceCreateIdempotencyRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateIdempotencyRecoveryTests.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000D37 /* WorkspaceCreateIdempotencyTombstoneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateIdempotencyTombstoneTests.swift; sourceTree = "<group>"; };
@@ -9714,6 +9736,15 @@
 				A11D00000000000000000002 /* MacDevicesComposition.swift */,
 				BD3A5543C7D058686ECC1ABF /* MobileHostIrxRuntime+DeviceAccess.swift */,
 				15E90CA6CBAF36C5A9B779A2 /* HostSettingsActions+Computers.swift */,
+				B156974C94653C55BF48FE63 /* SidebarExtensionRuntimeProjector.swift */,
+				FC22D0030000000000000002 /* TerminalController+AgentRuntimeObservations.swift */,
+				FC22D0020000000000000002 /* AgentRuntimeObservationReader.swift */,
+				FC22D0010000000000000002 /* SidebarExtensionAgentSessionBindingCoordinator.swift */,
+				FC22C0020000000000000002 /* SidebarExtensionWorkspaceContextCoordinator.swift */,
+				FC22C0010000000000000002 /* WorkspaceContextModel.swift */,
+				499A3CA2EB3580820BEBDCBC /* SidebarExtensionManagementCoordinator.swift */,
+				01345AEE427B428F770C3DB1 /* SidebarExtensionImportanceMenu.swift */,
+				FD80145597B5563E5949E7CB /* SidebarExtensionModeHeader.swift */,
 				986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */,
 				986900080000000000000002 /* BrowserAction.swift */,
 				986900020000000000000002 /* BrowserActionDispatcher.swift */,
@@ -12841,6 +12872,8 @@
 				F0FD4E01EAF1B2F306A96F6F /* CloudPlacementCoordinatorTests.swift */,
 				EAADF4DC604A997BD8DA561E /* CloudPlacementTestProvider.swift */,
 				C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */,
+				FC22C0030000000000000002 /* WorkspaceContextBehaviorTests.swift */,
+				FC22D0040000000000000002 /* NativeAgentRuntimeObservationTests.swift */,
 				C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */,
 				606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */,
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
@@ -14339,6 +14372,7 @@
 				121580041215800412158004 /* AgentRestoreUnverifiableNotice.swift in Sources */,
 				D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */,
 				CC2D14DFE13EFF544A25BEAF /* AgentResumeLiveness.swift in Sources */,
+				FC22D0020000000000000001 /* AgentRuntimeObservationReader.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,
 				A9F20000000000000000000C /* AgentSessionBridgeRequest.swift in Sources */,
@@ -15950,6 +15984,12 @@
 				9212A0019212A0019212A001 /* SidebarEmptyAreaWindowDragController.swift in Sources */,
 				9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */,
 				9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */,
+				FC22D0010000000000000001 /* SidebarExtensionAgentSessionBindingCoordinator.swift in Sources */,
+				6F4C07E634FB3B91A73B43FB /* SidebarExtensionImportanceMenu.swift in Sources */,
+				C14BB250731A62C3CC38C034 /* SidebarExtensionManagementCoordinator.swift in Sources */,
+				FCDD8A486170C2ED2F5DF8F2 /* SidebarExtensionModeHeader.swift in Sources */,
+				EFBE1F9AF97433BBA50804F1 /* SidebarExtensionRuntimeProjector.swift in Sources */,
+				FC22C0020000000000000001 /* SidebarExtensionWorkspaceContextCoordinator.swift in Sources */,
 				A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */,
 				F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */,
 				B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */,
@@ -16257,6 +16297,7 @@
 				D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */,
 				110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */,
 				1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */,
+				FC22D0030000000000000001 /* TerminalController+AgentRuntimeObservations.swift in Sources */,
 				2AEE214AD8A145C2BEA7AEE3 /* TerminalController+AgentTitle.swift in Sources */,
 				13019E000000000000000002 /* TerminalController+AuthTeam.swift in Sources */,
 				A106490C0000000000000001 /* TerminalController+Automation.swift in Sources */,
@@ -16765,6 +16806,7 @@
 					5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */,
 				DFAAE6D5B2C449C4BC3AC238 /* WorkspaceContentView+PanelVisibility.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
+				FC22C0010000000000000001 /* WorkspaceContextModel.swift in Sources */,
 				C4F0C0100000000000000A01 /* WorkspaceCustomColorPrompt.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				F0ACC0DE000000000000000B /* WorkspaceForkAgentConversationAvailability.swift in Sources */,
@@ -17993,6 +18035,7 @@
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
 				E05E36509344691CA085F0CC /* NarrowWindowSidePanelFitTests.swift in Sources */,
+				FC22D0040000000000000001 /* NativeAgentRuntimeObservationTests.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
 				5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */,
 				001BEAAF850238E93D30046A /* NewCloudWorkspaceShortcutWindowFixture.swift in Sources */,
@@ -18427,6 +18470,7 @@
 				D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */,
 				970900030000000000000001 /* WorkspaceColorMenuTests.swift in Sources */,
 				F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
+				FC22C0030000000000000001 /* WorkspaceContextBehaviorTests.swift in Sources */,
 				F7962E5DDA94319A98612BDC /* WorkspaceCreateIdempotencyIsolationTests.swift in Sources */,
 				D1A700000000000000000008 /* WorkspaceCreateIdempotencyRecoveryTests.swift in Sources */,
 				C0DE00000000000000000D38 /* WorkspaceCreateIdempotencyTombstoneTests.swift in Sources */,

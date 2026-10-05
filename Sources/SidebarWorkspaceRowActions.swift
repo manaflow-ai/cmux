@@ -55,6 +55,7 @@ struct SidebarWorkspaceRowActions {
     let onPointerFrameChange: (CGRect) -> Void
     let onPointerFrameDisappear: () -> Void
     let onPointerDragEligibilityChange: (Bool) -> Void
+    var setImportance: (Workspace.Importance, [UUID]) -> Void = { _, _ in }
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.

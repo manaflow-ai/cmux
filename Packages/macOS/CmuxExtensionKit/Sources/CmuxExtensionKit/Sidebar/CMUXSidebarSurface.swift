@@ -43,6 +43,10 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
     public var unreadCount: Int
     /// The surface working directory when the extension has permission to see workspace paths.
     public var workingDirectory: String?
+    /// Native agent evidence, shared only with the agent-runtime scope.
+    public var runtime: CmuxSidebarRuntimeObservation?
+    /// Exact per-session observations; nil for legacy hosts or without the agent-runtime scope.
+    public var runtimeObservations: [CmuxSidebarRuntimeObservation]?
 
     /// Creates a sidebar surface value.
     public init(
@@ -52,7 +56,9 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
         isFocused: Bool = false,
         isPinned: Bool = false,
         unreadCount: Int = 0,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        runtime: CmuxSidebarRuntimeObservation? = nil,
+        runtimeObservations: [CmuxSidebarRuntimeObservation]? = nil
     ) {
         self.id = id
         self.title = title
@@ -61,6 +67,8 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
         self.isPinned = isPinned
         self.unreadCount = unreadCount
         self.workingDirectory = workingDirectory
+        self.runtime = runtime
+        self.runtimeObservations = runtimeObservations
     }
 
     @_spi(CmuxHostTransport)
@@ -74,7 +82,9 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
             isFocused: isFocused,
             isPinned: isPinned,
             unreadCount: unreadCount,
-            workingDirectory: scopeSet.contains(.workspacePaths) ? workingDirectory : nil
+            workingDirectory: scopeSet.contains(.workspacePaths) ? workingDirectory : nil,
+            runtime: scopeSet.contains(.agentRuntime) ? runtime : nil,
+            runtimeObservations: scopeSet.contains(.agentRuntime) ? runtimeObservations : nil
         )
     }
 }

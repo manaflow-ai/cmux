@@ -262,6 +262,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         guard let tabManager = commands.tabManager else { return menu }
 
         addPinItem(to: menu, tabManager: tabManager)
+        addImportanceMenu(to: menu, tabManager: tabManager)
         if let notificationStore = commands.notificationStore {
             addNotificationMuteItem(to: menu, notificationStore: notificationStore)
         }
@@ -331,6 +332,33 @@ struct SidebarWorkspaceRowMenuBuilder {
             }
             commands.syncSelectionAfterMutation()
         })
+    }
+
+    private func addImportanceMenu(to menu: NSMenu, tabManager: TabManager) {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for importance in Workspace.Importance.allCases {
+            let entry = item(importance.menuTitle) { [commands] in
+                guard let manager = commands.tabManager else { return }
+                for id in commands.contextMenuWorkspaceIds {
+                    manager.setWorkspaceImportance(workspaceId: id, importance: importance)
+                }
+                commands.refreshSnapshot()
+            }
+            entry.state = targetIds.allSatisfy { id in
+                tabManager.tabs.first(where: { $0.id == id })?.importance == importance
+            } ? .on : .off
+            if importance != .none {
+                let image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: importance.menuTitle)
+                entry.image = image?.withSymbolConfiguration(
+                    NSImage.SymbolConfiguration(paletteColors: [importance == .priority ? .systemYellow : .systemBlue])
+                )
+            }
+            submenu.addItem(entry)
+        }
+        let parent = item(String(localized: "sidebar.importance.title", defaultValue: "Importance")) {}
+        parent.submenu = submenu
+        menu.addItem(parent)
     }
 
     private func addGroupSection(to menu: NSMenu, tabManager: TabManager) {

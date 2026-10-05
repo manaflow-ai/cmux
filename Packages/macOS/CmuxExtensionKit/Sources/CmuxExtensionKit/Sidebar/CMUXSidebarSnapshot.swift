@@ -8,15 +8,18 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     public var grantedReadScopes: Set<CmuxExtensionScope>
     public var grantedActionScopes: Set<CmuxExtensionActionScope>
     public var workspaces: [CmuxSidebarWorkspace]
+    /// Authoritative native groups, shared only with the workspace-groups scope.
+    public var workspaceGroups: [CmuxSidebarWorkspaceGroup]
 
     public init(
-        apiVersion: CmuxExtensionAPIVersion = .sidebarV2,
+        apiVersion: CmuxExtensionAPIVersion = .sidebarV2_2,
         sequence: UInt64,
         windowID: UUID? = nil,
         selectedWorkspaceID: UUID?,
         grantedReadScopes: Set<CmuxExtensionScope> = [],
         grantedActionScopes: Set<CmuxExtensionActionScope> = [],
-        workspaces: [CmuxSidebarWorkspace]
+        workspaces: [CmuxSidebarWorkspace],
+        workspaceGroups: [CmuxSidebarWorkspaceGroup] = []
     ) {
         self.apiVersion = apiVersion
         self.sequence = sequence
@@ -25,6 +28,7 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         self.grantedReadScopes = grantedReadScopes
         self.grantedActionScopes = grantedActionScopes
         self.workspaces = workspaces
+        self.workspaceGroups = workspaceGroups
     }
 
     public init(from decoder: Decoder) throws {
@@ -36,6 +40,7 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         grantedReadScopes = try container.decodeLossySetIfPresent(CmuxExtensionScope.self, forKey: .grantedReadScopes)
         grantedActionScopes = try container.decodeLossySetIfPresent(CmuxExtensionActionScope.self, forKey: .grantedActionScopes)
         workspaces = try container.decode([CmuxSidebarWorkspace].self, forKey: .workspaces)
+        workspaceGroups = try container.decodeIfPresent([CmuxSidebarWorkspaceGroup].self, forKey: .workspaceGroups) ?? []
     }
 
     @_spi(CmuxHostTransport)
@@ -66,7 +71,8 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
                 scopeSet.contains(.workspaceMetadata)
                     ? workspace.filtered(for: scopeSet)
                     : CmuxSidebarWorkspace(id: workspace.id, title: "")
-            }
+            },
+            workspaceGroups: scopeSet.contains(.workspaceGroups) ? workspaceGroups : []
         )
     }
 }

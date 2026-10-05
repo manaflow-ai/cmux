@@ -94,16 +94,12 @@ final class AgentJournalLifecycleCenter: Sendable {
                 guard let eventAliases = resolver(store) else { return false }
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale, decision.projectsLifecycle,
-                   let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
+                if decision.disposition != .stale, decision.projectsLifecycle || canonical.draft.declaredMode != nil,
+                   let application = Self.reduceIngest(decision.projectsLifecycle ? notifications.lifecycleEvent(canonical) : canonical, sourceKind: canonical.kind,
                        aliases: eventAliases,
                        reducer: reducer, state: &state) {
                     await MainActor.run {
-                        Self.apply(
-                            application.assignment,
-                            workspaceHint: application.workspaceHint,
-                            activity: application.activity
-                        )
+                        Self.apply(application)
                     }
                 }
                 // Live events only: the startup replay folds history through

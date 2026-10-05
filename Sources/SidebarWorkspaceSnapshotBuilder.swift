@@ -82,6 +82,7 @@ struct SidebarWorkspaceSnapshotBuilder {
 
         var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
         var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }
+        var importance: Workspace.Importance = .none
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
             let position = String(

@@ -5,6 +5,7 @@ import CmuxNotifications
 import AppKit
 import ExtensionFoundation
 import SwiftUI
+import Observation
 
 private struct CMUXSidebarExtensionGrant: Codable, Equatable {
     var manifestID: String
@@ -223,9 +224,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     @State private var identity: AppExtensionIdentity?
     @State private var enabledIdentities: [AppExtensionIdentity] = []
-    @State private var selectedExtensionBundleID = UserDefaults.standard.string(
-        forKey: Self.selectedExtensionBundleIDDefaultsKey
-    )
+    @AppStorage("cmuxExtensionSidebar.selectedExtensionBundleId") private var selectedExtensionBundleID: String?
     @State private var isLoading = true
     @State private var errorText: String?
     @State private var disabledExtensionCount = 0
@@ -355,6 +354,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             let snapshot = snapshotCache.replace(with: snapshotProvider())
             xpcHost.sendSnapshotDidChange(snapshot)
         }
+        .onChange(of: selectedExtensionBundleID) { _, _ in
+            applyEnabledExtensionIdentities(enabledIdentities)
+        }
         .onDisappear {
             xpcHost.invalidate()
         }
@@ -464,7 +466,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             onUseDefaultSidebar()
         } label: {
             Label(
-                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                String(localized: "sidebar.mode.classic", defaultValue: "Classic"),
                 systemImage: "sidebar.left"
             )
         }
@@ -581,7 +583,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         presentExtensionBrowser()
                     }
                     .controlSize(.small)
-                    Button(String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default")) {
+                    Button(String(localized: "sidebar.mode.classic", defaultValue: "Classic")) {
                         isShowingExtensionDetails = false
                         onUseDefaultSidebar()
                     }
@@ -638,7 +640,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             onUseDefaultSidebar()
         } label: {
             Label(
-                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                String(localized: "sidebar.mode.classic", defaultValue: "Classic"),
                 systemImage: "sidebar.left"
             )
         }
@@ -955,6 +957,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(scope: CmuxExtensionScope) -> String {
         switch scope {
+        case .workspaceContext:
+            return String(localized: "sidebar.extensions.permission.workspaceContext.detail", defaultValue: "Read project tags, former names, summaries, and analyzed proposals")
+        case .workspaceGroups:
+            return String(localized: "sidebar.extensions.permission.workspaceGroups.detail", defaultValue: "Read native groups, membership, and collapsed state")
+        case .agentRuntime:
+            return String(localized: "sidebar.extensions.permission.agentRuntime.detail", defaultValue: "Read verified native working, waiting, and error observations")
         case .workspaceList:
             return String(localized: "sidebar.extensions.permission.workspaceList.detail", defaultValue: "Read workspace IDs and names")
         case .workspaceMetadata:
@@ -974,6 +982,40 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(actionScope: CmuxExtensionActionScope) -> String {
         switch actionScope {
+        case .bindAgentSession:
+            return String(localized: "sidebar.extensions.permission.bindAgentSession.detail", defaultValue: "Bind an explicit session ID to its verified current process")
+        case .editWorkspaceContext:
+            return String(localized: "sidebar.extensions.permission.editWorkspaceContext.detail", defaultValue: "Edit project context, review proposals, reject tags, and undo changes")
+        case .renameWorkspace:
+            return String(localized: "sidebar.extensions.permission.renameWorkspace.detail", defaultValue: "Rename workspaces using native title ownership")
+        case .renameSurface:
+            return String(localized: "sidebar.extensions.permission.renameSurface.detail", defaultValue: "Rename terminal and browser tabs")
+        case .createWorkspaceGroup:
+            return String(localized: "sidebar.extensions.permission.createWorkspaceGroup.detail", defaultValue: "Create native groups from existing workspaces")
+        case .renameWorkspaceGroup:
+            return String(localized: "sidebar.extensions.permission.renameWorkspaceGroup.detail", defaultValue: "Rename native workspace groups")
+        case .pinWorkspace:
+            return String(localized: "sidebar.extensions.permission.pinWorkspace.detail", defaultValue: "Protect or unpin native workspaces")
+        case .setWorkspaceImportance:
+            return String(localized: "sidebar.extensions.permission.setWorkspaceImportance.detail", defaultValue: "Set a yellow or blue star independently of pinning")
+        case .collapseWorkspaceGroup:
+            return String(localized: "sidebar.extensions.permission.collapseWorkspaceGroup.detail", defaultValue: "Expand or collapse native workspace groups")
+        case .moveWorkspaceToGroup:
+            return String(localized: "sidebar.extensions.permission.moveWorkspaceToGroup.detail", defaultValue: "Move workspaces into or out of native groups")
+        case .ungroupWorkspaceGroup:
+            return String(localized: "sidebar.extensions.permission.ungroupWorkspaceGroup.detail", defaultValue: "Remove a group while preserving its workspaces")
+        case .deleteWorkspaceGroup:
+            return String(localized: "sidebar.extensions.permission.deleteWorkspaceGroup.detail", defaultValue: "Confirm group deletion and close its captured workspaces")
+        case .manageNotifications:
+            return String(localized: "sidebar.extensions.permission.manageNotifications.detail", defaultValue: "Mark workspaces read or unread and clear their latest notification")
+        case .muteWorkspace:
+            return String(localized: "sidebar.extensions.permission.muteWorkspace.detail", defaultValue: "Mute or restore workspace notifications")
+        case .editWorkspaceDescription:
+            return String(localized: "sidebar.extensions.permission.editWorkspaceDescription.detail", defaultValue: "Edit native workspace descriptions")
+        case .colorWorkspace:
+            return String(localized: "sidebar.extensions.permission.colorWorkspace.detail", defaultValue: "Set or clear native workspace colors")
+        case .reorderWorkspace:
+            return String(localized: "sidebar.extensions.permission.reorderWorkspace.detail", defaultValue: "Reorder native workspaces")
         case .createWorkspace:
             return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
         case .selectWorkspace:
@@ -1028,10 +1070,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         if let selectedExtensionBundleID,
            let selectedIdentity = sortedIdentities.first(where: { $0.bundleIdentifier == selectedExtensionBundleID }) {
             nextIdentity = selectedIdentity
-        } else if selectedExtensionBundleID == nil, sortedIdentities.count == 1 {
-            nextIdentity = sortedIdentities[0]
-            selectedExtensionBundleID = nextIdentity?.bundleIdentifier
-            UserDefaults.standard.set(nextIdentity?.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
         } else {
             nextIdentity = nil
         }
@@ -1078,6 +1116,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 private extension CmuxExtensionScope {
     var displayName: String {
         switch self {
+        case .workspaceContext:
+            return String(localized: "sidebar.extensions.scope.workspaceContext", defaultValue: "Project context")
+        case .workspaceGroups:
+            return String(localized: "sidebar.extensions.scope.workspaceGroups", defaultValue: "Workspace groups")
+        case .agentRuntime:
+            return String(localized: "sidebar.extensions.scope.agentRuntime", defaultValue: "Agent activity")
         case .workspaceList:
             return String(localized: "sidebar.extensions.scope.workspaceList", defaultValue: "Workspace list")
         case .workspaceMetadata:
@@ -1099,6 +1143,40 @@ private extension CmuxExtensionScope {
 private extension CmuxExtensionActionScope {
     var displayName: String {
         switch self {
+        case .bindAgentSession:
+            return String(localized: "sidebar.extensions.actionScope.bindAgentSession", defaultValue: "Bind agent sessions")
+        case .editWorkspaceContext:
+            return String(localized: "sidebar.extensions.actionScope.editWorkspaceContext", defaultValue: "Edit project context")
+        case .renameWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.renameWorkspace", defaultValue: "Rename workspaces")
+        case .renameSurface:
+            return String(localized: "sidebar.extensions.actionScope.renameSurface", defaultValue: "Rename tabs")
+        case .createWorkspaceGroup:
+            return String(localized: "sidebar.extensions.actionScope.createWorkspaceGroup", defaultValue: "Create groups")
+        case .renameWorkspaceGroup:
+            return String(localized: "sidebar.extensions.actionScope.renameWorkspaceGroup", defaultValue: "Rename groups")
+        case .pinWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.pinWorkspace", defaultValue: "Pin workspaces")
+        case .setWorkspaceImportance:
+            return String(localized: "sidebar.extensions.actionScope.setWorkspaceImportance", defaultValue: "Set importance")
+        case .collapseWorkspaceGroup:
+            return String(localized: "sidebar.extensions.actionScope.collapseWorkspaceGroup", defaultValue: "Collapse groups")
+        case .moveWorkspaceToGroup:
+            return String(localized: "sidebar.extensions.actionScope.moveWorkspaceToGroup", defaultValue: "Move into groups")
+        case .ungroupWorkspaceGroup:
+            return String(localized: "sidebar.extensions.actionScope.ungroupWorkspaceGroup", defaultValue: "Ungroup workspaces")
+        case .deleteWorkspaceGroup:
+            return String(localized: "sidebar.extensions.actionScope.deleteWorkspaceGroup", defaultValue: "Delete groups")
+        case .manageNotifications:
+            return String(localized: "sidebar.extensions.actionScope.manageNotifications", defaultValue: "Manage notifications")
+        case .muteWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.muteWorkspace", defaultValue: "Mute workspaces")
+        case .editWorkspaceDescription:
+            return String(localized: "sidebar.extensions.actionScope.editWorkspaceDescription", defaultValue: "Edit descriptions")
+        case .colorWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.colorWorkspace", defaultValue: "Color workspaces")
+        case .reorderWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.reorderWorkspace", defaultValue: "Reorder workspaces")
         case .createWorkspace:
             return String(localized: "sidebar.extensions.actionScope.createWorkspace", defaultValue: "Create workspaces")
         case .selectWorkspace:
@@ -1461,5 +1539,41 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
                 reply(nil, error.localizedDescription as NSString)
             }
         }
+    }
+}
+
+/// View-owned discovery subscription. No filesystem or
+/// ExtensionKit discovery runs from a SwiftUI body or a terminal event path.
+@MainActor
+@Observable
+final class CortexSidebarAvailability {
+    private(set) var enabledBundleIDs: Set<String> = []
+    @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var observationGeneration: UInt64 = 0
+
+    func start() {
+        guard observation == nil else { return }
+        observationGeneration &+= 1
+        let generation = observationGeneration
+        observation = Task { [weak self] in
+            do {
+                let updates = try AppExtensionIdentity.matching(
+                    appExtensionPointIDs: CmuxSidebarExtensionPoint.identifier()
+                )
+                for try await identities in updates {
+                    guard !Task.isCancelled, self?.observationGeneration == generation else { break }
+                    self?.enabledBundleIDs = Set(identities.map(\.bundleIdentifier))
+                }
+            } catch {
+                if !Task.isCancelled, self?.observationGeneration == generation { self?.enabledBundleIDs = [] }
+            }
+            if self?.observationGeneration == generation { self?.observation = nil }
+        }
+    }
+
+    func stop() {
+        observationGeneration &+= 1
+        observation?.cancel()
+        observation = nil
     }
 }
