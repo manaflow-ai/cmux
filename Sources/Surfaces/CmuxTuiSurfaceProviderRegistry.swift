@@ -803,16 +803,10 @@ final class CmuxTuiSurfaceProviderRegistry {
                   !ownerTeamID.isEmpty,
                   !isRetired, generation == refreshGeneration,
                   isCloudEnabled(), !Task.isCancelled else { continue }
-            var restoredAddress: String?
-            if let projection = catalog.projections.first(where: { $0.resource.machine == .cloud(machineID) }),
-               let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) {
-                restoredAddress = browser.currentURLForTabDuplication.host
-            }
             let fetchedSummary = try? await loadMachineStatus(machineID, ownerTeamID)
             let address = fetchedSummary?.addressIPv4
                 ?? info?.privateAddress
                 ?? adoptedPrivateAddresses[machineID]
-                ?? restoredAddress
             await links.setPrivateAddresses([address].compactMap { $0 }, for: machineID)
             await links.setOwnerTeam(ownerTeamID, for: machineID)
             guard !isRetired, generation == refreshGeneration, providers[machineID] == nil else { continue }
