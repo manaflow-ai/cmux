@@ -64,6 +64,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -376,14 +377,22 @@ def owner(item: Mapping, changed: Iterable[str], main_keys: Iterable[str]) -> tu
     new in this PR   otherwise: main does not show it, so it is most likely the PR's
     """
     changed = list(changed)
-    names = {Path(path).name for path in changed}
     stems = {Path(path).stem for path in changed}
-    name = Path(str(item.get("file") or "")).name
-    stem = Path(name).stem
     path = str(item.get("file") or "")
-    # A compiler path is the repository path; a Swift Testing issue names only the file.
-    if path and (path in changed if "/" in path and not path.startswith("/") else name in names):
-        return YOURS, "a file this PR changes"
+    name = Path(path).name
+    stem = Path(name).stem
+    if "/" in path:
+        # A compiler path: the PR's file at that path, never another package's file of the same name.
+        relative = path.lstrip("/")
+        if any(relative == c or relative.endswith("/" + c) or c.endswith("/" + relative) for c in changed):
+            return YOURS, "a file this PR changes"
+    elif path:
+        # Swift Testing names only the file. One changed file of that name is it; several are a guess.
+        same = [c for c in changed if Path(c).name == name]
+        if len(same) == 1:
+            return YOURS, "a file this PR changes"
+        if same:
+            return YOURS, f"this PR changes {len(same)} files named {name}"
     if stem.endswith("Tests") and stem.removesuffix("Tests") in stems:
         return YOURS, f"tests {stem.removesuffix('Tests')}.swift, which this PR changes"
     if failure_key(item) in set(main_keys):
@@ -437,6 +446,22 @@ def macos_ran(jobs: Iterable[Mapping]) -> bool:
                and j.get("conclusion") in ("success", "failure", "timed_out") for j in jobs)
 
 
+# ci.yml's `macos` job needs these two (by their display names) to succeed. Otherwise it skips
+# because of change routing (nothing for macOS, or an admitted compile reused), which is not a
+# gap: tests/test_ci_classify_failures.py pins the names to ci.yml.
+MACOS_PREREQUISITES = ("changes", "Fast static checks")
+
+
+def macos_blocked(jobs: Iterable[Mapping]) -> str:
+    """Why the macOS jobs could not run, or "" when they ran or routing skipped them."""
+    jobs = list(jobs)
+    if macos_ran(jobs):
+        return ""
+    found = {str(j.get("name")): str(j.get("conclusion") or j.get("status") or "missing") for j in jobs}
+    return ", ".join(f"`{name}` {found.get(name, 'missing')}" for name in MACOS_PREREQUISITES
+                     if found.get(name) != "success")
+
+
 def classify_run(gh: GitHub, run: Mapping) -> dict:
     attempt = int(run.get("run_attempt") or 1)
     jobs = run_jobs(gh, int(run["id"]), attempt)
@@ -445,7 +470,7 @@ def classify_run(gh: GitHub, run: Mapping) -> dict:
     return {"run_id": int(run["id"]), "attempt": attempt,
             "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
             "conclusion": run.get("conclusion"), "jobs": classify_jobs(jobs, texts),
-            "macos_ran": macos_ran(jobs)}
+            "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs)}
 
 
 def run_pull(gh: GitHub, run: Mapping) -> tuple[int | None, dict]:
@@ -458,8 +483,8 @@ def run_pull(gh: GitHub, run: Mapping) -> tuple[int | None, dict]:
     owner = str((run.get("head_repository") or {}).get("full_name") or "").split("/")[0]
     if not owner or not run.get("head_branch"):
         return None, {}
-    body = gh.get(f"repos/{gh.repo}/pulls?state=closed&head={owner}:{run.get('head_branch')}"
-                  "&sort=updated&direction=desc&per_page=5")
+    head = urllib.parse.quote(f"{owner}:{run.get('head_branch')}", safe="")
+    body = gh.get(f"repos/{gh.repo}/pulls?state=closed&head={head}&sort=updated&direction=desc&per_page=5")
     for pull in body or []:  # type: ignore[union-attr]
         if (pull.get("head") or {}).get("sha") == run.get("head_sha") and pull.get("merged_at"):
             return int(pull["number"]), pull
@@ -480,6 +505,15 @@ def pr_files(gh: GitHub, pr: int) -> list[str]:
         if len(batch) < 100:
             break
     return files
+
+
+def safe_pr_files(gh: GitHub, pr: int) -> list[str]:
+    """pr_files, or none when the API fails: the comment is still written, with no "yours"."""
+    try:
+        return pr_files(gh, pr)
+    except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"::warning::pull request {pr} files unreadable: {error}", file=sys.stderr)
+        return []
 
 
 def touches_app(files: Iterable[str]) -> bool:
@@ -511,6 +545,10 @@ def parse_main_failures(bodies: Iterable[str]) -> dict:
     return found
 
 
+def login(item: Mapping) -> str:
+    return str((item.get("user") or {}).get("login") or "")
+
+
 def main_red(gh: GitHub) -> dict:
     """{issue, url, keys} for main's latest red full-suite run, or {} while main's full suite is green."""
     import main_full_suite
@@ -519,12 +557,15 @@ def main_red(gh: GitHub) -> dict:
     if not issues:
         return {}
     issue = issues[0]
-    bodies = [str(issue.get("body") or "")]
+    # Anyone can comment a marker on the issue ("this also fails on main" would excuse their own
+    # failure); only what main_full_suite.py posted, as the workflow's bot, counts.
+    bodies = [str(issue.get("body") or "")] if login(issue) == BOT else []
     count = int(issue.get("comments") or 0)
     if count:
         last = (count - 1) // 100 + 1
         bodies += [str(c.get("body") or "") for c in gh.get(
-            f"repos/{gh.repo}/issues/{issue['number']}/comments?per_page=100&page={last}") or []]  # type: ignore[union-attr]
+            f"repos/{gh.repo}/issues/{issue['number']}/comments?per_page=100&page={last}") or []  # type: ignore[union-attr]
+            if login(c) == BOT]
     data = parse_main_failures(bodies)
     return {"issue": int(issue["number"]), "url": issue.get("html_url"), "keys": list(data.get("keys") or [])}
 
@@ -630,7 +671,7 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     elif unexplained:
         job = unexplained[0]
         who = "Probably yours" if job["verdict"] == CODE else "Unclear"
-        line = f"**{who}:** `{job['name']}` failed: {job['why']}" + (
+        line = f"**{who}:** {code(job['name'], 100)} failed: {job['why']}" + (
             f", {code(job['evidence'], 100)}" if job.get("evidence") else "") + "."
     elif jobs:
         line = "**Machine:** " + ("the runner failed, not this PR; re-running the failed jobs." if rerun
@@ -639,7 +680,7 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
         line = "**Gates only:** only gate jobs failed; see the run."
     if report.get("conclusion") == "cancelled":
         line += " CI was cancelled before it finished."
-    if report.get("merged"):
+    if report.get("merged") and any(j["verdict"] != MACHINE for j in jobs):
         line += " This PR merged before its CI finished: fix forward on main."
     return line
 
@@ -672,15 +713,15 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
     if report.get("conclusion") == "success":
         out.append(f"CI passes on `{sha}` ({run}).")
         if report.get("macos_skipped"):
-            out.append(f"{MACOS_SKIPPED}. The fast guards or static checks may be red, or an earlier run's "
-                       "build was reused; check that the `macos / ...` jobs ran before merging.")
+            out.append(f"{MACOS_SKIPPED}: {report.get('macos_blocked')} (the `macos` job needs both to succeed). "
+                       "Re-run CI once they pass, before merging.")
     else:
         counts = {v: sum(1 for j in jobs if j["verdict"] == v) for v in (MACHINE, CODE, UNKNOWN)}
         summary = ", ".join(f"{n} {v}" for v, n in counts.items() if n)
         verb = "stopped" if report.get("conclusion") == "cancelled" else "failed"
         out += [f"CI {verb} on `{sha}` ({run}): {summary or 'no failed job besides the gates'}."]
         if report.get("macos_skipped"):
-            out.append(f"{MACOS_SKIPPED}.")
+            out.append(f"{MACOS_SKIPPED}: {report.get('macos_blocked')}.")
         out.append("")
         if jobs:
             out += ["| Job | Verdict | Why |", "| --- | --- | --- |"]
@@ -769,13 +810,13 @@ def own_failures(gh: GitHub, pr: int, report: dict, files: list[str] | None) -> 
     failures = [f for job in report["jobs"] if job["verdict"] != MACHINE for f in job.get("failures") or []]
     if not failures:
         return files or []
-    files = pr_files(gh, pr) if files is None else files
+    files = safe_pr_files(gh, pr) if files is None else files
     attribute(report["jobs"], files, [])
     if any(f["owner"] != YOURS for f in failures):
         try:
             report["main_red"] = main_red(gh)
-        except RuntimeError as error:
-            print(f"main's red full-suite issue unreadable: {error}", file=sys.stderr)
+        except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"::warning::main's red full-suite issue unreadable: {error}", file=sys.stderr)
             report["main_red"] = {}
         attribute(report["jobs"], files, report["main_red"].get("keys") or [])
     return files
@@ -801,8 +842,8 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: cancelled with no failed job"}
     report["merged"] = merged
     files = own_failures(gh, pr, report, None)
-    if not report.get("macos_ran", True):
-        report["macos_skipped"] = touches_app(pr_files(gh, pr) if not files else files)
+    if report.get("macos_blocked"):
+        report["macos_skipped"] = touches_app(files or safe_pr_files(gh, pr))
     rerun, line = False, ""
     if report.get("conclusion") != "success":
         rerun, line = rerun_decision(report, gh.run(int(report["run_id"])))

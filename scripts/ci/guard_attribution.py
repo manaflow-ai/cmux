@@ -60,6 +60,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -912,7 +913,8 @@ def pr_number(gh: GitHub | None, run: Mapping) -> int | None:
         return None
     head_repo = (run.get("head_repository") or {}).get("full_name") or ""
     owner = head_repo.split("/")[0]
-    body = gh.get(f"repos/{gh.repo}/pulls?state=open&head={owner}:{run.get('head_branch')}&per_page=5")
+    head = urllib.parse.quote(f"{owner}:{run.get('head_branch')}", safe="")
+    body = gh.get(f"repos/{gh.repo}/pulls?state=open&head={head}&per_page=5")
     for pull in body or []:  # type: ignore[union-attr]
         if (pull.get("head") or {}).get("sha") == run.get("head_sha"):
             return int(pull["number"])

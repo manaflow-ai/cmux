@@ -31,10 +31,11 @@ permissions: {}
 concurrency:
   # One report at a time per branch, never cancelled halfway (between the
   # re-run and the comment that says so). A report takes seconds, and one for
-  # a head the pull request has moved past only marks the comment pending. A
-  # `requested` event queues here too: GitHub keeps one pending run per group,
-  # and whichever survives marks an older head's comment pending.
-  group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  # a head the pull request has moved past only marks the comment pending.
+  # `requested` gets its own group: GitHub keeps one pending run per group, and
+  # a start (a label, a push) must never replace a pending completed report,
+  # whose machine re-run would be lost.
+  group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}${{ github.event.action == 'requested' && '-requested' || '' }}
   cancel-in-progress: false
 
 jobs:

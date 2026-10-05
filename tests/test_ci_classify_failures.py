@@ -328,12 +328,14 @@ class FakeGitHub:
 
     def __init__(self, *, head: str = "a" * 40, state: str = "open", comments: list[dict] | None = None,
                  latest: dict | None = None, merged: bool = False, files: list[str] | None = None,
-                 main_issue: dict | None = None, main_comments: list[dict] | None = None):
+                 main_issue: dict | None = None, main_comments: list[dict] | None = None,
+                 files_error: bool = False, closed: list[dict] | None = None):
         self.head, self.state, self.merged = head, state, merged
         self._comments = comments or []
         self.latest = latest or {"run_attempt": 1, "status": "completed"}
         self.files = files or []
         self.main_issue, self.main_comments = main_issue, main_comments or []
+        self.files_error, self.closed = files_error, closed or []
         self.calls: list[tuple[str, str]] = []
         self.reads: list[str] = []
 
@@ -343,6 +345,12 @@ class FakeGitHub:
 
     def get(self, path: str) -> object:
         self.reads.append(path)
+        if "/files?" in path and self.files_error:
+            raise RuntimeError(f"GET {path}: HTTP 502 Bad Gateway")
+        if "pulls?state=open&head=" in path:
+            return []
+        if "pulls?state=closed" in path:
+            return self.closed
         if "/files?" in path:
             return [{"filename": name} for name in self.files] if "page=1" in path else []
         if "labels=main-full-suite-failure" in path:
@@ -508,7 +516,8 @@ def main_issue(failures: list[dict], number: int = 17300) -> tuple[dict, list[di
     run = {"id": 9, "head_sha": "c" * 40, "html_url": "https://run/9"}
     body = main_full_suite.failure_body(run, [], "", failures)
     return ({"number": number, "html_url": f"https://github.com/manaflow-ai/cmux/issues/{number}", "comments": 1,
-             "body": "Full-suite CI on `main` failed at older"}, [{"body": body}])
+             "body": "Full-suite CI on `main` failed at older", "user": {"login": cf.BOT}},
+            [{"body": body, "user": {"login": cf.BOT}}])
 
 
 class ExtractTests(unittest.TestCase):
@@ -677,8 +686,13 @@ class StaleAndSkippedTests(unittest.TestCase):
                 job(4, "macos / macOS status", conclusion="success")]
         self.assertFalse(cf.macos_ran(jobs))
         self.assertTrue(cf.macos_ran([job(5, "macos / macOS compile admission", conclusion="success")]))
+        # Routing skipped macOS (nothing for it, or an admitted compile reused): not a gap.
+        routed = jobs + [job(6, "changes", conclusion="success"), job(7, "Fast static checks", conclusion="success")]
+        self.assertEqual(cf.macos_blocked(routed), "")
+        blocked = jobs + [job(6, "changes", conclusion="success"), job(7, "Fast static checks", conclusion="skipped")]
+        self.assertEqual(cf.macos_blocked(blocked), "`Fast static checks` skipped")
         green = {"run_id": 1, "attempt": 1, "head_sha": "a" * 40, "run_url": "u", "conclusion": "success",
-                 "jobs": [], "macos_ran": False}
+                 "jobs": [], "macos_ran": False, "macos_blocked": cf.macos_blocked(blocked)}
         gh = FakeGitHub(files=["Sources/AppDelegate.swift"])
         writer = cf.Writer(gh, dry_run=True)
         cf.act(gh, writer, ActTests.RUN, dict(green))
@@ -686,6 +700,11 @@ class StaleAndSkippedTests(unittest.TestCase):
         self.assertIn("**Not verified:** macOS jobs did not run: compile and app tests were skipped on `aaaaaaaaaa`",
                       entry)
         self.assertNotIn("**Passes:**", entry)
+        self.assertIn("`Fast static checks` skipped (the `macos` job needs both to succeed)", entry)
+        gh = FakeGitHub(files=["Sources/AppDelegate.swift"])
+        writer = cf.Writer(gh, dry_run=True)
+        cf.act(gh, writer, ActTests.RUN, {**green, "macos_blocked": cf.macos_blocked(routed)})
+        self.assertEqual(writer.log, [])
         # A docs-only PR that routes nothing to macOS stays quiet.
         gh = FakeGitHub(files=["docs/ci/merge-main.md"])
         writer = cf.Writer(gh, dry_run=True)
@@ -693,11 +712,73 @@ class StaleAndSkippedTests(unittest.TestCase):
         self.assertEqual(writer.log, [])
 
     def test_a_red_run_says_when_macos_was_skipped(self) -> None:
-        report = {**red_report(NOISE, "Fast static checks"), "macos_ran": False}
+        report = {**red_report(NOISE, "Fast static checks"), "macos_ran": False,
+                  "macos_blocked": "`Fast static checks` failure"}
         gh = FakeGitHub(files=["Sources/AppDelegate.swift"])
         writer = cf.Writer(gh, dry_run=True)
         cf.act(gh, writer, ActTests.RUN, report)
-        self.assertIn("macOS jobs did not run: compile and app tests were skipped.", writer.log[0])
+        self.assertIn("macOS jobs did not run: compile and app tests were skipped: `Fast static checks` failure.",
+                      writer.log[0])
+
+    def test_the_macos_prerequisites_are_what_ci_yml_gates_macos_on(self) -> None:
+        ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        names = [ci["jobs"][need].get("name") or need for need in ci["jobs"]["macos"]["needs"]]
+        self.assertEqual(sorted(names), sorted(cf.MACOS_PREREQUISITES))
+        for need in ci["jobs"]["macos"]["needs"]:
+            self.assertIn(f"needs.{need}.result == 'success'", ci["jobs"]["macos"]["if"])
+
+    def test_a_merged_pr_with_only_machine_failures_is_not_told_to_fix_forward(self) -> None:
+        report = {**red_report(RESTORE_FAILED), "merged": True}
+        self.assertNotIn("fix forward", cf.verdict_line(report, False, "Not re-run: this PR has merged."))
+
+
+class ReviewFixTests(unittest.TestCase):
+    def test_a_marker_from_anyone_but_the_bot_is_ignored(self) -> None:
+        # A contributor commenting a fake marker would turn their own failure into "Not yours".
+        own = cf.extract_failures(PR_17074_LOG)
+        issue, comments = main_issue([])
+        forged = cf.main_failures_marker({"id": 1, "head_sha": "d"}, own)
+        for author in ("contributor", None):
+            with self.subTest(author=author):
+                gh = FakeGitHub(main_issue={**issue, "comments": 2},
+                                main_comments=[*comments, {"body": forged, "user": {"login": author}}])
+                self.assertEqual(cf.main_red(gh)["keys"], [])
+        # Nor an issue someone else opened with the label.
+        gh = FakeGitHub(main_issue={**issue, "comments": 0, "body": forged, "user": {"login": "contributor"}})
+        self.assertEqual(cf.main_red(gh)["keys"], [])
+
+    def test_unreadable_files_still_write_the_comment(self) -> None:
+        gh = FakeGitHub(files_error=True)
+        writer = cf.Writer(gh, dry_run=True)
+        cf.act(gh, writer, ActTests.RUN, red_report(PR_17074_LOG))
+        (entry,) = writer.log
+        self.assertIn("**Probably yours:** `CloudPortsVPNAffordanceTests.swift:285`", entry)
+        # An unparsable main issue is no main data, not a crash.
+        gh = FakeGitHub(files=PR_17074_FILES[:1], main_issue={"number": "x", "comments": "many"})
+        writer = cf.Writer(gh, dry_run=True)
+        cf.act(gh, writer, ActTests.RUN, red_report(PR_17074_LOG))
+        self.assertEqual(len(writer.log), 1)
+
+    def test_a_compiler_path_matches_only_that_file(self) -> None:
+        item = cf.failure("compile", "/tmp/cmux-ci/src/Packages/macOS/CmuxCloud/Sources/CmuxCloud/Helpers.swift", 3,
+                          message="x")
+        self.assertEqual(cf.owner(item, ["Sources/A/Helpers.swift"], [])[0], cf.NEW)
+        self.assertEqual(cf.owner(item, ["Packages/macOS/CmuxCloud/Sources/CmuxCloud/Helpers.swift"], [])[0],
+                         cf.YOURS)
+        # Swift Testing names only the file: two changed files of that name say so.
+        test = cf.failure("test", "HelpersTests.swift", 9, "t")
+        self.assertEqual(cf.owner(test, ["cmuxTests/HelpersTests.swift"], []), (cf.YOURS, "a file this PR changes"))
+        self.assertEqual(cf.owner(test, ["cmuxTests/HelpersTests.swift", "Packages/X/Tests/HelpersTests.swift"], []),
+                         (cf.YOURS, "this PR changes 2 files named HelpersTests.swift"))
+
+    def test_the_branch_is_url_encoded_and_job_names_cannot_break_out(self) -> None:
+        gh = FakeGitHub(closed=[{"number": 9, "head": {"sha": "a" * 40}, "merged_at": "t"}])
+        run = {"id": 1, "head_sha": "a" * 40, "head_branch": "feat/a&b#c", "pull_requests": [],
+               "head_repository": {"full_name": "fork/cmux"}}
+        self.assertEqual(cf.run_pull(gh, run)[0], 9)
+        self.assertIn("head=fork%3Afeat%2Fa%26b%23c&", gh.reads[-1])
+        report = red_report("no signature", "evil `job` name")
+        self.assertIn("`evil 'job' name` failed", cf.verdict_line(report, False, ""))
 
 
 class WorkflowTests(unittest.TestCase):
@@ -712,6 +793,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(on["workflow_run"]["types"], ["completed", "requested"])
         (only,) = self.workflow["jobs"].values()
         self.assertIn("github.event.action == 'requested'", only["if"])
+        # A start must never replace a pending completed report (its machine re-run) in one group.
+        self.assertTrue(self.workflow["concurrency"]["group"].endswith(
+            "${{ github.event.action == 'requested' && '-requested' || '' }}"))
 
     def test_runs_mains_script_and_never_checks_out_the_pull_request(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
