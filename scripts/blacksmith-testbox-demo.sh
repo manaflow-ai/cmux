@@ -57,15 +57,16 @@ git -C "$HQ_TOOLS" pull --ff-only >/dev/null || { echo "cannot update $HQ_TOOLS 
 WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
 test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_TOOLS to an hq checkout on main" >&2; exit 65; }
 
-if [[ ! -f ghostty/build.zig.zon || ! -f ghostty-next/build.zig.zon ]]; then
-  say "Initializing the Ghostty submodule (one time, takes a moment)"
-  run_local git submodule update --init ghostty ghostty-next
+# cmux-tui builds libghostty-vt from the ghostty-next gitlink only.
+if [[ ! -f ghostty-next/build.zig.zon ]]; then
+  say "Initializing the ghostty-next submodule (one time, takes a moment)"
+  run_local git submodule update --init ghostty-next
 fi
 
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 [[ -n "$BRANCH" ]] || { echo "HEAD is detached; check out a branch first" >&2; exit 65; }
 SOURCE_SHA="$(git rev-parse HEAD)"
-GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
+GHOSTTY_NEXT_SHA="$(git rev-parse HEAD:ghostty-next)"
 
 if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
   echo "worktree is dirty; commit and push before benchmarking" >&2
@@ -85,7 +86,7 @@ fi
 blacksmith auth whoami >/dev/null || { echo "run: blacksmith auth login" >&2; exit 65; }
 echo "branch        $BRANCH"
 echo "commit        $SOURCE_SHA"
-echo "ghostty       $GHOSTTY_SHA"
+echo "ghostty-next  $GHOSTTY_NEXT_SHA"
 echo "CLI           $(blacksmith --version)"
 
 say "Boxes currently running in the org (never adopt one you did not warm)"
@@ -140,7 +141,7 @@ say "Waiting for hydration (installs pinned Zig and Rust, fetches Cargo and Zig 
 say "Pinning the box to your commit"
 echo "The box is an exact checkout of main right now, because that is what CI"
 echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
-pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty ghostty-next; git rev-parse HEAD"
+pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty-next; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
 "$BOUNDED" 300 blacksmith testbox run --id "$TBX" "$pin_command"
 
@@ -151,7 +152,7 @@ if (( STAGES )); then
   mkdir -p "$out/raw"
   for stage in first-clean incremental-noop changed-file; do
     say "Stage: $stage"
-    stage_command="CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA"
+    stage_command="CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_NEXT_SHA"
     printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$stage_command"
     "$BOUNDED" 1500 blacksmith testbox run --id "$TBX" "$stage_command"
     for suffix in json time log; do
