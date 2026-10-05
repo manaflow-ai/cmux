@@ -410,7 +410,7 @@ describe("CloudPage", () => {
     expect($$(".cloud-size-locked").map((node) => node.textContent)).toEqual(["Not in your plan", "Not in your plan"]);
   });
 
-  test("a typed plan refusal shows a localized sentence, and See plans checks out the named plan", async () => {
+  test("a typed plan refusal shows a localized sentence, and See plans links the public plans page", async () => {
     const provider = new MockCloudProvider();
     provider.planRequired = true;
     await render(provider);
@@ -418,11 +418,17 @@ describe("CloudPage", () => {
     await act(async () => $(".cloud-create-submit")!.click());
     expect($(".cloud-create-sheet .cloud-plan-notice-text")?.textContent).toBe("Cloud machines need a paid plan.");
     expect($(".cloud-error")).toBeNull();
-    await act(async () => $(".cloud-see-plans")!.click());
-    expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toMatchObject({
-      action: CloudOps.billingCheckout,
-      args: { plan: "pro" },
-    });
+    // Billing is not built (checkout answers owner.unreachable): "See plans" is a link to the public
+    // plans page, which the host opens outside the page on the person's click (PageNavigation).
+    const link = $(".cloud-see-plans") as HTMLAnchorElement | null;
+    expect(link?.tagName).toBe("A");
+    expect(link?.getAttribute("href")).toBe("https://cmux.com/pricing");
+    const runs = provider.calls.filter((call) => call.op === ACTION_RUN).length;
+    await act(async () => link!.click());
+    expect(provider.calls.filter((call) => call.op === ACTION_RUN).length).toBe(runs);
+    expect(
+      provider.calls.some((call) => (call.params as { action?: string })?.action === CloudOps.billingCheckout),
+    ).toBe(false);
   });
 
   test("a quota refusal outside the sheet shows its numbers in Japanese too", async () => {

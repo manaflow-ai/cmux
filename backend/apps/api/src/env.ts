@@ -40,6 +40,8 @@ export interface Env {
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
   readonly SSO_DISCOVER_LIMIT?: RateLimit
+  /** GET /v1/cloud/keyset per client IP (namespaces 1161-1163). */
+  readonly CLOUD_KEYSET_LIMIT?: RateLimit
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
   readonly HOST_DO: DurableObjectNamespace<HostDO>

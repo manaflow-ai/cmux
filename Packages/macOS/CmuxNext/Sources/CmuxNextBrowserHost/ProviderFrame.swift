@@ -20,6 +20,9 @@ public nonisolated enum ProviderFrame: Hashable, Sendable {
     case cdp(targetID: String, message: String)
     case lease(targetID: String, lease: ProviderLease?)
     case userInput(targetID: String)
+    /// One agent input (host -> app): an `automation.input` v1 event
+    /// (schemas/automation-input), as the host's driver emitted it.
+    case input(event: DriverJSON)
     /// Whether agents may drive a CEF tab (app -> host; interim extension rule).
     case tabAccess(targetID: String, extensionHostAccess: Bool, userOverride: Bool, extensions: [String])
     /// A frame tag this app does not know (a newer host); ignored.
@@ -38,6 +41,7 @@ public nonisolated enum ProviderFrame: Hashable, Sendable {
         case .cdp: "cdp"
         case .lease: "lease"
         case .userInput: "user.input"
+        case .input: "input"
         case .tabAccess: "tab.access"
         case .unknown(let tag): tag
         }
@@ -60,9 +64,18 @@ extension ProviderFrame: CustomStringConvertible, CustomDebugStringConvertible, 
         case .cdp(let target, let message): "cdp(\(target), \(message.utf8.count) bytes)"
         case .lease(let target, let lease): "lease(\(target), \(lease.map(\.session) ?? "none"))"
         case .userInput(let target): "user.input(\(target))"
+        case .input(let event): "input(\(Self.inputLabel(event)))"
         case .tabAccess(let target, let access, let override, _): "tab.access(\(target), \(access), override: \(override))"
         case .unknown(let tag): "unknown(\(tag))"
         }
+    }
+
+    /// `session#seq` of an input event: never its coordinates.
+    private nonisolated static func inputLabel(_ event: DriverJSON) -> String {
+        guard case .object(let fields) = event else { return "?" }
+        let session = if case .string(let value)? = fields["session_id"] { value } else { "?" }
+        let seq = if case .number(let value)? = fields["seq"], value >= 0, value < 1e15 { String(Int64(value)) } else { "?" }
+        return "\(session)#\(seq)"
     }
 
     public nonisolated var debugDescription: String { description }

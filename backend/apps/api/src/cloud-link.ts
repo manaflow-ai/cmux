@@ -1,4 +1,5 @@
 import type { Env } from "./env.ts"
+import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 
 /**
  * Bind-path helpers for CloudDO (state-placement.md 5.8 items 1-2): the one-time bind token, its
@@ -101,4 +102,19 @@ export const handleCloudBind = async (request: Request, env: Env): Promise<Respo
   }
   if (r.ok) return Response.json({ ok: true, value: r.value })
   return Response.json({ ok: false, error: { code: r.code, message: r.message } }, { status: STATUS[r.code] ?? 503 })
+}
+
+/**
+ * GET /v1/cloud/keyset (CLOUD-LINK-FOLLOWUPS 1): the public link keyset, JWKS-style, no credential.
+ * The VM daemon refetches it on an unknown kid and once a day; the body is the bind answer's
+ * `keyset` ({version, keys: {kid: public JWK}}), never a private part. Limited per client IP.
+ */
+export const handleCloudKeyset = async (request: Request, env: Env): Promise<Response> => {
+  if (request.method !== "GET") return Response.json({ ok: false, error: { code: "validation.invalid", message: "GET only" } }, { status: 405, headers: { allow: "GET" } })
+  const limit = env.CLOUD_KEYSET_LIMIT
+  if (limit && !(await limit.limit({ key: request.headers.get("cf-connecting-ip") ?? "unknown" })).success)
+    return Response.json({ ok: false, error: { code: "cloud.rate_limited", message: "too many keyset requests; retry in a minute" } }, { status: 429, headers: { "retry-after": "60" } })
+  const keys = parseSigningKeys(env.CLOUD_LINK_SIGNING_KEYS)
+  if (!keys) return Response.json({ ok: false, error: { code: "owner.unreachable", message: "link signing keys are not configured on this deployment" } }, { status: 503, headers: { "cache-control": "no-store" } })
+  return Response.json({ ok: true, value: await publicKeyset(keys) }, { headers: { "cache-control": "public, max-age=300" } })
 }

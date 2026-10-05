@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextActions
 import CmuxNextHistory
 import CmuxNextBridge
@@ -37,6 +38,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// Agent cursors on this window's cursor layer (made on the first input it draws).
+    private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state

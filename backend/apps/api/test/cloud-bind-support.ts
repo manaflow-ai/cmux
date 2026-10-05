@@ -33,9 +33,9 @@ export const person = (team?: string) => {
   const p: Principal = { identity: `user:${user}`, user, team: t, kind: "session" }
   return { team: t, user, p, stub: cloudStub(t) }
 }
-export const installOf = (p: Principal, classes: ReadonlyArray<string> = ["read", "mutate-own", "mutate-shared", "execute"]): Principal => {
+export const installOf = (p: Principal, classes: ReadonlyArray<string> = ["read", "mutate-own", "mutate-shared", "execute"], installKind = "cli"): Principal => {
   const install = `inst_${(p.user ?? "").slice(5, 9)}${"7".repeat(16)}`
-  return { identity: `install:${install}`, user: p.user, team: p.team, kind: "install", install, grant_classes: [...classes] }
+  return { identity: `install:${install}`, user: p.user, team: p.team, kind: "install", install, grant_classes: [...classes], install_kind: installKind }
 }
 export const frame = (op: string, params: unknown, key: string = crypto.randomUUID()): Frame => ({ t: "op", op, params, idempotency_key: key, origin: "user" })
 export const reply = (r: SubmitResult) => r.frames.find((x: OwnerFrame) => x.t === "result" || x.t === "reject") as { t: string; value?: any; code?: string; message?: string }
@@ -81,14 +81,14 @@ export const post = async (path: string, token: string | undefined, body: unknow
 const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 /** A signed-in person with a registered mac install and an install token for it. */
-export const signedInWithInstall = async (sub: string) => {
+export const signedInWithInstall = async (sub: string, kind = "mac") => {
   const session = await sessionToken(sub)
   const ensured = (await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })).body.value
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
   const reg = await post("/v1/ops", session, {
     op: "install.register",
-    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" },
+    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind, name: kind, device_name: kind, platform: "macos" },
     idempotency_key: crypto.randomUUID(),
     origin: "user"
   })

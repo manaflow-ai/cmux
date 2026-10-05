@@ -322,7 +322,8 @@ fn the_link_entry_of_a_non_cloud_host_refuses_fs_and_denies_the_rest() {
     let path = cmux_link::entry_path::remote_entry_socket_path(&directory.path().join("s.sock"));
     let mux = test_mux();
     let verifier: LinkVerifier = Arc::new(|_stream: &UnixStream| Ok(()));
-    let server = serve_remote_entry(mux, &path, verifier, Arc::new(FsGate)).unwrap();
+    let server =
+        serve_remote_entry(mux, &path, verifier, Arc::new(FsGate), Default::default()).unwrap();
     let stamp = r#"{"link_peer":{"install":"inst_1","user":"42","team":"team_a"}}"#;
     for line in CONTRACT_LINES.iter().chain([&r#"{"id":1,"cmd":"identify"}"#]) {
         let mut stream = UnixStream::connect(server.path()).unwrap();

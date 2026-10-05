@@ -772,6 +772,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 pub mod local_app;
 mod redact;
+mod remote_guard;
 mod requests;
 mod wait;
 use requests::{handle_notification, handle_request};

@@ -98,8 +98,12 @@ const withInstallKind = (state: UserState, p: Principal): Principal => {
   return kind ? { ...p, install_kind: kind } : p
 }
 
-/** Default grant per install kind: the iPhone app gets read and mutate-own (L14-1); execute and riskier classes need their own grant. */
-const defaultClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number]> => (kind === "ios" ? ["read", "mutate-own"] : INSTALL_CLASSES)
+/**
+ * Default grant per install kind: the iPhone app gets read, mutate-own (L14-1) and the narrow
+ * cloud-link class (link_token only, CLOUD-LINK-FOLLOWUPS 5); execute and riskier classes need their own grant.
+ */
+export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number] | "cloud-link"> => (kind === "ios" ? ["read", "mutate-own", "cloud-link"] : INSTALL_CLASSES)
+const defaultClasses = defaultInstallClasses
 
 export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
   initial: () => ({ user: null, installs: {}, grants: {} }),

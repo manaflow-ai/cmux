@@ -30,7 +30,7 @@ fn entry(label: &str, deadline: Duration) -> Entry {
     fs.first_line_deadline = deadline;
     let verifier: LinkVerifier = Arc::new(|_stream: &UnixStream| Ok(()));
     let server =
-        serve_remote_entry_with(mux.clone(), &path, verifier, Arc::new(FsGate), fs).unwrap();
+        serve_remote_entry_with(mux.clone(), &path, verifier, Arc::new(FsGate), fs, false).unwrap();
     Entry { server: Some(server), mux, home, _directory: directory }
 }
 

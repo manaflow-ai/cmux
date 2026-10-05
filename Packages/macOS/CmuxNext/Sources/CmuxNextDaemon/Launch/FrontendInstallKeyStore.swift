@@ -12,7 +12,9 @@ public protocol FrontendInstallKeyStore: Sendable {
     func loadOrCreate() -> FrontendInstallKey?
 }
 
-public enum FrontendInstallKeyStores {
+public struct FrontendInstallKeyStores {
+    public init() {}
+
     /// The store for this app process, or nil. `team` is this process's Team
     /// ID: a signed build gets no store, whatever sits in its state directory.
     public static func forApp(stateDirectory: URL?,
@@ -23,7 +25,9 @@ public enum FrontendInstallKeyStores {
 }
 
 /// This process's code signing Team ID, if it has one.
-public enum CodeSigningTeam {
+public struct CodeSigningTeam {
+    public init() {}
+
     public static func current() -> String? {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
