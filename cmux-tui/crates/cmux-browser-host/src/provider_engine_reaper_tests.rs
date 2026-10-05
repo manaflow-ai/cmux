@@ -230,3 +230,39 @@ fn idle_end_sends_the_app_what_close_sends() {
         "the idle end clears the agent cursor and driving state exactly as close does"
     );
 }
+
+/// The session's end asks the app to close its tabs with reason
+/// `session_end` (the store leaves them out of Reopen Closed); the agent's
+/// own `tabs.close` carries no reason, even when the agent sends one.
+#[test]
+fn session_end_closes_carry_the_session_end_reason() {
+    let f = Fixture::start("reason", &["N1", "N2", "U"], Duration::from_secs(600));
+    f.open("N1");
+    f.open("N2");
+    f.call("tabs.close", json!({"targetId": "N2", "reason": "session_end"}));
+    f.barrier();
+    f.host
+        .dispatch(
+            &Caller {
+                actor: "uid:501".into(),
+                on_behalf_of: None,
+                origin: "mcp".into(),
+                locality: Default::default(),
+            },
+            "browser.repl.close",
+            &json!({"session": "s"}),
+        )
+        .unwrap();
+    f.barrier();
+    let closes: Vec<Value> = end_frames(&f, 0)
+        .into_iter()
+        .filter(|frame| frame["call"] == "tabs.close")
+        .map(|frame| frame["params"].clone())
+        .collect();
+    let first = |target: &str| {
+        closes.iter().find(|params| params["targetId"] == target).cloned().unwrap_or_default()
+    };
+    assert!(first("N2").get("reason").is_none(), "the agent's close has no reason: {closes:?}");
+    assert_eq!(first("N1")["reason"], "session_end", "{closes:?}");
+    assert!(first("N1")["timeoutMs"].is_u64(), "{closes:?}");
+}

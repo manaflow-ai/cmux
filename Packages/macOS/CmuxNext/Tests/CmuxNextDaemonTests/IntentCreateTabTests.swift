@@ -7,7 +7,8 @@ import Testing
 /// daemon's tab arrives (settled) or when the creation fails (rejected).
 @MainActor @Suite struct IntentCreateTabTests {
     private func provisional() -> TabSnapshot {
-        var tab = TabSnapshot(surface: ProvisionalTab.surface(), tabResourceID: ResourceID(rawValue: ProvisionalTab.id()),
+        let provisional = ProvisionalTab()
+        var tab = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
                               kind: .conversation, title: "about:blank", browserRenderer: "frontend")
         tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:mac"))
         return tab
@@ -70,7 +71,8 @@ import Testing
         var tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
         store.apply(snapshot: tree)
         let pane = try #require(store.workspaces.first?.screens.first?.panes.first)
-        var tab = TabSnapshot(surface: ProvisionalTab.surface(), tabResourceID: ResourceID(rawValue: ProvisionalTab.id()),
+        let provisional = ProvisionalTab()
+        var tab = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
                               kind: .conversation, title: "about:blank", browserRenderer: "frontend")
         tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:mac"))
         store.intend(.createTab(pane: pane.handle, provisional: tab), transaction: "tx")

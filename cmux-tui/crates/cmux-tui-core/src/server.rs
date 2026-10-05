@@ -112,6 +112,7 @@ mod pending_handoff;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
+mod close_tabs_command;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -521,6 +522,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
+        close_tabs_command::CLOSE_REASON_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
@@ -2287,6 +2289,9 @@ enum Command {
         end_terminals: bool,
         #[serde(default)]
         transaction: Option<String>,
+        /// `close-reason-v1`: `session_end` keeps the close out of closed history.
+        #[serde(default)]
+        reason: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -14787,29 +14792,8 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::CloseTabs { surfaces, end_terminals, transaction, mutation } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let workspace_mutation = workspace_mutation(&mutation)?;
-            anyhow::ensure!(
-                mutation.expected_generation.is_none() && mutation.expected_revision.is_none(),
-                "close-tabs does not take expected_generation or expected_revision"
-            );
-            anyhow::ensure!(
-                surfaces.len() <= MAX_CLOSE_TABS_SURFACES,
-                "close-tabs takes at most {MAX_CLOSE_TABS_SURFACES} surfaces"
-            );
-            let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome = mux.close_tabs(surfaces, end_terminals, &workspace_mutation)?;
-            let mut reply = json!({
-                "closed": outcome.closed(),
-                "terminals": batch_close_terminals_json(&outcome),
-                "resource_revision": outcome.resource_revision,
-                "replayed": outcome.replayed,
-            });
-            if let Some(transaction) = transaction {
-                reply["transaction"] = json!(transaction);
-            }
-            Ok(reply)
+        Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
+            close_tabs_command::run(mux, &surfaces, end_terminals, transaction, reason, &mutation)
         }
         // With `end_terminals` the result shapes stay those of the plain
         // closes; the ended terminals show in the terminal and resource streams.
