@@ -413,7 +413,7 @@ final class NewMachineModel {
     }
 
     /// Base is sized by the backend; only `vm new` takes `--size`.
-    var supportsSize: Bool { mode == .newMachine && !availableMemoryOptionsMb.isEmpty }
+    var supportsSize: Bool { mode == .newMachine && (planIsLoading || !availableMemoryOptionsMb.isEmpty) }
     /// Sizes the plan may start, ascending.
     var memoryOptions: [Int] { availableMemoryOptionsMb }
     /// Sizes the plan cannot start, ascending; the sheet lists them disabled.
