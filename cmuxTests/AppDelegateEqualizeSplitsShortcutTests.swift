@@ -411,7 +411,7 @@ private extension TabManager {
     }
 }
 
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests {
     private static let splitFixtureContentSize = CGSize(width: 1_000, height: 700)

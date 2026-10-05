@@ -3110,7 +3110,7 @@ struct WorkspaceProcessWideObserverRetirementTests {
 }
 
 @MainActor
-@Suite("Window zombie regressions", .serialized)
+@Suite("Window zombie regressions", .serialized, .isolatedMainWindowDefaults)
 struct WindowZombieRegressionTests {
     @Test("SwiftUI window state does not own its native window")
     func swiftUIWindowStateDoesNotOwnItsNativeWindow() {
