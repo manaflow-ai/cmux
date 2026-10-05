@@ -33,6 +33,27 @@ struct AgentRestoreLiveOwnerNotice: Sendable {
 /// This never emits a resume verb, so restoring a live owner cannot create a
 /// second agent writer.
 enum AgentRestoreAttachCommand {
+    /// Plans one attach-only startup for either deferred restore owner. Keeping
+    /// owner admission on this path prevents Workspace and Dock from drifting
+    /// on Claude versus tmux selection.
+    static func startupInput(
+        liveOwner: LiveAgentSessionOwner,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        tmuxStartCommand: String?,
+        workingDirectory: String?,
+        dialect: TerminalStartupShellDialect = .loginShell
+    ) -> String? {
+        startupInput(
+            kind: liveOwner.kind,
+            sessionID: liveOwner.sessionID,
+            launchCommand: restorableAgent?.launchCommand ?? resumeBinding?.launchCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            workingDirectory: workingDirectory,
+            dialect: dialect
+        )
+    }
+
     static func startupInput(
         kind: String,
         sessionID: String,

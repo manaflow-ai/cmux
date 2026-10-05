@@ -69,11 +69,10 @@ extension Workspace {
                 let attachInput = restore.restoresRemoteWorkspaceTerminalSnapshot
                     ? nil
                     : AgentRestoreAttachCommand.startupInput(
-                        kind: liveSessionOwner.kind,
-                        sessionID: liveSessionOwner.sessionID,
-                        launchCommand: restore.restorableAgent?.launchCommand
-                            ?? (currentResumeBinding ?? restore.resumeBinding)?.launchCommand,
-                        tmuxStartCommand: nil,
+                        liveOwner: liveSessionOwner,
+                        restorableAgent: restore.restorableAgent,
+                        resumeBinding: currentResumeBinding ?? restore.resumeBinding,
+                        tmuxStartCommand: restore.tmuxStartCommand,
                         workingDirectory: restore.resumeWorkingDirectory,
                         dialect: restore.noticeDialect
                     )
