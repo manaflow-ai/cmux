@@ -662,6 +662,11 @@ jobs:
           cargo test -p cmux-tui-core --lib \
             unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
             -- --exact
+          # macOS always has /bin/zsh; the Linux runner has none, so this
+          # end-to-end title test only skips there.
+          cargo test -p cmux-tui-core --lib \
+            shell_integration::tests::a_daemon_integrated_zsh_titles_a_long_command_with_every_argument \
+            -- --exact
           cargo test -p cmux-remote --lib workspace::process::tests::macos_pty_ \
             -- --test-threads=1
 
