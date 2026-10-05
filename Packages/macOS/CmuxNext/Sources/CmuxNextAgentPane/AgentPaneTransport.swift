@@ -181,6 +181,8 @@ public extension AgentPaneTransportPacer {
     public var requestModeConfirmation: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
+    /// Replies cut to what the pane renders (`_acpmux/status`).
+    let replies = AcpmuxReplyFilter()
     private var socketPath: String?
 
     /// Pushes and flushes so far (tests and the bench read them).
@@ -213,7 +215,9 @@ public extension AgentPaneTransportPacer {
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         sentFirst = false
-        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions, sessions: sessions) { [weak self] in
+        replies.clear()
+        let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions, sessions: sessions,
+                                      replies: replies) { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.arrived(id) } }
         }
         self.socket = socket
@@ -505,6 +509,7 @@ public extension AgentPaneTransportPacer {
            gestures.consume() {
             sessions.add(session)
         }
+        replies.expect(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         if AcpmuxPaneSessions.starting.contains(method) {
             sessions.sent(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID), params: params)
         }
@@ -595,15 +600,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let limits: AgentPaneTransport.Limits
     private let options: AcpmuxPermissionOptions
     private let sessions: AcpmuxPaneSessions
+    private let replies: AcpmuxReplyFilter
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
 
     init(request: URLRequest, limits: AgentPaneTransport.Limits, options: AcpmuxPermissionOptions,
-         sessions: AcpmuxPaneSessions, signal: @escaping @Sendable () -> Void) {
+         sessions: AcpmuxPaneSessions, replies: AcpmuxReplyFilter, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.limits = limits
         self.options = options
         self.sessions = sessions
+        self.replies = replies
         self.signal = signal
     }
 
@@ -648,7 +655,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         }
     }
 
-    private func arrived(_ text: String) {
+    private func arrived(_ received: String) {
+        let text = replies.filter(received)
         options.observe(text)
         sessions.observe(text)
         let bytes = text.utf8.count

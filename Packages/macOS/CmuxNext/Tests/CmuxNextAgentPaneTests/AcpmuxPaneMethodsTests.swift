@@ -28,7 +28,7 @@ import Testing
     }
 
     @Test func aLaterInitializeAndUnlistedMethodsAreRefused() {
-        for method in ["initialize", "_acpmux/peer_add", "_acpmux/preset_set", "_acpmux/status", "git.diff", "file.search", "session/load"] {
+        for method in ["initialize", "_acpmux/peer_add", "_acpmux/preset_set", "git.diff", "file.search", "session/load"] {
             #expect(AcpmuxPaneMethods.decide(frame(method, id: 7), isFirst: false, localAppToken: nil)
                 == .refuse(.methodRefused, method: method, requestID: "7"), "\(method)")
         }
