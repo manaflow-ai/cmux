@@ -1,5 +1,6 @@
 import CmuxCloud
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -24,6 +25,35 @@ struct NewMachineModelTests {
         #expect(model.hasNoAllowedMemoryOptions)
         #expect(!didSubmit)
         #expect(model.outcome == nil)
+    }
+
+    @Test("reapplying identical plan data does not invalidate the sheet")
+    func identicalPlanRefreshIsANoOpForObservation() {
+        let limits = VMPlanLimits(
+            maxActiveVms: 10,
+            planId: "pro",
+            freeAccessWindowDays: 0,
+            memoryOptionsMb: [4096, 8192]
+        )
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: MachineSnapshotBuilder.planSnapshot(activeCount: 2, limits: limits),
+            memoryOptionsMb: limits.memoryOptionsMb,
+            submit: { _ in true }
+        )
+        var invalidated = false
+        withObservationTracking {
+            _ = model.plan
+            _ = model.memoryOptions
+            _ = model.lockedMemoryOptions
+            _ = model.planIsLoading
+        } onChange: {
+            invalidated = true
+        }
+
+        model.applyPlan(activeCount: 2, limits: limits)
+
+        #expect(!invalidated)
     }
 
     @Test func goOffersThePlanThatActuallyUnlocksEachSize() {
@@ -106,6 +136,18 @@ struct NewMachineModelTests {
         #expect(recorder.value.first?.forkSourceName == "Build machine")
         #expect(recorder.value.first?.displayName == "Fork of Build machine")
         #expect(recorder.value.first?.progressLabel == "Forking…")
+    }
+
+    @Test("Base picker source refreshes keep machine IDs unique")
+    func sourceRefreshDeduplicatesMachineIDs() {
+        let first = VMSummary(id: "same", provider: "freestyle", status: "running", image: "a", createdAt: 0, displayName: "first")
+        let duplicate = VMSummary(id: "same", provider: "freestyle", status: "running", image: "b", createdAt: 1, displayName: "duplicate")
+        let (model, _) = makeModel()
+
+        model.applySourceMachines([first, duplicate])
+
+        #expect(model.sourceMachines.map(\.id) == ["same"])
+        #expect(model.sourceMachines.first?.displayName == "first")
     }
 
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {

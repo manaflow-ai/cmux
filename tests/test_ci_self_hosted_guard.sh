@@ -1141,17 +1141,15 @@ check_no_bare_github_hosted_runners() {
   # fallback; check_background_macos_lane enforces that.
   # The CLA policy guard is a separate immutable control-plane job and is
   # intentionally exempted below because it must never honor a repository
-  # variable or self-hosted runner override.
+  # variable or self-hosted runner override (validate-cla-policy.rb pins it).
+  # Backend migrations and web complexity hold trusted tokens and use the
+  # CI_TRUSTED_RUNNER selector, which can only pick ephemeral GitHub-hosted or
+  # Blacksmith labels; test_ci_fork_runner_routing.py pins its exact form.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  # cla-policy-guard.yml, web-complexity-trusted.yml and
-  # merge-group-policy-checks.yml are control-plane workflows. They
-  # deliberately run on GitHub-hosted ephemeral runners so untrusted
-  # policy/source bytes cannot redirect execution to a persistent or
-  # contributor-controlled machine. Exempt those files here instead.
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" | grep -v "/web-complexity-trusted.yml:" | grep -v "/merge-group-policy-checks.yml:" || true)"
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v "/cla-policy-guard.yml:" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"
