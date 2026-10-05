@@ -413,6 +413,10 @@ pub enum MessageKind {
     DetachAck = 22,
     /// Targeted confirmation that `Input` reached the authoritative PTY writer.
     InputAck = 23,
+    /// Host-originated read of the owner's clipboard (OSC 52) on a
+    /// `CLIPBOARD_READ` connection: token:u64 + location:u8. Request id and
+    /// sequence are zero; the token names the read.
+    ClipboardReadRequest = 24,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -440,6 +444,9 @@ pub enum MessageKind {
     /// Admin request for a final source-ordered receipt before a daemon closes
     /// its persistent-host connection.
     Detach = 111,
+    /// `CLIPBOARD_READ` answer: token:u64 + outcome:u8 (0 refused, 1
+    /// granted) + text blob, ignored when refused.
+    ClipboardReadReply = 112,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -470,6 +477,7 @@ impl TryFrom<u16> for MessageKind {
             21 => Ok(Self::TerminateAck),
             22 => Ok(Self::DetachAck),
             23 => Ok(Self::InputAck),
+            24 => Ok(Self::ClipboardReadRequest),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -482,6 +490,7 @@ impl TryFrom<u16> for MessageKind {
             109 => Ok(Self::SetKittyGraphicsLimits),
             110 => Ok(Self::Activate),
             111 => Ok(Self::Detach),
+            112 => Ok(Self::ClipboardReadReply),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }

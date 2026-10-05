@@ -140,7 +140,10 @@ impl Harness {
         let host_hello = read_required_frame(&mut client, "host hello").unwrap();
         assert_eq!(host_hello.kind, MessageKind::HostHello);
         assert_eq!(HostHello::decode(&host_hello.payload).unwrap().granted_rights, rights);
-        assert_eq!(read_required_frame(&mut client, "snapshot").unwrap().kind, MessageKind::Snapshot);
+        assert_eq!(
+            read_required_frame(&mut client, "snapshot").unwrap().kind,
+            MessageKind::Snapshot
+        );
         assert_eq!(read_required_frame(&mut client, "colors").unwrap().kind, MessageKind::Colors);
         client
     }
@@ -181,7 +184,8 @@ fn read_until_output(client: &mut UnixStream, marker: &[u8]) {
 }
 
 fn reply(client: &mut UnixStream, token: u64, text: Option<&[u8]>) {
-    let frame = Frame::new(MessageKind::ClipboardReadReply, encode_clipboard_read_reply(token, text));
+    let frame =
+        Frame::new(MessageKind::ClipboardReadReply, encode_clipboard_read_reply(token, text));
     write_frame(client, &frame).unwrap();
 }
 
@@ -348,9 +352,15 @@ fn owner_token_grants_clipboard_reads_only_with_full_admin() {
     };
     let clipboard = CapabilityRights::CLIPBOARD_READ;
     let full = CapabilityRights::ADMIN | clipboard;
-    assert_eq!(authenticate_client(&host, &hello(ClientRole::Admin, full)).unwrap().granted_rights, full);
+    assert_eq!(
+        authenticate_client(&host, &hello(ClientRole::Admin, full)).unwrap().granted_rights,
+        full
+    );
     let admin = CapabilityRights::ADMIN;
-    assert_eq!(authenticate_client(&host, &hello(ClientRole::Admin, admin)).unwrap().granted_rights, admin);
+    assert_eq!(
+        authenticate_client(&host, &hello(ClientRole::Admin, admin)).unwrap().granted_rights,
+        admin
+    );
     for (role, rights) in [
         (ClientRole::Admin, clipboard),
         (ClientRole::Admin, CapabilityRights::READ | clipboard),
@@ -374,7 +384,7 @@ fn clipboard_record_field_round_trips_defaults_false_and_needs_v4() {
     let legacy = serde_json::from_value::<TerminalHostRecord>(legacy_json).unwrap();
     assert!(!legacy.supports_clipboard_read);
 
-    let mut v3 = record.clone();
+    let mut v3 = record;
     v3.record_version = 3;
     v3.supports_input_ack = false;
     v3.supports_terminal_metadata = false;
@@ -426,7 +436,10 @@ fn fake_owner_host(
         Frame::new(MessageKind::Snapshot, encode_snapshot_for_version(&snapshot, version, false)?),
         Frame::new(
             MessageKind::Colors,
-            encode_terminal_color_overrides(&TerminalColorOverrides::default()),
+            encode_terminal_color_overrides(&TerminalColorOverrides {
+                cursor_visual: Some((CursorShape::Block, false)),
+                ..Default::default()
+            }),
         ),
     ];
     if hello_frame.flags & FLAG_SMART_RENDERER != 0 {

@@ -10,6 +10,8 @@ mod exit_state;
 pub(crate) mod spawn;
 use spawn::{LocalLaunch, LocalSpawn};
 #[cfg(unix)]
+mod clipboard_read;
+#[cfg(unix)]
 mod host_frames;
 #[cfg(unix)]
 mod prelaunch;

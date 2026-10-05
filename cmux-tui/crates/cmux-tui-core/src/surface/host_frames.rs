@@ -25,6 +25,10 @@
 //! (`abandon`), the thread discards ordered frames instead of queueing them,
 //! so a backlog can never delay an acknowledgement it still owes.
 //!
+//! A `ClipboardReadRequest` from a host that negotiated clipboard reads
+//! becomes the connection's pending read (see `ControlResponses`); from any
+//! other host it ends the connection.
+//!
 //! Failure ownership: at the end of the stream the thread fails only the
 //! waiters it resolves itself; the surface's reader drains the queued frames
 //! and then fails the ordered waiters. After `abandon` or a drop, the thread
@@ -194,6 +198,14 @@ fn read_stream(
     queue: &Queue,
 ) {
     while let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
+        // A host-originated clipboard read is outside the live sequence and
+        // waits for the user, so it never enters the ordered queue.
+        if frame.kind == MessageKind::ClipboardReadRequest {
+            if control_responses.accept_clipboard_read_request(&frame, protocol_version) {
+                continue;
+            }
+            break;
+        }
         if resolves_early(&frame, protocol_version, early) {
             // A Kitty limits acknowledgement that arrives after its
             // requester's deadline is advisory: the requester already

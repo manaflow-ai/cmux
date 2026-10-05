@@ -43,6 +43,7 @@ pub(super) fn run_host_parser(
                         .cursor_activity()
                         .expect("valid host terminals expose cursor activity");
                     let normalized = term.vt_write_with_normalized(&bytes).into_owned();
+                    parser_host.clipboard.dispatch(&mut term, &parser_host.broadcast_lock);
                     parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
@@ -118,9 +119,14 @@ pub(super) fn run_host_parser(
                 flush_pending_responses();
                 let _ = response.send(result);
             }
+            ParserCommand::ClipboardReadComplete { token, text } => {
+                parser_host.term.lock().unwrap().complete_clipboard_read(token, text.as_deref());
+                flush_pending_responses();
+            }
             ParserCommand::Drain => {
                 // FIFO reception proves every source byte published by
                 // the PTY reader has reached the authoritative parser.
+                parser_host.clipboard.end(&mut parser_host.term.lock().unwrap());
                 parser_host.mark_pty_drained();
                 parser_host.publish_exit_if_drained();
                 flush_pending_responses();

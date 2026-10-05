@@ -176,7 +176,10 @@ impl CapabilityRights {
     pub const MINT_CAPABILITY: Self = Self(1 << 4);
     pub const RENDERER: Self = Self(Self::READ.0 | Self::INPUT.0 | Self::RESIZE.0);
     pub const ADMIN: Self = Self(Self::RENDERER.0 | Self::TERMINATE.0 | Self::MINT_CAPABILITY.0);
-    const KNOWN_BITS: u32 = Self::ADMIN.0;
+    /// Owner-only, outside `ADMIN`: answer the terminal's OSC 52 clipboard
+    /// reads. Requested only from a host whose record advertises it.
+    pub const CLIPBOARD_READ: Self = Self(1 << 5);
+    const KNOWN_BITS: u32 = Self::ADMIN.0 | Self::CLIPBOARD_READ.0;
 
     pub const fn empty() -> Self {
         Self(0)
@@ -216,6 +219,7 @@ impl fmt::Debug for CapabilityRights {
             (Self::RESIZE, "resize"),
             (Self::TERMINATE, "terminate"),
             (Self::MINT_CAPABILITY, "mint-capability"),
+            (Self::CLIPBOARD_READ, "clipboard-read"),
         ] {
             if self.contains(right) {
                 names.push(name);
@@ -238,7 +242,7 @@ impl ClientRole {
         match self {
             Self::DaemonMirror => CapabilityRights::READ,
             Self::Renderer => CapabilityRights::RENDERER,
-            Self::Admin => CapabilityRights::ADMIN,
+            Self::Admin => CapabilityRights::ADMIN | CapabilityRights::CLIPBOARD_READ,
         }
     }
 }
@@ -393,7 +397,9 @@ impl CapabilityStore {
         rights: CapabilityRights,
         ttl: Duration,
     ) -> Result<CapabilityToken, HostHandshakeError> {
-        if rights.is_empty() {
+        // Clipboard reads belong to the owner token only; a minted grant can
+        // never carry them.
+        if rights.is_empty() || rights.contains(CapabilityRights::CLIPBOARD_READ) {
             return Err(HostHandshakeError::CapabilityDenied);
         }
         let now = Instant::now();

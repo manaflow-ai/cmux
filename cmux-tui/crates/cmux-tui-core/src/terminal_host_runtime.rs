@@ -162,6 +162,10 @@ pub struct TerminalHostRecord {
     /// snapshot layout without the optional generic terminal metadata tail.
     #[serde(default)]
     pub supports_terminal_metadata: bool,
+    /// Additive capability. Missing/false records belong to hosts that would
+    /// reject the `CLIPBOARD_READ` right bit, so the daemon never asks them.
+    #[serde(default)]
+    pub supports_clipboard_read: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -180,6 +184,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_terminate_ack", &self.supports_terminate_ack)
             .field("supports_input_ack", &self.supports_input_ack)
             .field("supports_terminal_metadata", &self.supports_terminal_metadata)
+            .field("supports_clipboard_read", &self.supports_clipboard_read)
             .finish()
     }
 }
@@ -836,9 +841,12 @@ mod unix {
     }
 
     mod barrier_sync;
+    mod clipboard_read;
     mod control_responses;
     mod host_parser;
     mod standby;
+    use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
+    use clipboard_read::{owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
     use host_parser::{ParserSignals, run_host_parser};
@@ -2005,6 +2013,7 @@ mod unix {
                 || record.supports_terminate_ack
                 || record.supports_input_ack
                 || record.supports_terminal_metadata
+                || record.supports_clipboard_read
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
@@ -2019,6 +2028,9 @@ mod unix {
             }
             if record.record_version < HOST_RECORD_VERSION && record.supports_input_ack {
                 anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
+            }
+            if record.record_version < HOST_RECORD_VERSION && record.supports_clipboard_read {
+                anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads");
             }
             let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
                 &record.host_start_nonce,
@@ -2481,7 +2493,7 @@ mod unix {
             min_version: protocol_version,
             max_version: protocol_version,
             role: ClientRole::Admin,
-            requested_rights: CapabilityRights::ADMIN,
+            requested_rights: owner_rights_for(&record, protocol_version),
             terminal_id,
             token: owner_token,
         };
@@ -2520,7 +2532,7 @@ mod unix {
         if host_hello.selected_version != protocol_version
             || host_hello.terminal_id != terminal_id
             || host_hello.incarnation != incarnation
-            || host_hello.granted_rights != CapabilityRights::ADMIN
+            || host_hello.granted_rights != hello.requested_rights
         {
             anyhow::bail!("terminal-host record identity does not match live host");
         }
@@ -2577,7 +2589,9 @@ mod unix {
             smart_renderer,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            control_responses: Arc::new(ControlResponses::new()),
+            control_responses: Arc::new(ControlResponses::with_clipboard_reads(
+                hello.requested_rights.contains(CapabilityRights::CLIPBOARD_READ),
+            )),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -3116,6 +3130,11 @@ mod unix {
             fallback_key: Option<KeyInput>,
             response: SyncSender<Result<ParserClearHistoryResult, String>>,
         },
+        /// Answers one deferred clipboard read; `None` refuses it.
+        ClipboardReadComplete {
+            token: u64,
+            text: Option<Vec<u8>>,
+        },
         Drain,
     }
 
@@ -3288,6 +3307,7 @@ mod unix {
         source_order_lock: Mutex<()>,
         parser_commands: SyncSender<ParserCommand>,
         parser_budget: ParserBudget,
+        clipboard: ClipboardReads,
         /// Generation advanced after each parser write. Snapshot admission
         /// waits here when a PTY read ends inside UTF-8 or a control sequence,
         /// without blocking the reader from enqueueing the completing bytes.
@@ -3790,6 +3810,7 @@ mod unix {
         }
 
         fn remove_client(&self, client: u64) {
+            self.release_clipboard_owner(client);
             self.taps.lock().unwrap().remove(&client);
             self.smart.remove(client);
             let _ = mutate_viewer_sizes(
@@ -4939,6 +4960,7 @@ mod unix {
             supports_terminate_ack: true,
             supports_input_ack: true,
             supports_terminal_metadata: true,
+            supports_clipboard_read: true,
         };
         let record_root = Path::new(&launch.record_path)
             .parent()
@@ -5107,6 +5129,7 @@ mod unix {
         let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
 
         let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let clipboard = ClipboardReads::new(Arc::new(SystemClock));
         let title_changed = Arc::new(AtomicBool::new(false));
         let bell = Arc::new(AtomicBool::new(false));
         let callbacks = Callbacks {
@@ -5122,7 +5145,7 @@ mod unix {
                 let bell = bell.clone();
                 move || bell.store(true, Ordering::Release)
             })),
-            on_clipboard_read: None,
+            on_clipboard_read: Some(clipboard.callback()),
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
         term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
@@ -5162,6 +5185,7 @@ mod unix {
             source_order_lock: Mutex::new(()),
             parser_commands,
             parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
+            clipboard,
             parser_progress: (Mutex::new(0), Condvar::new()),
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
@@ -5186,6 +5210,7 @@ mod unix {
             fail_next_resize_publication: AtomicBool::new(false),
         });
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
+        shared.clipboard.start_timer(shared.parser_commands.clone())?;
 
         let parser_host = shared.clone();
         let signals = ParserSignals { pending_responses, title_changed, bell };
@@ -5501,6 +5526,9 @@ mod unix {
             let _ = write_frame(&mut stream, &frame);
             return Ok(());
         }
+        if granted_rights.contains(CapabilityRights::CLIPBOARD_READ) {
+            host.clipboard.register_owner(&host.term, client, tap.clone());
+        }
         // Legacy hosts began reading as soon as the first owner tap joined.
         // Protocol v4 waits for Activate so public topology and its journal
         // record commit before the first exact PTY bytes can be observed.
@@ -5755,6 +5783,12 @@ mod unix {
                             break;
                         }
                     }
+                    MessageKind::ClipboardReadReply => {
+                        if !command_host.apply_clipboard_read_reply(client, granted_rights, &frame)
+                        {
+                            break;
+                        }
+                    }
                     _ => break,
                 }
             }
@@ -5792,8 +5826,7 @@ mod unix {
         }
         if constant_time_equal(hello.token.as_bytes(), host.owner_token.as_bytes()) {
             if hello.role != ClientRole::Admin
-                || hello.requested_rights.is_empty()
-                || !CapabilityRights::ADMIN.contains(hello.requested_rights)
+                || !owner_rights_allowed(hello.requested_rights)
                 || hello.min_version > PROTOCOL_VERSION
                 || hello.max_version < PROTOCOL_VERSION
             {
@@ -6349,8 +6382,10 @@ mod unix {
     #[cfg(test)]
     mod tests {
         mod clipboard_read;
+        mod host_fixture;
         use super::*;
         use cmux_pty::Child;
+        use host_fixture::{test_host_shared, test_host_shared_with};
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -6581,79 +6616,6 @@ mod unix {
             exited_host_fixture_with_parser_at(root)
         }
 
-        fn test_host_shared() -> Arc<HostShared> {
-            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            let (parser_commands, _parser_receiver) = sync_channel(1);
-            test_host_shared_with(term, parser_commands, ClipboardReads::new(Arc::new(SystemClock)))
-        }
-
-        fn test_host_shared_with(
-            mut term: Terminal,
-            parser_commands: SyncSender<ParserCommand>,
-            clipboard: ClipboardReads,
-        ) -> Arc<HostShared> {
-            term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
-                .unwrap();
-            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
-            let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-            let host = Arc::new(HostShared {
-                terminal_id: TerminalId::random().unwrap(),
-                incarnation: HostIncarnation::random().unwrap(),
-                owner_token: CapabilityToken::random().unwrap(),
-                capabilities: CapabilityStore::new(64),
-                term: Mutex::new(term),
-                terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
-                default_colors: Mutex::new(DefaultColors::default()),
-                stream_progress: TerminalStreamProgress::default(),
-                writer: Mutex::new(Box::new(std::io::sink())),
-                master: Mutex::new(Box::new(TestHostMaster {
-                    size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
-                })),
-                killer: Mutex::new(Box::new(TestHostKiller)),
-                pid: None,
-                command: vec!["/bin/cat".into()],
-                cwd: None,
-                size: Mutex::new((80, 24)),
-                cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-                viewer_sizes: Mutex::new(HashMap::new()),
-                taps: Mutex::new(HashMap::new()),
-                broadcast_lock: Mutex::new(()),
-                sequence: AtomicU64::new(0),
-                smart: SmartStreamState::new(),
-                source_order_lock: Mutex::new(()),
-                parser_commands,
-                parser_budget: ParserBudget::new(1),
-                clipboard,
-                parser_progress: (Mutex::new(0), Condvar::new()),
-                next_client: AtomicU64::new(1),
-                dead: AtomicBool::new(false),
-                launch_owner_claimed: AtomicBool::new(false),
-                launch_owner_stream_ready: AtomicBool::new(false),
-                launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
-                active_client_streams: AtomicUsize::new(0),
-                accept_waker: AcceptWaker::new().unwrap(),
-                child_exit: (Mutex::new(None), Condvar::new()),
-                child_waitable: AtomicBool::new(false),
-                pty_drained: AtomicBool::new(false),
-                exit_published: AtomicBool::new(false),
-                exit_record_path: std::env::temp_dir().join(format!(
-                    "cmux-host-test-exit-{}-{}",
-                    std::process::id(),
-                    RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-                )),
-                exit_publish_requests,
-                force_pty_drain: AtomicBool::new(false),
-                pty_drain_waker: Mutex::new(pty_drain_waker),
-                termination_started: AtomicBool::new(false),
-                child_signal_lock: Mutex::new(()),
-                child_reaped: AtomicBool::new(false),
-                group_escalation_complete: AtomicBool::new(false),
-                fail_next_resize_publication: AtomicBool::new(false),
-            });
-            HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
-            host
-        }
-
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
@@ -6681,6 +6643,7 @@ mod unix {
                 supports_terminate_ack: true,
                 supports_input_ack: true,
                 supports_terminal_metadata: true,
+                supports_clipboard_read: false,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -6707,6 +6670,7 @@ mod unix {
                 supports_terminate_ack: false,
                 supports_input_ack: true,
                 supports_terminal_metadata: false,
+                supports_clipboard_read: false,
             };
             let record_path = std::env::temp_dir().join(format!(
                 "cmux-input-ack-surface-{}-{}.json",
