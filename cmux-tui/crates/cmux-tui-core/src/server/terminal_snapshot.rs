@@ -389,8 +389,8 @@ impl PendingTail {
             let done = self.history_done && self.images.is_none();
             return Ok(Some((value, done)));
         }
-        let (generation, offset) = (self.generation, self.offset);
-        Ok(self.images.as_mut().and_then(|images| images.next_chunk(surface, generation, offset)))
+        let at = (self.generation, self.offset, self.version);
+        Ok(self.images.as_mut().and_then(|images| images.next_chunk(surface, at)))
     }
 
     fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Value> {
@@ -433,12 +433,9 @@ impl PendingImages {
 
     /// The next images chunk and whether it is the last one. The stream is
     /// sent as is: its pixels are already zlib.
-    fn next_chunk(
-        &mut self,
-        surface: SurfaceId,
-        generation: u64,
-        offset: u64,
-    ) -> Option<(Value, bool)> {
+    /// `at`: the READY's `(generation, offset, version)`.
+    fn next_chunk(&mut self, surface: SurfaceId, at: (u64, u64, u16)) -> Option<(Value, bool)> {
+        let (generation, offset, version) = at;
         if self.finished {
             return None;
         }
@@ -451,6 +448,7 @@ impl PendingImages {
             "phase": "images",
             "generation": generation,
             "offset": offset,
+            "version": version,
             "data": base64(&stream[self.sent..end]),
             "done": done,
         });
@@ -942,13 +940,14 @@ mod tests {
         let mut pending =
             PendingImages::of(Arc::new(SnapshotImages { data: stream.clone(), stats }));
         let (mut joined, mut events) = (Vec::new(), Vec::new());
-        while let Some((value, done)) = pending.next_chunk(3, 9, 77) {
+        while let Some((value, done)) = pending.next_chunk(3, (9, 77, 1)) {
             assert_eq!(value["phase"], "images");
             assert_eq!(
                 (value["generation"].as_u64(), value["offset"].as_u64()),
                 (Some(9), Some(77))
             );
             assert!(value.get("compression").is_none(), "{value}");
+            assert_eq!(value["version"], 1);
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(value["data"].as_str().unwrap())
                 .unwrap();

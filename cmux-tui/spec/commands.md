@@ -6079,7 +6079,16 @@ colors-changed | digest)* -> detached` instead of the replay stream:
   Such a viewer gets, after the last history chunk of every READY that has
   history (attach, overflow, `snapshot-request`, a grid change without a
   local READY), `snapshot {surface, phase:"images", generation, offset,
-  data, done}` chunks at that READY's `generation` and `offset`. The chunks
+  version, data, done, skipped_images?}` chunks. Every images chunk has
+  exactly these fields: `event:"snapshot"`; `surface`; `phase:"images"`;
+  `generation`, `offset` and `version` (uint16), each equal to the READY it
+  follows (a decoder may require all three); `data` (base64 of at most
+  1048576 stream bytes); `done` (bool); and, on the last chunk only and only
+  when the cap left images out, `skipped_images` (uint64). It has no
+  `compression`, `raw_bytes`, `cols`, `rows` or `colors`.
+  `spec/fixtures/terminal-snapshot-dogfood-png.jsonl` holds the host's real
+  READY, history, images and local READY lines for one PNG image
+  (`surface` and `marker_epoch` set to 0). The chunks
   concatenated are one libghostty-vt `ghostty_terminal_kitty_replay_encode`
   stream encoded under the same terminal lock hold as the READY, at the same
   cut: a per-screen reset, every stored image (pixels for the selected
