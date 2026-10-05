@@ -68,7 +68,7 @@ struct MachineRowActions {
                 presentDeleteConfirmation(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptRename: { machine in
-                presentRenamePrompt(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+                presentRenamePrompt(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate, onRename: onRename)
             },
             resizeDisk: { id, gib in
                 onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
@@ -213,7 +213,8 @@ struct MachineRowActions {
     private static func presentRenamePrompt(
         machine: MachineSnapshot,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
-        onDidMutate: @escaping @MainActor () -> Void
+        onDidMutate: @escaping @MainActor () -> Void,
+        onRename: @escaping @MainActor (MachineSnapshot, String?) -> Void = { _, _ in }
     ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
