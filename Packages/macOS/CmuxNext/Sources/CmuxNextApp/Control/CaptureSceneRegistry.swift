@@ -48,18 +48,21 @@ final class CaptureSceneRegistry {
 
         // All scenes use the production showcase fixture and differ by their requested name.
         // Scene-specific controls can be added here while the route and artifact contract stay stable.
-        _ = DebugShowcase.seed(["focus": .bool(true)], services: services)
+        let seed = DebugShowcase.seed(["focus": .bool(true)], services: services)
+        guard case .object(let seedReport) = seed, seedReport["seeded"]?.boolValue == true else {
+            return .object(["error": .string("showcase fixture did not seed"), "scene": .string(definition.name)])
+        }
         let start = ContinuousClock.now
-        var settledFrames = 0
         frames.start()
         let settled = await frames.settled(
             until: {
-                settledFrames += 1
-                return settledFrames >= 2
+                // Workspace creation and agent-tab insertion are asynchronous production paths.
+                // A display frame alone is not evidence that the fixture is visible.
+                services.showcase.workspaces.count >= 3 && !services.showcase.agentTabs.isEmpty
             },
             start: start,
-            window: 0,
-            deadline: 3_000,
+            window: 100,
+            deadline: 5_000,
         )
         let frameStats = frames.stop()
         guard settled != nil else {
@@ -67,6 +70,8 @@ final class CaptureSceneRegistry {
                 "error": .string("scene did not settle before deadline"),
                 "scene": .string(definition.name),
                 "frames": frameStats,
+                "workspaces": .number(Double(services.showcase.workspaces.count)),
+                "agent_tabs": .number(Double(services.showcase.agentTabs.count)),
             ])
         }
 
@@ -78,6 +83,8 @@ final class CaptureSceneRegistry {
         result["description"] = .string(definition.description)
         result["settled_ms"] = settled.map(JSONValue.number) ?? .null
         result["frames"] = frameStats
+        result["workspaces"] = .number(Double(services.showcase.workspaces.count))
+        result["agent_tabs"] = .number(Double(services.showcase.agentTabs.count))
         return .object(result)
     }
 
