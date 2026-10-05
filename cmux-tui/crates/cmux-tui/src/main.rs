@@ -73,8 +73,8 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
-#[cfg(all(test, unix))]
 mod startup_env;
+#[cfg(all(test, unix))]
 mod test_exec;
 #[cfg(test)]
 mod test_wait;
