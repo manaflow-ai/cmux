@@ -215,20 +215,30 @@ fn tune_ws_socket(stream: &tokio::net::TcpStream) {
 }
 
 pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Result<()> {
-    serve_ws_with(hub, listener, token, None).await
+    serve_ws_with(hub, listener, token, WsAuth::default()).await
+}
+
+/// The proofs a WebSocket connection may present beyond the dashboard
+/// token: this launch's LocalApp token (`local_app.rs`) and peer token
+/// (`peer_auth.rs`). Without one, no connection gets that origin.
+#[derive(Default, Clone)]
+pub struct WsAuth {
+    pub local_app: Option<Arc<local_app::LocalAppAuth>>,
+    pub peer: Option<Arc<peer_auth::PeerAuth>>,
 }
 
 /// How long a connection may wait before its first frame decides whether it
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// `serve_ws` with this launch's LocalApp token: a connection that meets
-/// every LocalApp condition is served as `Origin::LocalApp`.
+/// `serve_ws` with this launch's LocalApp and peer tokens: a connection
+/// that meets every LocalApp condition is served as `Origin::LocalApp`, one
+/// that proves the peer token as `Origin::Peer`, any other as `Origin::Web`.
 pub async fn serve_ws_with(
     hub: Arc<Hub>,
     listener: TcpListener,
     token: String,
-    local_app: Option<Arc<local_app::LocalAppAuth>>,
+    auth: WsAuth,
 ) -> Result<()> {
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
     let bound = listener.local_addr()?;
@@ -256,7 +266,8 @@ pub async fn serve_ws_with(
         let hub = hub.clone();
         let token = token.clone();
         let policy = policy.clone();
-        let local_app = local_app.clone();
+        let local_app = auth.local_app.clone();
+        let peer_auth = auth.peer.clone();
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(
@@ -280,6 +291,9 @@ pub async fn serve_ws_with(
             // The upgrade request's Origin headers, for the LocalApp check.
             let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
             let record_origins = seen_origins.clone();
+            // Its peer token headers, for the Peer check.
+            let seen_peer: Arc<StdMutex<Vec<String>>> = Arc::default();
+            let record_peer = seen_peer.clone();
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -300,6 +314,8 @@ pub async fn serve_ws_with(
                 }
                 *record_origins.lock().unwrap_or_else(|e| e.into_inner()) =
                     values("origin").into_iter().map(str::to_owned).collect();
+                *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
+                    values(peer_auth::HEADER).into_iter().map(str::to_owned).collect();
                 let header = req
                     .headers()
                     .get("authorization")
@@ -324,7 +340,11 @@ pub async fn serve_ws_with(
             // handler without the token.
             let mut origin = Origin::Web;
             let mut first = None;
-            if let Some(auth) = &local_app {
+            let presented =
+                std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
+            if peer_auth.as_ref().is_some_and(|a| a.is_peer(&presented)) {
+                origin = Origin::Peer;
+            } else if let Some(auth) = &local_app {
                 let frame = tokio::time::timeout(FIRST_FRAME, async {
                     while let Some(Ok(frame)) = source.next().await {
                         if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
@@ -500,6 +520,17 @@ pub enum Origin {
     Web,
     /// The app's agent pane over the WebSocket listener (`local_app.rs`).
     LocalApp,
+    /// A peer acpmux daemon over the WebSocket listener, proven by this
+    /// launch's peer token (`peer_auth.rs`). It has the Web's rights except
+    /// the current-mode rule for prompts and permission answers.
+    Peer,
+}
+
+impl Origin {
+    /// Web or Peer: a connection held to the Web's rules.
+    pub fn web_class(self) -> bool {
+        matches!(self, Origin::Web | Origin::Peer)
+    }
 }
 
 /// A connection from the local Unix socket.
@@ -771,6 +802,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 pub mod local_app;
+pub mod peer_auth;
 mod redact;
 mod remote_guard;
 mod requests;

@@ -1,0 +1,6 @@
+{
+  "pins": {
+    "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa": "D1 pending: GhosttyNextKit ghostty-next bbb7320b4 apple-v6 links GNU libintl (LGPL-2.1-or-later). The ghostty-next/S3k lead rebuilds it with i18n off for Apple; remove this entry with that pin.",
+    "736e8f05256b6453ef2dd05c58eff3088cfc1eda7ae748c041e877c8a66741ba": "temporary until D1: GhosttyNextKit ghostty-next 94fe869496857eb5d70fcf870554deb1480a7aa3 apple-v6 (the S3k pin). Zip sha256 checked and all three slices scanned on 2026-10-05: each contains libintl. D1 removes this entry."
+  }
+}
