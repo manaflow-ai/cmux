@@ -143,6 +143,11 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
                 throw Refusal.tooManySessions(limit: maximumSessions)
             }
             session = make(key.makeInstanceID())
+            // A session that ended by itself (its JavaScript heap passed
+            // its limit) tells the next one of its name, for the same client.
+            if let ended = sessions[key], owners[key] == owner, let reason = ended.endedReason {
+                session.noteBeforeNextCell("cmux browser repl: this is a new session; the last one named '\(key.name)' ended: \(reason)")
+            }
             sessions[key] = session
             owners[key] = owner
         }

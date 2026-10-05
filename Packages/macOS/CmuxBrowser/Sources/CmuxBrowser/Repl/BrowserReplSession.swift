@@ -82,6 +82,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     // or sees `closed`.
     private let stateLock = NSLock()
     private var closed = false
+    /// Set when the session ended by itself (``endedReason``).
+    private var endReason: String?
+    /// Lines the next cell prints first (``noteBeforeNextCell(_:)``).
+    private var notesBeforeNextCell: [String] = []
     private var lastUsedAt = ContinuousClock.now
     private var workingDirectory: String
     private var currentEval: EvalState?
@@ -137,8 +141,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var heldCallbacks: [HeldCallback] = []
     private var releaseQueued = false
     private var resumeScheduled = false
-    /// The timers the outermost run in progress set, or nil outside one.
-    private var timersSetInRun: [Int]?
+    /// The timers the outermost run in progress set and has not cleared,
+    /// or nil outside one.
+    private var timersSetInRun: Set<Int>?
+    /// When the JavaScript heap is measured next after a run that ends no
+    /// cell (``measureScriptHeap(in:always:)``).
+    private var nextHeapMeasure = ContinuousClock.now
     /// What the next cell reports about callbacks between cells.
     private var callbacksStopped = 0
     private var callbacksHeld = 0
@@ -634,6 +642,18 @@ public final class BrowserReplSession: @unchecked Sendable {
         return closed
     }
 
+    /// Why the session ended by itself (its JavaScript heap passed its
+    /// limit), or nil: ``BrowserReplSessionRegistry`` tells the next
+    /// session of its name.
+    public var endedReason: String? {
+        stateLock.withLock { endReason }
+    }
+
+    /// Prints `line` (an error line) before the output of the next cell.
+    func noteBeforeNextCell(_ line: String) {
+        stateLock.withLock { notesBeforeNextCell.append(line) }
+    }
+
     /// Evaluates one cell. Cells run one at a time in submission order.
     /// - Parameters:
     ///   - code: JavaScript source.
@@ -794,6 +814,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// the driver, fails a running evaluation and releases the context and
     /// thread. A script still running on the JS thread is terminated.
     public func close() {
+        close(reason: nil)
+    }
+
+    /// Like ``close()``; a running evaluation fails with `reason` (why the
+    /// session ended) when given.
+    private func close(reason: String?) {
         stateLock.lock()
         guard !closed else {
             stateLock.unlock()
@@ -811,7 +837,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         queuedDriverCalls.removeAll()
         // What those held: their tasks no longer release it.
         ledger.releaseAll([.queuedFetches, .openFetches, .requestPhaseFetches, .queuedDriverCalls,
-                           .runningDriverCalls, .requestBytes, .driverResultBytes])
+                           .runningDriverCalls, .requestBytes, .driverResultBytes, .scriptHeapBytes])
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -832,7 +858,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         scheduler.invalidate()
         driver.detach()
         fetcher.invalidate()
-        running?.finish(error: "Error: REPL session '\(id)' was closed")
+        running?.finish(error: reason ?? "Error: REPL session '\(id)' was closed")
         // Only an empty directory goes; files the session wrote stay, since
         // a one-shot run prints paths (spilled output, screenshots) that the
         // caller reads after the session has closed.
@@ -1159,6 +1185,70 @@ public final class BrowserReplSession: @unchecked Sendable {
             for id in timers { scheduler.cancel(id: id) }
             if let firedTimer { scheduler.cancel(id: firedTimer) }
         }
+        if !isClosedNow, let reason = measureScriptHeap(in: context, always: false) {
+            end(because: reason)
+        }
+    }
+
+    // MARK: - JavaScript heap
+
+    /// The least time between two heap measures after runs that end no
+    /// cell; a measure that took longer waits 20 times as long, so
+    /// measuring uses at most 5% of the thread's time.
+    static let heapMeasureInterval: Duration = .milliseconds(10)
+
+    /// Measures the session's JavaScript heap into the ledger
+    /// (``BrowserReplResource/scriptHeapBytes``, which counts toward the
+    /// session's memory). JavaScriptCore has no heap limit of its own
+    /// (``BrowserReplScriptHeap``), so this is the bound: past a limit the
+    /// heap's garbage is collected and it is measured again, and when it
+    /// is still past, the session ends. `always` measures now (a cell is
+    /// ending); otherwise only once ``heapMeasureInterval`` (or 20 times
+    /// the last measure's cost) has passed. JavaScript a cell or callback
+    /// makes while it runs is measured once it returns to the session.
+    /// - Returns: Why the session ends, or nil.
+    private func measureScriptHeap(in context: JSContext, always: Bool) -> String? {
+        let start = ContinuousClock.now
+        guard always || start >= nextHeapMeasure else { return nil }
+        let heap = BrowserReplScriptHeap(context: context)
+        guard var bytes = heap.size() else { return nil }
+        let held = ledger.held(.scriptHeapBytes)
+        var refusal = ledger.resize(.scriptHeapBytes, from: held, to: bytes)
+        if refusal != nil {
+            heap.collect()
+            bytes = heap.size() ?? bytes
+            refusal = ledger.resize(.scriptHeapBytes, from: held, to: bytes)
+        }
+        let finish = ContinuousClock.now
+        nextHeapMeasure = finish + max(Self.heapMeasureInterval, (finish - start) * 20)
+        guard let refusal else { return nil }
+        // The session ends with what it held; close() releases it.
+        ledger.resize(.scriptHeapBytes, from: held, to: bytes, force: true)
+        let describe = { BrowserReplResourceLimits.describe($0, of: BrowserReplResource.scriptHeapBytes) }
+        let resource = BrowserReplResource.scriptHeapBytes
+        return "Error: REPL session '\(id)' ended: REPL session limit: \(resource.title) at most \(describe(refusal.limit)) "
+            + "(it held \(describe(bytes)) after a full garbage collection); \(resource.remedy). The next command starts a new session"
+    }
+
+    /// Ends the session for `reason` (its JavaScript heap is past its
+    /// limit): no more of its JavaScript runs, and the cell running, or the
+    /// next session of its name, says why. Called on the session's thread,
+    /// which `close()` stops, so the close runs off it.
+    private func end(because reason: String) {
+        stateLock.withLock { endReason = reason }
+        watchdog.close()
+        DispatchQueue.global(qos: .userInitiated).async { [self] in close(reason: reason) }
+    }
+
+    /// Finishes `state` on the session's thread, as its cell ends: the
+    /// heap is measured first, and a heap past its limit ends the session
+    /// and the cell with it.
+    private func finishOnThread(_ state: EvalState, error: String?) {
+        if let context, !isClosedNow, let reason = measureScriptHeap(in: context, always: true) {
+            end(because: reason)
+            return
+        }
+        finish(state, error: error)
     }
 
     /// The cell running on the thread now: current and begun.
@@ -1263,7 +1353,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Output lines that tell the cell starting now about callbacks that
     /// ran between cells and were stopped or held back.
     private func takeCallbackNotices() -> [BrowserReplOutputLine] {
-        var lines: [String] = []
+        var lines: [String] = stateLock.withLock {
+            defer { notesBeforeNextCell.removeAll() }
+            return notesBeforeNextCell
+        }
         let limit = Self.describe(watchdog.callbackTimeLimit)
         if callbacksStopped == 1 {
             lines.append("cmux browser repl: a timer or event callback that ran between cells went past \(limit) and was stopped; the timers it set were cancelled")
@@ -1371,20 +1464,20 @@ public final class BrowserReplSession: @unchecked Sendable {
         let promise = evalFunction.call(withArguments: arguments)
         if let exception = context.exception {
             context.exception = nil
-            finish(state, error: state.isFinished ? nil : formatError(exception, in: context))
+            finishOnThread(state, error: state.isFinished ? nil : formatError(exception, in: context))
             return
         }
         guard let promise, promise.isObject, let then = promise.objectForKeyedSubscript("then"), !then.isUndefined else {
-            finish(state, error: nil)
+            finishOnThread(state, error: nil)
             return
         }
         let onFulfilled: @convention(block) (JSValue?) -> Void = { [weak self] _ in
-            self?.finish(state, error: nil)
+            self?.finishOnThread(state, error: nil)
         }
         let onRejected: @convention(block) (JSValue?) -> Void = { [weak self] reason in
             guard let self, !state.isFinished, let context = self.context else { return }
             let text = reason.map { self.formatError($0, in: context) } ?? "Error: undefined"
-            self.finish(state, error: text)
+            self.finishOnThread(state, error: text)
         }
         promise.invokeMethod("then", withArguments: [
             JSValue(object: unsafeBitCast(onFulfilled, to: AnyObject.self), in: context) as Any,
@@ -1523,12 +1616,14 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self, let id = id?.toInt32() else { return false }
             let duration = Duration.milliseconds(BrowserReplSession.timerDelayMilliseconds(delay?.toDouble()))
             guard self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false) else { return false }
-            self.timersSetInRun?.append(Int(id))
+            self.timersSetInRun?.insert(Int(id))
             return true
         }
         let clearTimer: @convention(block) (JSValue?) -> Void = { [weak self] id in
             guard let self, let id = id?.toInt32() else { return }
             self.scheduler.cancel(id: Int(id))
+            // So the run's list holds at most the pending timers.
+            self.timersSetInRun?.remove(Int(id))
         }
         let driverCall: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] callID, method, params in
             guard let self, let callID = callID?.toInt32() else { return }

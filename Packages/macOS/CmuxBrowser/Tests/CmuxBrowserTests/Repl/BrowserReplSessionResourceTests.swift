@@ -509,7 +509,9 @@ struct BrowserReplSessionResourceTests {
             const big = JSON.stringify({ pad: "x".repeat(65 << 20) });
             const oversized = await driverWith("tabs.list", big).then(() => "ran", (e) => e.message);
             console.log(oversized);
-            // Held by the driver: 60 MiB each, past 512 MiB on the ninth.
+            // Held by the driver: 60 MiB each, past 512 MiB on the ninth
+            // (sooner, since the session's JavaScript heap, which holds
+            // these strings, counts toward its memory too).
             const held = JSON.stringify({ pad: "x".repeat(60 << 20) });
             const outcomes = [];
             for (let i = 0; i < 9; i++) driverWith("cookies.get", held).then(() => {}, (e) => outcomes.push(e.message));
@@ -520,7 +522,8 @@ struct BrowserReplSessionResourceTests {
         let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
         #expect(result?.error == nil, "\(String(describing: result?.error))")
         #expect(lines.first?.contains("MiB") == true && lines.first?.contains("ran") == false, "\(lines)")
-        #expect(lines.last?.hasPrefix("1 ") == true && lines.last?.contains("MiB") == true, "\(lines)")
+        let refused = Int(lines.last?.split(separator: " ").first ?? "") ?? 0
+        #expect((1...8).contains(refused) && lines.last?.contains("MiB") == true, "\(lines)")
     }
 
     /// An event larger than the per-event limit arrives without its
