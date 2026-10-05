@@ -3835,25 +3835,25 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "استيراد ومزامنة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Uvezi i sinhroniziraj"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importér og synkronisér"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importieren und synchronisieren"
           }
         },
@@ -3865,19 +3865,19 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importar y sincronizar"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importer et synchroniser"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importa e sincronizza"
           }
         },
@@ -3889,73 +3889,73 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "នាំចូល និងធ្វើសមកាលកម្ម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "가져오기 및 동기화"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importer og synkroniser"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importuj i synchronizuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importar e sincronizar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Импорт и синхронизация"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "นำเข้าและซิงค์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "İçe aktar ve eşitle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Імпортувати й синхронізувати"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nhập và đồng bộ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "导入并同步"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "匯入並同步"
           }
         }
