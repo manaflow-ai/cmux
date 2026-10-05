@@ -1309,18 +1309,30 @@
       for (const { origin, localStorage } of state.origins || []) {
         if (!localStorage || !localStorage.length) continue;
         checkURL("session.setStorageState", origin);
+        let canonical;
+        try {
+          canonical = new core.URL(origin).origin;
+        } catch {
+          canonical = "null";
+        }
+        if (!/^https?:\/\//.test(canonical)) throw new Error(`session.setStorageState: ${JSON.stringify(origin)} is not an http(s) origin`);
         // An open tab on the origin in the page's data store takes the
         // items; otherwise a background tab of that store loads the origin,
         // takes them and closes.
         if (!store) store = await storeTabs(target);
-        let page = [...session.pages.values()].find((p) => !p._closed && store.targetIds.has(p._targetId) && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === origin);
+        let page = [...session.pages.values()].find((p) => !p._closed && store.targetIds.has(p._targetId) && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === canonical);
         const temp = !page;
         if (temp) {
           page = await session.newPage(undefined, { background: true, dataStore: store.dataStore });
           await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
         }
         try {
-          await page._mainFrame._call("agent", "(items) => { for (const { name, value } of items) localStorage.setItem(name, value); }", [localStorage]);
+          // The origin is checked in the document that takes the items, in
+          // the same turn as the writes: a redirect, or a navigation since
+          // the tab was listed, leaves another origin there, which must not
+          // get this origin's items.
+          const wrote = await page._mainFrame._call("agent", "(want, items) => { if (location.origin !== want) return location.origin; for (const { name, value } of items) localStorage.setItem(name, value); return null; }", [canonical, localStorage]);
+          if (wrote !== null) throw new Error(`session.setStorageState: ${origin} shows ${wrote} instead (a redirect or navigation); its localStorage was not written there`);
           restored++;
         } finally {
           if (temp) await page.close().catch(() => {});
