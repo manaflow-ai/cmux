@@ -620,7 +620,12 @@ async function main(): Promise<void> {
     binding = true;
     try {
       const instanceId = await readInstanceId();
-      if (ensureMachineId(store, instanceId)) log("machine-id regenerated for this clone");
+      if (ensureMachineId(store, instanceId)) {
+        // journald files entries under /var/log/journal/<machine-id>; restart it so it and
+        // journalctl agree on the new id (dbus-daemon keeps the old id until its next start).
+        spawnSync("systemctl", ["restart", "systemd-journald"], { stdio: "ignore" });
+        log("machine-id regenerated for this clone");
+      }
       const key = await ensureInstallKey(store, instanceId);
       const result = await bindMachine({ fetch, store, key, wg: async () => ensureWgKey(store, instanceId), daemon: () => resolveDaemonInfo(store, { activitySender: ACTIVITY_SENDER_EXISTS }) });
       log(`bind: ${result.kind}${"code" in result ? ` ${result.code}` : ""}${"message" in result ? ` ${result.message}` : ""}`);

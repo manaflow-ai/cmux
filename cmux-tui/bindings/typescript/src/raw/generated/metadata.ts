@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0. */
+/* cmux-tui mux protocol 12, IR e9b7e2c070196a5f42d5544650e1ab37e245710329c020c586743196a38cd18b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0" as const;
+export const SDK_IR_SHA256 = "e9b7e2c070196a5f42d5544650e1ab37e245710329c020c586743196a38cd18b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2419,6 +2419,34 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "terminal-clipboard-reply": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+    ]
+  },
+  "terminal-clipboard-subscribe": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "terminal-clipboard-read",
+        "terminal-clipboard-read-cancelled"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response followed by targeted read requests and their cancellations; no replay. Closing the connection refuses its open reads.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+    ]
+  },
   "terminal-events": {
     "authority": "control",
     "since": 9,
@@ -3069,6 +3097,22 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-clipboard-read": {
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-clipboard-read-cancelled": {
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -8841,6 +8885,80 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "TabRef": {
     "kind": "opaque_json",
     "reason": "A tab named by its numeric surface id or its public tab_ id."
+  },
+  "TerminalClipboardHost": {
+    "additional_properties": false,
+    "fields": {
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardHostKind"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalClipboardHostKind": {
+    "kind": "enum",
+    "values": [
+      "local",
+      "remote",
+      "cloud"
+    ]
+  },
+  "TerminalClipboardLocation": {
+    "kind": "enum",
+    "values": [
+      "standard",
+      "selection",
+      "primary"
+    ]
+  },
+  "TerminalClipboardReplyResult": {
+    "additional_properties": false,
+    "fields": {
+      "accepted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "granted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalClipboardSubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "clipboard_read_ready": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
   },
   "TerminalColorOverrides": {
     "additional_properties": false,
@@ -19284,6 +19402,64 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "terminal-clipboard-reply": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "text": {
+          "constraints": [
+            "Absent or null refuses the read. Text over 1 MiB (UTF-8 bytes) is refused."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalClipboardReplyResult"
+    }
+  },
+  "terminal-clipboard-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_ids": {
+          "constraints": [
+            "At most 256 terminal public ids; each must be a valid term_ id. A new subscription replaces the connection's previous set."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalClipboardSubscribeResult"
+    }
+  },
   "terminal-events": {
     "request": {
       "additional_properties": false,
@@ -22410,6 +22586,74 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-clipboard-read": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-clipboard-read"
+        }
+      },
+      "host": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardHost"
+        }
+      },
+      "location": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardLocation"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-clipboard-read-cancelled": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-clipboard-read-cancelled"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

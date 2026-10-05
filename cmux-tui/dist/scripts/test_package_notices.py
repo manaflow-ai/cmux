@@ -52,14 +52,71 @@ class ComposeTest(unittest.TestCase):
         b = pn.compose("cmux-tui", "x86_64-unknown-linux-musl", CRATES, pn.load_inputs())
         self.assertEqual(a, b)
 
-    def test_windows_is_refused_until_mingw_w64_is_reviewed(self) -> None:
-        with self.assertRaises(pn.NoticeError) as raised:
-            pn.compose("cmux-tui", "x86_64-pc-windows-gnu", CRATES, self.inputs)
-        self.assertIn("mingw-w64", str(raised.exception))
+    def test_windows_notice_has_the_reviewed_mingw_w64_and_gcc_runtime_texts(self) -> None:
+        # The 2026-10-05 independent review of the real x86_64-pc-windows-gnu
+        # link (package-notices.json windows_gnu.review): mingw-w64 13.0.0 CRT,
+        # GCC 15.2.0 libgcc_eh/crtbegin, Zig compiler_rt (musl-derived math).
+        text = pn.compose("cmux-tui", "x86_64-pc-windows-gnu", CRATES, self.inputs)
+        self.assertIn("MinGW-w64 runtime licensing", text)
+        self.assertIn("Copyright (c) 2009, 2010, 2011, 2012, 2013 by the mingw-w64 project", text)
+        self.assertIn("This file has no copyright assigned and is placed in the Public Domain.", text)
+        self.assertIn("GCC RUNTIME LIBRARY EXCEPTION", text)
+        self.assertIn("Version 3.1, 31 March 2009", text)
+        self.assertIn("musl as a whole is licensed under the following standard MIT license", text)
+        self.assertIn("rustc 1.95.0", text)
+        self.assertIn("Zig 0.16.0", text)
+        for name in ("highway", "wuffs", "uucode", "simdutf"):
+            self.assertIn(name, text)
+        self.assertNotIn("musl libc 1.2.5", text)  # no musl libc on Windows, only musl-derived math
+        self.assertIn("bin/cmux-tui-hook", text)
+
+    def test_windows_relay_notice_names_its_binaries(self) -> None:
+        text = pn.compose("relay", "x86_64-pc-windows-gnu", CRATES, self.inputs)
+        self.assertIn("bin/chatmux-relay", text)
+        self.assertIn("MinGW-w64 runtime licensing", text)
+
+    def test_windows_is_a_generated_target(self) -> None:
+        self.assertIn("x86_64-pc-windows-gnu", pn.TARGETS)
 
     def test_an_unknown_target_is_refused(self) -> None:
         with self.assertRaises(pn.NoticeError):
             pn.compose("cmux-tui", "riscv64gc-unknown-linux-gnu", CRATES, self.inputs)
+
+
+class WindowsToolchainTest(unittest.TestCase):
+    """The review covers one toolchain: the build job's linker and every GCC
+    ident in a packaged binary must be that toolchain."""
+
+    REVIEWED_GCC = "x86_64-w64-mingw32-gcc.exe (x86_64-posix-seh-rev1, Built by MinGW-Builds project) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\n"
+    REVIEWED_MACROS = "#define __MINGW64_VERSION_MAJOR 13\n#define __MINGW64_VERSION_MINOR 0\n#define __MINGW64_VERSION_BUGFIX 0\n#define _UCRT 1\n"
+
+    def setUp(self) -> None:
+        self.inputs = pn.load_inputs()
+
+    def test_the_reviewed_toolchain_passes(self) -> None:
+        self.assertEqual(pn.windows_toolchain_problems(self.REVIEWED_GCC, self.REVIEWED_MACROS, self.inputs), [])
+
+    def test_another_gcc_build_fails(self) -> None:
+        gcc = "x86_64-w64-mingw32-gcc.exe (Rev8, Built by MSYS2 project) 15.2.0\n"
+        [problem] = pn.windows_toolchain_problems(gcc, self.REVIEWED_MACROS, self.inputs)
+        self.assertIn("MSYS2", problem)
+
+    def test_another_mingw_w64_runtime_fails(self) -> None:
+        macros = self.REVIEWED_MACROS.replace("MAJOR 13", "MAJOR 14")
+        [problem] = pn.windows_toolchain_problems(self.REVIEWED_GCC, macros, self.inputs)
+        self.assertIn("14.0.0", problem)
+
+    def test_an_msvcrt_runtime_fails(self) -> None:
+        macros = self.REVIEWED_MACROS.replace("#define _UCRT 1\n", "")
+        [problem] = pn.windows_toolchain_problems(self.REVIEWED_GCC, macros, self.inputs)
+        self.assertIn("UCRT", problem)
+
+    def test_binary_idents_must_be_the_reviewed_gcc(self) -> None:
+        reviewed = b"GCC: (x86_64-posix-seh-rev1, Built by MinGW-Builds project) 15.2.0\x00"
+        self.assertEqual(pn.windows_binary_problems(b"MZ" + reviewed * 3, self.inputs), [])
+        self.assertEqual(pn.windows_binary_problems(b"MZ no C objects", self.inputs), [])
+        [problem] = pn.windows_binary_problems(reviewed + b"GCC: (Rev8, Built by MSYS2 project) 15.2.0\x00", self.inputs)
+        self.assertIn("MSYS2", problem)
 
 
 class DataTest(unittest.TestCase):
@@ -79,6 +136,13 @@ class DataTest(unittest.TestCase):
         del inputs.data["libghostty_vt"]["owners"]["N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI"]
         problems = pn.data_problems(inputs)
         self.assertTrue(any("wuffs" in p or "N-V-__8AAP5JWgCGP" in p for p in problems), problems)
+
+    def test_a_windows_runtime_text_must_match_its_sha256(self) -> None:
+        inputs = pn.load_inputs()
+        inputs.data = copy.deepcopy(inputs.data)
+        inputs.data["windows_gnu"]["files"][0]["sha256"] = "0" * 64
+        [problem] = pn.data_problems(inputs)
+        self.assertIn(inputs.data["windows_gnu"]["files"][0]["file"], problem)
 
     def test_texts_for_another_ghostty_next_commit_fail(self) -> None:
         inputs = pn.load_inputs()

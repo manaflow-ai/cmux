@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0'
+IR_SHA256 = 'e9b7e2c070196a5f42d5544650e1ab37e245710329c020c586743196a38cd18b'
 
 
 @dataclass(frozen=True)
@@ -2587,6 +2587,29 @@ COMMANDS = {
             'target': CommandFieldMetadata(None, None),
         },
     ),
+    'terminal-clipboard-reply': CommandMetadata(
+        'terminal-clipboard-reply',
+        'frontend',
+        12,
+        'terminal-clipboard-read-v1',
+        ('frontend',),
+        None,
+        {
+            'request_id': CommandFieldMetadata(None, None),
+            'text': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-clipboard-subscribe': CommandMetadata(
+        'terminal-clipboard-subscribe',
+        'frontend',
+        12,
+        'terminal-clipboard-read-v1',
+        ('frontend',),
+        'subscribe',
+        {
+            'terminal_ids': CommandFieldMetadata(None, None),
+        },
+    ),
     'terminal-events': CommandMetadata(
         'terminal-events',
         'control',
@@ -2970,6 +2993,8 @@ EVENTS = {
     'tab-changed': EventMetadata('tab-changed', 12, 'tab-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'tab-closed': EventMetadata('tab-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'tab-renamed': EventMetadata('tab-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'terminal-clipboard-read': EventMetadata('terminal-clipboard-read', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
+    'terminal-clipboard-read-cancelled': EventMetadata('terminal-clipboard-read-cancelled', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
     'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
