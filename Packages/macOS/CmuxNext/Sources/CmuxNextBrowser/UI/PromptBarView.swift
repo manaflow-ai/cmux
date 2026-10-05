@@ -87,11 +87,15 @@ final class PromptBarView: NSView {
         return max(1, Int((messageLabel.intrinsicContentSize.height / line).rounded()))
     }
 
-    /// The message wraps at the bar's real width (a narrower pane makes it
-    /// narrower than `promptMaxWidth`), or its last lines are cut off.
+    /// The message wraps at the width the bar may take: `promptMaxWidth`,
+    /// or less in a narrower pane (its container, else the bar itself),
+    /// minus the padding. Never the label's own last width: a short earlier
+    /// message (or a narrow first pass) would stick, and a long question
+    /// would wrap one character per line.
     override func layout() {
         super.layout()
-        let width = messageLabel.frame.width
+        let room = superview.map { $0.bounds.width - BrowserMetrics.overlayInset * 2 } ?? bounds.width
+        let width = min(BrowserMetrics.promptMaxWidth, room) - BrowserMetrics.overlayPadding * 2
         if width > 0, abs(messageLabel.preferredMaxLayoutWidth - width) > 0.5 {
             messageLabel.preferredMaxLayoutWidth = width
             needsLayout = true
