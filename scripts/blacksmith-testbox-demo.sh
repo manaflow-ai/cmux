@@ -10,7 +10,6 @@ set -euo pipefail
 WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
 JOB=cmux-tui-rust
 IDLE_TIMEOUT=15
-APPROVE=1
 STAGES=0
 
 usage() {
@@ -19,8 +18,6 @@ usage: scripts/blacksmith-testbox-demo.sh [options]
 
   --stages        run the three measured benchmark stages instead of the two
                   plain builds (slower, produces evidence JSON)
-  --no-approve    do not approve the deployment gate; approve it yourself in
-                  the GitHub UI when the script pauses
   --idle-timeout  minutes before Blacksmith reclaims the box (default 15; the keepalive clamps anything larger to 15)
 USAGE
 }
@@ -28,7 +25,6 @@ USAGE
 while (( $# )); do
   case "$1" in
     --stages) STAGES=1 ;;
-    --no-approve) APPROVE=0 ;;
     --idle-timeout) shift; IDLE_TIMEOUT="${1:?--idle-timeout needs minutes}" ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -54,6 +50,17 @@ if [[ ! -f ghostty/build.zig.zon ]]; then
   say "Initializing the Ghostty submodule (one time, takes a moment)"
   run_local git submodule update --init ghostty
 fi
+
+# Every Testbox starts through the cmuxterm-hq wrapper: it warms the box,
+# registers it with the fleet controller (the Testbox Approver App approves
+# only a registered box) and passes the gate. Human approval of Testbox runs
+# was removed on purpose on 2026-10-05; the cmux-ci App approves registered
+# boxes. A missing reviewer is expected, not a security problem. HQ_TOOLS is an
+# hq checkout that stays on main; the script pulls it first.
+HQ_TOOLS="${HQ_TOOLS:-/Users/lawrence/fun/cmuxterm-hq-worktrees/hq-tools-5c}"
+git -C "$HQ_TOOLS" pull --ff-only >/dev/null || { echo "cannot update $HQ_TOOLS (git pull --ff-only)" >&2; exit 65; }
+WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
+test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_TOOLS to an hq checkout on main" >&2; exit 65; }
 
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 [[ -n "$BRANCH" ]] || { echo "HEAD is detached; check out a branch first" >&2; exit 65; }
@@ -101,7 +108,7 @@ cleanup() {
   # Stopping the box does not end its run. The keepalive step keeps holding a
   # 32 vCPU runner until the run itself ends, so cancel it too.
   if [[ -n "$RUN_ID" ]]; then
-    say "Cancelling the warmup run this script approved ($RUN_ID)"
+    say "Cancelling the warmup run of this box ($RUN_ID)"
     gh run cancel "$RUN_ID" --repo manaflow-ai/cmux >/dev/null 2>&1 \
       || echo "cancel failed; cancel it by hand: gh run cancel $RUN_ID --repo manaflow-ai/cmux" >&2
     echo "cancelling takes a few minutes to land; final state:"
@@ -114,34 +121,16 @@ trap cleanup EXIT INT TERM
 say "Warming a box from main"
 echo "The workflow refuses any ref but main: it is the trust boundary, because"
 echo "the CLI resolves the workflow definition from the same ref it hydrates."
-# The dispatch time bounds which run can be ours; the run id itself comes from
-# Blacksmith's record of the box (scripts/blacksmith-testbox-approve.sh).
-dispatched_at="$(date +%s)"
-warmup_log="$(mktemp)"
-printf '\033[2m$ blacksmith testbox warmup %s --ref main --job %s --idle-timeout %s\033[0m\n' \
-  "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
-"$BOUNDED" 300 blacksmith testbox warmup "$WORKFLOW" \
-  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" | tee "$warmup_log"
-TBX="$(grep -Eo 'tbx_[A-Za-z0-9_-]+' "$warmup_log" | head -1)"
-rm -f "$warmup_log"
+printf '\033[2m$ %s --lane %s -- %s --ref main --job %s --idle-timeout %s\033[0m\n' \
+  "$WARMUP" "${CMUX_TESTBOX_LANE:-testbox-demo}" "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
+warmup_out="$(mktemp)"
+"$WARMUP" --lane "${CMUX_TESTBOX_LANE:-testbox-demo}" -- "$WORKFLOW" \
+  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" | tee "$warmup_out"
+TBX="$(sed -n 's/^TBX=//p' "$warmup_out")"
+RUN_ID="$(sed -n 's/^RUN=//p' "$warmup_out")"
+rm -f "$warmup_out"
 [[ -n "$TBX" ]] || { echo "warmup returned no Testbox ID" >&2; exit 66; }
 
-# ------------------------------------------------------------------ approve --
-say "Approving the deployment gate"
-echo "The run parks before its first step until a reviewer approves. Self-"
-echo "approval is allowed on this environment."
-if (( APPROVE )); then
-  # Approves only the run Blacksmith records for this box, after checking it
-  # on GitHub; never a run picked from the shared list of waiting runs.
-  if approve_out="$(./scripts/blacksmith-testbox-approve.sh "$TBX" "$dispatched_at" blacksmith-testbox-demo)"; then
-    RUN_ID="$(printf '%s\n' "$approve_out" | tail -1)"
-    echo "approved run $RUN_ID"
-  else
-    echo "not approved automatically; approve only the run shown for $TBX by 'blacksmith testbox status --id $TBX'" >&2
-  fi
-else
-  echo "approve the waiting run in the GitHub UI now"
-fi
 
 # -------------------------------------------------------------------- ready --
 say "Waiting for hydration (installs pinned Zig and Rust, fetches Cargo and Zig deps)"

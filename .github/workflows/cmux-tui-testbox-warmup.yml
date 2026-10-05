@@ -1,6 +1,6 @@
 name: cmux-tui Rust Testbox setup
-# The run title names the box, so an approver can bind a waiting run to its
-# Testbox before a runner takes the job (scripts/blacksmith-testbox-approve.sh).
+# The run title names the box, so the cmux CI Testbox Approver App can bind a
+# waiting run to its registered Testbox before a runner takes the job.
 run-name: cmux-tui Rust Testbox setup ${{ inputs.testbox_id }}
 
 # Main-controlled broker. This workflow runs only from refs/heads/main and
@@ -33,9 +33,12 @@ jobs:
     if: github.repository_owner == 'manaflow-ai'
     runs-on: blacksmith-32vcpu-ubuntu-2404
     environment:
-      # Configure this environment with required reviewers, no secrets, and a
-      # deployment branch rule of exactly `main`. Approval is evaluated before
-      # the first step, so it precedes begin-testbox.
+      # This environment has the cmux CI Testbox Approver App's protection
+      # rule, no secrets, and a deployment branch rule of exactly `main`.
+      # Human approval of Testbox runs was removed on purpose on 2026-10-05;
+      # the cmux-ci App approves registered boxes. A missing reviewer is
+      # expected, not a security problem. Approval is evaluated before the
+      # first step, so it precedes begin-testbox.
       name: blacksmith-testbox-trusted
     permissions:
       contents: read
