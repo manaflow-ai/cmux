@@ -59,6 +59,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import { devboxRemoteListenerWaitCommand, devboxStrandedRemoteSessionRepairCommand } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
@@ -183,7 +184,7 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
-const FORK_BOOTSTRAP_TIMEOUT_MS = 90_000;
+const FORK_DAEMON_LISTEN_TIMEOUT_SECONDS = 30;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
@@ -1016,29 +1017,26 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
   };
 }
 
-/**
- * Reset only the copied cmux remote identity and restart the baked supervisor.
- * The command is idempotent, preserves the forked disk/workspaces, and waits
- * on the daemon's own status signal rather than returning a merely running VM.
- */
-export function freestyleForkBootstrapCommand(): string {
-  return [
-    "set -eu",
-    "systemctl stop cmux-tui-daemon >/dev/null 2>&1 || true",
-    "for cmux_home in /home/cmux /root; do",
-    "  test -d \"$cmux_home/.local/state/cmux/remote\" || continue",
-    "  find \"$cmux_home/.local/state/cmux/remote/sessions\" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true",
-    "  rm -rf \"$cmux_home/.local/state/cmux/remote/connections\"",
-    "done",
-    "rm -f /etc/cmux/daemon-instance-id",
-    "systemctl start cmux-tui-daemon",
-    "for cmux_try in $(seq 1 120); do",
-    "  if systemctl is-active --quiet cmux-tui-daemon && (grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null || grep -qi ':0539 ' /proc/net/tcp 2>/dev/null); then exit 0; fi",
-    "  sleep 0.5",
-    "done",
-    "echo \"cmux-tui daemon did not become ready\" >&2",
-    "exit 1",
-  ].join("\n");
+/** Span attributes for the machine shape a create asked for, else the one the provider reported. */
+function freestyleCreateResourceAttributes(
+  imageSize: CreateOptions["imageSize"],
+  data: { resources?: { cpu?: number; memory?: number; storage?: number } | null },
+): Record<string, string | number | boolean> {
+  if (imageSize) {
+    return {
+      "cmux.vm.image_size": imageSize.name,
+      "cmux.vm.resources.cpu": imageSize.cpu,
+      "cmux.vm.resources.memory_mb": imageSize.memoryMb,
+      "cmux.vm.resources.storage_mb": imageSize.storageMb,
+      "cmux.vm.resize.requested": false,
+    };
+  }
+  return {
+    "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
+    "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
+    "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
+    "cmux.vm.resize.requested": false,
+  };
 }
 
 export class FreestyleProvider implements VMProvider {
@@ -1132,20 +1130,7 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.provider.machine_id_received_at_ms": Date.now(),
           });
           try {
-            // A snapshot resumes the source guest's memory image. Reinitialize
-            // its copied remote identity before the row is exposed to attach;
-            // otherwise the source supervisor can remain parked or keep the
-            // source Noise state and port 1337 stays unavailable to the clone.
-            if (options.forked) {
-              const bootstrap = await this.execResult(vm, freestyleForkBootstrapCommand(), FORK_BOOTSTRAP_TIMEOUT_MS);
-              if (!bootstrap || bootstrap.exitCode !== 0) {
-                throw new ProviderError(
-                  "freestyle",
-                  `fork guest bootstrap failed for ${vmId}: ${(bootstrap?.stderr || bootstrap?.stdout || "guest command unavailable").trim().slice(0, 500)}`,
-                );
-              }
-              setSpanAttributes(span, { "cmux.vm.fork.bootstrap": true });
-            }
+            if (options.forked) await this.awaitForkDaemon(vm, vmId);
             // Validate the provider-assigned VPC address without issuing the
             // guest-side announcement exec. The baked supervisor announces on
             // clone boot; attach performs the strict announcement before
@@ -1157,22 +1142,7 @@ export class FreestyleProvider implements VMProvider {
             // allocate that immutable image and attach its account network.
             // Per-machine prompt identity is refreshed asynchronously by the
             // boot contract; no guest exec or filesystem upload belongs here.
-            if (options.imageSize) {
-              setSpanAttributes(span, {
-                "cmux.vm.image_size": options.imageSize.name,
-                "cmux.vm.resources.cpu": options.imageSize.cpu,
-                "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
-                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
-                "cmux.vm.resize.requested": false,
-              });
-            } else {
-              setSpanAttributes(span, {
-                "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
-                "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
-                "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
-                "cmux.vm.resize.requested": false,
-              });
-            }
+            setSpanAttributes(span, freestyleCreateResourceAttributes(options.imageSize, data));
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1755,6 +1725,27 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * A fork resumes the source guest's memory image. Its boot supervisor
+   * rebinds the daemon to this machine but leaves the copied session
+   * stranded (remoteState.ts), so the daemon never listens. Repair that one
+   * state, then wait for the listener so a fork is never reported ready
+   * while attach would be refused.
+   */
+  private async awaitForkDaemon(vm: Vm, vmId: string): Promise<void> {
+    const ready = await this.execResult(
+      vm,
+      `${devboxStrandedRemoteSessionRepairCommand()}; ${devboxRemoteListenerWaitCommand(FORK_DAEMON_LISTEN_TIMEOUT_SECONDS)}`,
+      (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
+    );
+    if (!ready || ready.exitCode !== 0) {
+      throw new ProviderError(
+        "freestyle",
+        `forked machine ${vmId} did not start its daemon: ${(ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 500)}`,
+      );
+    }
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
