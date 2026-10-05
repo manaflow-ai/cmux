@@ -30,10 +30,9 @@ extension AppActions {
         registry.bind("prevSidebarTab") { selectWorkspace(services, offset: -1) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
-            // Sidebar order across every machine section.
+            // Home is 1, then sidebar order across every machine section (R119).
             let all = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
-            guard !all.isEmpty else { return }
-            let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
+            guard let pick = SidebarNumbering.pick(number, home: services.home.homeWorkspace?.id, workspaces: all) else { return }
             services.windows.show(workspaceID: pick, in: state)
         })
         // Home is the store's home workspace (home.md 7): shown like any
