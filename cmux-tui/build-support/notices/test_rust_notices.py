@@ -281,6 +281,18 @@ class RustNoticesTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("BSD-3-Clause", err)
 
+    def test_target_cfg_follows_rustc(self) -> None:
+        # rustc --print cfg: gnullvm is target_env="gnu" with target_abi="llvm".
+        from cargo_inputs import eval_cfg, target_info
+        info = target_info("x86_64-pc-windows-gnullvm")
+        self.assertEqual((info["target_env"], info["target_abi"], info["target_os"]), ("gnu", "llvm", "windows"))
+        self.assertTrue(eval_cfg('cfg(target_env = "gnu")', info))
+        self.assertFalse(eval_cfg('cfg(target_env = "gnullvm")', info))
+        self.assertTrue(eval_cfg('cfg(all(windows, target_abi = "llvm"))', info))
+        self.assertEqual(target_info("aarch64-apple-darwin")["target_env"], "")
+        with self.assertRaises(rust_notices.NoticeError):
+            target_info("riscv64gc-unknown-none-elf")
+
     def test_or_alternatives(self) -> None:
         cases = {
             "MIT OR Apache-2.0 OR LGPL-2.1-or-later": ["MIT", "Apache-2.0", "LGPL-2.1-or-later"],
