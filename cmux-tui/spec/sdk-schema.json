@@ -15291,6 +15291,17 @@
       "nullable": true,
       "default": null
      },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "close-reason-v1",
+      "description": "session_end only: the close is not recorded in the closed history."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
