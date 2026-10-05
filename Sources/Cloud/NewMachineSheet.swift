@@ -39,7 +39,7 @@ enum NewMachineSheetLayout: String, CaseIterable {
     }
 }
 
-/// The New Machine sheet: size, network, agent updates, and what the plan
+/// The New Machine sheet: base image, size, network, agent updates, and what the plan
 /// allows, as a few labeled controls. Every explanation is a tooltip or the
 /// security popover, so nothing wraps while the sheet opens. Presented by
 /// ``NewMachineSheetPresenter`` with its data already loaded; Create closes
@@ -145,7 +145,7 @@ struct NewMachineSheet: View {
     }
 
     private var hasSettingsRows: Bool {
-        showsSizeRow || model.supportsNetworkPolicy || model.supportsAgentUpdates
+        model.supportsBaseImage || showsSizeRow || model.supportsNetworkPolicy || model.supportsAgentUpdates
     }
 
     private var showsSizeRow: Bool { model.supportsSize || model.hasNoAllowedMemoryOptions }
@@ -155,11 +155,15 @@ struct NewMachineSheet: View {
     private var agentsLabel: String { String(localized: "machines.new.row.agents.short", defaultValue: "Agents") }
     private var agentsTitle: String { String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date") }
     private var agentsHelp: String { CloudAgentUpdatesExplainer.text }
+    private var baseImageLabel: String { String(localized: "machines.new.row.baseImage", defaultValue: "Base image") }
 
     // MARK: A. Grid
 
     private var gridLayout: some View {
         Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 10, verticalSpacing: 12) {
+            if model.supportsBaseImage {
+                GridRow { gridLabel(baseImageLabel); baseImageMenu }
+            }
             if showsSizeRow {
                 GridRow {
                     gridLabel(sizeLabel)
@@ -221,6 +225,7 @@ struct NewMachineSheet: View {
 
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if model.supportsBaseImage { stackedRow(baseImageLabel) { baseImageMenu } }
             if showsSizeRow {
                 stackedRow(sizeLabel) { fittedSizeMenu }
             }
@@ -257,6 +262,10 @@ struct NewMachineSheet: View {
     private var sentenceLayout: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
+                if model.supportsBaseImage {
+                    baseImageMenu
+                    sentenceDot
+                }
                 if showsSizeRow {
                     makeSizeMenu(borderless: true)
                     sentenceDot
@@ -316,7 +325,11 @@ struct NewMachineSheet: View {
 
     private var groupedLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if model.supportsBaseImage {
+                groupedRow(baseImageLabel) { baseImageMenu }
+            }
             if showsSizeRow {
+                if model.supportsBaseImage { groupedDivider }
                 groupedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
@@ -382,6 +395,27 @@ struct NewMachineSheet: View {
     // MARK: Shared controls
 
     private var sizeMenu: some View { makeSizeMenu(borderless: false) }
+
+    private var baseImageMenu: some View {
+        Picker(selection: Binding(
+            get: { model.baseImage },
+            set: { model.baseImage = $0 }
+        )) {
+            Text(String(localized: "machines.new.baseImage.default", defaultValue: "Default image"))
+                .tag(NewMachineModel.BaseImage.defaultImage)
+            if !model.sourceMachines.isEmpty { Divider() }
+            ForEach(model.sourceMachines, id: \.id) { machine in
+                Text(machine.displayName ?? machine.slug ?? machine.id)
+                    .tag(NewMachineModel.BaseImage.machine(machine))
+            }
+        } label: {
+            EmptyView()
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .accessibilityLabel(baseImageLabel)
+        .accessibilityIdentifier("NewMachineSheet.baseImage")
+    }
 
     /// The pop-up's ideal width is its widest row (a locked "… · Requires
     /// Max" row), which can exceed the sheet. It may narrow to the space the

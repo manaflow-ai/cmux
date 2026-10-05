@@ -370,6 +370,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     /// Applies cache changes while optionally keeping plan ownership with CloudMenuModel.
     static func apply(_ data: NewMachineSheetData, to model: NewMachineModel, includingPlan: Bool) {
+        if model.supportsBaseImage { model.applySourceMachines(data.machines) }
         if includingPlan, data.hasPlan, model.mode == .newMachine {
             model.applyPlan(activeCount: data.activeCount, limits: data.limits)
         }
