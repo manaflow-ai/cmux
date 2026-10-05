@@ -32,7 +32,9 @@ extension CmuxTuiSurfaceProvider {
         try Task.checkCancellation()
         try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
+        let pane = try existingPane
+            ?? CloudDisplayPaneReservation.current?.pane(for: resource)
+            ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
@@ -235,9 +237,12 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    func reprojectRestoredBrowserPanes(generation: UInt64) {
-        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
-            for projection in catalog.projections(of: resource.id) where !materializedPanels.contains(projection.panelID) {
+    /// Rebinds browser panes for the supplied resources, or all restored browser panes.
+    func reprojectRestoredBrowserPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
+        let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
+        for resource in catalog.snapshot.resources(on: machine) where
+            resource.kind != .terminal && (resourceIDs == nil || resourceIDs!.contains(resource.id)) {
+            for projection in (resourceIDs == nil ? catalog.projections(of: resource.id) : projectionsByResource?[resource.id] ?? []) where !materializedPanels.contains(projection.panelID) {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID),
                       isCurrentLifecycleGeneration(generation), catalog.canRestoreProjection(projection) else { continue }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {

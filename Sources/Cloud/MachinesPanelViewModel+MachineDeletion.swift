@@ -35,7 +35,8 @@ extension MachinesPanelViewModel {
         return CloudMachinesUsage(
             activeCount: max(0, usage.activeCount - hiddenCount),
             maxActiveVms: usage.maxActiveVms,
-            isPaidPlan: usage.isPaidPlan
+            isPaidPlan: usage.isPaidPlan,
+            resourcePool: usage.resourcePool
         )
     }
 

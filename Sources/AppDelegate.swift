@@ -3726,6 +3726,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
+
+        let environment = ProcessInfo.processInfo.environment
+        if !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached {
+            Task.detached(priority: .utility) {
+                SessionScrollbackReplayStore.sweepStaleReplayFiles(
+                    olderThan: Date().addingTimeInterval(
+                        -SessionScrollbackReplayStore.staleReplayLifetime
+                    )
+                )
+            }
+        }
+
         if shouldAwaitCrashRecoveryProbe() {
             isWaitingForStartupCrashRecoveryProbe = true
             let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
@@ -3750,8 +3762,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
-    /// crash-artifact probe completes. Defer cleanup and window bootstrap only
-    /// for that rare case; normal launches never wait on crash-file I/O.
+    /// crash-artifact probe completes. Replay-file cleanup runs independently
+    /// in a detached utility task and does not participate in this restore gate.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -5662,7 +5674,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
+        // Resolve the owner before creating the destination. The active/fallback
+        // window may differ from the workspace's source, especially when moving
+        // a workspace out of a native fullscreen window.
+        let sourceWindow = mainWindowContainingWorkspace(workspaceId)
+        let windowId = createMainWindow(sourceWindow: sourceWindow)
         guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
@@ -10511,6 +10527,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sourceWindow = resolvedMainWindowSource(preferredSourceWindow)
             ?? sourceContext.flatMap { resolvedWindow(for: $0) }
         let existingFrame = sourceWindow?.frame
+        let shouldTemporarilyDisallowFullScreenTiling =
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: sourceWindow,
+                restoringSessionWindow: sessionWindowSnapshot != nil
+            )
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
@@ -10591,6 +10612,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 && !self.isTerminatingApp
                 && !self.isApplyingSessionRestore
                 && !displayReconcilePending
+        }
+        if shouldTemporarilyDisallowFullScreenTiling {
+            controller.disallowFullscreenTilingUntilPresentation()
         }
         controller.onClose = { [weak self, weak controller] closingWindow in
             guard let self, let controller else { return }
@@ -19298,6 +19322,11 @@ private extension NSApplication {
     }
 
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+        // WebKit sends a key no page handled back through here, to the key
+        // window. For a key browser automation typed into a tab that is the
+        // user's window: its terminal would get the text and its menus the
+        // Command shortcuts. The page already received the key.
+        if event.isResentBrowserAutomationKeyEvent { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
@@ -19624,7 +19653,12 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
-        if AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true {
+        let cloudMountKeyEventForwarded =
+            AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true
+        if cloudMountKeyEventForwarded {
+            if event.type == .keyDown {
+                AppDelegate.shared?.recordTypingActivity()
+            }
             return
         }
 #if DEBUG
@@ -19649,7 +19683,19 @@ private extension NSWindow {
         // recordTypingActivity runs in all builds so the autosave coordinator
         // can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
-        if event.type == .keyDown { AppDelegate.shared?.recordTypingActivity() }
+        let terminalInputIsRouted: Bool = {
+            guard event.type == .keyDown,
+                  let app = AppDelegate.shared,
+                  let context = app.contextForMainWindow(self) ?? app.contextForMainTerminalWindow(self),
+                  context.tabManager.selectedWorkspace?.focusedTerminalInputTarget() != nil else {
+                return false
+            }
+            guard let firstResponder = self.firstResponder else { return true }
+            return !shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
+                app.isRightSidebarFocusResponder($0, in: self)
+            })
+        }()
+        if terminalInputIsRouted { AppDelegate.shared?.recordTypingActivity() }
         if event.type == .leftMouseDown,
            AppDelegate.shared?.handleMinimalModeSidebarChromeMouseDown(window: self, event: event) == true {
             return

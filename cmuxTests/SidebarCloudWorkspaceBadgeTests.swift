@@ -168,7 +168,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let sidebar = SidebarCatalogSection()
         defaults.set(verticalLayout, forKey: sidebar.branchVerticalLayout.userDefaultsKey)
-        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        let workspace = Workspace(initialSurface: .terminal)
         defer { for panel in workspace.panels.values { panel.close() } }
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")

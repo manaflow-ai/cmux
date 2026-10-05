@@ -191,6 +191,7 @@ public actor CloudMachineLink {
         sshArguments: [String] = [],
         wireguardHubSocket: String? = nil,
         ssh: SSHTuiConnection? = nil,
+        sshUpgrade: Bool = false,
         releaseHubLease: (@Sendable () async -> Void)? = nil
     ) async throws -> Connected {
         if let connected, state == .connected {
@@ -210,7 +211,8 @@ public actor CloudMachineLink {
         process.executableURL = clientURL
         process.arguments = ssh?.arguments(
             stateDirectory: paths.stateDir.path,
-            deviceName: CloudTuiClientPaths.deviceName()
+            deviceName: CloudTuiClientPaths.deviceName(),
+            upgrade: sshUpgrade
         ) ?? CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),

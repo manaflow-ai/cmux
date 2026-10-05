@@ -132,6 +132,15 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response (`"OK <n>"` or an `ERROR:` line).
     func controlDebugFlashCount(surfaceArgument: String) -> String
 
+    /// Runs the v1 `browser_discard` test command: unloads a browser tab's
+    /// page the way cmux hibernates hidden tabs to save memory.
+    ///
+    /// - Parameter arguments: `"<surface-uuid>[ force]"`. Without `force` the
+    ///   discard respects every blocker (visible, loading, driven by a REPL
+    ///   session, ...); with it the page is unloaded anyway.
+    /// - Returns: `"OK discarded"` or an `ERROR:` line naming the blockers.
+    func controlDebugBrowserDiscard(arguments: String) -> String
+
     /// Runs the shared v1 `reset_flash_counts` body for `debug.flash.reset`.
     ///
     /// - Returns: The raw v1 response.
