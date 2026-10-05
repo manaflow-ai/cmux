@@ -10,6 +10,8 @@ enum TerminalHostActionRoute {
     struct Route: Equatable {
         var id: ActionID
         var arguments: [String: ActionValue] = [:]
+        /// The run targets the terminal's tab (false: the active workspace).
+        var targetsTerminal = true
     }
 
     static func route(_ action: TerminalHostAction) -> Route? {
@@ -47,7 +49,8 @@ enum TerminalHostActionRoute {
             return Route(id: "renameTab")
         case .find:
             return Route(id: "find")
-        case .closeAllWindows, .quit, .toggleMaximize, .toggleInspector, .checkForUpdates, .undo, .redo:
+        case .closeAllWindows, .quit, .toggleMaximize, .toggleInspector, .checkForUpdates, .undo, .redo, .toggleVisibility,
+             .toggleTabOverview, .promptWindowTitle, .setWindowTitle, .presentTerminal:
             return nil
         }
     }

@@ -71,6 +71,9 @@ public nonisolated struct GhosttyHostKeybind: Sendable, Equatable {
         return list
     }()
 
+    /// The Ghostty action strings read from the config.
+    public static var routableNames: [String] { routable.map(\.0) }
+
     /// Physical Ghostty keys the table understands, as Carbon key codes.
     static func keyCode(for key: ghostty_input_key_e) -> UInt16? {
         let letters: [ghostty_input_key_e: Int] = [
