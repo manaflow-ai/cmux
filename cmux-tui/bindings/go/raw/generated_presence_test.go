@@ -35702,31 +35702,31 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 	})
 	t.Run("TerminalClipboardReadEvent.Host", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("missing required field host decoded successfully")
 		}
 	})
 	t.Run("TerminalClipboardReadEvent.Location", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("missing required field location decoded successfully")
 		}
 	})
 	t.Run("TerminalClipboardReadEvent.RequestID", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("missing required field request_id decoded successfully")
 		}
 	})
 	t.Run("TerminalClipboardReadEvent.TerminalID", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("missing required field terminal_id decoded successfully")
 		}
 	})
 	t.Run("TerminalClipboardReadCancelledEvent.RequestID", func(t *testing.T) {
 		var decoded TerminalClipboardReadCancelledEvent
-		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read-cancelled\"}"), &decoded); err == nil {
 			t.Fatal("missing required field request_id decoded successfully")
 		}
 	})
@@ -35780,19 +35780,19 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 	})
 	t.Run("URLOpenEvent.RequestID", func(t *testing.T) {
 		var decoded URLOpenEvent
-		if err := json.Unmarshal([]byte("{\"terminal_id\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"url-open\",\"terminal_id\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("missing required field request_id decoded successfully")
 		}
 	})
 	t.Run("URLOpenEvent.TerminalID", func(t *testing.T) {
 		var decoded URLOpenEvent
-		if err := json.Unmarshal([]byte("{\"request_id\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"url-open\",\"request_id\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("missing required field terminal_id decoded successfully")
 		}
 	})
 	t.Run("URLOpenEvent.URL", func(t *testing.T) {
 		var decoded URLOpenEvent
-		if err := json.Unmarshal([]byte("{\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"url-open\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("missing required field url decoded successfully")
 		}
 	})
@@ -41357,31 +41357,31 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 	})
 	t.Run("TerminalClipboardReadEvent.Host", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":null,\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":null,\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field host accepted null")
 		}
 	})
 	t.Run("TerminalClipboardReadEvent.Location", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"location\":null,\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"location\":null,\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field location accepted null")
 		}
 	})
 	t.Run("TerminalClipboardReadEvent.RequestID", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":null,\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":null,\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field request_id accepted null")
 		}
 	})
 	t.Run("TerminalClipboardReadEvent.TerminalID", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":null}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field terminal_id accepted null")
 		}
 	})
 	t.Run("TerminalClipboardReadCancelledEvent.RequestID", func(t *testing.T) {
 		var decoded TerminalClipboardReadCancelledEvent
-		if err := json.Unmarshal([]byte("{\"request_id\":null}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read-cancelled\",\"request_id\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field request_id accepted null")
 		}
 	})
@@ -41429,19 +41429,19 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 	})
 	t.Run("URLOpenEvent.RequestID", func(t *testing.T) {
 		var decoded URLOpenEvent
-		if err := json.Unmarshal([]byte("{\"request_id\":null,\"terminal_id\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"url-open\",\"request_id\":null,\"terminal_id\":\"value\",\"url\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field request_id accepted null")
 		}
 	})
 	t.Run("URLOpenEvent.TerminalID", func(t *testing.T) {
 		var decoded URLOpenEvent
-		if err := json.Unmarshal([]byte("{\"request_id\":\"value\",\"terminal_id\":null,\"url\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"url-open\",\"request_id\":\"value\",\"terminal_id\":null,\"url\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field terminal_id accepted null")
 		}
 	})
 	t.Run("URLOpenEvent.URL", func(t *testing.T) {
 		var decoded URLOpenEvent
-		if err := json.Unmarshal([]byte("{\"request_id\":\"value\",\"terminal_id\":\"value\",\"url\":null}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"url-open\",\"request_id\":\"value\",\"terminal_id\":\"value\",\"url\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field url accepted null")
 		}
 	})
@@ -42272,7 +42272,7 @@ func TestGeneratedConstrainedFieldsRejectUnknownValues(t *testing.T) {
 	})
 	t.Run("TerminalClipboardReadEvent.Location", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"location\":\"__cmux_invalid__\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"location\":\"__cmux_invalid__\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
 			t.Fatal("invalid constrained field location decoded successfully")
 		}
 	})
@@ -43335,7 +43335,7 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 	})
 	t.Run("TerminalClipboardReadEvent.Location", func(t *testing.T) {
 		var decoded TerminalClipboardReadEvent
-		if err := json.Unmarshal([]byte("{\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err != nil {
+		if err := json.Unmarshal([]byte("{\"event\":\"terminal-clipboard-read\",\"host\":{\"kind\":\"local\"},\"location\":\"standard\",\"request_id\":\"value\",\"terminal_id\":\"value\"}"), &decoded); err != nil {
 			t.Fatal(err)
 		}
 		decoded.Location = TerminalClipboardLocation("__cmux_invalid__")
