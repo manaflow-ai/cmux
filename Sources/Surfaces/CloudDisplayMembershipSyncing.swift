@@ -17,7 +17,7 @@ protocol CloudDisplayMembershipSyncing: AnyObject {
     ) async throws
 
     /// Removes `displayID` from the workspace for every client and view.
-    /// Returns the memberships the write removed.
+    /// Returns the cursor of the graph the removal was computed from.
     @discardableResult
-    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> Set<CloudVMDisplayMembership>
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> CloudVMCursor?
 }

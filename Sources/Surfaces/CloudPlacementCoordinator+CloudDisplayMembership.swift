@@ -104,8 +104,8 @@ extension CloudPlacementCoordinator {
                 guard let self, self.displayReopenGenerations[projection.resource, default: 0] == generation else { return true }
                 let closed = ClosedCloudDisplay(projection: projection, workspaceID: workspaceID)
                 self.fence(closed)
-                let removed = try await provider.removeCloudDisplay(displayID: closed.displayID, fromWorkspace: workspaceID)
-                self.closedDisplays[closed]?.removed = removed
+                let basis = try await provider.removeCloudDisplay(displayID: closed.displayID, fromWorkspace: workspaceID)
+                self.closedDisplays[closed]?.landed(at: basis)
             }
             return true
         }
@@ -130,22 +130,24 @@ extension CloudPlacementCoordinator {
         if closedDisplays[closed] == nil { closedDisplays[closed] = ClosedCloudDisplayRemoval() }
     }
 
-    /// Releases a closed display once the graph no longer shows it, or shows a
-    /// membership its removal did not delete (another client put it back).
-    /// A graph holding only deleted tokens predates the removal. A removal
-    /// that has not landed is retried.
+    /// Releases a closed display once the graph no longer shows it, or once a
+    /// graph newer than the removal still does (another client put it back).
+    /// A graph no newer than the removal predates it. A removal that has not
+    /// landed is retried.
     func settleClosedDisplays(_ state: CloudVMState, catalog: SurfaceCatalog) {
         let fenced = closedDisplays.filter { $0.key.machine == state.machine }
         guard !fenced.isEmpty else { return }
         let provider = catalog.provider(for: state.machine) as? any CloudDisplayMembershipSyncing
         for (closed, removal) in fenced {
-            let present = Set(state.displayMemberships.filter {
+            let present = state.displayMemberships.contains {
                 $0.workspaceID == closed.workspaceID && $0.displayID == closed.displayID
-            })
-            if let removed = removal.removed {
-                if !present.isSubset(of: removed) || present.isEmpty { closedDisplays[closed] = nil }
-            } else if present.isEmpty {
+            }
+            if !present {
                 closedDisplays[closed] = nil
+            } else if removal.hasLanded {
+                // Still shown after the removal landed: a graph from before it
+                // stays fenced; a newer one means another client put it back.
+                if removal.predates(state.cursor) == false { closedDisplays[closed] = nil }
             } else if let provider {
                 removeClosedDisplay(closed, provider: provider, catalog: catalog)
             }
@@ -171,8 +173,8 @@ extension CloudPlacementCoordinator {
             guard let self, self.closedDisplays[closed] != nil,
                   self.displayReopenGenerations[resource, default: 0] == generation else { return false }
             do {
-                let removed = try await provider.removeCloudDisplay(displayID: closed.displayID, fromWorkspace: closed.workspaceID)
-                self.closedDisplays[closed]?.removed = removed
+                let basis = try await provider.removeCloudDisplay(displayID: closed.displayID, fromWorkspace: closed.workspaceID)
+                self.closedDisplays[closed]?.landed(at: basis)
             } catch {
                 if !Self.isTransientDisplayMembershipFailure(error) { self.closedDisplays[closed]?.attempts += 1 }
                 throw error
@@ -220,10 +222,23 @@ extension CloudPlacementCoordinator {
 
 /// Progress of removing a closed display from its workspace.
 struct ClosedCloudDisplayRemoval: Equatable {
-    /// The tokens the landed removal deleted; nil until it lands.
-    var removed: Set<CloudVMDisplayMembership>?
+    private(set) var hasLanded = false
+    /// The graph the landed removal was computed from, when it had a cursor.
+    private(set) var basis: CloudVMCursor?
     var attempts = 0
     var retrying = false
+
+    mutating func landed(at basis: CloudVMCursor?) {
+        hasLanded = true
+        self.basis = basis
+    }
+
+    /// Whether a graph at `cursor` comes after the landed removal; nil while
+    /// that cannot be told (not landed, or either side has no cursor).
+    func predates(_ cursor: CloudVMCursor?) -> Bool? {
+        guard hasLanded, let basis, let cursor else { return nil }
+        return cursor.generation == basis.generation && cursor.revision <= basis.revision
+    }
 }
 
 /// One display in one Cloud workspace on one machine.

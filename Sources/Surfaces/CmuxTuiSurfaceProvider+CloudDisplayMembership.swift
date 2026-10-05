@@ -47,20 +47,21 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
     }
 
     @discardableResult
-    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> Set<CloudVMDisplayMembership> {
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> CloudVMCursor? {
         try await updateCloudDisplayMemberships(workspaceID: workspaceID) { memberships in
             memberships = memberships.filter { $0.displayID != displayID }
         }
     }
 
     /// Rewrites one workspace's membership row, revision-checked and retried
-    /// on a conflict. An unchanged set writes nothing. Returns the memberships
-    /// the accepted write removed.
+    /// on a conflict. An unchanged set writes nothing. Returns the cursor of
+    /// the graph the change was computed from: no later graph can hold what
+    /// it removed unless a client wrote it again.
     @discardableResult
     private func updateCloudDisplayMemberships(
         workspaceID: String,
         _ change: (inout Set<CloudVMDisplayMembership>) -> Void
-    ) async throws -> Set<CloudVMDisplayMembership> {
+    ) async throws -> CloudVMCursor? {
         guard let connected = try? await links.connected(machineID: machineID),
               let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
@@ -85,7 +86,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             change(&memberships)
             let rows = (object["frontend_projections"] as? [[String: Any]]) ?? []
             let row = rows.first { ($0["id"] as? String) == projectionID }
-            if row != nil, memberships == previousMemberships { return [] }
+            if row != nil, memberships == previousMemberships { return state.cursor }
             let projection: [String: Any] = [
                 "schema": CloudVMDisplayMembership.projectionSchema,
                 "machine_id": machine.rawValue,
@@ -111,7 +112,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             do {
                 _ = try await link.run(arguments: request)
                 scheduleRefresh()
-                return previousMemberships.subtracting(memberships)
+                return state.cursor
             } catch {
                 lastError = error
                 guard Self.isRevisionConflict(error) else { throw error }
