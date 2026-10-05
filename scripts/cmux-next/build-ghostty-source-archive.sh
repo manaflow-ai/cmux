@@ -20,6 +20,8 @@ ghostty="$ROOT/ghostty"
 revision="$(git -C "$ROOT" rev-parse "HEAD:ghostty")"
 [[ "$(git -C "$ghostty" rev-parse HEAD)" == "$revision" ]] || { echo "error: the ghostty submodule is not checked out at $revision" >&2; exit 1; }
 export ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-${RUNNER_TEMP:-/tmp}/cmux-ghostty-zig-cache}"
+# zig writes its download temp files below the global cache; it must exist.
+mkdir -p "$ZIG_GLOBAL_CACHE_DIR/tmp"
 (cd "$ghostty" && zig build --fetch=all)
 notices="$ROOT/cmux-tui/build-support/notices/ghostty"
 archive_tool="$ROOT/scripts/cmux-next/notices/ghostty_source_archive.py"
