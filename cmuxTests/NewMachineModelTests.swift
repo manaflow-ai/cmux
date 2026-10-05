@@ -1,5 +1,6 @@
 import CmuxCloud
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -24,6 +25,35 @@ struct NewMachineModelTests {
         #expect(model.hasNoAllowedMemoryOptions)
         #expect(!didSubmit)
         #expect(model.outcome == nil)
+    }
+
+    @Test("reapplying identical plan data does not invalidate the sheet")
+    func identicalPlanRefreshIsANoOpForObservation() {
+        let limits = VMPlanLimits(
+            maxActiveVms: 10,
+            planId: "pro",
+            freeAccessWindowDays: 0,
+            memoryOptionsMb: [4096, 8192]
+        )
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: MachineSnapshotBuilder.planSnapshot(activeCount: 2, limits: limits),
+            memoryOptionsMb: limits.memoryOptionsMb,
+            submit: { _ in true }
+        )
+        var invalidated = false
+        withObservationTracking {
+            _ = model.plan
+            _ = model.memoryOptions
+            _ = model.lockedMemoryOptions
+            _ = model.planIsLoading
+        } onChange: {
+            invalidated = true
+        }
+
+        model.applyPlan(activeCount: 2, limits: limits)
+
+        #expect(!invalidated)
     }
 
     @Test func goOffersThePlanThatActuallyUnlocksEachSize() {
@@ -91,6 +121,33 @@ struct NewMachineModelTests {
         base.create()
         #expect(baseRecorder.value.first?.kind == .desktop)
         #expect(baseRecorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
+    }
+
+    @Test func selectingAMachineUsesTheForkCommandAsTheCreateSource() {
+        let source = VMSummary(id: "vm-source", provider: "freestyle", status: "running", image: "sh-source", createdAt: 0, displayName: "Build machine")
+        let (model, recorder) = makeModel()
+        model.applySourceMachines([source])
+        model.baseImage = .machine(source)
+        #expect(model.baseImage.label == "Build machine")
+        #expect(model.cliArguments == ["vm", "fork", "vm-source", "--focus", "false"])
+        model.create()
+        #expect(recorder.value.first?.arguments == ["vm", "fork", "vm-source", "--focus", "false"])
+        // The pending row names the fork and its progress, not a generic new machine.
+        #expect(recorder.value.first?.forkSourceName == "Build machine")
+        #expect(recorder.value.first?.displayName == "Fork of Build machine")
+        #expect(recorder.value.first?.progressLabel == "Forking…")
+    }
+
+    @Test("Base picker source refreshes keep machine IDs unique")
+    func sourceRefreshDeduplicatesMachineIDs() {
+        let first = VMSummary(id: "same", provider: "freestyle", status: "running", image: "a", createdAt: 0, displayName: "first")
+        let duplicate = VMSummary(id: "same", provider: "freestyle", status: "running", image: "b", createdAt: 1, displayName: "duplicate")
+        let (model, _) = makeModel()
+
+        model.applySourceMachines([first, duplicate])
+
+        #expect(model.sourceMachines.map(\.id) == ["same"])
+        #expect(model.sourceMachines.first?.displayName == "first")
     }
 
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {

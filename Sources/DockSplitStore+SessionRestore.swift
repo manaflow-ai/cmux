@@ -556,6 +556,7 @@ extension DockSplitStore {
                     stablePanelID: snapshot.id,
                     restorableAgent: restorableAgent,
                     resumeBinding: resumeBinding,
+                    tmuxStartCommand: localTmuxStartCommand,
                     restoresRemoteWorkspaceTerminalSnapshot: false,
                     remoteResumeContext: resumeBinding?.launchFlavor.remoteContext,
                     workingDirectory: workingDirectory,
