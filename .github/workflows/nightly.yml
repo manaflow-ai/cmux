@@ -1949,7 +1949,7 @@ jobs:
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
             --variant "$NIGHTLY_VARIANT" \
             --exclude-build "$NIGHTLY_BUILD" \
-            --count 2 \
+            --count 1 \
             --out previous-nightlies
 
       - name: Generate Sparkle appcasts (nightly)
@@ -1959,10 +1959,14 @@ jobs:
           CHANNEL: ${{ needs.decide.outputs.channel }}
           SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          # Deltas from the two previous builds of this track, named
+          # Keep the newest delta for each architecture-specific track. The
+          # feeds must remain per-architecture because Sparkle signs each DMG;
+          # older installs fall back to the full archive. One delta avoids a
+          # second expensive BinaryDelta pass while preserving update safety.
+          # The delta is named
           # cmux-nightly-macos-<variant>-<new>-<old>.delta so tracks never collide.
           SPARKLE_PREVIOUS_ARCHIVES_DIR: previous-nightlies
-          SPARKLE_MAXIMUM_DELTAS: "2"
+          SPARKLE_MAXIMUM_DELTAS: "1"
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
