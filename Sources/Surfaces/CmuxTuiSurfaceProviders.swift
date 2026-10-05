@@ -1598,6 +1598,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard portDiscovery.complete(scan, request: request, at: Date.now, socketPath: socketPath) else { return nil }
         publishPortDiscovery()
         guard let scan else { return nil }
+        settleRestoredPortPanes(scannedPorts: scan.ports)
         portsCache = (scan.ports, Date.now)
         return scan.ports
     }

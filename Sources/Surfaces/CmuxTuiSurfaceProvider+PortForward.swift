@@ -240,6 +240,21 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
+    /// A settled scan is the authority for staged restored port panes: a port
+    /// it did not find is not listening, so that pane stops showing progress.
+    func settleRestoredPortPanes(scannedPorts: [Int]) {
+        let scanned = Set(scannedPorts)
+        for projection in catalog.pendingRestoredProjections.projections where projection.resource.machine == machine {
+            guard let port = projection.resource.forwardedPort, !scanned.contains(port),
+                  let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID)
+            else { continue }
+            browser.cloudAccess.failRestore(String(
+                localized: "cloud.display.restoreUnavailable",
+                defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."
+            ))
+        }
+    }
+
     /// Rebinds browser panes for the supplied resources, or all restored browser panes.
     func reprojectRestoredBrowserPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }

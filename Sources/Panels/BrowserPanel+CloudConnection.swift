@@ -151,12 +151,11 @@ extension BrowserPanel {
                 automaticRetriesRemaining: max(automaticRetriesRemaining - 1, 0)
             )
         }
-        if automaticRetriesRemaining > 0 {
-            cloudAccess.showRestoring(retry: recover)
-            cloudAccess.retryUnavailable()
-        } else {
-            cloudAccess.showUnavailable(message, retry: recover)
-        }
+        // The staged projection resolves on its own once the provider
+        // publishes the resource, so a miss here is still loading. The
+        // provider's settled port scan or the restore deadline ends it.
+        cloudAccess.showRestoring(retry: recover, unavailableMessage: message)
+        if automaticRetriesRemaining > 0 { cloudAccess.retryUnavailable() }
     }
 
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
