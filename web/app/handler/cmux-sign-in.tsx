@@ -129,7 +129,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
 
   // Always in this slot (null when signed out), so the screen next to it
   // keeps its state when a switch signs the browser in.
-  const remember = user ? <RememberThisAccount user={user} /> : null;
+  const remember = user ? <RememberThisAccount user={user} returningFromOAuth={isReturningFromOAuth(params)} /> : null;
 
   if (switching || (entry === "choose-account" && !inlineSignIn)) {
     return (
@@ -563,9 +563,9 @@ function AccountLabel({ account }: { account: AccountView }) {
  * Adds the signed-in account to this browser's list (an external store, not
  * React state) and keeps its session, so a later switch away and back needs
  * no new sign-in. Its sign-in method is looked up afterwards so the redirect
- * never waits on it.
+ * never waits on it; back from a provider, that provider is the method.
  */
-function RememberThisAccount({ user }: { user: CurrentUser }) {
+function RememberThisAccount({ user, returningFromOAuth }: { user: CurrentUser; returningFromOAuth: boolean }) {
   const { id, primaryEmail: email, displayName, profileImageUrl, isRestricted } = user;
   useEffect(() => {
     // An account still finishing onboarding has no session worth keeping.
@@ -574,10 +574,11 @@ function RememberThisAccount({ user }: { user: CurrentUser }) {
   useEffect(() => {
     writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, hasPassword: user.hasPassword })));
     writePendingOAuth(null);
+    const usedProvider = returningFromOAuth ? readLastUsedProvider() : null;
     let cancelled = false;
     user.listOAuthProviders().then((linked) => {
       if (cancelled) return;
-      const signInMethod = rememberedMethodFor({ hasPassword: user.hasPassword, linked, preference: PROVIDER_PREFERENCE });
+      const signInMethod = rememberedMethodFor({ linked, preference: PROVIDER_PREFERENCE, usedProvider });
       writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, signInMethod, hasPassword: user.hasPassword })));
     }).catch(() => {
       // Without the method the account still lists; picking it opens the form.
@@ -585,7 +586,7 @@ function RememberThisAccount({ user }: { user: CurrentUser }) {
     return () => {
       cancelled = true;
     };
-  }, [user, id, email, displayName, profileImageUrl]);
+  }, [user, id, email, displayName, profileImageUrl, returningFromOAuth]);
   return null;
 }
 
