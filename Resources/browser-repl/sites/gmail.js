@@ -242,9 +242,10 @@
         out.body = await t.composerText(box, { exclude: GMAIL_OWN });
         if (msg.threadId) {
           try {
+            // The thread the page shows, compared through threadKey
+            // (a URL in Gmail's newer id form fails closed).
             const hash = decodeURIComponent(new URL(page.url()).hash);
-            const m = /^#all\/([^/]+)$/.exec(hash);
-            if (m) out.threadId = m[1];
+            if (/^#[^/]+\/[^/]+$/.test(hash)) out.threadId = hash;
           } catch (e) {}
           out.messageIds = (await page.evaluate(threadFn, { format: "text" })).messages.map((x) => x.messageId);
         }
