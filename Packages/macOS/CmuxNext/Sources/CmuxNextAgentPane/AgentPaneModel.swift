@@ -44,9 +44,6 @@ public final class AgentPaneModel {
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
-    /// Performs a native action by its catalog ID, preserving shared action
-    /// routing for the palette and existing keyboard shortcuts.
-    @ObservationIgnored public var onPaneAction: (@MainActor (String) -> Bool)?
     /// The quick panel's page asked to hide the panel (`quick.dismiss`).
     @ObservationIgnored public var onQuickDismiss: (() -> Void)?
     /// The quick panel's page asked to open its chat in the main window
@@ -178,7 +175,7 @@ public final class AgentPaneModel {
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }
+            guard Self.toolbarActionIDs.contains(id) || (id == "palette.welcomeChecklist" && newTab != nil), let onRunAction else { return Self.unsupported("action.run") }
             onRunAction(id)
             return AgentPaneReply.success()
         case .jump(let target, let id):
@@ -212,9 +209,6 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
-        case .paneAction(let id):
-            guard let onPaneAction, onPaneAction(id) else { return Self.unsupported("pane.action") }
-            return AgentPaneReply.success()
         case .quickOpenInWindow(let session):
             guard let onQuickOpenInWindow else { return Self.unsupported("quick.openInWindow") }
             if let session, session != sessionId {
@@ -245,6 +239,14 @@ public final class AgentPaneModel {
     private static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }
+
+    /// Actions exposed by the compact web toolbar. Keeping this allowlist in
+    /// the native bridge prevents arbitrary page strings from reaching the
+    /// shared action registry.
+    private static let toolbarActionIDs: Set<String> = [
+        "newSurface", "openBrowser.chromium", "findInDirectory", "openFolder",
+        "splitRight", "splitDown", "duplicateTab", "tab.moveToNewWindow",
+    ]
 
     private func setCheckpointAvailable(_ available: Bool) {
         guard checkpointAvailable != available else { return }

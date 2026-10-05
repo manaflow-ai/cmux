@@ -250,10 +250,7 @@ final class AgentTabStore {
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
-        model.onPaneAction = { [weak self] id in
-            guard let self, let registry = self.actionRegistry else { return false }
-            return registry.perform(id)
-        }
+        model.onRunAction = { [weak self] id in self?.actionRegistry?.perform(id) }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
