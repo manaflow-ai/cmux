@@ -48,11 +48,11 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     /// The most cells waiting for the running one (callers that share a
     /// named session); one more is refused at once.
-    public static let maxWaitingCells = 64
+    public static let maxWaitingCells = BrowserReplResourceLimits.standard[.waitingCells]
 
     /// The most source, in UTF-8 bytes, the waiting cells hold together;
     /// a cell that would take them past it is refused at once.
-    public static let maxWaitingSourceBytes = 64 << 20
+    public static let maxWaitingSourceBytes = BrowserReplResourceLimits.standard[.waitingCellSourceBytes]
 
     public let id: String
     private let bundle: BrowserReplRuntimeBundle
@@ -69,7 +69,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Secrets, the domain policy and redaction (see BrowserReplBoundary).
     private let boundary: BrowserReplBoundary
     private let sleeper: any BrowserReplSleeping
-    private let gate = BrowserReplEvalGate()
+    /// What the session holds, by resource, against its limits (internal
+    /// for tests): every holder below reserves here.
+    let ledger: BrowserReplResourceLedger
+    private let gate: BrowserReplEvalGate
     private var scheduler: BrowserReplTimerScheduler<ContinuousClock>!
     private let watchdog: BrowserReplWatchdog
 
@@ -84,28 +87,21 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var currentEval: EvalState?
     private var nextEvalID = 0
     /// Driver calls and fetches in flight; `close()` cancels them, and a
-    /// cell's timeout cancels the fetches it started.
+    /// cell's timeout cancels the fetches it started. Each holds its slot
+    /// (``BrowserReplResource/runningDriverCalls`` or
+    /// ``BrowserReplResource/openFetches``), its request bytes and its
+    /// result's bytes in the ledger until the runtime has its result.
     private var inFlight: [Int: InFlightWork] = [:]
     private var nextInFlightID = 0
-    /// Fetches started and not yet delivered to the runtime, at most
-    /// `maxOpenFetches`.
-    private var openFetches = 0
-    /// The open fetches still waiting for their response's headers, at
-    /// most `maxConcurrentFetches`; a fetch leaves this set when its
-    /// headers arrive, so a body that never ends holds no slot here.
+    /// The open fetches still waiting for their response's headers
+    /// (``BrowserReplResource/requestPhaseFetches``); a fetch leaves this
+    /// set when its headers arrive, so a body that never ends holds no
+    /// slot here.
     private var requestPhaseFetches: Set<Int> = []
-    /// Fetches waiting for a slot, oldest first, at most `maxQueuedFetches`.
+    /// Fetches waiting for a slot, oldest first (``BrowserReplResource/queuedFetches``).
     private var queuedFetches: [PendingFetch] = []
-    /// Driver calls running now, at most `maxConcurrentDriverCalls`.
-    private var runningDriverCalls = 0
-    /// Driver calls waiting for a slot, oldest first, at most `maxQueuedDriverCalls`.
+    /// Driver calls waiting for a slot, oldest first (``BrowserReplResource/queuedDriverCalls``).
     private var queuedDriverCalls: [PendingDriverCall] = []
-    /// Request bytes the queued and running driver calls and fetches hold,
-    /// at most `maxHeldRequestBytes`.
-    private var heldRequestBytes = 0
-    /// Bytes of the driver results not yet delivered to the runtime, at
-    /// most `maxWaitingDriverResultBytes`.
-    private var waitingResultBytes = 0
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
     /// The session's private temporary directory (mode 0700): `os.tmpdir()`
@@ -137,8 +133,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Timer and event callbacks held back while callbacks outside a cell
     /// are in debt with the watchdog's credit, oldest first; they run when
     /// the credit recovers or a cell runs.
+    /// The events among them hold ``BrowserReplResource/heldEvents``.
     private var heldCallbacks: [HeldCallback] = []
-    private var heldEventCount = 0
     private var releaseQueued = false
     private var resumeScheduled = false
     /// The timers the outermost run in progress set, or nil outside one.
@@ -157,35 +153,36 @@ public final class BrowserReplSession: @unchecked Sendable {
     }
 
     /// The most page events held back at once; past it the oldest go.
-    static let maxHeldEvents = 10_000
+    static let maxHeldEvents = BrowserReplResourceLimits.standard[.heldEvents]
 
     /// The most page events queued for the session's thread or held back
     /// at once, and the most bytes they hold; an event past either is
     /// dropped where it arrives, before it is queued.
-    static let maxQueuedEvents = 10_000
-    static let maxQueuedEventBytes = 64 << 20
+    static let maxQueuedEvents = BrowserReplResourceLimits.standard[.queuedEvents]
+    static let maxQueuedEventBytes = BrowserReplResourceLimits.standard[.queuedEventBytes]
 
     /// The most bytes one page event's payload may have; a larger one
     /// arrives withheld (`{ targetId, withheld }`), without its content, so
     /// masking secrets in an event never reads more than this.
-    static let maxEventPayloadBytes = 1 << 20
+    static let maxEventPayloadBytes = BrowserReplResourceLimits.standard.each(.queuedEventBytes) ?? .max
 
-    /// Page events queued or held, their bytes, and those dropped where
-    /// they arrived since the last cell's notice; guarded by `eventLock`.
+    /// Page events dropped where they arrived since the last cell's
+    /// notice; guarded by `eventLock`. The events queued or held, and their
+    /// bytes, are in the ledger.
     private let eventLock = NSLock()
-    private var queuedEvents = 0
-    private var queuedEventBytes = 0
     private var eventsDroppedOnArrival = 0
 
     /// One evaluation's result. It is finished exactly once: by the JS
     /// thread when the cell settles, or from outside it by the timeout or
     /// `close()`, so a wedged JS thread can never strand the caller.
     ///
-    /// Past `maxRetainedOutputBytes` of output, whatever reaches the native
-    /// print (the runtime's own gate stops well before that), the rest goes
-    /// to `<tmpdir>/output-<id>.txt` instead of memory, at most
-    /// `maxSpilledOutputBytes` of it and only while the session's fs budget
-    /// lasts; output past that is dropped.
+    /// Past ``BrowserReplResource/retainedOutputBytes`` of output, whatever
+    /// reaches the native print (the runtime's own gate stops well before
+    /// that), the rest goes to `<tmpdir>/output-<id>.txt` instead of memory,
+    /// at most ``BrowserReplResource/spilledOutputBytes`` of it and only
+    /// while the session's fs budget lasts; output past that is dropped.
+    /// Both are reserved in the session's ledger and released when the
+    /// cell ends (its lines then belong to the caller).
     private final class EvalState: @unchecked Sendable {
         let id: Int
         let start = ContinuousClock.now
@@ -207,6 +204,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         private var spilling = false
         /// What spill writes take from: the session's fs budget.
         private let spillBudget: BrowserReplWriteBudget
+        private let ledger: BrowserReplResourceLedger
 
         /// - Parameter spillDirectory: The session's temporary directory,
         ///   held open (nil when it could not be made: output past the
@@ -215,10 +213,12 @@ public final class BrowserReplSession: @unchecked Sendable {
             id: Int,
             spillDirectory: (path: String, descriptor: BrowserReplDescriptor?),
             spillBudget: BrowserReplWriteBudget,
+            ledger: BrowserReplResourceLedger,
             continuation: CheckedContinuation<BrowserReplEvalResult, Never>
         ) {
             self.id = id
             self.spillBudget = spillBudget
+            self.ledger = ledger
             self.spillDirectory = spillDirectory.descriptor
             self.spillDirectoryPath = spillDirectory.path
             self.spillName = "output-\(id).txt"
@@ -245,7 +245,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             lock.withLock {
                 guard !finished else { return }
                 let size = line.text.utf8.count + 1
-                if !spilling, retainedBytes + size <= BrowserReplSession.maxRetainedOutputBytes {
+                if !spilling, ledger.reserve(size, of: .retainedOutputBytes) == nil {
                     retainedBytes += size
                     lines.append(line)
                     return
@@ -272,13 +272,14 @@ public final class BrowserReplSession: @unchecked Sendable {
                 guard let file = spill else { return }
                 // Past the ceiling, or the session's fs budget, the rest is
                 // dropped: the spill file never fills the disk.
-                guard writtenBytes + size <= BrowserReplSession.maxSpilledOutputBytes,
-                      (try? spillBudget.take(size, syscall: "write", display: spillName, callBytes: 0)) != nil else {
+                let refusal = ledger.reserve(size, of: .spilledOutputBytes)
+                guard refusal == nil, (try? spillBudget.take(size, syscall: "write", display: spillName, callBytes: 0)) != nil else {
+                    if refusal == nil { ledger.release(size, of: .spilledOutputBytes) }
                     try? file.close()
                     spill = nil
                     lines.append(BrowserReplOutputLine(
                         level: "info",
-                        text: "# output past \(writtenBytes) bytes in \(spillPath ?? spillName) was dropped: a cell spills at most \(BrowserReplSession.maxSpilledOutputBytes >> 20) MiB, within the session's fs budget"
+                        text: "# output past \(writtenBytes) bytes in \(spillPath ?? spillName) was dropped: a cell spills at most \(BrowserReplResourceLimits.describe(ledger.limits[.spilledOutputBytes], of: .spilledOutputBytes)), within the session's fs budget"
                     ))
                     return
                 }
@@ -322,6 +323,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             let continuation = self.continuation
             self.continuation = nil
             if let summary = spillSummaryLocked() { self.lines.append(summary) }
+            // The lines go to the caller; the cell holds nothing any more.
+            ledger.release(retainedBytes, of: .retainedOutputBytes)
+            ledger.release(writtenBytes, of: .spilledOutputBytes)
             let lines = self.lines
             let timeoutTask = self.timeoutTask
             self.timeoutTask = nil
@@ -338,44 +342,47 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
     }
 
+    // The limits below are the session's ledger's
+    // (``BrowserReplResourceLimits/standard``), by their older names.
+
     /// The most fetches one session has waiting for their response's
     /// headers at once; later fetches wait in order. A fetch whose headers
     /// arrived leaves its slot, so un-awaited fetches of bodies that never
     /// end (event streams) cannot hold every slot.
-    static let maxConcurrentFetches = 16
+    static let maxConcurrentFetches = BrowserReplResourceLimits.standard[.requestPhaseFetches]
 
     /// The most fetches one session has open at once (waiting for headers,
     /// receiving a body, or holding a body the runtime has not taken yet),
     /// which bounds its connections. The bodies they hold at once are
     /// bounded by the fetcher's `BrowserReplFetchBudget`, and each fetch by
     /// `BrowserReplFetcher.resourceTimeout`.
-    static let maxOpenFetches = 64
+    static let maxOpenFetches = BrowserReplResourceLimits.standard[.openFetches]
 
     /// The most fetches one session queues for a slot; past it a fetch fails at once.
-    static let maxQueuedFetches = 256
+    static let maxQueuedFetches = BrowserReplResourceLimits.standard[.queuedFetches]
 
     /// The most driver calls one session runs at once; later ones wait in
     /// order. The snapshot reads up to 256 frames at once (snapshot.js). A
     /// call keeps its slot until the runtime has its result, so results a
     /// busy JavaScript thread has not taken yet count too.
-    static let maxConcurrentDriverCalls = 256
+    static let maxConcurrentDriverCalls = BrowserReplResourceLimits.standard[.runningDriverCalls]
 
     /// The most UTF-8 bytes one driver call's result (or error) may have,
     /// 64 MiB; a larger one fails before the session masks or queues it.
-    static let maxDriverResultBytes = 64 << 20
+    static let maxDriverResultBytes = BrowserReplResourceLimits.standard.each(.driverResultBytes) ?? .max
 
     /// The most bytes the driver results the runtime has not taken yet hold
     /// together, 512 MiB, measured as JavaScript will see them (masked); a
     /// result past it fails instead of waiting.
-    static let maxWaitingDriverResultBytes = 512 << 20
+    static let maxWaitingDriverResultBytes = BrowserReplResourceLimits.standard[.driverResultBytes]
 
     /// The most driver calls one session queues; past it a call fails at once.
-    static let maxQueuedDriverCalls = 10_000
+    static let maxQueuedDriverCalls = BrowserReplResourceLimits.standard[.queuedDriverCalls]
 
     /// The most UTF-8 bytes one driver call's parameters may have, 64 MiB
     /// (the fetch and `readFile` limit); a larger call fails where it is
     /// made, before anything holds it.
-    static let maxDriverCallParamsBytes = 64 << 20
+    static let maxDriverCallParamsBytes = BrowserReplResourceLimits.standard.each(.requestBytes) ?? .max
 
     /// A file chooser answer carries its files, Base64, up to
     /// ``BrowserReplUploadStaging/maximumBytes`` decoded (1 MiB more for
@@ -385,29 +392,29 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// The most bytes of request data (driver call parameters, fetch
     /// requests) one session's waiting and running calls hold at once,
     /// 512 MiB; a call past it fails at once.
-    static let maxHeldRequestBytes = 512 << 20
+    static let maxHeldRequestBytes = BrowserReplResourceLimits.standard[.requestBytes]
 
     /// The most timers a session has scheduled, or fired with their callback
     /// not yet run, at once; `setTimer` returns false past it.
-    public static let maxPendingTimers = 10_000
+    public static let maxPendingTimers = BrowserReplResourceLimits.standard[.pendingTimers]
 
     /// The most output, in UTF-8 bytes, one evaluation keeps in memory; the
     /// rest goes to a file in the session's temporary directory.
-    static let maxRetainedOutputBytes = 16 << 20
+    static let maxRetainedOutputBytes = BrowserReplResourceLimits.standard[.retainedOutputBytes]
 
     /// The most output, in UTF-8 bytes, one evaluation writes to its spill
     /// file; the rest is dropped.
-    static let maxSpilledOutputBytes = 64 << 20
+    static let maxSpilledOutputBytes = BrowserReplResourceLimits.standard[.spilledOutputBytes]
 
     /// A tracked task, and the evaluation that was running when it started.
     private struct InFlightWork {
         let task: Task<Void, Never>
         let evalID: Int?
         let isFetch: Bool
-        /// The request bytes it holds (``maxHeldRequestBytes``).
+        /// The request bytes it holds (``BrowserReplResource/requestBytes``).
         let heldBytes: Int
         /// The bytes its result holds until the runtime takes it
-        /// (``maxWaitingDriverResultBytes``).
+        /// (``BrowserReplResource/driverResultBytes``).
         var resultBytes = 0
     }
 
@@ -416,7 +423,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         let callID: Int
         let requestJSON: String
         let evalID: Int?
-        /// What it counts against ``maxHeldRequestBytes``.
+        /// What it holds of ``BrowserReplResource/requestBytes``.
         var heldBytes: Int { requestJSON.utf8.count }
     }
 
@@ -426,7 +433,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         let method: String
         let paramsJSON: String
         let evalID: Int?
-        /// What it counts against ``maxHeldRequestBytes``.
+        /// What it holds of ``BrowserReplResource/requestBytes``.
         var heldBytes: Int { method.utf8.count + paramsJSON.utf8.count }
     }
 
@@ -469,14 +476,16 @@ public final class BrowserReplSession: @unchecked Sendable {
             temporaryDirectory: temporaryDirectory,
             homeDirectory: homeDirectory,
             callbackTimeLimit: callbackTimeLimit,
-            maxPendingTimers: maxPendingTimers,
+            limits: BrowserReplResourceLimits.standard.with(.pendingTimers, maxPendingTimers),
             executionTimeLimitSupported: BrowserReplWatchdog.isSupported
         )
     }
 
-    /// - Parameter executionTimeLimitSupported: Whether this JavaScriptCore
-    ///   can stop a running script (tests pass false); without it the
-    ///   session refuses every cell.
+    /// - Parameters:
+    ///   - limits: The session's resource limits (tests lower them).
+    ///   - executionTimeLimitSupported: Whether this JavaScriptCore can stop
+    ///     a running script (tests pass false); without it the session
+    ///     refuses every cell.
     init(
         id: String,
         cwd: String?,
@@ -486,9 +495,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         temporaryDirectory: String? = nil,
         homeDirectory: String? = nil,
         callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit,
-        maxPendingTimers: Int = BrowserReplSession.maxPendingTimers,
+        limits: BrowserReplResourceLimits = .standard,
         executionTimeLimitSupported: Bool
     ) {
+        let ledger = BrowserReplResourceLedger(limits: limits)
+        self.ledger = ledger
+        self.gate = BrowserReplEvalGate(ledger: ledger)
         let temporaryRoot = BrowserReplFileSandbox.canonicalize(
             BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
         )
@@ -514,8 +526,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.eventQueue = DispatchQueue(label: "com.cmux.browser-repl.events.\(id)", qos: .userInitiated)
         let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
         self.watchdog = watchdog
-        self.fetcher = BrowserReplFetcher(driver: driver)
-        let writeBudget = BrowserReplWriteBudget()
+        self.fetcher = BrowserReplFetcher(driver: driver, ledger: ledger)
+        let writeBudget = BrowserReplWriteBudget(ledger: ledger)
         self.writeBudget = writeBudget
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
@@ -527,7 +539,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             // running script; a long fs write or copy stops with it.
             isCancelled: { watchdog.isTerminationRequested }
         )
-        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), maximumTimers: maxPendingTimers) { [weak self] id in
+        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), ledger: ledger) { [weak self] id in
             self?.fireTimer(id)
         }
         let boundary = self.boundary
@@ -645,14 +657,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             )
         }
         if let refusal = await gate.acquire(sourceBytes: code.utf8.count) {
-            let message: String
-            switch refusal {
-            case .tooManyCells:
-                message = "Error: REPL session '\(id)': \(Self.maxWaitingCells) cells are already waiting to run; wait for them to finish"
-            case .tooMuchSource:
-                message = "Error: REPL session '\(id)': the cells waiting to run would hold more than \(Self.maxWaitingSourceBytes >> 20) MiB of source; wait for them to finish"
-            }
-            return BrowserReplEvalResult(lines: [], error: message, durationMilliseconds: 0)
+            return BrowserReplEvalResult(lines: [], error: "Error: REPL session '\(id)': \(refusal.message)", durationMilliseconds: 0)
         }
         let result = await evaluateLocked(code: code, cwd: cwd, timeout: timeout, maxOutput: maxOutput)
         await gate.release()
@@ -693,6 +698,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 id: nextEvalID,
                 spillDirectory: (privateTemporaryDirectory, privateTemporaryDescriptor),
                 spillBudget: writeBudget,
+                ledger: ledger,
                 continuation: continuation
             )
             currentEval = state
@@ -801,12 +807,11 @@ public final class BrowserReplSession: @unchecked Sendable {
         callbackResume = nil
         inFlight.removeAll()
         queuedFetches.removeAll()
-        openFetches = 0
         requestPhaseFetches.removeAll()
         queuedDriverCalls.removeAll()
-        runningDriverCalls = 0
-        heldRequestBytes = 0
-        waitingResultBytes = 0
+        // What those held: their tasks no longer release it.
+        ledger.releaseAll([.queuedFetches, .openFetches, .requestPhaseFetches, .queuedDriverCalls,
+                           .runningDriverCalls, .requestBytes, .driverResultBytes])
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -814,6 +819,12 @@ public final class BrowserReplSession: @unchecked Sendable {
             self.entryPoints = nil
             self.nativeHost = nil
             self.context = nil
+            // Held events go with the session's thread.
+            for case .event(_, _, let reserved) in self.heldCallbacks {
+                self.releaseEvent(reserved)
+                self.ledger.release(1, of: .heldEvents)
+            }
+            self.heldCallbacks.removeAll()
         }
         thread.stop()
         stateLock.unlock()
@@ -874,7 +885,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             queuedFetches.removeAll { $0.evalID == evalID }
             let calls = queuedDriverCalls.filter { $0.evalID == evalID }
             queuedDriverCalls.removeAll { $0.evalID == evalID }
-            heldRequestBytes -= fetches.reduce(0) { $0 + $1.heldBytes } + calls.reduce(0) { $0 + $1.heldBytes }
+            ledger.release(fetches.reduce(0) { $0 + $1.heldBytes } + calls.reduce(0) { $0 + $1.heldBytes }, of: .requestBytes)
+            ledger.release(fetches.count, of: .queuedFetches)
+            ledger.release(calls.count, of: .queuedDriverCalls)
             return (tasks, fetches.map(\.callID), calls.map(\.callID))
         }
         for task in tasks { task.cancel() }
@@ -903,25 +916,22 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.withLock {
             guard !closed else { return Self.closedError }
             let call = PendingDriverCall(callID: callID, method: method, paramsJSON: paramsJSON, evalID: currentEval?.id)
-            if let refusal = admitRequestLocked(bytes: call.heldBytes, what: "browser calls and fetches") { return refusal }
-            if queuedDriverCalls.isEmpty, runningDriverCalls < Self.maxConcurrentDriverCalls {
+            if let refusal = admitRequestLocked(bytes: call.heldBytes) { return refusal.driverError(method) }
+            if queuedDriverCalls.isEmpty, ledger.reserve(1, of: .runningDriverCalls) == nil {
                 startDriverCallLocked(call)
-            } else if queuedDriverCalls.count < Self.maxQueuedDriverCalls {
-                queuedDriverCalls.append(call)
+            } else if let refusal = ledger.reserve(1, of: .queuedDriverCalls) {
+                ledger.release(call.heldBytes, of: .requestBytes)
+                return refusal.driverError(method)
             } else {
-                heldRequestBytes -= call.heldBytes
-                return BrowserReplDriverError(
-                    code: "invalid",
-                    message: "\(Self.maxQueuedDriverCalls) browser calls are already waiting for one of the session's \(Self.maxConcurrentDriverCalls) slots; await some before starting more"
-                )
+                queuedDriverCalls.append(call)
             }
             return nil
         }
     }
 
-    /// Starts `call` as an in-flight task. Call with `stateLock` held.
+    /// Starts `call` as an in-flight task, its running slot already
+    /// reserved. Call with `stateLock` held.
     private func startDriverCallLocked(_ call: PendingDriverCall) {
-        runningDriverCalls += 1
         nextInFlightID += 1
         let taskID = nextInFlightID
         let driver = self.driver
@@ -950,18 +960,19 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.withLock {
             // close() already dropped every entry and the queue.
             guard let work = inFlight.removeValue(forKey: taskID) else { return }
-            heldRequestBytes -= work.heldBytes
-            waitingResultBytes -= work.resultBytes
-            runningDriverCalls -= 1
-            while !closed, !queuedDriverCalls.isEmpty, runningDriverCalls < Self.maxConcurrentDriverCalls {
+            ledger.release(work.heldBytes, of: .requestBytes)
+            ledger.release(work.resultBytes, of: .driverResultBytes)
+            ledger.release(1, of: .runningDriverCalls)
+            while !closed, !queuedDriverCalls.isEmpty, ledger.reserve(1, of: .runningDriverCalls) == nil {
+                ledger.release(1, of: .queuedDriverCalls)
                 startDriverCallLocked(queuedDriverCalls.removeFirst())
             }
         }
     }
 
     /// A finished driver call's result as the runtime will get it, its
-    /// bytes reserved (``maxWaitingDriverResultBytes``) until
-    /// ``driverCallFinished(_:)``. A result past ``maxDriverResultBytes``,
+    /// bytes reserved (``BrowserReplResource/driverResultBytes``) until
+    /// ``driverCallFinished(_:)``. A result past the limit on one result,
     /// or one the waiting results leave no room for, becomes an error
     /// before it is masked, and so does one that masking grows past either.
     private func admitDriverResult(
@@ -971,57 +982,35 @@ public final class BrowserReplSession: @unchecked Sendable {
     ) -> Result<String, BrowserReplDriverError> {
         let method = call.method
         var answer = answer
-        if Self.driverResultSize(answer) > Self.maxDriverResultBytes {
-            answer = .failure(BrowserReplDriverError(
-                code: "invalid",
-                message: "\(method): its result is \(Self.driverResultSize(answer) >> 20) MiB, past the \(Self.maxDriverResultBytes >> 20) MiB one browser call may return; read less at once"
-            ))
-        }
         var reserved = Self.driverResultSize(answer)
-        if let refusal = reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID, method: method) {
-            answer = .failure(refusal)
+        if let refusal = reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID) {
+            answer = .failure(refusal.driverError(method))
             reserved = Self.driverResultSize(answer)
-            _ = reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID, method: method, force: true)
+            reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID, force: true)
         }
         let result = boundary.redact(method: method, boundary.checkCaptureMasks(method: method, paramsJSON: call.paramsJSON, answer))
         let size = Self.driverResultSize(result)
-        guard size != reserved else { return result }
-        var refusal: BrowserReplDriverError?
-        if size > Self.maxDriverResultBytes {
-            refusal = BrowserReplDriverError(
-                code: "invalid",
-                message: "\(method): its result is \(size >> 20) MiB with secrets masked, past the \(Self.maxDriverResultBytes >> 20) MiB one browser call may return; read less at once"
-            )
-        } else {
-            refusal = reserveDriverResult(bytes: size, replacing: reserved, taskID: taskID, method: method)
-        }
-        guard let refusal else { return result }
-        _ = reserveDriverResult(bytes: Self.driverResultSize(.failure(refusal)), replacing: reserved, taskID: taskID, method: method, force: true)
-        return .failure(refusal)
+        guard size != reserved, let refusal = reserveDriverResult(bytes: size, replacing: reserved, taskID: taskID) else { return result }
+        let failure = refusal.driverError("\(method) (with secrets masked)")
+        reserveDriverResult(bytes: Self.driverResultSize(.failure(failure)), replacing: reserved, taskID: taskID, force: true)
+        return .failure(failure)
     }
 
     /// Reserves `bytes` for task `taskID`'s result in place of the
     /// `replacing` it held, or says why it does not fit; `force` reserves a
     /// small error regardless. A task close() dropped reserves nothing.
+    @discardableResult
     private func reserveDriverResult(
         bytes: Int,
         replacing: Int,
         taskID: Int,
-        method: String,
         force: Bool = false
-    ) -> BrowserReplDriverError? {
+    ) -> BrowserReplResourceLimitError? {
         stateLock.withLock {
             guard inFlight[taskID] != nil else { return nil }
-            let others = waitingResultBytes - replacing
-            guard force || others + bytes <= Self.maxWaitingDriverResultBytes else {
-                return BrowserReplDriverError(
-                    code: "invalid",
-                    message: "\(method): its result (\(bytes >> 20) MiB) does not fit: the results this session's JavaScript has not taken yet already hold \(others >> 20) MiB of the \(Self.maxWaitingDriverResultBytes >> 20) MiB they may hold at once; await results before starting more calls"
-                )
-            }
-            waitingResultBytes = others + bytes
-            inFlight[taskID]?.resultBytes = bytes
-            return nil
+            let refusal = ledger.resize(.driverResultBytes, from: replacing, to: bytes, force: force)
+            if refusal == nil { inFlight[taskID]?.resultBytes = bytes }
+            return refusal
         }
     }
 
@@ -1041,45 +1030,43 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.withLock {
             guard !closed else { return Self.closedError }
             let fetch = PendingFetch(callID: callID, requestJSON: requestJSON, evalID: currentEval?.id)
-            if let refusal = admitRequestLocked(bytes: fetch.heldBytes, what: "fetch: browser calls and fetches") { return refusal }
-            if queuedFetches.isEmpty, hasFetchSlotLocked {
+            if let refusal = admitRequestLocked(bytes: fetch.heldBytes) { return refusal.driverError("fetch") }
+            if queuedFetches.isEmpty, reserveFetchSlotLocked() {
                 startFetchLocked(fetch)
-            } else if queuedFetches.count < Self.maxQueuedFetches {
-                queuedFetches.append(fetch)
+            } else if let refusal = ledger.reserve(1, of: .queuedFetches) {
+                ledger.release(fetch.heldBytes, of: .requestBytes)
+                return refusal.driverError("fetch")
             } else {
-                heldRequestBytes -= fetch.heldBytes
-                return BrowserReplDriverError(
-                    code: "invalid",
-                    message: "fetch: \(Self.maxQueuedFetches) fetches are already waiting for one of the session's \(Self.maxConcurrentFetches) fetch slots; await some before starting more"
-                )
+                queuedFetches.append(fetch)
             }
             return nil
         }
     }
 
-    /// Takes `bytes` of ``maxHeldRequestBytes`` for a call about to wait or
-    /// run, or says why it is refused. Call with `stateLock` held.
-    private func admitRequestLocked(bytes: Int, what: String) -> BrowserReplDriverError? {
-        guard heldRequestBytes + bytes > Self.maxHeldRequestBytes else {
-            heldRequestBytes += bytes
-            return nil
+    /// Reserves `bytes` of ``BrowserReplResource/requestBytes`` for a call
+    /// about to wait or run, or says why it is refused. One call's own
+    /// limit was checked where it was made. Call with `stateLock` held.
+    private func admitRequestLocked(bytes: Int) -> BrowserReplResourceLimitError? {
+        ledger.reserve(bytes, of: .requestBytes, each: .max)
+    }
+
+    /// Reserves a fetch's slots (``BrowserReplResource/openFetches`` and
+    /// ``BrowserReplResource/requestPhaseFetches``) when both are free.
+    /// Call with `stateLock` held.
+    private func reserveFetchSlotLocked() -> Bool {
+        guard ledger.reserve(1, of: .openFetches) == nil else { return false }
+        guard ledger.reserve(1, of: .requestPhaseFetches) == nil else {
+            ledger.release(1, of: .openFetches)
+            return false
         }
-        return BrowserReplDriverError(
-            code: "invalid",
-            message: "\(what) waiting or running in this session already hold \(heldRequestBytes >> 20) MiB of parameters, and this one (\(bytes >> 20) MiB) would pass the \(Self.maxHeldRequestBytes >> 20) MiB they may hold at once; await some before starting more"
-        )
+        return true
     }
 
-    /// Whether a fetch can start now. Call with `stateLock` held.
-    private var hasFetchSlotLocked: Bool {
-        requestPhaseFetches.count < Self.maxConcurrentFetches && openFetches < Self.maxOpenFetches
-    }
-
-    /// Starts `fetch` as an in-flight task. Call with `stateLock` held.
+    /// Starts `fetch` as an in-flight task, its slots already reserved.
+    /// Call with `stateLock` held.
     private func startFetchLocked(_ fetch: PendingFetch) {
         nextInFlightID += 1
         let taskID = nextInFlightID
-        openFetches += 1
         requestPhaseFetches.insert(taskID)
         let fetcher = self.fetcher
         let boundary = self.boundary
@@ -1113,6 +1100,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func fetchReceivedHeaders(_ taskID: Int) {
         stateLock.withLock {
             guard requestPhaseFetches.remove(taskID) != nil else { return }
+            ledger.release(1, of: .requestPhaseFetches)
             startQueuedFetchesLocked()
         }
     }
@@ -1122,16 +1110,17 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.withLock {
             // close() already dropped every entry and the queue.
             guard let work = inFlight.removeValue(forKey: taskID) else { return }
-            heldRequestBytes -= work.heldBytes
-            openFetches -= 1
-            requestPhaseFetches.remove(taskID)
+            ledger.release(work.heldBytes, of: .requestBytes)
+            ledger.release(1, of: .openFetches)
+            if requestPhaseFetches.remove(taskID) != nil { ledger.release(1, of: .requestPhaseFetches) }
             startQueuedFetchesLocked()
         }
     }
 
     /// Starts the oldest queued fetches while slots are free. Call with `stateLock` held.
     private func startQueuedFetchesLocked() {
-        while !closed, !queuedFetches.isEmpty, hasFetchSlotLocked {
+        while !closed, !queuedFetches.isEmpty, reserveFetchSlotLocked() {
+            ledger.release(1, of: .queuedFetches)
             startFetchLocked(queuedFetches.removeFirst())
         }
     }
@@ -1189,13 +1178,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Holds `callback` back until the credit recovers or a cell runs.
     private func hold(_ callback: HeldCallback) {
         if case .event = callback {
-            if heldEventCount >= Self.maxHeldEvents,
+            if ledger.reserve(1, of: .heldEvents) != nil,
                let oldest = heldCallbacks.firstIndex(where: { if case .event = $0 { true } else { false } }) {
+                // The oldest held event goes and its place is this one's.
                 if case .event(_, _, let reserved) = heldCallbacks.remove(at: oldest) { releaseEvent(reserved) }
-                heldEventCount -= 1
                 eventsDropped += 1
             }
-            heldEventCount += 1
         }
         heldCallbacks.append(callback)
         callbacksHeld += 1
@@ -1222,9 +1210,11 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func releaseOneHeldCallback() {
         guard !heldCallbacks.isEmpty else { return }
         guard let context, !isClosedNow, let entryPoints else {
-            for case .event(_, _, let reserved) in heldCallbacks { releaseEvent(reserved) }
+            for case .event(_, _, let reserved) in heldCallbacks {
+                releaseEvent(reserved)
+                ledger.release(1, of: .heldEvents)
+            }
             heldCallbacks.removeAll()
-            heldEventCount = 0
             return
         }
         if runningEvalID == nil, watchdog.isInCallbackDebt {
@@ -1238,7 +1228,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 enter(context, firedTimer: id) { _ = handler.call(withArguments: [id]) }
             }
         case .event(let name, let payload, let reserved):
-            heldEventCount -= 1
+            ledger.release(1, of: .heldEvents)
             releaseEvent(reserved)
             if let handler = entryPoints.onEvent {
                 enter(context) { _ = handler.call(withArguments: [name, payload]) }
@@ -1288,10 +1278,10 @@ public final class BrowserReplSession: @unchecked Sendable {
             return eventsDroppedOnArrival
         }
         if eventsDropped > 0 {
-            lines.append("cmux browser repl: \(eventsDropped) page events were dropped because \(Self.maxHeldEvents) were already waiting")
+            lines.append("cmux browser repl: \(eventsDropped) page events were dropped because \(ledger.limits[.heldEvents]) were already waiting")
         }
         if droppedOnArrival > 0 {
-            lines.append("cmux browser repl: \(droppedOnArrival) page events were dropped because \(Self.maxQueuedEvents) events or \(Self.maxQueuedEventBytes >> 20) MiB of them were already waiting for the session's thread")
+            lines.append("cmux browser repl: \(droppedOnArrival) page events were dropped because \(ledger.limits[.queuedEvents]) events or \(BrowserReplResourceLimits.describe(ledger.limits[.queuedEventBytes], of: .queuedEventBytes)) of them were already waiting for the session's thread")
         }
         callbacksStopped = 0
         callbacksHeld = 0
@@ -1545,12 +1535,10 @@ public final class BrowserReplSession: @unchecked Sendable {
             let methodName = method?.toString() ?? ""
             let raw = params.flatMap { $0.isString ? $0.toString() : nil } ?? "{}"
             // An oversized call is refused before it is parsed or waits.
-            let limit = methodName == "filechooser.respond" ? Self.maxFileChooserAnswerBytes : Self.maxDriverCallParamsBytes
+            let limit = methodName == "filechooser.respond" ? Self.maxFileChooserAnswerBytes : (self.ledger.limits.each(.requestBytes) ?? .max)
             guard raw.utf8.count <= limit else {
-                self.resolveCall(Int(callID), .failure(BrowserReplDriverError(
-                    code: "invalid",
-                    message: "\(methodName): its parameters are \(raw.utf8.count >> 20) MiB, past the \(limit >> 20) MiB one browser call may carry"
-                )))
+                let refusal = BrowserReplResourceLimitError(resource: .requestBytes, limit: limit, isPerItem: true, held: self.ledger.held(.requestBytes), requested: raw.utf8.count)
+                self.resolveCall(Int(callID), .failure(refusal.driverError(methodName)))
                 return
             }
             let boundary = self.boundary
@@ -1748,15 +1736,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// past `maxEventPayloadBytes` is withheld instead.
     private func deliverEvent(name: String, payloadJSON: String) {
         let reserved = name.utf8.count + payloadJSON.utf8.count
-        let admitted: Bool = eventLock.withLock {
-            guard queuedEvents < Self.maxQueuedEvents, queuedEventBytes + reserved <= Self.maxQueuedEventBytes else {
-                eventsDroppedOnArrival += 1
-                return false
-            }
-            queuedEvents += 1
-            queuedEventBytes += reserved
-            return true
-        }
+        let admitted = admitEvent(bytes: reserved)
         let downloadPath = name == "download.finished"
             ? JSONSerialization.browserReplObject(payloadJSON)["path"] as? String
             : nil
@@ -1787,25 +1767,39 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
     }
 
+    /// Reserves one queued event of `bytes` (raw, so one past the limit
+    /// on one event still fits: it arrives withheld), or counts it dropped.
+    private func admitEvent(bytes: Int) -> Bool {
+        eventLock.withLock {
+            guard ledger.reserve(1, of: .queuedEvents) == nil else {
+                eventsDroppedOnArrival += 1
+                return false
+            }
+            guard ledger.reserve(bytes, of: .queuedEventBytes, each: .max) == nil else {
+                ledger.release(1, of: .queuedEvents)
+                eventsDroppedOnArrival += 1
+                return false
+            }
+            return true
+        }
+    }
+
     /// The payload of an admitted event as JavaScript will see it, and the
-    /// bytes it now holds of `maxQueuedEventBytes`: masking can make it
-    /// longer than the raw bytes it was admitted with (`reserved`), and one
-    /// that would pass the budget masked arrives withheld instead.
+    /// bytes it now holds of ``BrowserReplResource/queuedEventBytes``:
+    /// masking can make it longer than the raw bytes it was admitted with
+    /// (`reserved`), and one that would pass the budget masked arrives
+    /// withheld instead.
     private func chargeMaskedEvent(name: String, raw: String, reserved: Int) -> (payload: String, reserved: Int) {
         let masked = eventPayloadForJavaScript(name: name, raw)
         let size = name.utf8.count + masked.utf8.count
-        let fits: Bool = eventLock.withLock {
-            guard queuedEventBytes - reserved + size > Self.maxQueuedEventBytes else {
-                queuedEventBytes += size - reserved
-                return true
-            }
-            return false
+        // The limit on one event applied to the raw payload, before masking.
+        if ledger.resize(.queuedEventBytes, from: reserved, to: size, each: .max) == nil {
+            return (masked, size)
         }
-        if fits { return (masked, size) }
-        let reason = "this \(name) event is \(masked.utf8.count) bytes with secrets masked, and the page events waiting for the session's thread already hold close to \(Self.maxQueuedEventBytes >> 20) MiB, so its content was withheld"
+        let reason = "this \(name) event is \(masked.utf8.count) bytes with secrets masked, and the page events waiting for the session's thread already hold close to \(BrowserReplResourceLimits.describe(ledger.limits[.queuedEventBytes], of: .queuedEventBytes)), so its content was withheld"
         let withheld = withheldEventPayload(raw, reason: reason)
         let withheldSize = name.utf8.count + withheld.utf8.count
-        eventLock.withLock { queuedEventBytes += withheldSize - reserved }
+        ledger.resize(.queuedEventBytes, from: reserved, to: withheldSize, force: true)
         return (withheld, withheldSize)
     }
 
@@ -1816,8 +1810,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func eventPayloadForJavaScript(name: String, _ payloadJSON: String) -> String {
         let size = payloadJSON.utf8.count
         let reason: String
-        if size > Self.maxEventPayloadBytes {
-            reason = "this \(name) event is \(size) bytes, past the \(Self.maxEventPayloadBytes >> 20) MiB a page event may carry, so its content was withheld"
+        if let limit = ledger.limits.each(.queuedEventBytes), size > limit {
+            reason = "this \(name) event is \(size) bytes, past the \(BrowserReplResourceLimits.describe(limit, of: .queuedEventBytes)) a page event may carry, so its content was withheld"
         } else if let redacted = try? boundary.redactJSON(payloadJSON) {
             return redacted
         } else {
@@ -1838,10 +1832,8 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     /// An event left the queue (delivered or dropped): its budget is free.
     private func releaseEvent(_ reserved: Int) {
-        eventLock.withLock {
-            queuedEvents -= 1
-            queuedEventBytes -= reserved
-        }
+        ledger.release(1, of: .queuedEvents)
+        ledger.release(reserved, of: .queuedEventBytes)
     }
 }
 
@@ -1864,28 +1856,29 @@ public struct BrowserReplClockSleeper<C: Clock>: BrowserReplSleeping where C.Dur
 }
 
 /// Serializes evaluations of one session without blocking a thread, and
-/// bounds the cells waiting and the source they hold
-/// (``BrowserReplSession/maxWaitingCells``,
-/// ``BrowserReplSession/maxWaitingSourceBytes``).
+/// bounds the cells waiting and the source they hold in the session's
+/// ledger (``BrowserReplResource/waitingCells``,
+/// ``BrowserReplResource/waitingCellSourceBytes``).
 actor BrowserReplEvalGate {
-    enum Refusal {
-        case tooManyCells
-        case tooMuchSource
-    }
-
+    private let ledger: BrowserReplResourceLedger
     private var busy = false
     private var waiters: [(continuation: CheckedContinuation<Void, Never>, sourceBytes: Int)] = []
-    private var waitingSourceBytes = 0
+
+    init(ledger: BrowserReplResourceLedger) {
+        self.ledger = ledger
+    }
 
     /// Waits for the running cell, or returns why the cell may not wait.
-    func acquire(sourceBytes: Int) async -> Refusal? {
+    func acquire(sourceBytes: Int) async -> BrowserReplResourceLimitError? {
         if !busy {
             busy = true
             return nil
         }
-        guard waiters.count < BrowserReplSession.maxWaitingCells else { return .tooManyCells }
-        guard sourceBytes <= BrowserReplSession.maxWaitingSourceBytes - waitingSourceBytes else { return .tooMuchSource }
-        waitingSourceBytes += sourceBytes
+        if let refusal = ledger.reserve(1, of: .waitingCells) { return refusal }
+        if let refusal = ledger.reserve(sourceBytes, of: .waitingCellSourceBytes) {
+            ledger.release(1, of: .waitingCells)
+            return refusal
+        }
         await withCheckedContinuation { waiters.append(($0, sourceBytes)) }
         return nil
     }
@@ -1895,7 +1888,8 @@ actor BrowserReplEvalGate {
             busy = false
         } else {
             let next = waiters.removeFirst()
-            waitingSourceBytes -= next.sourceBytes
+            ledger.release(1, of: .waitingCells)
+            ledger.release(next.sourceBytes, of: .waitingCellSourceBytes)
             next.continuation.resume()
         }
     }

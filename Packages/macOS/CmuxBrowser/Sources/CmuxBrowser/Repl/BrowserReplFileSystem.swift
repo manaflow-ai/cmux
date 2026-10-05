@@ -929,46 +929,44 @@ public struct BrowserReplFileSystem: Sendable {
 /// and `perSessionEntryChanges` changes to entries (a file created by a
 /// write or copy, also an empty one, a directory made, an entry renamed or
 /// removed), so agent code can fill neither the disk nor its entries.
-/// Shared by the fs copies of one session.
+/// Shared by the fs copies of one session. The counts live in the
+/// session's ledger (``BrowserReplResource/fileBytesWritten``,
+/// ``BrowserReplResource/fileEntryChanges``).
 final class BrowserReplWriteBudget: @unchecked Sendable {
     /// The most one `writeFile` (also an append) or `copyFile` writes, 256 MiB.
-    static let maximumBytesPerCall = 256 << 20
+    static let maximumBytesPerCall = BrowserReplResourceLimits.standard.each(.fileBytesWritten) ?? .max
     /// The most a session's fs writes over its life, 2 GiB.
-    static let maximumBytesPerSession = 2 << 30
+    static let maximumBytesPerSession = BrowserReplResourceLimits.standard[.fileBytesWritten]
     /// The most entry changes a session's fs makes over its life.
-    static let maximumEntryChangesPerSession = 100_000
+    static let maximumEntryChangesPerSession = BrowserReplResourceLimits.standard[.fileEntryChanges]
 
-    let perCall: Int
-    let perSession: Int
-    let perSessionEntryChanges: Int
-    private let lock = NSLock()
-    private var written = 0
-    private var entryChanges = 0
+    private let ledger: BrowserReplResourceLedger
 
-    init(
+    /// A budget of its own, outside a session.
+    convenience init(
         perCall: Int = BrowserReplWriteBudget.maximumBytesPerCall,
         perSession: Int = BrowserReplWriteBudget.maximumBytesPerSession,
         perSessionEntryChanges: Int = BrowserReplWriteBudget.maximumEntryChangesPerSession
     ) {
-        self.perCall = perCall
-        self.perSession = perSession
-        self.perSessionEntryChanges = perSessionEntryChanges
+        self.init(ledger: BrowserReplResourceLedger(limits: BrowserReplResourceLimits.unbounded
+            .with(.fileBytesWritten, perSession)
+            .with(.fileBytesWritten, each: perCall)
+            .with(.fileEntryChanges, perSessionEntryChanges)))
     }
+
+    /// The session's budget, in its ledger.
+    init(ledger: BrowserReplResourceLedger) {
+        self.ledger = ledger
+    }
+
+    var perCall: Int { ledger.limits.each(.fileBytesWritten) ?? .max }
 
     /// Takes one entry change (a file created, a directory made,
     /// an entry renamed or removed) from the budget, or throws `EDQUOT`
     /// when the session made its limit of them.
     func takeEntryChange(syscall: String, display: String) throws {
-        let taken: Bool = lock.withLock {
-            guard entryChanges < perSessionEntryChanges else { return false }
-            entryChanges += 1
-            return true
-        }
-        guard taken else {
-            throw BrowserReplFileSystemError(
-                code: "EDQUOT",
-                message: "EDQUOT: the REPL session has made its limit of \(perSessionEntryChanges) file changes (files created, directories made, entries renamed or removed), \(syscall) '\(display)'; reset the session (cmux browser repl reset NAME) to make more"
-            )
+        if let refusal = ledger.reserve(1, of: .fileEntryChanges) {
+            throw BrowserReplFileSystemError(code: "EDQUOT", message: "EDQUOT: \(refusal.message), \(syscall) '\(display)'")
         }
     }
 
@@ -977,16 +975,9 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
     /// `EDQUOT` when the session's budget is used up.
     func take(_ count: Int, syscall: String, display: String, callBytes: Int? = nil) throws {
         try checkCall(callBytes ?? count, syscall: syscall, display: display)
-        let taken: Bool = lock.withLock {
-            guard written + count <= perSession else { return false }
-            written += count
-            return true
-        }
-        guard taken else {
-            throw BrowserReplFileSystemError(
-                code: "EDQUOT",
-                message: "EDQUOT: the REPL session has written its limit of \(Self.describe(perSession)) of files, \(syscall) '\(display)'; reset the session (cmux browser repl reset NAME) to write more"
-            )
+        // The call was checked whole above; a part of it is not one call.
+        if let refusal = ledger.reserve(count, of: .fileBytesWritten, each: .max) {
+            throw BrowserReplFileSystemError(code: "EDQUOT", message: "EDQUOT: \(refusal.message), \(syscall) '\(display)'")
         }
     }
 
@@ -1013,18 +1004,9 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
     /// Throws `EFBIG` when one call of `count` bytes is past `perCall`.
     func checkCall(_ count: Int, syscall: String, display: String) throws {
         guard count <= perCall else {
-            throw BrowserReplFileSystemError(
-                code: "EFBIG",
-                message: "EFBIG: file too large, \(syscall) '\(display)': fs writes at most \(Self.describe(perCall)) in one call (this one is \(count) bytes)"
-            )
+            let refusal = BrowserReplResourceLimitError(resource: .fileBytesWritten, limit: perCall, isPerItem: true, held: ledger.held(.fileBytesWritten), requested: count)
+            throw BrowserReplFileSystemError(code: "EFBIG", message: "EFBIG: file too large, \(syscall) '\(display)': \(refusal.message)")
         }
-    }
-
-    /// `256 MiB`, `2 GiB` or `1000 bytes`.
-    private static func describe(_ bytes: Int) -> String {
-        if bytes >= 1 << 30, bytes % (1 << 30) == 0 { return "\(bytes >> 30) GiB" }
-        if bytes >= 1 << 20, bytes % (1 << 20) == 0 { return "\(bytes >> 20) MiB" }
-        return "\(bytes) bytes"
     }
 }
 

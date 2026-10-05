@@ -78,15 +78,18 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     ///   - maxBodyBytes: The largest body returned.
     ///   - maxBufferedBytes: The most body bytes all requests hold at once.
     ///   - protocolClasses: URL protocols to try first (tests stub the network).
+    ///   - ledger: The session's ledger, which then bounds the bodies
+    ///     (``BrowserReplResource/fetchBodyBytes``) instead of `maxBufferedBytes`.
     public init(
         driver: any BrowserReplDriver,
         maxBodyBytes: Int = defaultMaxBodyBytes,
         maxBufferedBytes: Int = defaultMaxBufferedBytes,
-        protocolClasses: [AnyClass]? = nil
+        protocolClasses: [AnyClass]? = nil,
+        ledger: BrowserReplResourceLedger? = nil
     ) {
         self.driver = driver
-        self.maxBodyBytes = maxBodyBytes
-        self.bodyBudget = BrowserReplFetchBudget(limit: maxBufferedBytes)
+        self.maxBodyBytes = ledger?.limits.each(.fetchBodyBytes) ?? maxBodyBytes
+        self.bodyBudget = ledger.map(BrowserReplFetchBudget.init(ledger:)) ?? BrowserReplFetchBudget(limit: maxBufferedBytes)
         super.init()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
@@ -416,48 +419,51 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     }
 }
 
-/// The bytes of response bodies a fetcher's requests hold at once.
+/// The bytes of response bodies a fetcher's requests hold at once: the
+/// ledger's ``BrowserReplResource/fetchBodyBytes``.
 ///
 /// A fetch reserves each chunk as it arrives and fails when the total
-/// would pass `limit`; the bytes go back when the fetch fails or the
+/// would pass the limit; the bytes go back when the fetch fails or the
 /// holder of its body releases them.
 public final class BrowserReplFetchBudget: @unchecked Sendable {
-    /// The most bytes held at once.
-    public let limit: Int
-    private let lock = NSLock()
-    private var used = 0
+    private let ledger: BrowserReplResourceLedger
 
-    public init(limit: Int) {
-        self.limit = limit
+    /// A budget of its own, at most `limit` bytes at once.
+    public convenience init(limit: Int) {
+        self.init(ledger: BrowserReplResourceLedger(limits: .unbounded.with(.fetchBodyBytes, limit)))
     }
 
-    /// The bytes held now.
-    public var heldBytes: Int { lock.withLock { used } }
+    /// The session's budget, in its ledger.
+    public init(ledger: BrowserReplResourceLedger) {
+        self.ledger = ledger
+    }
 
-    /// Takes `count` bytes; false, taking nothing, past the limit.
-    func reserve(_ count: Int) -> Bool {
-        lock.withLock {
-            guard used + count <= limit else { return false }
-            used += count
-            return true
-        }
+    /// The most bytes held at once.
+    public var limit: Int { ledger.limits[.fetchBodyBytes] }
+
+    /// The bytes held now.
+    public var heldBytes: Int { ledger.held(.fetchBodyBytes) }
+
+    /// Takes `count` bytes, or returns why not, taking nothing.
+    func reserve(_ count: Int) -> BrowserReplResourceLimitError? {
+        // A chunk is never past one body's limit (the fetch checks that).
+        ledger.reserve(count, of: .fetchBodyBytes, each: .max)
     }
 
     /// Gives back `count` bytes.
     public func release(_ count: Int) {
-        guard count > 0 else { return }
-        lock.withLock { used = max(0, used - count) }
+        ledger.release(count, of: .fetchBodyBytes)
     }
 
     static func describe(_ bytes: Int) -> String {
-        bytes >= 1 << 20 ? "\(bytes >> 20) MiB" : "\(bytes) bytes"
+        BrowserReplResourceLimits.describe(bytes, of: .fetchBodyBytes)
     }
 }
 
 private final class FetchCollector: @unchecked Sendable {
     private enum Overflow {
         case body
-        case budget
+        case budget(BrowserReplResourceLimitError)
     }
 
     private let lock = NSLock()
@@ -490,8 +496,8 @@ private final class FetchCollector: @unchecked Sendable {
         guard overflow == nil else { return false }
         if data.count + chunk.count > limit {
             overflow = .body
-        } else if !budget.reserve(chunk.count) {
-            overflow = .budget
+        } else if let refusal = budget.reserve(chunk.count) {
+            overflow = .budget(refusal)
         } else {
             data.append(chunk)
             return true
@@ -526,11 +532,8 @@ private final class FetchCollector: @unchecked Sendable {
                 code: "invalid",
                 message: "fetch: the response body is larger than \(BrowserReplFetchBudget.describe(limit)); download it in a tab (page.waitForEvent(\"download\")) instead"
             ))
-        case .budget?:
-            takeForFailure()?.resume(throwing: BrowserReplDriverError(
-                code: "invalid",
-                message: "fetch: the session's fetches would hold more than \(BrowserReplFetchBudget.describe(budget.limit)) of response bodies at once; await some before starting more, or download large files in a tab (page.waitForEvent(\"download\"))"
-            ))
+        case .budget(let refusal)?:
+            takeForFailure()?.resume(throwing: refusal.driverError("fetch"))
         case nil:
             if let error {
                 takeForFailure()?.resume(throwing: error)

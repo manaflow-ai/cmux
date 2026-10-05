@@ -632,7 +632,7 @@ struct BrowserReplSessionResourceTests {
             for await result in results { return result }
             return nil
         }
-        #expect(first??.error?.contains("64 cells are already waiting") == true, "\(String(describing: first))")
+        #expect(first??.error?.contains("cells waiting to run at most 64 at once") == true, "\(String(describing: first))")
 
         driver.releaseAll()
         #expect(await running.value.lines.map(\.text) == ["first"])
@@ -741,7 +741,7 @@ struct BrowserReplSessionResourceTests {
         }
         #expect(result?.error == nil, "\(String(describing: result?.error))")
         #expect(result?.lines.first?.text == "5")
-        #expect(result?.lines.last?.text.contains("fetches are already waiting") == true, "\(String(describing: result?.lines))")
+        #expect(result?.lines.last?.text.contains("fetches waiting for a slot at most 256 at once") == true, "\(String(describing: result?.lines))")
     }
 
     @Test("Fetches whose headers arrived and whose bodies never end do not hold the running slots")
@@ -788,7 +788,7 @@ struct BrowserReplSessionResourceTests {
             """, timeout: .seconds(60))
         }
         #expect(result?.error == nil, "\(String(describing: result?.error))")
-        #expect(result?.lines.first?.text.contains("hold more than 128 MiB") == true, "\(String(describing: result?.lines))")
+        #expect(result?.lines.first?.text.contains("response bodies the session's fetches hold at most 128 MiB") == true, "\(String(describing: result?.lines))")
     }
     /// A page value a driver call returns (`frame.evaluate`, a capture) is
     /// built by the page; past what one call may return it fails before

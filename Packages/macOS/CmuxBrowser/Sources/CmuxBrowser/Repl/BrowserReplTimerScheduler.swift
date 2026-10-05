@@ -33,7 +33,8 @@ public final class BrowserReplTimerScheduler<C: Clock>: @unchecked Sendable wher
     private var awaitingDelivery: Set<Int> = []
     /// Intervals waiting for their last callback to run, with their interval.
     private var parkedIntervals: [Int: Duration] = [:]
-    private let maximumTimers: Int
+    /// Where pending timers are counted (``BrowserReplResource/pendingTimers``).
+    private let ledger: BrowserReplResourceLedger
     private var nextSequence: UInt64 = 0
     private var pump: Task<Void, Never>?
     private var pumpDeadline: C.Instant?
@@ -46,10 +47,24 @@ public final class BrowserReplTimerScheduler<C: Clock>: @unchecked Sendable wher
     ///   - maximumTimers: The most timers scheduled or fired and not yet
     ///     delivered at once; `schedule` refuses more.
     ///   - fire: Called with each due timer id, in firing order, off any lock.
-    public init(clock: C, maximumTimers: Int = .max, fire: @escaping @Sendable (Int) -> Void) {
+    public convenience init(clock: C, maximumTimers: Int = .max, fire: @escaping @Sendable (Int) -> Void) {
+        self.init(clock: clock, ledger: BrowserReplResourceLedger(limits: .unbounded.with(.pendingTimers, maximumTimers)), fire: fire)
+    }
+
+    /// Creates a scheduler whose pending timers a session's ledger counts.
+    public init(clock: C, ledger: BrowserReplResourceLedger, fire: @escaping @Sendable (Int) -> Void) {
         self.clock = clock
-        self.maximumTimers = maximumTimers
+        self.ledger = ledger
         self.fire = fire
+    }
+
+    /// Timers scheduled or fired and not yet delivered. Call with `lock` held.
+    private var pendingLocked: Int { entries.count + awaitingDelivery.count }
+
+    /// Gives the ledger back the timers that stopped being pending since
+    /// `before`. Call with `lock` held.
+    private func settleLocked(since before: Int) {
+        ledger.release(before - pendingLocked, of: .pendingTimers)
     }
 
     deinit {
@@ -69,7 +84,7 @@ public final class BrowserReplTimerScheduler<C: Clock>: @unchecked Sendable wher
         let clamped = delay < .zero ? .zero : delay
         lock.lock()
         let replacing = entries[id] != nil || awaitingDelivery.contains(id)
-        guard !isInvalidated, replacing || entries.count + awaitingDelivery.count < maximumTimers else {
+        guard !isInvalidated, replacing || ledger.reserve(1, of: .pendingTimers) == nil else {
             lock.unlock()
             return false
         }
@@ -89,11 +104,13 @@ public final class BrowserReplTimerScheduler<C: Clock>: @unchecked Sendable wher
     /// Cancels timer `id`. Unknown ids are ignored.
     public func cancel(id: Int) {
         lock.lock()
+        defer { lock.unlock() }
+        let before = pendingLocked
+        defer { settleLocked(since: before) }
         entries.removeValue(forKey: id)
         awaitingDelivery.remove(id)
         parkedIntervals.removeValue(forKey: id)
         rearmLocked()
-        lock.unlock()
     }
 
     /// Timer `id`'s fired callback ran: it no longer counts as pending, and
@@ -101,6 +118,8 @@ public final class BrowserReplTimerScheduler<C: Clock>: @unchecked Sendable wher
     public func delivered(id: Int) {
         lock.lock()
         defer { lock.unlock() }
+        let before = pendingLocked
+        defer { settleLocked(since: before) }
         guard !isInvalidated, awaitingDelivery.remove(id) != nil else { return }
         if let interval = parkedIntervals.removeValue(forKey: id) {
             insertLocked(id: id, entry: Entry(deadline: clock.now.advanced(by: interval), interval: interval, sequence: takeSequence()))
@@ -112,6 +131,7 @@ public final class BrowserReplTimerScheduler<C: Clock>: @unchecked Sendable wher
     public func invalidate() {
         lock.lock()
         isInvalidated = true
+        ledger.release(pendingLocked, of: .pendingTimers)
         entries.removeAll()
         heap = DeadlineHeap()
         awaitingDelivery.removeAll()
