@@ -90,7 +90,7 @@ env:
 
 jobs:
   # Keep the common path cheap: a tree-addressed publication is complete when
-  # its checksum marker exists, so there is no reason to spend a macOS build
+  # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
   # or daemon-test slot on another commit with the same inputs. The source
   # checkout is used only for git plumbing and never executes PR code.
   tree-preflight:
@@ -159,14 +159,22 @@ jobs:
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
-          tree_ready=false
-          marker="https://files.cmux.com/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256?preflight=$RUN_ID"
-          if digest="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 "$marker" 2>/dev/null)" \
-            && [[ "$digest" =~ ^[0-9a-f]{64}[[:space:]] ]]; then
-            tree_ready=true
-            echo "Published tree $key is ready; macOS build can be skipped."
-          else
-            echo "Tree $key is missing or has no valid checksum marker; macOS publication is required."
+          tree_ready=true
+          base="https://files.cmux.com/cmux-tui/tree/$key"
+          # A daemon marker alone can belong to a legacy or interrupted
+          # publication. All arm64 runtime binaries and checksums must exist.
+          for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            if ! digest="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                "$base/$asset.sha256?preflight=$RUN_ID" 2>/dev/null)" \
+              || [[ ! "$digest" =~ ^[0-9a-f]{64}[[:space:]] ]] \
+              || ! curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+                -o /dev/null "$base/$asset?preflight=$RUN_ID"; then
+              tree_ready=false
+              echo "Tree $key is missing $asset or its checksum; publication repair is required (see cmuxterm-hq REPAIR.md)."
+            fi
+          done
+          if [[ "$tree_ready" == true ]]; then
+            echo "Published tree $key and all daemon companions are ready; macOS build can be skipped."
           fi
           echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
 
@@ -1012,7 +1020,30 @@ jobs:
           printf '%s  %s\n' "$sha" "$name" > "tree/$name.sha256"
           # The sha256 file goes last: its presence means the key is complete.
           upload "tree/$name.sha256" "$name.sha256"
-          echo "Published: $base/$name ($sha, built by $owner)"
+          # Companion binaries are part of the same-tree runtime contract.
+          # Recover them from the owning commit manifest when an earlier
+          # publication stopped after the daemon, then publish immutable tree
+          # copies and checksums.
+          curl --fail --silent --show-error --connect-timeout 20 --max-time 120 \
+            "https://files.cmux.com/cmux-tui/$owner/manifest.json?verify=$GITHUB_RUN_ID" -o owner-manifest.json
+          for companion in cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            companion_sha="$(python3 - "$companion" owner-manifest.json <<'PY'
+          import json, re, sys
+          name, path = sys.argv[1:]
+          digest = json.load(open(path)).get("binaries", {}).get(name, "")
+          if not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit(f"owner manifest has no {name}")
+          print(digest)
+          PY
+            )"
+            fetch "https://files.cmux.com/cmux-tui/$owner/$companion" "tree/$companion"
+            [[ "$(sha256sum "tree/$companion" | awk '{print $1}')" == "$companion_sha" ]] || {
+              echo "companion $companion does not match owner manifest" >&2; exit 1; }
+            upload "tree/$companion" "$companion"
+            printf '%s  %s\n' "$companion_sha" "$companion" > "tree/$companion.sha256"
+            upload "tree/$companion.sha256" "$companion.sha256"
+          done
+          echo "Published: $base/$name and all daemon companions (built by $owner)"
 
       - name: Verify the tree publication
         env:
@@ -1140,4 +1171,12 @@ jobs:
           upload "$binary" "$name"
           printf '%s  %s\n' "$sha" "$name" > "tree/$name.sha256"
           upload "tree/$name.sha256" "$name.sha256"
-          echo "Published PR tree $KEY: $base/$name"
+          for companion in cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
+            companion_file="assets/tree/$companion"
+            [[ -f "$companion_file" ]] || { echo "missing PR companion $companion" >&2; exit 1; }
+            companion_sha="$(sha256sum "$companion_file" | awk '{print $1}')"
+            upload "$companion_file" "$companion"
+            printf '%s  %s\n' "$companion_sha" "$companion" > "tree-$companion.sha256"
+            upload "tree-$companion.sha256" "$companion.sha256"
+          done
+          echo "Published PR tree $KEY with daemon companions: $base/$name"

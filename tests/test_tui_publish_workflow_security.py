@@ -208,7 +208,13 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
     assert "git mktree --missing" in preflight
-    assert "cmux-tui-aarch64-apple-darwin.sha256" in preflight
+    assert "cmux-tui-aarch64-apple-darwin" in preflight
+    assert "cmux-tui-app-host-aarch64-apple-darwin" in preflight
+    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in preflight
+    assert "$asset.sha256" in preflight
+    assert "cmux-tui-app-host-aarch64-apple-darwin" in preflight
+    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in preflight
+    assert "--head" in preflight
     assert "ls-remote" in preflight
     assert "tree_ready" in preflight
     assert "run_macos" in preflight
@@ -244,6 +250,12 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
     assert "git mktree --missing" in pr_publisher
     assert "cmux-tui/tree/$KEY" in pr_publisher
+    assert "missing PR companion" in pr_publisher
+    tree_publisher = workflow_job(artifacts, "publish-tree")
+    assert "all daemon companions" in tree_publisher
+    assert "owner-manifest.json" in tree_publisher
+    assert "cmux-tui-app-host-aarch64-apple-darwin" in tree_publisher
+    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in tree_publisher
 
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
