@@ -40,45 +40,47 @@ extension Workspace {
             guard !trimmed.isEmpty, cloudProjectedResource(forPanel: panelId) == nil else { return false }
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
         }
-        // A projected pane is authoritative on tmux. Do not optimistically
-        // mutate cmux if its line-safe validation or command enqueue fails:
-        // doing so leaves a local title that tmux never accepted.
-        if propagateToRemoteTmux, source != .remote, let remoteTmuxPane,
-           !remoteTmuxPane.requestRename(title: trimmed) {
-            return false
+        let sameText = !trimmed.isEmpty && previous == trimmed
+
+        // A repeated remote or automatic observation only changes provenance.
+        // A repeated USER edit remains an idempotent intent and must still reach
+        // tmux, because the earlier request may have failed or been lost.
+        if sameText, source != .user {
+            panelCustomTitleSources[panelId] = source
+            return true
         }
-        var sameText = false
+
+        // A projected pane is authoritative on tmux. Send after deduplication so
+        // replayed automatic writes cannot overwrite a newer OSC title. The UI
+        // remains optimistic while the command is in flight, but `%error` and a
+        // stream reset restore the last authoritative projected-pane title.
+        if propagateToRemoteTmux, source != .remote, let remoteTmuxPane {
+            let authoritativeTitle = remoteTmuxPane.pane.title
+            guard remoteTmuxPane.requestRename(title: trimmed, completion: { [weak self] accepted in
+                guard !accepted,
+                      let self,
+                      self.panelCustomTitles[panelId] == trimmed else { return }
+                self.updateRemoteTmuxPaneTitle(panelId: panelId, title: authoritativeTitle)
+            }) else {
+                return false
+            }
+        }
+
         if trimmed.isEmpty {
             // `select-pane -T ''` is meaningful even when cmux has no local
             // custom-title record: tmux may still hold a title set outside cmux.
             // Do not suppress this reset merely because there is no local state.
             guard previous != nil else {
-                if propagateToRemoteTmux, remoteTmuxPane != nil { return true }
-                return false
+                return remoteTmuxPane != nil
             }
-            if previous != nil {
-                panelCustomTitles.removeValue(forKey: panelId)
-                panelCustomTitleSources.removeValue(forKey: panelId)
-            }
+            panelCustomTitles.removeValue(forKey: panelId)
+            panelCustomTitleSources.removeValue(forKey: panelId)
         } else {
-            if previous == trimmed {
-                // Same text still updates provenance. A remote observation must
-                // be able to turn a just-confirmed local intent into settled
-                // daemon-owned state without changing the visible tab twice.
-                panelCustomTitleSources[panelId] = source
-                sameText = true
-            } else {
-                panelCustomTitles[panelId] = trimmed
-                panelCustomTitleSources[panelId] = source
-            }
+            panelCustomTitles[panelId] = trimmed
+            panelCustomTitleSources[panelId] = source
         }
 
         applyFocusedPanelTitle(panelId: panelId)
-
-        // A repeated remote or automatic observation only changes provenance.
-        // A repeated USER edit remains an idempotent intent and must still reach
-        // the daemon, because the earlier request may have failed or been lost.
-        if sameText, source != .user { return true }
 
         let tabId = surfaceIdFromPanelId(panelId)
             ?? (remoteTmuxPane == nil ? nil : TabID(uuid: panelId))
