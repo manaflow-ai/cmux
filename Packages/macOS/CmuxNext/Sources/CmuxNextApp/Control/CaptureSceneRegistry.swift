@@ -105,7 +105,8 @@ final class CaptureSceneRegistry {
         let sceneAction = await applySceneAction(definition.name)
         let actionReadiness = await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
-              actionReadinessReport["animations_pending"]?.boolValue != true else {
+              actionReadinessReport["error"] == nil,
+              actionReadinessReport["animations_pending"]?.boolValue == false else {
             return .object(["error": .string("scene popover did not become opaque before capture"),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])

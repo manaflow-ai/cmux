@@ -62,7 +62,13 @@ enum DebugWindowSnapshot {
             // remote WebKit layers. Hide every WebKit view while drawing the
             // native base, including parked and hidden tabs. Only views that
             // are visible at both selection and draw time are composited back.
-            let base = targets.isEmpty ? try baseImage(for: window) : try nativeBaseImage(for: window, hiding: targets.map(\.view))
+            // AppKit cannot draw WebKit's remote content, so hide WebViews only
+            // when at least one visible page will be restored below. If every
+            // attached page is parked/hidden, retain the window-server snapshot
+            // so native Metal content is not replaced by an AppKit-only render.
+            let base = visibleTargets.isEmpty
+                ? try baseImage(for: window)
+                : try nativeBaseImage(for: window, hiding: targets.map(\.view))
             var images: [(WebViewTarget, CGImage)] = []
             var failed = 0
             for target in visibleTargets.sorted(by: { $0.order < $1.order }) {
@@ -77,6 +83,16 @@ enum DebugWindowSnapshot {
                 } catch {
                     failed += 1
                 }
+            }
+            guard failed == 0 else {
+                return .object([
+                    "error": .string("one or more visible WebViews failed to snapshot"),
+                    "kind": .string(kind),
+                    "window_number": JSONValue(window.windowNumber),
+                    "webviews": JSONValue(targets.count),
+                    "webviews_visible": JSONValue(visibleTargets.count),
+                    "webviews_failed": JSONValue(failed),
+                ])
             }
             let composite = composite(base: base.image, window: window, webViews: images)
             guard let compositeResult = composite, compositeResult.hiddenComposited == 0 else {
