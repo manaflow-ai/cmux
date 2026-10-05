@@ -205,13 +205,13 @@ extension Workspace {
         guard panels[panelId] != nil else { return nil }
         let states = agentLifecycleStatesByPanelId[panelId, default: [:]]
         if let key = states.first(where: { $0.value == .running })?.key {
-            return (Self.closeWarningAgentDisplayName(for: key))
+            return Self.closeWarningAgentDisplayName(for: key)
         }
         let entries = agentStatusEntriesByPanelId[panelId, default: [:]]
         if let key = entries.first(where: { entry in
             entry.value.workState == .running || entry.value.workState == .subagents
         })?.key {
-            return (Self.closeWarningAgentDisplayName(for: key))
+            return Self.closeWarningAgentDisplayName(for: key)
         }
         return nil
     }
