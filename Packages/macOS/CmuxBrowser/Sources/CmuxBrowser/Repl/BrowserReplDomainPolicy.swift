@@ -3,12 +3,18 @@ public import Foundation
 
 /// Host names as the domain policy and secret scopes compare them: lower
 /// case, without a trailing dot, internationalized labels in their ASCII
-/// (Punycode) form, IPv6 in brackets.
+/// (Punycode) form, IPv6 in brackets, and an IP address in its canonical
+/// spelling (`2130706433`, `0x7f.1` and `127.1` are `127.0.0.1`; `[0:0::1]`
+/// is `[::1]`), as a URL parser reads it, so addresses compare as
+/// addresses.
 enum BrowserReplHostName {
     static func normalize(_ raw: String) -> String {
         var host = raw.trimmingCharacters(in: .whitespaces)
         if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
-        if host.hasPrefix("[") { return host.lowercased() }
+        if host.hasPrefix("[") {
+            let lowered = host.lowercased()
+            return ipv6Address(lowered).map { "[\(ipv6Text($0))]" } ?? lowered
+        }
         while host.hasSuffix(".") { host.removeLast() }
         let labels = host.split(separator: ".", omittingEmptySubsequences: false).map { label -> String in
             let lowered = String(label).precomposedStringWithCanonicalMapping.lowercased()
@@ -16,7 +22,95 @@ enum BrowserReplHostName {
             guard let encoded = Punycode.encode(lowered) else { return lowered }
             return "xn--" + encoded
         }
-        return labels.joined(separator: ".")
+        let name = labels.joined(separator: ".")
+        if isIPAddress(name), let address = ipv4Address(name) { return ipv4Text(address) }
+        return name
+    }
+
+    /// The IPv4 address `host` names as a URL parser (WHATWG) reads it:
+    /// one to four dot-separated parts, each decimal, `0x` hex or octal
+    /// with a leading zero, the last filling the bytes the others leave.
+    /// `nil` when it is not one.
+    static func ipv4Address(_ host: String) -> UInt32? {
+        var parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        if parts.count > 1, parts.last?.isEmpty == true { parts.removeLast() }
+        guard (1...4).contains(parts.count) else { return nil }
+        var numbers: [UInt64] = []
+        for part in parts {
+            var digits = Substring(part.lowercased())
+            var radix: UInt64 = 10
+            if digits.hasPrefix("0x") {
+                radix = 16
+                digits = digits.dropFirst(2)
+            } else if digits.count > 1, digits.hasPrefix("0") {
+                radix = 8
+                digits = digits.dropFirst()
+            }
+            guard !digits.isEmpty || radix == 16, !part.isEmpty else { return nil }
+            var value: UInt64 = 0
+            for character in digits {
+                guard let digit = character.hexDigitValue, character.isASCII, UInt64(digit) < radix else { return nil }
+                value = value * radix + UInt64(digit)
+                guard value <= UInt64(UInt32.max) else { return nil }
+            }
+            numbers.append(value)
+        }
+        guard numbers.dropLast().allSatisfy({ $0 <= 255 }) else { return nil }
+        let last = numbers[numbers.count - 1]
+        guard last < (UInt64(1) << (8 * UInt64(5 - numbers.count))) else { return nil }
+        var address = last
+        for (index, number) in numbers.dropLast().enumerated() {
+            address += number << (8 * UInt64(3 - index))
+        }
+        return UInt32(address)
+    }
+
+    static func ipv4Text(_ address: UInt32) -> String {
+        (0..<4).map { String((address >> (8 * (3 - UInt32($0)))) & 0xff) }.joined(separator: ".")
+    }
+
+    /// The 16 bytes of the IPv6 address `host` (bracketed or not) names, or nil.
+    static func ipv6Address(_ host: String) -> [UInt8]? {
+        var text = host
+        if text.hasPrefix("["), text.hasSuffix("]") { text = String(text.dropFirst().dropLast()) }
+        guard text.contains(":") else { return nil }
+        var address = in6_addr()
+        guard inet_pton(AF_INET6, text, &address) == 1 else { return nil }
+        return withUnsafeBytes(of: &address) { Array($0) }
+    }
+
+    static func ipv6Text(_ bytes: [UInt8]) -> String {
+        var address = in6_addr()
+        withUnsafeMutableBytes(of: &address) { $0.copyBytes(from: bytes) }
+        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil else { return "" }
+        return String(cString: buffer)
+    }
+
+    /// Why a URL whose host is written `raw` cannot be judged by its
+    /// address, or nil. Foundation keeps the spelling a URL was given and
+    /// the system resolver reads some spellings differently from a URL
+    /// parser (`0177.0.0.1` is 127.0.0.1 to WebKit and 177.0.0.1 to
+    /// `getaddrinfo`), so while a policy is set an IPv4 address must be
+    /// written as four decimal parts, and one written as IPv6
+    /// (`[::ffff:127.0.0.1]`) is refused.
+    static func addressSpellingRefusal(_ raw: String) -> String? {
+        let host = raw.lowercased()
+        if host.contains(":") {
+            guard let bytes = ipv6Address(host) else { return nil }
+            if bytes[0..<10].allSatisfy({ $0 == 0 }), bytes[10] == 0xff, bytes[11] == 0xff {
+                let mapped = UInt32(bytes[12]) << 24 | UInt32(bytes[13]) << 16 | UInt32(bytes[14]) << 8 | UInt32(bytes[15])
+                return "an IPv4 address written as IPv6 is refused while a domain policy is set; write it as \(ipv4Text(mapped))"
+            }
+            return nil
+        }
+        guard isIPAddress(host) else { return nil }
+        guard let address = ipv4Address(host) else { return "\(raw) is not a valid IP address" }
+        let canonical = ipv4Text(address)
+        guard host == canonical else {
+            return "the address \(raw) is refused while a domain policy is set; write it as \(canonical)"
+        }
+        return nil
     }
 
     /// The normalized host of `url`, or nil when it has none.
@@ -352,6 +446,9 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         }
         if blockIPAddresses, BrowserReplHostName.isIPAddress(host) {
             return "IP addresses are blocked (session.blockIPAddresses)"
+        }
+        if let raw = url.host(percentEncoded: false), let refusal = BrowserReplHostName.addressSpellingRefusal(raw) {
+            return refusal
         }
         if let allowed, !allowed.contains(where: { $0.matches(url, secure: false) }) {
             return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
