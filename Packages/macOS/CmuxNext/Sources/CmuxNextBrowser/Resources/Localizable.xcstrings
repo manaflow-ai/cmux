@@ -263,6 +263,137 @@
         }
       }
     },
+    "browser.download.blockedBySite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked: this site may not download multiple files. Change it in Site settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロックしました: このサイトは複数のファイルをダウンロードできません。サイトの設定で変更できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الحظر: لا يمكن لهذا الموقع تنزيل ملفات متعددة. غيّر ذلك في إعدادات الموقع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blokirano: ova stranica ne smije preuzeti više datoteka. Promijenite to u postavkama stranice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blokeret: dette websted må ikke downloade flere filer. Skift det i webstedsindstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blockiert: Diese Website darf nicht mehrere Dateien herunterladen. Ändern Sie das in den Website-Einstellungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bloqueado: este sitio no puede descargar varios archivos. Cámbialo en la configuración del sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bloqué : ce site ne peut pas télécharger plusieurs fichiers. Modifiez-le dans les paramètres du site."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bloccato: questo sito non può scaricare più file. Modificalo nelle impostazioni del sito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានទប់ស្កាត់៖ គេហទំព័រនេះមិនអាចទាញយកឯកសារច្រើនបានទេ។ ប្ដូរវានៅក្នុងការកំណត់គេហទំព័រ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "차단됨: 이 사이트는 여러 파일을 다운로드할 수 없습니다. 사이트 설정에서 변경하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blokkert: dette nettstedet kan ikke laste ned flere filer. Endre det i nettstedsinnstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zablokowano: ta witryna nie może pobierać wielu plików. Zmień to w ustawieniach witryny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bloqueado: este site não pode baixar vários arquivos. Altere isso nas configurações do site."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заблокировано: этому сайту нельзя скачивать несколько файлов. Измените это в настройках сайта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถูกบล็อก: ไซต์นี้ดาวน์โหลดหลายไฟล์ไม่ได้ เปลี่ยนได้ในการตั้งค่าไซต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Engellendi: bu site birden fazla dosya indiremez. Bunu site ayarlarından değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заблоковано: цей сайт не може завантажувати кілька файлів. Змініть це в налаштуваннях сайту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã chặn: trang này không được tải xuống nhiều tệp. Thay đổi trong cài đặt trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已阻止：此网站不能下载多个文件。可在网站设置中更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已封鎖：此網站不能下載多個檔案。可在網站設定中變更。"
+          }
+        }
+      }
+    },
     "browser.download.blockedDeclined": {
       "extractionState": "manual",
       "localizations": {

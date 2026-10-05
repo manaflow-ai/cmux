@@ -28,6 +28,9 @@ public final class BrowserDownload: Identifiable {
     public internal(set) var bytesPerSecond: Int64?
     public internal(set) var isPaused = false
     public internal(set) var status: Status = .inProgress
+    /// The site (origin) whose automatic-downloads setting blocked this
+    /// download; its Site settings change the choice. Nil otherwise.
+    public internal(set) var blockedSite: String?
 
     /// Where the file is written and lands (`BrowserDownloadPlacement`).
     @ObservationIgnored
@@ -43,6 +46,16 @@ public final class BrowserDownload: Identifiable {
     public init(sourceURL: URL?, filename: String) {
         self.sourceURL = sourceURL
         self.filename = filename
+    }
+
+    /// A download refused before it started, listed blocked: `reason`
+    /// says why, `site` is the site whose setting blocked it. Both engines
+    /// list their refused automatic downloads through this.
+    static func blocked(sourceURL: URL?, suggestedName: String, site: String?, reason: String) -> BrowserDownload {
+        let item = BrowserDownload(sourceURL: sourceURL, filename: DownloadDestination.sanitizedFilename(suggestedName))
+        item.blockedSite = site
+        item.complete(.blocked(reason))
+        return item
     }
 
     public var canPause: Bool { pauseHandler != nil && status == .inProgress }

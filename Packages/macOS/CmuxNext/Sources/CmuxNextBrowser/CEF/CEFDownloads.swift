@@ -60,7 +60,7 @@ final class CEFDownloads {
     /// Whether a download page `browser` started may go ahead (the tab's
     /// `AutomaticDownloadGate`); calls `decide` once. Downloads cmux starts
     /// itself (`download`, `save`) never ask.
-    var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome) -> Void) -> Void = { _, decide in decide(.allowed) }
+    var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome, _ site: String?) -> Void) -> Void = { _, decide in decide(.allowed, nil) }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
@@ -148,17 +148,15 @@ final class CEFDownloads {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
         }
         admitting.insert(id)
-        admit(browser) { [weak self] outcome in
+        admit(browser) { [weak self] outcome, site in
             guard let self, admitting.remove(id) != nil else { return }
             guard outcome == .allowed else {
                 shim()?.answer(id, "")
                 logger.notice("download \(id) refused for tab \(browser): automatic downloads")
-                // Declined or unanswered (fail closed): listed blocked,
-                // with the reason; a remembered Block stays silent.
+                // Listed blocked, with the reason and the site whose
+                // setting blocked it: no refusal is silent.
                 if let reason = AutomaticDownloadGate.blockedReason(outcome) {
-                    let item = BrowserDownload(sourceURL: URL(string: url), filename: DownloadDestination.sanitizedFilename(suggestedName))
-                    deliver(browser, item)
-                    item.complete(.blocked(reason))
+                    deliver(browser, .blocked(sourceURL: URL(string: url), suggestedName: suggestedName, site: site, reason: reason))
                 }
                 return
             }
@@ -220,9 +218,10 @@ extension CEFDownloads {
         let logger = downloads.logger
         // A page's download asks its tab (`AutomaticDownloadGate`); one
         // without a cmux tab is not in the downloads list and goes ahead.
-        downloads.admit = { [weak runtime] (browser: Int32, decide: @escaping (AutomaticDownloadGate.Outcome) -> Void) in
-            guard let tab = runtime?.tabsByBrowser[browser] else { return decide(.allowed) }
-            tab.automaticDownloads.request(site: tab.committedURL.flatMap(PageInfoSite.origin(of:)), decide: decide)
+        downloads.admit = { [weak runtime] (browser: Int32, decide: @escaping (AutomaticDownloadGate.Outcome, String?) -> Void) in
+            guard let tab = runtime?.tabsByBrowser[browser] else { return decide(.allowed, nil) }
+            let site = tab.committedURL.flatMap(PageInfoSite.origin(of:))
+            tab.automaticDownloads.request(site: site) { decide($0, site) }
         }
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in
             guard let tab = runtime?.tabsByBrowser[browser] else {

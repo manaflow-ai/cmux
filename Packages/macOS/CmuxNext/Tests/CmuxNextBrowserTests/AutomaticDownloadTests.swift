@@ -261,4 +261,13 @@ import Testing
         // Still counting since the last gesture before the question: refused.
         #expect(!(await request(gate, site)))
     }
+
+    /// No silent drops: every refused download has a reason to be listed
+    /// blocked with, and each reason says why.
+    @Test func everyRefusalHasAListedReason() {
+        let reasons = [AutomaticDownloadGate.Outcome.refused, .declined, .unanswered].map(AutomaticDownloadGate.blockedReason)
+        #expect(reasons.allSatisfy { $0?.isEmpty == false })
+        #expect(Set(reasons.compactMap { $0 }).count == 3)
+        #expect(AutomaticDownloadGate.blockedReason(.allowed) == nil)
+    }
 }

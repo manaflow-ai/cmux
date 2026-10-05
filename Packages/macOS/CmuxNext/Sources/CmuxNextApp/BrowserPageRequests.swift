@@ -92,7 +92,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
-            downloads.add(item, tab: key) { [weak services] text in services?.cache.existingBrowser(key)?.chrome.showNotice(text) }
+            downloads.add(item, tab: key) { [weak services] notice in
+                guard let chrome = services?.cache.existingBrowser(key)?.chrome else { return }
+                // A blocked download offers the blocking site's Site
+                // settings, where its automatic-downloads choice changes.
+                let action = notice.siteSettingsOrigin.map { origin -> (title: String, run: () -> Void) in
+                    (title: BrowserHitStrings.siteSettings, run: { [weak chrome] () -> Void in chrome?.pageInfo.showSiteSettings(origin: origin) })
+                }
+                chrome.showNotice(notice.text, action: action)
+            }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
         case .openPopup(let child, let request):
