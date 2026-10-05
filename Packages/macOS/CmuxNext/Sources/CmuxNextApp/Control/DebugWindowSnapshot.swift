@@ -44,8 +44,11 @@ enum DebugWindowSnapshot {
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
-            let base = try baseImage(for: window)
             let webViews = visibleWebViews(in: window)
+            // AppKit drawing supplies the chrome and backdrop without stale
+            // remote WebKit layers. The page snapshots below then fill every
+            // visible WebView rectangle exactly once.
+            let base = webViews.isEmpty ? try baseImage(for: window) : try appKitBaseImage(for: window)
             var images: [(WKWebView, CGImage)] = []
             var failed = 0
             for webView in webViews {
@@ -86,6 +89,11 @@ enum DebugWindowSnapshot {
             return (image, .appkit)
         }
         throw CocoaError(.fileWriteUnknown)
+    }
+
+    private static func appKitBaseImage(for window: NSWindow) throws -> (image: CGImage, method: WindowSnapshotMethod) {
+        guard let rep = window.renderSnapshot(), let image = rep.cgImage else { throw CocoaError(.fileWriteUnknown) }
+        return (image, .appkit)
     }
 
     private static func visibleWebViews(in window: NSWindow) -> [WKWebView] {

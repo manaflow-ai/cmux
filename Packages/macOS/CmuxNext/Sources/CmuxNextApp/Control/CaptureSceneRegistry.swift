@@ -58,7 +58,9 @@ final class CaptureSceneRegistry {
             until: { [self] in
                 // Workspace creation and agent-tab insertion are asynchronous production paths.
                 // A display frame alone is not evidence that the fixture is visible.
-                self.services.showcase.workspaces.count >= 3 && self.services.showcase.agentTabs.values.contains {
+                self.services.showcase.workspaces.count >= 3 &&
+                (self.services.windows.active?.sidebar.container.sidebarView.debugRows().0.filter { $0.inList && !$0.suppressed }.count ?? 0) >= 3 &&
+                self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
                     return view.webView.window != nil && !view.webView.isLoading
                 }
@@ -133,9 +135,13 @@ final class CaptureSceneRegistry {
         case "history-narrow":
             return await DebugAgentPane.handle(["action": .string("open_changes")], services)
         case "hints-cmd-held":
-            return await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
+            let hint = await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
+            let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Mode")], services)
+            return .object(["hint": hint, "menu": menu])
         case "hints-ctrl-held":
-            return await DebugShortcutHintControl().handle(["modifier": .string("ctrl")], services: services)
+            let hint = await DebugShortcutHintControl().handle(["modifier": .string("ctrl")], services: services)
+            let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
+            return .object(["hint": hint, "menu": menu])
         default:
             return .object(["scene": .string(name)])
         }
