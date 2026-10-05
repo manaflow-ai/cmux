@@ -35232,6 +35232,7 @@
         "auth.forbidden",
         "auth.unauthenticated",
         "idempotency.conflict",
+        "install.kind_reserved",
         "revision.conflict",
         "validation.invalid"
       ],
@@ -35257,7 +35258,7 @@
         "expose": "never",
         "group": "account"
       },
-      "docs": "Register an install's public key under the signed-in user; returns the install with its default grant.",
+      "docs": "Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

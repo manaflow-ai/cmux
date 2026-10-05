@@ -177,8 +177,10 @@ export const pairApprove = async (
   const done = (result: PairingResult): OpReply => ({ ok: true, op, value: result, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `team:${result.team}`, sequence: 0 })
   if (claimed.result) return done(claimed.result)
   const rec = claimed.record
-  const reg = await submit("cloud:UserDO", principal, {
-    op: "install.register",
+  // The daemon install is a server kind: the server registers it for the approving user (never the client).
+  const server: Principal = { identity: `system:pairing:${team}`, kind: "system", user: principal.user, team }
+  const reg = await submit("cloud:UserDO", server, {
+    op: "install.register_server",
     params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team },
     idempotency_key: `pair:${code}:${rec.thumbprint}:install`,
     origin: "user"

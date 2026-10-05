@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -271,6 +271,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       result: Schema.Unknown,
       errors: [],
       docs: "Internal: SchedulerDO acknowledged whether the team allows automation runs (agents.allowedClasses run).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "install.register_server",
+    {
+      name: "install.register_server",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: InstallRegister.params,
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the server registers a server install (kind vm or daemon) for a user: pairing and the Cloud bind flow. A client never declares these kinds (CLOUD-LINK-FOLLOWUPS 4).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
