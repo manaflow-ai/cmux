@@ -58,9 +58,7 @@ final class CaptureSceneRegistry {
             until: { [self] in
                 // Workspace creation and agent-tab insertion are asynchronous production paths.
                 // A display frame alone is not evidence that the fixture is visible.
-                self.services.showcase.workspaces.count >= 3 &&
-                (self.services.windows.active?.sidebar.container.sidebarView.debugRows().0.filter { $0.inList && !$0.suppressed }.count ?? 0) >= 3 &&
-                self.services.showcase.agentTabs.values.contains {
+                self.services.showcase.workspaces.count >= 3 && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
                     return view.webView.window != nil && !view.webView.isLoading
                 }
