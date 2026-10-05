@@ -108,3 +108,90 @@ fn a_client_never_starts_its_own_host_on_the_daemons_socket() {
     assert!(UnixStream::connect(&socket).is_err(), "no host was started on the daemon's socket");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Socket activation and the idle stop (browser-host.md, step c2
+/// follow-up): the host serves listening sockets the daemon bound and keeps
+/// (`--agent-listen-fd`, `--provider-listen-fd`), stays while an agent
+/// connection is open, and exits with code 0 after `--idle-exit-ms` with
+/// nothing to serve. The sockets stay bound by their owner after the exit.
+#[cfg(unix)]
+#[test]
+fn a_supervised_host_serves_inherited_sockets_and_exits_when_idle() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::os::unix::process::CommandExt;
+    use std::time::{Duration, Instant};
+
+    let dir = std::env::temp_dir().join(format!("cmux-host-act-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("browser-host.sock");
+    let agent = UnixListener::bind(&socket).unwrap();
+    let provider = UnixListener::bind(dir.join("browser-host-provider.sock")).unwrap();
+    let (secret_read, mut secret_write) = std::io::pipe().unwrap();
+    secret_write.write_all("s".repeat(64).as_bytes()).unwrap();
+    drop(secret_write);
+    let fds = [secret_read.as_raw_fd(), agent.as_raw_fd(), provider.as_raw_fd()];
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    command
+        .args(["serve", "--supervised", "--provider-secret-fd", "3"])
+        .args(["--agent-listen-fd", "4", "--provider-listen-fd", "5", "--idle-exit-ms", "300"])
+        .arg("--socket")
+        .arg(&socket)
+        .env("CMUX_BROWSER_HOST_SOCKET", &socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    // SAFETY: only fcntl and dup2 between fork and exec.
+    unsafe {
+        command.pre_exec(move || {
+            // Move the sources out of 3..=5 first, then into place.
+            let mut high = [0; 3];
+            for (i, fd) in fds.iter().enumerate() {
+                high[i] = libc::fcntl(*fd, libc::F_DUPFD, 10);
+                if high[i] < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            for (i, fd) in high.iter().enumerate() {
+                let target = 3 + i as i32;
+                if libc::dup2(*fd, target) != target || libc::fcntl(target, libc::F_SETFD, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().expect("start the host");
+    drop(secret_read);
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+
+    // An open agent connection keeps the host past the idle delay.
+    let mut connection = UnixStream::connect(&socket).unwrap();
+    writeln!(connection, r#"{{"id":1,"method":"browser.repl.list","params":{{}}}}"#).unwrap();
+    let mut reply = String::new();
+    BufReader::new(connection.try_clone().unwrap()).read_line(&mut reply).unwrap();
+    assert!(reply.contains(r#""result":[]"#), "the host answers on the inherited socket: {reply}");
+    std::thread::sleep(Duration::from_millis(900));
+    assert!(child.try_wait().unwrap().is_none(), "a served connection keeps the host");
+    drop(connection);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "an idle host must exit");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(0), "the idle stop exits with code 0");
+    assert!(
+        UnixStream::connect(&socket).is_ok(),
+        "the owner keeps the socket bound after the host's exit (the next connect waits for a new host)"
+    );
+    drop(child.stdin.take());
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -373,29 +373,130 @@ fn the_verified_app_dials_the_daemons_host_and_receives_the_session_end_close() 
         })
     });
 
-    // A crashed host restarts with a new pid and a new secret.
+    assert_eq!(host_pid, std::process::id(), "the daemon holds the socket, so it is the peer");
+
+    // A crashed host restarts with a new process and a new secret.
+    let crashed = mux.control_clients.browser_host.running_pid().expect("a host");
     // SAFETY: signalling the host this test's daemon started.
-    unsafe { libc::kill(host_pid as libc::pid_t, libc::SIGKILL) };
+    unsafe { libc::kill(crashed as libc::pid_t, libc::SIGKILL) };
     wait_until("a restarted host", || {
-        mux.control_clients.browser_host.running_pid().is_some_and(|pid| pid != host_pid)
+        mux.control_clients.browser_host.running_pid().is_some_and(|pid| pid != crashed)
     });
     let restarted = provider(&mux, &app);
     assert_eq!(restarted["ok"], true, "{restarted}");
     assert_ne!(restarted["data"]["secret"], data["secret"], "a new launch has a new secret");
-    assert_ne!(restarted["data"]["host_pid"], data["host_pid"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
 
+/// One request on a connection to the host's agent socket.
+fn list_over(stream: &mut UnixStream) -> Value {
+    stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    writeln!(stream, r#"{{"id":1,"method":"browser.repl.list","params":{{}}}}"#).unwrap();
+    let mut reply = String::new();
+    BufReader::new(stream.try_clone().unwrap()).read_line(&mut reply).unwrap();
+    serde_json::from_str(&reply).unwrap()
+}
+
+#[test]
+fn no_host_runs_until_the_first_agent_connect_starts_one() {
+    let dir = std::env::temp_dir().join(format!("cmux-bh-act-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let supervisor = crate::browser_host::BrowserHostSupervisor::default();
+    supervisor.configure(Some(host_binary()), dir.join("browser-host.sock"));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(supervisor.running_pid(), None, "no host before anything asks");
+    let mut agent =
+        UnixStream::connect(dir.join("browser-host.sock")).expect("the daemon holds the socket");
+    assert_eq!(
+        list_over(&mut agent)["result"],
+        json!([]),
+        "the started host answers the queued connect"
+    );
+    // The host may answer before the daemon records it after its ready line.
+    wait_until("the daemon to record the host", || supervisor.running_pid().is_some());
+    drop(agent);
+    drop(supervisor);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn a_configured_daemon_starts_its_host_before_any_request() {
-    let dir = std::env::temp_dir().join(format!("cmux-bh-c2-eager-{}", std::process::id()));
+fn an_idle_host_stops_and_the_next_connect_starts_a_new_one() {
+    let dir = std::env::temp_dir().join(format!("cmux-bh-idle-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
+    let socket = dir.join("browser-host.sock");
     let supervisor = crate::browser_host::BrowserHostSupervisor::default();
-    supervisor.configure(Some(host_binary()), dir.join("browser-host.sock"));
-    supervisor.start_in_background();
-    wait_until("the host to start without a request", || supervisor.running_pid().is_some());
-    assert!(UnixStream::connect(dir.join("browser-host.sock")).is_ok(), "agents can connect");
+    supervisor.configure_with_idle_exit(
+        Some(host_binary()),
+        socket.clone(),
+        Duration::from_millis(300),
+    );
+    let mut agent = UnixStream::connect(&socket).unwrap();
+    assert_eq!(list_over(&mut agent)["result"], json!([]));
+    wait_until("the daemon to record the host", || supervisor.running_pid().is_some());
+    let first = supervisor.running_pid().expect("a host");
+    drop(agent);
+    wait_until("the idle stop", || supervisor.running_pid().is_none());
+    // SAFETY: probing a pid with signal 0 sends nothing.
+    wait_until("the idle host to exit", || unsafe { libc::kill(first as libc::pid_t, 0) } != 0);
+    let mut again = UnixStream::connect(&socket).expect("the socket stays bound");
+    assert_eq!(list_over(&mut again)["result"], json!([]));
+    wait_until("the daemon to record the new host", || {
+        supervisor.running_pid().is_some_and(|pid| pid != first)
+    });
+    let second = supervisor.running_pid().expect("a new host");
+    assert_ne!(second, first);
+    drop(again);
+    drop(supervisor);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_activation_thread_ends_with_the_daemon_through_the_cancel_pipe() {
+    let dir = std::env::temp_dir().join(format!("cmux-bh-cancel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let socket = dir.join("browser-host.sock");
+    let supervisor = crate::browser_host::BrowserHostSupervisor::default();
+    supervisor.configure(Some(host_binary()), socket.clone());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // The drop cancels the poll and joins the activation thread.
+        drop(supervisor);
+        let _ = tx.send(());
+    });
+    rx.recv_timeout(Duration::from_secs(10)).expect("the drop returns: the thread ended");
+    assert!(UnixStream::connect(&socket).is_err(), "the daemon closed its sockets");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A host that says ready and then exits non-zero: each launch appends a
+/// line to `count`.
+fn crashing_host(dir: &Path, count: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let script = dir.join("crashing-host.sh");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\necho launch >> '{}'\necho ready\nexit 1\n", count.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    script
+}
+
+#[test]
+fn a_crash_loop_keeps_the_backoff_and_never_restarts_at_connect_speed() {
+    let dir = std::env::temp_dir().join(format!("cmux-bh-crash-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let count = dir.join("launches");
+    let socket = dir.join("bh/browser-host.sock");
+    let supervisor = crate::browser_host::BrowserHostSupervisor::default();
+    supervisor.configure(Some(crashing_host(&dir, &count)), socket.clone());
+    // A connect that no host ever accepts stays queued: activation sees it
+    // on every wake.
+    let _waiting = UnixStream::connect(&socket).unwrap();
+    std::thread::sleep(Duration::from_millis(2500));
+    let launches = std::fs::read_to_string(&count).unwrap_or_default().lines().count();
+    assert!((1..=6).contains(&launches), "Backoff-paced restarts only, got {launches} launches");
     drop(supervisor);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -406,7 +507,8 @@ fn the_host_stops_when_its_supervisor_goes() {
     let _ = std::fs::remove_dir_all(&dir);
     let supervisor = crate::browser_host::BrowserHostSupervisor::default();
     supervisor.configure(Some(host_binary()), dir.join("browser-host.sock"));
-    let pid = supervisor.credentials().expect("a started host").host_pid as libc::pid_t;
+    supervisor.credentials().expect("a started host");
+    let pid = supervisor.running_pid().expect("the host process") as libc::pid_t;
     // SAFETY: probing a pid with signal 0 sends nothing.
     assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the host runs");
     drop(supervisor);

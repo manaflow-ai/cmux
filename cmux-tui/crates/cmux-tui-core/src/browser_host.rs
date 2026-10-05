@@ -159,6 +159,16 @@ impl BrowserHostSupervisor {
         *lock(&self.inner.config) = Some(Config { binary, socket });
     }
 
+    /// Red commit stub: the idle stop is ignored.
+    pub(crate) fn configure_with_idle_exit(
+        &self,
+        binary: Option<PathBuf>,
+        socket: PathBuf,
+        _idle_exit: Duration,
+    ) {
+        self.configure(binary, socket);
+    }
+
     /// The running host's credentials, starting the host first when none
     /// runs. `Err` names why there is no host (no configuration, no binary,
     /// a start failure); it never carries the secret.
